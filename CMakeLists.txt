@@ -1,6 +1,18 @@
 cmake_minimum_required(VERSION 3.25)
+cmake_policy (SET CMP0167 NEW)
 
 project (CarlaDigitalTwinsTool)
+
+set(
+  BOOST_COMPONENTS
+  asio
+  iterator
+  date_time
+  geometry
+  container
+  variant2
+  gil
+)
 
 # Boost config
 set (BOOST_VERSION 1.84.0)
@@ -13,10 +25,15 @@ set (BOOST_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/boost)
 set (BOOST_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/third_party/boost-build)
 set (BOOST_INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/third_party/boost-install)
 
+set (Boost_VERBOSE ON)
+set (Boost_DEBUG ON)
+set (Boost_NO_BOOST_CMAKE ON)
+
 find_package (
   Boost ${BOOST_VERSION}
   EXACT
   QUIET
+  COMPONENTS ${BOOST_COMPONENTS}
 )
 
 if (NOT ${Boost_FOUND})
@@ -56,7 +73,9 @@ if (NOT ${Boost_FOUND})
         -B ${BOOST_BUILD_DIR}
         -G ${CMAKE_GENERATOR}
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+        -DBOOST_INSTALL_LAYOUT=system
         -DCMAKE_INSTALL_MESSAGE=${CMAKE_INSTALL_MESSAGE}
+        # -DBOOST_ENABLE_PYTHON=ON
         -DBOOST_GIL_BUILD_EXAMPLES=OFF
         -DBOOST_GIL_BUILD_HEADER_TESTS=OFF
     RESULTS_VARIABLE
@@ -95,12 +114,27 @@ if (NOT ${Boost_FOUND})
   list (
     APPEND
     CMAKE_PREFIX_PATH
-    ${BOOST_INSTALL_DIR}/lib/cmake/Boost-${BOOST_VERSION}
+    ${BOOST_INSTALL_DIR}
   )
-
-  find_package (
-    Boost ${BOOST_VERSION}
-    EXACT
-    REQUIRED
+  
+  list (
+    APPEND
+    CMAKE_MODULE_PATH
+    ${BOOST_INSTALL_DIR}
   )
 endif ()
+
+find_package (
+  Boost ${BOOST_VERSION}
+  EXACT
+  REQUIRED
+  COMPONENTS ${BOOST_COMPONENTS}
+)
+
+# file (
+#   GENERATE
+#   OUTPUT
+#     Dependencies.txt
+#   CONTENT
+#     $<JOIN:$<TARGET_FILE:$<TARGET_PROPERTY:test_lib,LINK_LIBRARIES>>,\n>
+# )
