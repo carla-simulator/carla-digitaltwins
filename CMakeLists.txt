@@ -3,16 +3,7 @@ cmake_policy (SET CMP0167 NEW)
 
 project (CarlaDigitalTwinsTool)
 
-set(
-  BOOST_COMPONENTS
-  asio
-  iterator
-  date_time
-  geometry
-  container
-  variant2
-  gil
-)
+set (BOOST_COMPONENTS date_time) # Set at CMake configure time.
 
 # Boost config
 set (BOOST_VERSION 1.84.0)
@@ -66,6 +57,12 @@ if (NOT ${Boost_FOUND})
     )
   endif ()
 
+  set (BUILD_BOOST_PYTHON OFF)
+  list (FIND ${BOOST_COMPONENTS} python PYTHON_COMPONENT_INDEX)
+  if (${PYTHON_COMPONENT_INDEX} STREQUAL -1)
+    set (BUILD_BOOST_PYTHON ON)
+  endif ()
+
   execute_process (
     COMMAND
       ${CMAKE_COMMAND}
@@ -75,7 +72,7 @@ if (NOT ${Boost_FOUND})
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
         -DBOOST_INSTALL_LAYOUT=system
         -DCMAKE_INSTALL_MESSAGE=${CMAKE_INSTALL_MESSAGE}
-        # -DBOOST_ENABLE_PYTHON=ON
+        -DBOOST_ENABLE_PYTHON=${BUILD_BOOST_PYTHON}
         -DBOOST_GIL_BUILD_EXAMPLES=OFF
         -DBOOST_GIL_BUILD_HEADER_TESTS=OFF
     RESULTS_VARIABLE
@@ -111,17 +108,8 @@ if (NOT ${Boost_FOUND})
     message (FATAL_ERROR "Could not bootstrap Boost, install step failed.")
   endif ()
 
-  list (
-    APPEND
-    CMAKE_PREFIX_PATH
-    ${BOOST_INSTALL_DIR}
-  )
-  
-  list (
-    APPEND
-    CMAKE_MODULE_PATH
-    ${BOOST_INSTALL_DIR}
-  )
+  list (APPEND CMAKE_PREFIX_PATH ${BOOST_INSTALL_DIR})
+  list (APPEND CMAKE_MODULE_PATH ${BOOST_INSTALL_DIR})
 endif ()
 
 find_package (
@@ -131,10 +119,34 @@ find_package (
   COMPONENTS ${BOOST_COMPONENTS}
 )
 
-# file (
-#   GENERATE
-#   OUTPUT
-#     Dependencies.txt
-#   CONTENT
-#     $<JOIN:$<TARGET_FILE:$<TARGET_PROPERTY:test_lib,LINK_LIBRARIES>>,\n>
-# )
+macro (generate_target_properties_to_file FILENAME PROPERTY TARGETS)
+  set (FILE_BODY)
+  foreach (T ${TARGETS})
+    set (FILE_BODY "${CONTENT}\n$<JOIN:$<TARGET_PROPERTY:Boost::${T},${PROPERTY}>,\n>")
+  endforeach ()
+  file (
+    GENERATE
+    OUTPUT
+      ${FILENAME}
+    CONTENT
+      ${FILE_BODY}
+  )
+endmacro ()
+
+generate_target_properties_to_file (
+  ${CMAKE_BINARY_DIR}/LinkLibraries.txt
+  LINK_LIBRARIES
+  ${BOOST_COMPONENTS}
+)
+
+generate_target_properties_to_file (
+  ${CMAKE_BINARY_DIR}/IncludeDirectories.txt
+  INCLUDE_DIRECTORIES
+  ${BOOST_COMPONENTS}
+)
+
+generate_target_properties_to_file (
+  ${CMAKE_BINARY_DIR}/PublicDefinitions.txt
+  INTERFACE_COMPILE_DEFINITIONS
+  ${BOOST_COMPONENTS}
+)

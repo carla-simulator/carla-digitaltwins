@@ -5,6 +5,12 @@ using System.IO;
 
 public class CarlaDigitalTwinsTool : ModuleRules
 {
+	private void BuildDependencies()
+	{
+		var PluginDirectory = ModuleRules.PluginDirectory;
+		
+	}
+
 	public CarlaDigitalTwinsTool(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
