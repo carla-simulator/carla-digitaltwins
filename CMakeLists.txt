@@ -100,6 +100,7 @@ if (NOT ${Boost_FOUND})
 
   find_package (
     Boost ${BOOST_VERSION}
+    EXACT
     REQUIRED
   )
 endif ()
