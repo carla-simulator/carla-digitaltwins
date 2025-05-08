@@ -2,18 +2,49 @@
 
 using UnrealBuildTool;
 using System.IO;
+using System;
+using System.Diagnostics;
 
 public class CarlaDigitalTwinsTool : ModuleRules
 {
 	private void BuildDependencies()
 	{
-		var PluginDirectory = ModuleRules.PluginDirectory;
-		
+		var Configuration = "";
+		switch (Target.Configuration)
+		{
+      case UnrealTargetConfiguration.Debug:
+				Configuration = "Debug";
+				break;
+      case UnrealTargetConfiguration.DebugGame:
+				Configuration = "Debug";
+				break;
+      case UnrealTargetConfiguration.Development:
+				Configuration = "RelWithDebInfo";
+				break;
+      case UnrealTargetConfiguration.Shipping:
+				Configuration = "Release";
+				break;
+      case UnrealTargetConfiguration.Test:
+				Configuration = "Test";
+        break;
+      default:
+				throw new ArgumentException($"Invalid build configuration \"{Target.Configuration}\"");
+    }
+		var DepsPath = PluginDirectory;
+    var PSI = new ProcessStartInfo();
+		PSI.FileName = "cmake";
+		PSI.Arguments = $" -S {DepsPath} -B Build -G Ninja -DCMAKE_BUILD_TYPE={Configuration}";
+		var BuildProcess = Process.Start(PSI);
+		BuildProcess.WaitForExit();
+		if (BuildProcess.ExitCode != 0)
+			throw new BuildException("Failed to build module dependencies.");
 	}
 
 	public CarlaDigitalTwinsTool(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
+
+		BuildDependencies();
 
 		PublicIncludePaths.AddRange(
 			new string[] {
@@ -79,41 +110,5 @@ public class CarlaDigitalTwinsTool : ModuleRules
 				// ... add any modules that your module loads dynamically here ...
 			}
 			);
-
-        // Base path where Boost is installed (relative to this module)
-        string BoostBasePath = Path.Combine(ModuleDirectory, "../../third_party/boost/install/");
-
-        // Include Boost headers
-        PublicIncludePaths.Add(Path.Combine(BoostBasePath, "include/boost-1_84"));
-
-        // Define macros to force static linking with Boost
-		PublicDefinitions.Add("ASIO_NO_EXCEPTIONS");
-		PublicDefinitions.Add("BOOST_NO_EXCEPTIONS");
-		// PublicDefinitions.Add("LIBCARLA_NO_EXCEPTIONS");
-		PublicDefinitions.Add("PUGIXML_NO_EXCEPTIONS");
-		PublicDefinitions.Add("BOOST_DISABLE_ABI_HEADERS");
-		PublicDefinitions.Add("BOOST_TYPE_INDEX_FORCE_NO_RTTI_COMPATIBILITY");
-        string BoostLibPath = Path.Combine(BoostBasePath, "lib");
-        PublicLibraryPaths.Add(BoostLibPath);
-
-        // Detect platform (Windows or Linux)
-        if (Target.Platform == UnrealTargetPlatform.Win64)
-        {
-            // Path to Boost .lib files on Windows
-
-            // Automatically add all Boost .lib files matching "libboost*.lib"
-            foreach (string LibFile in Directory.GetFiles(BoostLibPath, "libboost*.lib"))
-            {
-                PublicAdditionalLibraries.Add(LibFile);
-            }
-        }
-        else if (Target.Platform == UnrealTargetPlatform.Linux)
-        {
-            // Automatically add all Boost .a files matching "libboost*.a"
-            foreach (string LibFile in Directory.GetFiles(BoostLibPath, "libboost*.a"))
-            {
-                PublicAdditionalLibraries.Add(LibFile);
-            }
-        }
 	}
 }
