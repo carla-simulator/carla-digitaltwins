@@ -12,6 +12,8 @@
 #  pragma clang diagnostic push
 #  pragma clang diagnostic ignored "-Wshadow"
 #endif
+
+
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point.hpp>
 #include <boost/geometry/index/rtree.hpp>

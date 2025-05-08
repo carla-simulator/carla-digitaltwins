@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "carla/MsgPack.h"
+
 
 #include <cstdint>
 
@@ -36,9 +36,8 @@ namespace rpc {
 
 #endif // LIBCARLA_INCLUDED_FROM_UE4
 
-    MSGPACK_DEFINE_ARRAY(transform, bounding_box, id, name, type);
+    ;
   };
 
 } // namespace rpc
 } // namespace carla
-

@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 using UnrealBuildTool;
+using System.IO;
 
 public class CarlaDigitalTwinsTool : ModuleRules
 {
@@ -72,11 +73,41 @@ public class CarlaDigitalTwinsTool : ModuleRules
 				// ... add any modules that your module loads dynamically here ...
 			}
 			);
+
+        // Base path where Boost is installed (relative to this module)
+        string BoostBasePath = Path.Combine(ModuleDirectory, "../../third_party/boost/install/");
+
+        // Include Boost headers
+        PublicIncludePaths.Add(Path.Combine(BoostBasePath, "include/boost-1_84"));
+
+        // Define macros to force static linking with Boost
 		PublicDefinitions.Add("ASIO_NO_EXCEPTIONS");
 		PublicDefinitions.Add("BOOST_NO_EXCEPTIONS");
 		// PublicDefinitions.Add("LIBCARLA_NO_EXCEPTIONS");
 		PublicDefinitions.Add("PUGIXML_NO_EXCEPTIONS");
 		PublicDefinitions.Add("BOOST_DISABLE_ABI_HEADERS");
 		PublicDefinitions.Add("BOOST_TYPE_INDEX_FORCE_NO_RTTI_COMPATIBILITY");
+        string BoostLibPath = Path.Combine(BoostBasePath, "lib");
+        PublicLibraryPaths.Add(BoostLibPath);
+
+        // Detect platform (Windows or Linux)
+        if (Target.Platform == UnrealTargetPlatform.Win64)
+        {
+            // Path to Boost .lib files on Windows
+
+            // Automatically add all Boost .lib files matching "libboost*.lib"
+            foreach (string LibFile in Directory.GetFiles(BoostLibPath, "libboost*.lib"))
+            {
+                PublicAdditionalLibraries.Add(LibFile);
+            }
+        }
+        else if (Target.Platform == UnrealTargetPlatform.Linux)
+        {
+            // Automatically add all Boost .a files matching "libboost*.a"
+            foreach (string LibFile in Directory.GetFiles(BoostLibPath, "libboost*.a"))
+            {
+                PublicAdditionalLibraries.Add(LibFile);
+            }
+        }
 	}
 }

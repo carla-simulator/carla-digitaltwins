@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "carla/MsgPack.h"
+
 #include "carla/MsgPackAdaptors.h"
 
 #include <boost/optional.hpp>
@@ -38,7 +38,7 @@ namespace rpc {
       return _what;
     }
 
-    MSGPACK_DEFINE_ARRAY(_what)
+    
 
   private:
 
@@ -94,7 +94,7 @@ namespace rpc {
       return !HasError();
     }
 
-    MSGPACK_DEFINE_ARRAY(_data)
+    
 
   private:
 
@@ -135,7 +135,7 @@ namespace rpc {
       return !HasError();
     }
 
-    MSGPACK_DEFINE_ARRAY(_data)
+    
 
   private:
 

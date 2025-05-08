@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "carla/MsgPack.h"
+
 #include "carla/geom/Math.h"
 #include "carla/geom/Vector3D.h"
 
@@ -32,7 +32,6 @@ namespace geom {
 
     float roll = 0.0f;
 
-    MSGPACK_DEFINE_ARRAY(pitch, yaw, roll);
 
     // =========================================================================
     // -- Constructors ---------------------------------------------------------

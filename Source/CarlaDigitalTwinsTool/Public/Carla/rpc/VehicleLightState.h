@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "carla/MsgPack.h"
+
 
 #ifdef LIBCARLA_INCLUDED_FROM_UE4
 #include <compiler/enable-ue4-macros.h>
@@ -101,7 +101,7 @@ namespace rpc {
     /// Lights state flag, all turned off by default
     flag_type light_state = static_cast<flag_type>(LightState::None);
 
-    MSGPACK_DEFINE_ARRAY(light_state)
+    
 
   };
 

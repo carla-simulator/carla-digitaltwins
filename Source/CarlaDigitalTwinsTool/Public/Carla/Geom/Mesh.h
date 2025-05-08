@@ -7,7 +7,7 @@
 #pragma once
 
 #include <vector>
-
+#include <string>
 #include <carla/geom/Vector3D.h>
 #include <carla/geom/Vector2D.h>
 

@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "carla/MsgPack.h"
+
 #include "carla/MsgPackAdaptors.h"
 
 #ifdef LIBCARLA_INCLUDED_FROM_UE4

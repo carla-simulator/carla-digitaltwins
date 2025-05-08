@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "carla/MsgPack.h"
+
 
 #include <array>
 
@@ -19,7 +19,7 @@ namespace streaming {
 
     std::array<unsigned char, 24u> data;
 
-    MSGPACK_DEFINE_ARRAY(data);
+    ;
   };
 
 } // namespace streaming

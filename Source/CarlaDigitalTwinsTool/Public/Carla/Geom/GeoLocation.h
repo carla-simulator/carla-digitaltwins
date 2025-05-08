@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "carla/MsgPack.h"
+
 
 namespace carla {
 namespace geom {
@@ -57,7 +57,6 @@ namespace geom {
       return !(*this == rhs);
     }
 
-    MSGPACK_DEFINE_ARRAY(latitude, longitude, altitude);
   };
 
 } // namespace geom

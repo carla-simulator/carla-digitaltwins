@@ -7,7 +7,7 @@
 #pragma once
 
 #include "carla/Debug.h"
-#include "carla/MsgPack.h"
+
 #include "carla/geom/Transform.h"
 #include "carla/geom/Location.h"
 #include "carla/geom/Vector3D.h"
@@ -149,7 +149,6 @@ namespace geom {
 
 #endif // LIBCARLA_INCLUDED_FROM_UE4
 
-    MSGPACK_DEFINE_ARRAY(location, extent, rotation, actor_id);
   };
 
 } // namespace geom

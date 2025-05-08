@@ -6,11 +6,10 @@
 
 #pragma once
 
-#include "carla/MsgPack.h"
 
 #include <cmath>
 #include <limits>
-
+#include "Carla/Debug.h"
 namespace carla {
 namespace geom {
 
@@ -146,7 +145,6 @@ namespace geom {
 
 #endif // LIBCARLA_INCLUDED_FROM_UE4
 
-    MSGPACK_DEFINE_ARRAY(x, y)
   };
 
 } // namespace geom

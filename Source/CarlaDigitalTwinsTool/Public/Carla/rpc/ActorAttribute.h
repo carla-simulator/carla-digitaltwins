@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "carla/MsgPack.h"
+
 #include "carla/rpc/ActorAttributeType.h"
 #include "carla/rpc/String.h"
 
@@ -64,7 +64,7 @@ namespace rpc {
 
 #endif // LIBCARLA_INCLUDED_FROM_UE4
 
-    MSGPACK_DEFINE_ARRAY(id, type, value, recommended_values, is_modifiable, restrict_to_recommended);
+    ;
   };
 
   class ActorAttributeValue {
@@ -98,7 +98,7 @@ namespace rpc {
 
 #endif // LIBCARLA_INCLUDED_FROM_UE4
 
-    MSGPACK_DEFINE_ARRAY(id, type, value);
+    ;
   };
 
 } // namespace rpc

@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "carla/MsgPack.h"
+
 #include "carla/MsgPackAdaptors.h"
 
 namespace carla {

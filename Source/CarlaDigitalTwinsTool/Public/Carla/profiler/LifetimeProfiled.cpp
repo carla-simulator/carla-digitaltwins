@@ -8,9 +8,9 @@
 #  define LIBCARLA_ENABLE_LIFETIME_PROFILER
 #endif // LIBCARLA_ENABLE_LIFETIME_PROFILER
 
+#include "carla/profiler/LifetimeProfiled.h"
 #include "carla/Debug.h"
 #include "carla/Logging.h"
-#include "carla/profiler/LifetimeProfiled.h"
 
 #include <mutex>
 #include <unordered_map>

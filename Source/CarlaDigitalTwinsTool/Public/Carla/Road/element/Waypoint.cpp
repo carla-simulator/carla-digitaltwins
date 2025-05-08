@@ -6,6 +6,7 @@
 
 #include "carla/road/element/Waypoint.h"
 
+
 #include <boost/container_hash/hash.hpp>
 
 namespace std {

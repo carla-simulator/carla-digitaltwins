@@ -8,7 +8,7 @@
 #include "Math/Vector2D.h"
 #include "EditorUtilityActor.h"
 #include "EditorUtilityObject.h"
-//#include <carla/road/Map.h>
+#include <Carla/Road/Map.h>
 
 #include "OpenDriveToMap.generated.h"
 
@@ -21,7 +21,7 @@ class UMaterialInstance;
  *
  */
 UCLASS(Blueprintable, BlueprintType)
-class CARLATOOLS_API UOpenDriveToMap : public UEditorUtilityObject
+class CARLADIGITALTWINSTOOL_API UOpenDriveToMap : public UEditorUtilityObject
 {
   GENERATED_BODY()
 #if WITH_EDITOR
@@ -197,7 +197,7 @@ private:
   void GenerateLaneMarks(carla::road::Map* ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
 
   carla::rpc::OpendriveGenerationParameters opg_parameters;
-  //carla::road::Map* CarlaMap;
+  carla::road::Map* CarlaMap;
 
   FTransform GetSnappedPosition(FTransform Origin);
 

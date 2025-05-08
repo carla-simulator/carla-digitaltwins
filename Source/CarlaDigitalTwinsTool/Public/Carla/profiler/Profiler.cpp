@@ -8,9 +8,9 @@
 #  define LIBCARLA_ENABLE_PROFILER
 #endif // LIBCARLA_ENABLE_PROFILER
 
+#include "carla/profiler/Profiler.h"
 #include "carla/Logging.h"
 #include "carla/Version.h"
-#include "carla/profiler/Profiler.h"
 
 #include <fstream>
 #include <iomanip>

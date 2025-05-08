@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "carla/MsgPack.h"
+
 #include "carla/rpc/Location.h"
 #include "carla/rpc/ObjectLabel.h"
 
@@ -24,7 +24,7 @@ namespace rpc {
 
     CityObjectLabel _label;
 
-    MSGPACK_DEFINE_ARRAY(_location, _label);
+    ;
 
   };
 

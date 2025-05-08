@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "carla/MsgPack.h"
+
 #include "carla/rpc/ActorAttribute.h"
 #include "carla/rpc/ActorId.h"
 #include "carla/rpc/String.h"
@@ -46,7 +46,7 @@ namespace rpc {
 
 #endif // LIBCARLA_INCLUDED_FROM_UE4
 
-    MSGPACK_DEFINE_ARRAY(uid, id, tags, attributes);
+    ;
   };
 
 } // namespace rpc

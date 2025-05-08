@@ -6,7 +6,6 @@
 
 #pragma once
 
-#include "carla/MsgPack.h"
 #include "carla/geom/Location.h"
 #include "carla/geom/Math.h"
 #include "carla/geom/Rotation.h"
@@ -31,7 +30,7 @@ namespace geom {
 
     Rotation rotation;
 
-    MSGPACK_DEFINE_ARRAY(location, rotation);
+    ;
 
     // =========================================================================
     // -- Constructors ---------------------------------------------------------

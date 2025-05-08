@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "carla/MsgPack.h"
+
 #include "carla/rpc/BoneTransformDataIn.h"
 #include "carla/rpc/String.h"
 #include "carla/rpc/Transform.h"
@@ -45,7 +45,7 @@ namespace rpc {
 
     std::vector<rpc::BoneTransformDataIn> bone_transforms;
 
-    MSGPACK_DEFINE_ARRAY(bone_transforms);
+    ;
   };
 
 } // namespace rpc

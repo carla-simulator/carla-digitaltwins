@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "carla/MsgPack.h"
+
 #include "carla/geom/Location.h"
 #include "carla/geom/Vector2D.h"
 #include "carla/rpc/GearPhysicsControl.h"

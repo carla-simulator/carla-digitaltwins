@@ -4,6 +4,7 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
+#include "carla/road/Road.h"
 #include "carla/Exception.h"
 #include "carla/geom/CubicPolynomial.h"
 #include "carla/geom/Location.h"
@@ -16,7 +17,6 @@
 #include "carla/road/element/RoadInfoLaneWidth.h"
 #include "carla/road/Lane.h"
 #include "carla/road/MapData.h"
-#include "carla/road/Road.h"
 
 #include <stdexcept>
 

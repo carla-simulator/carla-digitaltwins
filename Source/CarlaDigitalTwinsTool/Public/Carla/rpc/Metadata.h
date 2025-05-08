@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "carla/MsgPack.h"
+
 
 namespace carla {
 namespace rpc {
@@ -37,7 +37,7 @@ namespace rpc {
 
   public:
 
-    MSGPACK_DEFINE_ARRAY(_asynchronous_call);
+    ;
   };
 
 } // namespace rpc

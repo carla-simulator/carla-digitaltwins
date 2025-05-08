@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "carla/MsgPack.h"
+
 #include "carla/streaming/Token.h"
 
 #include <cstdint>
@@ -25,7 +25,7 @@ namespace rpc {
 
     streaming::Token token;
 
-    MSGPACK_DEFINE_ARRAY(id, token);
+    ;
   };
 
 } // namespace rpc
