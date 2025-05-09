@@ -7,7 +7,7 @@
 #pragma once
 
 #include "carla/streaming/detail/Token.h"
-#include "carla/streaming/detail/tcp/Client.h"
+#include "carla/streaming/detail/tcp/TCPClient.h"
 
 
 #include <boost/asio/io_context.hpp>

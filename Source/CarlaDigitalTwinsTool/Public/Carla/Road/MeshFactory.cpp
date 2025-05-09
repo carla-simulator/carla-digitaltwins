@@ -12,7 +12,7 @@
 #include <carla/geom/Rtree.h>
 #include <carla/road/element/LaneMarking.h>
 #include <carla/road/element/RoadInfoMarkRecord.h>
-#include <carla/road/Map.h>
+#include <carla/Road/RoadMap.h>
 #include <carla/road/Deformation.h>
 
 namespace carla {

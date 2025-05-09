@@ -4,8 +4,8 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-#include "carla/streaming/detail/tcp/ServerSession.h"
-#include "carla/streaming/detail/tcp/Server.h"
+#include "carla/streaming/detail/tcp/TCPServerSession.h"
+#include "carla/streaming/detail/tcp/TCPServer.h"
 
 #include "carla/Debug.h"
 #include "carla/Logging.h"

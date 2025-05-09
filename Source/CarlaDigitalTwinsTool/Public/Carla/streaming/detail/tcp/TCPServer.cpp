@@ -4,7 +4,7 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-#include "carla/streaming/detail/tcp/Server.h"
+#include "carla/streaming/detail/tcp/TCPServer.h"
 
 #include <boost/asio/post.hpp>
 

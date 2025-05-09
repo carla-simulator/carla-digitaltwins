@@ -9,7 +9,7 @@
 #include "carla/AtomicSharedPtr.h"
 #include "carla/Logging.h"
 #include "carla/streaming/detail/StreamStateBase.h"
-#include "carla/streaming/detail/tcp/Message.h"
+#include "carla/streaming/detail/tcp/TCPMessage.h"
 
 #include <mutex>
 #include <vector>

@@ -8,7 +8,7 @@
 #include "Math/Vector2D.h"
 #include "EditorUtilityActor.h"
 #include "EditorUtilityObject.h"
-#include <Carla/Road/Map.h>
+#include <Carla/Road/RoadMap.h>
 
 #include "OpenDriveToMap.generated.h"
 

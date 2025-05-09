@@ -8,7 +8,7 @@
 #include "carla/road/element/LaneMarking.h"
 
 #include "carla/geom/Location.h"
-#include "carla/road/Map.h"
+#include "carla/Road/RoadMap.h"
 
 namespace carla {
 namespace road {

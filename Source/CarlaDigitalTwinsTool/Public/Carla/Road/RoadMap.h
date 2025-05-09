@@ -12,7 +12,7 @@
 #include "carla/NonCopyable.h"
 #include "carla/road/element/LaneMarking.h"
 #include "carla/road/element/RoadInfoMarkRecord.h"
-#include "carla/road/element/Waypoint.h"
+#include "carla/Road/element/RoadWaypoint.h"
 #include "carla/road/MapData.h"
 #include "carla/road/RoadTypes.h"
 #include "carla/road/MeshFactory.h"

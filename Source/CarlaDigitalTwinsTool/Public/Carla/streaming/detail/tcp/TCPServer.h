@@ -8,7 +8,7 @@
 
 #include "carla/NonCopyable.h"
 #include "carla/Time.h"
-#include "carla/streaming/detail/tcp/ServerSession.h"
+#include "carla/streaming/detail/tcp/TCPServerSession.h"
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>

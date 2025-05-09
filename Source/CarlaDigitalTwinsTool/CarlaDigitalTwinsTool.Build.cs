@@ -61,6 +61,8 @@ public class CarlaDigitalTwinsTool : ModuleRules
 
 	private void BuildBoost()
 	{
+		var verbose = true;
+
 		Console.WriteLine("Building CMake dependencies.");
 
 		var BoostComponents = new string[]
@@ -79,9 +81,9 @@ public class CarlaDigitalTwinsTool : ModuleRules
 		var Configuration = GetCMakeConfigurationName();
 		var BuildPath = Path.Combine(DepsPath, "Build-" + Configuration);
 		var PSI = new ProcessStartInfo();
-		bool verbose = true;
 		PSI.WorkingDirectory = DepsPath;
-		if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+		var IsWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+		if (IsWindows)
 		{
 			PSI.FileName = Environment.GetEnvironmentVariable("comspec");
 			PSI.Arguments = string.Format(
@@ -90,7 +92,9 @@ public class CarlaDigitalTwinsTool : ModuleRules
 				BuildPath,
 				Configuration,
 				BoostComponentsList);
-			Console.WriteLine(string.Format("Running {0} {1}", PSI.FileName, PSI.Arguments));
+			// Workaround for process during generate project files never exiting.
+			PSI.RedirectStandardOutput = false;
+			PSI.RedirectStandardError = false;
 		}
 		else
 		{
@@ -102,7 +106,26 @@ public class CarlaDigitalTwinsTool : ModuleRules
 				BoostComponentsList);
 		}
 		
-		var BuildProcess = Process.Start(PSI);
+		var BuildProcess = new Process();
+		BuildProcess.StartInfo = PSI;
+		Console.WriteLine(string.Format("Running {0} {1}", PSI.FileName, PSI.Arguments));
+		BuildProcess.Start();
+		if (IsWindows) // Workaround for the reason mentioned above:
+		{
+			string Text;
+			Action<TextReader> Callback = async (Reader) => {
+				while ((Text = await Reader.ReadLineAsync()) != null)
+					Console.WriteLine(Text);
+			};
+			try
+      {
+        Callback(BuildProcess.StandardOutput);
+        Callback(BuildProcess.StandardError);
+      }
+			catch (Exception)
+			{
+			}
+		}
 		BuildProcess.WaitForExit();
 		if (BuildProcess.ExitCode != 0)
 		{

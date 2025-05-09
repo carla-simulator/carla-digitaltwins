@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "carla/streaming/detail/tcp/ServerSession.h"
+#include "carla/streaming/detail/tcp/TCPServerSession.h"
 
 namespace carla {
 namespace streaming {

@@ -10,7 +10,7 @@
 #include "carla/NonCopyable.h"
 #include "carla/road/element/LaneMarking.h"
 #include "carla/road/Lane.h"
-#include "carla/road/Map.h"
+#include "carla/Road/RoadMap.h"
 #include "carla/road/RoadTypes.h"
 #include "carla/rpc/MapInfo.h"
 #include "Landmark.h"

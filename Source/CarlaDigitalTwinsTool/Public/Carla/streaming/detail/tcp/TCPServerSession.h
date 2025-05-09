@@ -11,7 +11,7 @@
 #include "carla/TypeTraits.h"
 #include "carla/profiler/LifetimeProfiled.h"
 #include "carla/streaming/detail/Types.h"
-#include "carla/streaming/detail/tcp/Message.h"
+#include "carla/streaming/detail/tcp/TCPMessage.h"
 
 #if defined(__clang__)
 #  pragma clang diagnostic push

@@ -7,7 +7,7 @@
 #pragma once
 
 #include "carla/ThreadPool.h"
-#include "carla/streaming/detail/tcp/Server.h"
+#include "carla/streaming/detail/tcp/TCPServer.h"
 #include "carla/streaming/detail/Types.h"
 #include "carla/streaming/low_level/Server.h"
 

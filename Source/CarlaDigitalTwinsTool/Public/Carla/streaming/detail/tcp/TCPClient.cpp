@@ -4,7 +4,7 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-#include "carla/streaming/detail/tcp/Client.h"
+#include "carla/streaming/detail/tcp/TCPClient.h"
 
 #include "carla/BufferPool.h"
 #include "carla/Debug.h"

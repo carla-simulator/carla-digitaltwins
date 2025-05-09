@@ -6,7 +6,7 @@
 
 #include "carla/client/Junction.h"
 #include "carla/client/Map.h"
-#include "carla/road/element/Waypoint.h"
+#include "carla/Road/element/RoadWaypoint.h"
 
 namespace carla {
 namespace client {

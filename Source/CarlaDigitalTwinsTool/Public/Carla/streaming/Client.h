@@ -9,7 +9,7 @@
 #include "carla/Logging.h"
 #include "carla/ThreadPool.h"
 #include "carla/streaming/Token.h"
-#include "carla/streaming/detail/tcp/Client.h"
+#include "carla/streaming/detail/tcp/TCPClient.h"
 #include "carla/streaming/low_level/Client.h"
 
 

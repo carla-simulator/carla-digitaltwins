@@ -9,7 +9,7 @@
 #include "carla/client/Junction.h"
 #include "carla/client/Waypoint.h"
 #include "carla/opendrive/OpenDriveParser.h"
-#include "carla/road/Map.h"
+#include "carla/Road/RoadMap.h"
 #include "carla/road/RoadTypes.h"
 #include "carla/trafficmanager/InMemoryMap.h"
 

@@ -11,7 +11,7 @@
 #include "carla/geom/Transform.h"
 #include "carla/road/element/LaneMarking.h"
 #include "carla/road/element/RoadInfoMarkRecord.h"
-#include "carla/road/element/Waypoint.h"
+#include "carla/Road/element/RoadWaypoint.h"
 #include "carla/road/Lane.h"
 #include "carla/road/RoadTypes.h"
 

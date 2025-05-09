@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "carla/road/Map.h"
+#include "carla/Road/RoadMap.h"
 #include "carla/road/element/RoadInfoCrosswalk.h"
 #include "carla/road/element/RoadInfoSignal.h"
 

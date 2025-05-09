@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "carla/road/Map.h"
+#include "carla/Road/RoadMap.h"
 
 
 #include <boost/optional.hpp>
