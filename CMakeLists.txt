@@ -11,10 +11,10 @@ set (BOOST_TAG boost-${BOOST_VERSION})
 
 # Carpetas locales
 set (BOOST_BASE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
-file (MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
-set (BOOST_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/boost)
-set (BOOST_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/third_party/boost-build)
-set (BOOST_INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/third_party/boost-install)
+file (MAKE_DIRECTORY ${BOOST_BASE_DIR})
+set (BOOST_SOURCE_DIR ${BOOST_BASE_DIR}/boost)
+set (BOOST_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/boost-build)
+set (BOOST_INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/boost-install)
 
 set (Boost_VERBOSE ON)
 set (Boost_DEBUG ON)
@@ -31,17 +31,23 @@ if (NOT ${Boost_FOUND})
 
   message (STATUS "Could not find boost, bootstrapping...")
 
-  file (MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/third_party)
+  file (MAKE_DIRECTORY ${BOOST_BASE_DIR})
 
-  if (NOT EXISTS ${${BOOST_BASE_DIR}/boost.zip})
+  if (NOT EXISTS ${BOOST_BASE_DIR}/boost.zip)
+    set (
+      BOOST_DOWNLOAD_URL
+      https://github.com/boostorg/boost/releases/download/${BOOST_TAG}/${BOOST_TAG}.zip
+    )
+    message (STATUS "Downloading boost from ${BOOST_DOWNLOAD_URL}")
     file (
       DOWNLOAD
-      https://github.com/boostorg/boost/releases/download/${BOOST_TAG}/${BOOST_TAG}.zip
+      ${BOOST_DOWNLOAD_URL}
       ${BOOST_BASE_DIR}/boost.zip
     )
   endif ()
 
-  if (NOT IS_DIRECTORY ${BOOST_BASE_DIR})
+  if (NOT IS_DIRECTORY ${BOOST_SOURCE_DIR})
+    message (STATUS "Extracting downloaded boost archive.")
     file (
       ARCHIVE_EXTRACT
       INPUT ${BOOST_BASE_DIR}/boost.zip
@@ -50,6 +56,7 @@ if (NOT ${Boost_FOUND})
   endif ()
 
   if (NOT IS_DIRECTORY ${BOOST_SOURCE_DIR})
+    message (STATUS "Renaming extracted boost directories.")
     file (
       RENAME
         ${BOOST_BASE_DIR}/${BOOST_TAG}
@@ -63,6 +70,7 @@ if (NOT ${Boost_FOUND})
     set (BUILD_BOOST_PYTHON ON)
   endif ()
 
+  message (STATUS "Configuring boost.")
   execute_process (
     COMMAND
       ${CMAKE_COMMAND}
@@ -83,6 +91,7 @@ if (NOT ${Boost_FOUND})
     message (FATAL_ERROR "Could not bootstrap Boost, configure step failed.")
   endif ()
 
+  message (STATUS "Building boost.")
   execute_process (
     COMMAND
       ${CMAKE_COMMAND}
@@ -95,6 +104,7 @@ if (NOT ${Boost_FOUND})
     message (FATAL_ERROR "Could not bootstrap Boost, build step failed.")
   endif ()
 
+  message (STATUS "Installing boost.")
   execute_process (
     COMMAND
       ${CMAKE_COMMAND}
@@ -122,7 +132,7 @@ find_package (
 macro (generate_target_properties_to_file FILENAME PROPERTY TARGETS)
   set (FILE_BODY)
   foreach (T ${TARGETS})
-    set (FILE_BODY "${CONTENT}\n$<JOIN:$<TARGET_PROPERTY:Boost::${T},${PROPERTY}>,\n>")
+    set (FILE_BODY "${FILE_BODY}\n$<JOIN:$<TARGET_PROPERTY:Boost::${T},${PROPERTY}>,\n>")
   endforeach ()
   file (
     GENERATE
