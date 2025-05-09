@@ -28,12 +28,12 @@ public class CarlaDigitalTwinsTool : ModuleRules
 				Configuration = "Test";
         break;
       default:
-				throw new ArgumentException($"Invalid build configuration \"{Target.Configuration}\"");
+				throw new ArgumentException(string.Format("Invalid build configuration \"{0}\"", Target.Configuration));
     }
 		var DepsPath = PluginDirectory;
     var PSI = new ProcessStartInfo();
 		PSI.FileName = "cmake";
-		PSI.Arguments = $" -S {DepsPath} -B Build -G Ninja -DCMAKE_BUILD_TYPE={Configuration}";
+		PSI.Arguments = string.Format(" -S {0} -B Build -G Ninja -DCMAKE_BUILD_TYPE={1}", DepsPath, Configuration);
 		var BuildProcess = Process.Start(PSI);
 		BuildProcess.WaitForExit();
 		if (BuildProcess.ExitCode != 0)
