@@ -24,7 +24,7 @@ UCLASS(Blueprintable, BlueprintType)
 class CARLADIGITALTWINSTOOL_API UOpenDriveToMap : public UEditorUtilityObject
 {
   GENERATED_BODY()
-#if WITH_EDITOR
+#if WITH_EDITORONLY_DATA
 public:
   UOpenDriveToMap();
   ~UOpenDriveToMap();
