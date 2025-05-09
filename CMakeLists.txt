@@ -3,7 +3,10 @@ cmake_policy (SET CMP0167 NEW)
 
 project (CarlaDigitalTwinsTool)
 
-set (BOOST_COMPONENTS date_time) # Set at CMake configure time.
+message (STATUS "Requesting boost components:")
+foreach (COMPONENT ${BOOST_COMPONENTS})
+  message (STATUS " - ${COMPONENT}")
+endforeach ()
 
 # Boost config
 set (BOOST_VERSION 1.84.0)
@@ -65,7 +68,7 @@ if (NOT ${Boost_FOUND})
   endif ()
 
   set (BUILD_BOOST_PYTHON OFF)
-  list (FIND ${BOOST_COMPONENTS} python PYTHON_COMPONENT_INDEX)
+  list (FIND "${BOOST_COMPONENTS}" python PYTHON_COMPONENT_INDEX)
   if (${PYTHON_COMPONENT_INDEX} STREQUAL -1)
     set (BUILD_BOOST_PYTHON ON)
   endif ()
@@ -129,34 +132,53 @@ find_package (
   COMPONENTS ${BOOST_COMPONENTS}
 )
 
-macro (generate_target_properties_to_file FILENAME PROPERTY TARGETS)
-  set (FILE_BODY)
-  foreach (T ${TARGETS})
-    set (FILE_BODY "${FILE_BODY}\n$<JOIN:$<TARGET_PROPERTY:Boost::${T},${PROPERTY}>,\n>")
-  endforeach ()
-  file (
-    GENERATE
-    OUTPUT
-      ${FILENAME}
-    CONTENT
-      ${FILE_BODY}
-  )
-endmacro ()
-
-generate_target_properties_to_file (
+set (FILE_BODY)
+foreach (T ${BOOST_COMPONENTS})
+  set (BOOST_COMPONENT Boost::${T})
+  get_target_property (DEPENDENCY_TYPE ${BOOST_COMPONENT} TYPE)
+  if (NOT ("${DEPENDENCY_TYPE}" STREQUAL "INTERFACE_LIBRARY"))
+    get_target_property (COMPONENT_LOCATION ${BOOST_COMPONENT} LOCATION)
+    set (FILE_BODY "${FILE_BODY}${COMPONENT_LOCATION}\n")
+  endif ()
+endforeach ()
+file (
+  WRITE
   ${CMAKE_BINARY_DIR}/LinkLibraries.txt
-  LINK_LIBRARIES
-  ${BOOST_COMPONENTS}
+  ${FILE_BODY}
 )
 
-generate_target_properties_to_file (
-  ${CMAKE_BINARY_DIR}/IncludeDirectories.txt
-  INCLUDE_DIRECTORIES
-  ${BOOST_COMPONENTS}
+set (FILE_BODY)
+foreach (T ${BOOST_COMPONENTS})
+  set (BOOST_COMPONENT Boost::${T})
+  set (FILE_BODY "${FILE_BODY}$<JOIN:$<TARGET_PROPERTY:${BOOST_COMPONENT},INTERFACE_INCLUDE_DIRECTORIES>,\n>\n")
+endforeach ()
+file (
+  WRITE
+  ${CMAKE_BINARY_DIR}/IncludeDirectories.sample.txt
+  ${FILE_BODY}
+)
+file (
+  GENERATE
+  OUTPUT
+    ${CMAKE_BINARY_DIR}/IncludeDirectories.txt
+  CONTENT
+    ${FILE_BODY}
 )
 
-generate_target_properties_to_file (
-  ${CMAKE_BINARY_DIR}/PublicDefinitions.txt
-  INTERFACE_COMPILE_DEFINITIONS
-  ${BOOST_COMPONENTS}
+set (FILE_BODY)
+foreach (T ${BOOST_COMPONENTS})
+  set (BOOST_COMPONENT Boost::${T})
+  set (FILE_BODY "${FILE_BODY}$<JOIN:$<TARGET_PROPERTY:${BOOST_COMPONENT},INTERFACE_COMPILE_DEFINITIONS>,\n>\n")
+endforeach ()
+file (
+  WRITE
+  ${CMAKE_BINARY_DIR}/PublicDefinitions.sample.txt
+  ${FILE_BODY}
+)
+file (
+  GENERATE
+  OUTPUT
+    ${CMAKE_BINARY_DIR}/PublicDefinitions.txt
+  CONTENT
+    ${FILE_BODY}
 )
