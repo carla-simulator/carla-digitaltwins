@@ -8,6 +8,8 @@
 
 #include "carla/NonCopyable.h"
 
+#include <Carla/disable-ue4-macros.h>
+
 #ifdef LIBCARLA_WITH_PYTHON_SUPPORT
 #  if defined(__clang__)
 #    pragma clang diagnostic push
@@ -19,6 +21,7 @@
 #  endif
 #endif // LIBCARLA_WITH_PYTHON_SUPPORT
 
+#include <Carla/enable-ue4-macros.h>
 namespace carla {
 
   class PythonUtil {

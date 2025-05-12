@@ -15,8 +15,9 @@
 #include <Carla/disable-ue4-macros.h>
 #endif // LIBCARLA_INCLUDED_FROM_UE4
 
+#include <Carla/disable-ue4-macros.h>
 #include <boost/optional.hpp>
-
+#include <Carla/enable-ue4-macros.h>
 namespace carla {
 namespace rpc {
 

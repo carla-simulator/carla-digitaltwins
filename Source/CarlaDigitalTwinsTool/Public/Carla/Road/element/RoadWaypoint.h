@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "carla/road/RoadTypes.h"
+#include "Carla/Road/RoadTypes.h"
 
 #include <cstdint>
 #include <functional>
@@ -17,11 +17,11 @@ namespace element {
 
   struct Waypoint {
 
-    RoadId road_id = 0u;
+    carla::road::RoadId road_id = 0u;
 
-    SectionId section_id = 0u;
+    carla::road::SectionId section_id = 0u;
 
-    LaneId lane_id = 0;
+    carla::road::LaneId lane_id = 0;
 
     double s = 0.0;
   };

@@ -7,7 +7,6 @@
 #pragma once
 
 #include "carla/Exception.h"
-#include "carla/Time.h"
 
 #include "Carla/disable-ue4-macros.h"
 #include <boost/optional.hpp>
@@ -20,7 +19,9 @@
 #else
 #include <boost/variant2/variant.hpp>
 #endif
+
 #include "Carla/enable-ue4-macros.h"
+
 #include <condition_variable>
 #include <exception>
 #include <map>

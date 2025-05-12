@@ -30,7 +30,7 @@
 #include "ContentBrowserModule.h"
 #include "Materials/MaterialInstanceConstant.h"
 #include "Math/Vector.h"
-#include "GameFramework/Actor.h"
+#include "GameFramework/Actor.h"P
 
 #include "Util/ProceduralCustomMesh.h"
 

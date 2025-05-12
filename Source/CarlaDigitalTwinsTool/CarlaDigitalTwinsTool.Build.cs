@@ -110,7 +110,7 @@ public class CarlaDigitalTwinsTool : ModuleRules
 				Configuration,
 				BoostComponentsList);
 		}
-		
+		/*
 		var BuildProcess = new Process();
 		BuildProcess.StartInfo = PSI;
 		Console.WriteLine(string.Format("Running {0} {1}", PSI.FileName, PSI.Arguments));
@@ -138,7 +138,7 @@ public class CarlaDigitalTwinsTool : ModuleRules
 				"Failed to build module dependencies (Exit code = {0}).",
 				BuildProcess.ExitCode));
 		}
-
+		*/
 		Console.WriteLine("Updating PublicAdditionalLibraries.");
 		foreach (var Line in File.ReadAllLines(Path.Combine(BuildPath, "LinkLibraries.txt")))
 		{

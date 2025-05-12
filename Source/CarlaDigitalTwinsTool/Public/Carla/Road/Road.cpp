@@ -250,17 +250,17 @@ namespace road {
     auto left_lanes = MakeListView(
         lanes.lower_bound(1), lanes.end());
 
-    const DirectedPoint dp_lane_zero = GetDirectedPointIn(s);
+    const carla::road::element::DirectedPoint dp_lane_zero = GetDirectedPointIn(s);
     std::pair<const Lane *, double> result =
         std::make_pair(nullptr, std::numeric_limits<double>::max());
 
-    DirectedPoint current_dp = dp_lane_zero;
+    const carla::road::element::DirectedPoint current_dp = dp_lane_zero;
     for (const auto &lane : right_lanes) {
-      const auto lane_width_info = lane.second->GetInfo<RoadInfoLaneWidth>(s);
-      const auto half_width = static_cast<float>(lane_width_info->GetPolynomial().Evaluate(s)) * 0.5f;
+      const carla::road::element::RoadInfoLaneWidth* lane_width_info = lane.second->GetInfo<carla::road::element::RoadInfoLaneWidth>(s);
+      const float half_width = static_cast<float>(lane_width_info->GetPolynomial().Evaluate(s)) * 0.5f;
 
       current_dp.ApplyLateralOffset(half_width);
-      const auto current_dist = geom::Math::Distance(current_dp.location, loc);
+      const float current_dist = geom::Math::Distance(current_dp.location, loc);
 
       // if the current_dp is near to loc, we are in the right way
       if (current_dist <= result.second) {
@@ -279,11 +279,11 @@ namespace road {
 
     current_dp = dp_lane_zero;
     for (const auto &lane : left_lanes) {
-      const auto lane_width_info = lane.second->GetInfo<RoadInfoLaneWidth>(s);
-      const auto half_width = -static_cast<float>(lane_width_info->GetPolynomial().Evaluate(s)) * 0.5f;
+      const carla::road::element::RoadInfoLaneWidth* lane_width_info = lane.second->GetInfo<carla::road::element::RoadInfoLaneWidth>(s);
+      const float half_width = -static_cast<float>(lane_width_info->GetPolynomial().Evaluate(s)) * 0.5f;
 
       current_dp.ApplyLateralOffset(half_width);
-      const auto current_dist = geom::Math::Distance(current_dp.location, loc);
+      const float current_dist = geom::Math::Distance(current_dp.location, loc);
 
       // if the current_dp is near to loc, we are in the right way
       if (current_dist <= result.second) {

@@ -13,9 +13,7 @@ namespace carla {
 namespace road {
 namespace element {
 
-  class RoadInfoVisitor;
-
-  class RoadInfoMarkTypeLine final : public RoadInfo {
+  class RoadInfoMarkTypeLine final : public carla::road::element::RoadInfo {
   public:
 
     RoadInfoMarkTypeLine(
@@ -26,7 +24,7 @@ namespace element {
         double tOffset,
         std::string rule,
         double width)
-      : RoadInfo(s),
+      : carla::road::element::RoadInfo(s),
         _road_mark_id(road_mark_id),
         _length(length),
         _space(space),
@@ -34,7 +32,7 @@ namespace element {
         _rule(rule),
         _width(width) {}
 
-    void AcceptVisitor(RoadInfoVisitor &v) final {
+    void AcceptVisitor(carla::road::element::RoadInfoVisitor &v) final {
       v.Visit(*this);
     }
 
