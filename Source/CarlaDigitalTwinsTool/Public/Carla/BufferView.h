@@ -11,19 +11,19 @@
 #include "carla/Exception.h"
 #include "carla/Logging.h"
 
-
+#include <Carla/disable-ue4-macros.h>
 #include <boost/asio/buffer.hpp>
+#include <Carla/enable-ue4-macros.h>
+
 
 #include <cstdint>
 #include <limits>
 #include <memory>
 #include <type_traits>
 
-#ifdef LIBCARLA_INCLUDED_FROM_UE4
-#include <Carla/enable-ue4-macros.h>
+
 #include "Containers/Array.h"
-#include <Carla/disable-ue4-macros.h>
-#endif // LIBCARLA_INCLUDED_FROM_UE4
+
 
 namespace carla {
 

@@ -11,9 +11,10 @@
 #include "carla/rpc/Metadata.h"
 #include "carla/rpc/Response.h"
 
-
+#include <Carla/disable-ue4-macros.h>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/post.hpp>
+#include <Carla/enable-ue4-macros.h>
 
 #include <rpc/server.h>
 

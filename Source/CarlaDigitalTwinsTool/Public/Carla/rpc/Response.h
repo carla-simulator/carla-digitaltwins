@@ -6,9 +6,7 @@
 
 #pragma once
 
-
-#include "carla/MsgPackAdaptors.h"
-
+#include <Carla/disable-ue4-macros.h>
 #include <boost/optional.hpp>
 
 #ifdef _MSC_VER
@@ -20,7 +18,7 @@
 #else
 #include <boost/variant2/variant.hpp>
 #endif
-
+#include <Carla/enable-ue4-macros.h>
 #include <string>
 
 namespace carla {

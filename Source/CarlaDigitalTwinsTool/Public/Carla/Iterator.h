@@ -6,8 +6,9 @@
 
 #pragma once
 
-
+#include "Carla/disable-ue4-macros.h"
 #include <boost/iterator/transform_iterator.hpp>
+#include "Carla/enable-ue4-macros.h"
 
 namespace carla {
 namespace iterator {

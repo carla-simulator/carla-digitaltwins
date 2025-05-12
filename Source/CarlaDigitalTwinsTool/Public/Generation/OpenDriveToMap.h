@@ -9,9 +9,8 @@
 #include "EditorUtilityActor.h"
 #include "EditorUtilityObject.h"
 
-#include <Carla/disable-ue4-macros.h>
 #include <Carla/Road/RoadMap.h>
-#include <Carla/enable-ue4-macros.h>
+
 
 
 #include "OpenDriveToMap.generated.h"

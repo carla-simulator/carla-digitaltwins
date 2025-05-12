@@ -15,8 +15,10 @@
 #include "carla/road/Lane.h"
 #include "carla/road/RoadTypes.h"
 
-
+#include <Carla/disable-ue4-macros.h>
 #include <boost/optional.hpp>
+#include <Carla/enable-ue4-macros.h>
+
 
 namespace carla {
 namespace client {

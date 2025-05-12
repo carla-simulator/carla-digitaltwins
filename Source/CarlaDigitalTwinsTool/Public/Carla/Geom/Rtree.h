@@ -13,10 +13,12 @@
 #  pragma clang diagnostic ignored "-Wshadow"
 #endif
 
-
+#include <Carla/disable-ue4-macros.h>
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point.hpp>
 #include <boost/geometry/index/rtree.hpp>
+#include <Carla/enable-ue4-macros.h>
+
 #if defined(__clang__)
 #  pragma clang diagnostic pop
 #endif

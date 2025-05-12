@@ -7,7 +7,6 @@
 #include <carla/road/MeshFactory.h>
 
 #include <vector>
-#include <Carla/Geom/Map.h>
 #include <carla/road/Road.h>
 #include <carla/road/LaneSection.h>
 #include <carla/road/Lane.h>

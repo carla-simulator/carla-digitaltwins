@@ -11,6 +11,7 @@
 #include <ios>
 #include <iostream>
 #include <fstream>
+#include <algorithm>
 
 #include <carla/geom/Math.h>
 

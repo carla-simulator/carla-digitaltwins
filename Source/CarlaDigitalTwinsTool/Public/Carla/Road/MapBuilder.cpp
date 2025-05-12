@@ -30,7 +30,6 @@
 #include <memory>
 #include <algorithm>
 
-using namespace carla::road::element;
 
 namespace carla {
 namespace road {

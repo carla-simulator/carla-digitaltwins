@@ -7,6 +7,7 @@
 #pragma once
 
 #include "carla/geom/Mesh.h"
+#include <memory>
 
 namespace carla {
 namespace geom {

@@ -9,12 +9,7 @@
 
 #include "carla/geom/Math.h"
 #include "carla/geom/Vector3D.h"
-
-#ifdef LIBCARLA_INCLUDED_FROM_UE4
-#include <Carla/enable-ue4-macros.h>
 #include "Math/Rotator.h"
-#include <Carla/disable-ue4-macros.h>
-#endif // LIBCARLA_INCLUDED_FROM_UE4
 
 namespace carla {
 namespace geom {

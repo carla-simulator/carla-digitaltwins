@@ -242,7 +242,6 @@ namespace road {
       const double s,
       const geom::Location &loc,
       uint32_t lane_type) const {
-    using namespace carla::road::element;
     std::map<LaneId, const Lane *> lanes(GetLanesAt(s));
     // negative right lanes
     auto right_lanes = MakeListView(

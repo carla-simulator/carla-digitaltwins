@@ -13,6 +13,7 @@
 #include "carla/geom/Rotation.h"
 #include "carla/rpc/Color.h"
 
+#include <Carla/disable-ue4-macros.h>
 #ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable:4583)
@@ -22,7 +23,7 @@
 #else
 #include <boost/variant2/variant.hpp>
 #endif
-
+#include <Carla/enable-ue4-macros.h>
 namespace carla {
 namespace rpc {
 

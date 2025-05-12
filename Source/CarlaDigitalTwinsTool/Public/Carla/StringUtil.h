@@ -6,9 +6,9 @@
 
 #pragma once
 
-
+#include <Carla/disable-ue4-macros.h>
 #include <boost/algorithm/string.hpp>
-
+#include <Carla/enable-ue4-macros.h>
 namespace carla {
 
   class StringUtil {

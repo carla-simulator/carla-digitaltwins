@@ -9,8 +9,9 @@
 #include "carla/Exception.h"
 #include "carla/StringUtil.h"
 
-
+#include <Carla/disable-ue4-macros.h>
 #include <boost/filesystem/operations.hpp>
+#include <Carla/enable-ue4-macros.h>
 
 namespace carla {
 

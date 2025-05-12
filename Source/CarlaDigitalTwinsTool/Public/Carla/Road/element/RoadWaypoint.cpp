@@ -6,8 +6,9 @@
 
 #include "carla/Road/element/RoadWaypoint.h"
 
-
+#include <Carla/disable-ue4-macros.h>
 #include <boost/container_hash/hash.hpp>
+#include <Carla/enable-ue4-macros.h>
 
 namespace std {
 

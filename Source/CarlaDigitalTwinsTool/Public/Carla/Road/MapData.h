@@ -17,8 +17,9 @@
 #include "carla/road/RoadTypes.h"
 #include "carla/road/Signal.h"
 
-
+#include "Carla/disable-ue4-macros.h"
 #include <boost/iterator/transform_iterator.hpp>
+#include "Carla/enable-ue4-macros.h"
 
 #include <unordered_map>
 

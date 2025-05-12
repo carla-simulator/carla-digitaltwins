@@ -11,11 +11,9 @@
 #include <carla/geom/Vector3D.h>
 #include <carla/geom/Vector2D.h>
 
-#ifdef LIBCARLA_INCLUDED_FROM_UE4
-#include <Carla/enable-ue4-macros.h>
+
 #include "Actor/ProceduralCustomMesh.h"
-#include <Carla/disable-ue4-macros.h>
-#endif // LIBCARLA_INCLUDED_FROM_UE4
+
 
 namespace carla {
 namespace geom {

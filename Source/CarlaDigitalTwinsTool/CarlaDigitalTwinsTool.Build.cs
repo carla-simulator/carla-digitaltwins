@@ -66,8 +66,9 @@ public class CarlaDigitalTwinsTool : ModuleRules
 	private void BuildBoost()
 	{
 		var verbose = false;
+        bUseUnity = false;
 
-		Console.WriteLine("Building CMake dependencies.");
+        Console.WriteLine("Building CMake dependencies.");
 
 		var BoostComponents = new string[]
 		{
@@ -257,5 +258,6 @@ public class CarlaDigitalTwinsTool : ModuleRules
         PublicDefinitions.Add("PUGIXML_NO_EXCEPTIONS");
         PublicDefinitions.Add("BOOST_DISABLE_ABI_HEADERS");
         PublicDefinitions.Add("BOOST_TYPE_INDEX_FORCE_NO_RTTI_COMPATIBILITY");
-	}
+        PublicDefinitions.Add("_USE_MATH_DEFINES");
+    }
 }

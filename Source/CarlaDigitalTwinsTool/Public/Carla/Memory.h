@@ -7,11 +7,12 @@
 #pragma once
 
 
-
+#include <Carla/disable-ue4-macros.h>
 #include <boost/enable_shared_from_this.hpp>
 #include <boost/make_shared.hpp>
 #include <boost/shared_ptr.hpp>
 #include <boost/weak_ptr.hpp>
+#include <Carla/enable-ue4-macros.h>
 
 namespace carla {
 

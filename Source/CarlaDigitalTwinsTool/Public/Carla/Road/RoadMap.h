@@ -20,7 +20,9 @@
 #include "carla/rpc/OpendriveGenerationParameters.h"
 
 
+#include <Carla/disable-ue4-macros.h>
 #include <boost/optional.hpp>
+#include <Carla/enable-ue4-macros.h>
 
 #include <vector>
 

@@ -11,9 +11,10 @@
 #include "carla/ThreadGroup.h"
 #include "carla/Time.h"
 
-
+#include <Carla/disable-ue4-macros.h>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/post.hpp>
+#include <Carla/enable-ue4-macros.h>
 
 #include <future>
 #include <thread>

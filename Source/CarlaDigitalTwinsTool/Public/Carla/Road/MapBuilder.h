@@ -10,7 +10,9 @@
 #include "carla/road/element/RoadInfoCrosswalk.h"
 #include "carla/road/element/RoadInfoSignal.h"
 
+#include <Carla/disable-ue4-macros.h>
 #include <boost/optional.hpp>
+#include <Carla/enable-ue4-macros.h>
 
 #include <map>
 

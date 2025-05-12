@@ -13,6 +13,8 @@ namespace carla {
 namespace road {
 namespace element {
 
+  class RoadInfoVisitor;
+
   class RoadInfoMarkTypeLine final : public RoadInfo {
   public:
 
