@@ -11,9 +11,9 @@
 #include "carla/geom/Math.h"
 
 #ifdef LIBCARLA_INCLUDED_FROM_UE4
-#include <compiler/enable-ue4-macros.h>
+#include <Carla/enable-ue4-macros.h>
 #include "Math/Vector.h"
-#include <compiler/disable-ue4-macros.h>
+#include <Carla/disable-ue4-macros.h>
 #endif // LIBCARLA_INCLUDED_FROM_UE4
 
 namespace carla {

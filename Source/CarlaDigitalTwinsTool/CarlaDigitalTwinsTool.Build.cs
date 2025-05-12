@@ -6,12 +6,16 @@ using System;
 using System.Diagnostics;
 using System.Collections;
 using System.Runtime.InteropServices;
-using EpicGames.Core;
 using System.ComponentModel;
 
 public class CarlaDigitalTwinsTool : ModuleRules
 {
-	private string GetCMakeConfigurationName()
+    private bool IsWindows(ReadOnlyTargetRules Target)
+    {
+        return (Target.Platform == UnrealTargetPlatform.Win64) || (Target.Platform == UnrealTargetPlatform.Win32);
+    }
+
+    private string GetCMakeConfigurationName()
 	{
 		switch (Target.Configuration)
 		{
@@ -32,14 +36,14 @@ public class CarlaDigitalTwinsTool : ModuleRules
 
 	private string GetVCVars() // Windows only.
 	{
-		var Root = Environment.GetEnvironmentVariable("PROGRAMFILES");
+		string Root = Environment.GetEnvironmentVariable("PROGRAMFILES");
 		if (Root == null)
 			throw new DirectoryNotFoundException();
 		Root = Path.Combine(Root, "Microsoft Visual Studio/2022/Community/VC/Auxiliary/Build");
-		if (!Path.Exists(Root))
+		if (!Directory.Exists(Root))
 			throw new DirectoryNotFoundException(Root);
 		Root = Path.Combine(Root, "vcvars64.bat");
-		if (!Path.Exists(Root))
+		if (!File.Exists(Root))
 			throw new DirectoryNotFoundException(Root);
 		return Root;
 	}
@@ -61,7 +65,7 @@ public class CarlaDigitalTwinsTool : ModuleRules
 
 	private void BuildBoost()
 	{
-		var verbose = true;
+		var verbose = false;
 
 		Console.WriteLine("Building CMake dependencies.");
 
@@ -87,7 +91,7 @@ public class CarlaDigitalTwinsTool : ModuleRules
 		{
 			PSI.FileName = Environment.GetEnvironmentVariable("comspec");
 			PSI.Arguments = string.Format(
-				"/k \"\"{0}\" && cmake -S . -B {1} -G Ninja -DCMAKE_BUILD_TYPE={2} -DBOOST_COMPONENTS={3}\"",
+				"/c \"\"{0}\" && cmake -S . -B {1} -G Ninja -DCMAKE_BUILD_TYPE={2} -DBOOST_COMPONENTS={3}\"",
 				GetVCVars(),
 				BuildPath,
 				Configuration,
@@ -118,10 +122,10 @@ public class CarlaDigitalTwinsTool : ModuleRules
 					Console.WriteLine(Text);
 			};
 			try
-      {
-        Callback(BuildProcess.StandardOutput);
-        Callback(BuildProcess.StandardError);
-      }
+			{
+				Callback(BuildProcess.StandardOutput);
+				Callback(BuildProcess.StandardError);
+			}
 			catch (Exception)
 			{
 			}
@@ -140,7 +144,7 @@ public class CarlaDigitalTwinsTool : ModuleRules
 			var Trimmed = Line.Trim();
 			if (Trimmed.Length == 0)
 				continue;
-			if (!Path.Exists(Trimmed))
+			if (!File.Exists(Trimmed))
 				throw new FileNotFoundException(Trimmed);
 			if (verbose)
 				Console.WriteLine("Adding " + Trimmed + " to PublicAdditionalLibraries");
@@ -153,7 +157,7 @@ public class CarlaDigitalTwinsTool : ModuleRules
 			var Trimmed = Line.Trim();
 			if (Trimmed.Length == 0)
 				continue;
-			if (!Path.Exists(Trimmed))
+			if (!Directory.Exists(Trimmed))
 				throw new FileNotFoundException(Trimmed);
 			if (verbose)
 				Console.WriteLine("Adding " + Trimmed + " to PublicIncludePaths");
@@ -175,8 +179,11 @@ public class CarlaDigitalTwinsTool : ModuleRules
 	public CarlaDigitalTwinsTool(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
-		
-		PublicIncludePaths.AddRange(
+        if (IsWindows(Target))
+        {
+            bEnableExceptions = true;
+        }
+        PublicIncludePaths.AddRange(
 			new string[] {
 				// ... add public include paths required here ...
 			}
@@ -243,7 +250,12 @@ public class CarlaDigitalTwinsTool : ModuleRules
 				// ... add any modules that your module loads dynamically here ...
 			}
 		);
-		
-		BuildBoost();
+
+        BuildBoost();
+        PublicDefinitions.Add("ASIO_NO_EXCEPTIONS");
+        PublicDefinitions.Add("BOOST_NO_EXCEPTIONS");
+        PublicDefinitions.Add("PUGIXML_NO_EXCEPTIONS");
+        PublicDefinitions.Add("BOOST_DISABLE_ABI_HEADERS");
+        PublicDefinitions.Add("BOOST_TYPE_INDEX_FORCE_NO_RTTI_COMPATIBILITY");
 	}
 }

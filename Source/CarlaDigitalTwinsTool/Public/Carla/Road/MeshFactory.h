@@ -9,14 +9,18 @@
 #include <memory>
 #include <vector>
 
-#include <carla/geom/Mesh.h>
+
 #include <carla/road/Road.h>
 #include <carla/road/LaneSection.h>
 #include <carla/road/Lane.h>
 #include <carla/rpc/OpendriveGenerationParameters.h>
 
+
 namespace carla {
 namespace geom {
+
+    class Mesh;
+    class Vector3D;
 
   /// Mesh helper generator
   class MeshFactory {
@@ -53,7 +57,7 @@ namespace geom {
 
     /// Generates a mesh that defines a lane section
     void GenerateLaneSectionOrdered(const road::LaneSection &lane_section,
-        std::map<carla::road::Lane::LaneType , std::vector<std::unique_ptr<Mesh>>>& result ) const;
+        std::map<road::Lane::LaneType , std::vector<std::unique_ptr<Mesh>>>& result ) const;
 
     std::unique_ptr<Mesh> GenerateSidewalk(const road::LaneSection &lane_section) const;
     std::unique_ptr<Mesh> GenerateSidewalk(const road::Lane &lane) const;
@@ -83,11 +87,11 @@ namespace geom {
         const road::LaneSection &lane_section) const;
 
     /// Generates a list of meshes that defines a road with a maximum length
-    std::map<carla::road::Lane::LaneType , std::vector<std::unique_ptr<Mesh>>> GenerateOrderedWithMaxLen(
+    std::map<road::Lane::LaneType , std::vector<std::unique_ptr<Mesh>>> GenerateOrderedWithMaxLen(
         const road::Road &road) const;
 
     /// Generates a list of meshes that defines a lane_section with a maximum length
-    std::map<carla::road::Lane::LaneType , std::vector<std::unique_ptr<Mesh>>> GenerateOrderedWithMaxLen(
+    std::map<road::Lane::LaneType , std::vector<std::unique_ptr<Mesh>>> GenerateOrderedWithMaxLen(
         const road::LaneSection &lane_section) const;
 
     /// Generates a list of meshes that defines a road safety wall with a maximum length
@@ -158,7 +162,7 @@ namespace geom {
   private:
 
     // Calculate the points on both sides of the lane mark for the specified s_current
-    std::pair<geom::Vector3D, geom::Vector3D> ComputeEdgesForLanemark(
+    std::pair<Vector3D, Vector3D> ComputeEdgesForLanemark(
       const road::LaneSection& lane_section,
       const road::Lane& lane,
       const double s_current,

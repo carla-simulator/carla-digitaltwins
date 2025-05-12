@@ -8,7 +8,11 @@
 #include "Math/Vector2D.h"
 #include "EditorUtilityActor.h"
 #include "EditorUtilityObject.h"
+
+#include <Carla/disable-ue4-macros.h>
 #include <Carla/Road/RoadMap.h>
+#include <Carla/enable-ue4-macros.h>
+
 
 #include "OpenDriveToMap.generated.h"
 
@@ -24,7 +28,7 @@ UCLASS(Blueprintable, BlueprintType)
 class CARLADIGITALTWINSTOOL_API UOpenDriveToMap : public UEditorUtilityObject
 {
   GENERATED_BODY()
-#if WITH_EDITORONLY_DATA
+
 public:
   UOpenDriveToMap();
   ~UOpenDriveToMap();
@@ -221,5 +225,5 @@ private:
   TArray<AActor*> Landscapes;
   UPROPERTY()
   UTexture2D* Heightmap;
-#endif
+
 };
