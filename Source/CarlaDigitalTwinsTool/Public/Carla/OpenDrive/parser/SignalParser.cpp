@@ -62,27 +62,6 @@ namespace parser {
           const double hOffset = signal_node.attribute("hOffset").as_double();
           const double pitch = signal_node.attribute("pitch").as_double();
           const double roll = signal_node.attribute("roll").as_double();
-          log_debug("Road: ",
-              road_id,
-              "Adding Signal: ",
-              s_position,
-              t_position,
-              signal_id,
-              name,
-              dynamic,
-              orientation,
-              zOffset,
-              country,
-              type,
-              subtype,
-              value,
-              unit,
-              height,
-              width,
-              text,
-              hOffset,
-              pitch,
-              roll);
 
           carla::road::Road *road = map_builder.GetRoad(road_id);
           auto signal_reference = map_builder.AddSignal(road,
@@ -109,7 +88,7 @@ namespace parser {
           for (pugi::xml_node dependency_node : signal_node.children("dependency")) {
             const std::string dependency_id = dependency_node.attribute("id").value();
             const std::string dependency_type = dependency_node.attribute("type").value();
-            log_debug("Added dependency to signal ", signal_id, ":", dependency_id, dependency_type);
+
             map_builder.AddDependencyToSignal(signal_id, dependency_id, dependency_type);
           }
           for (pugi::xml_node position_node : signal_node.children("positionInertial")) {
@@ -131,12 +110,7 @@ namespace parser {
           const road::SignId signal_id = signal_reference_node.attribute("id").value();
           const std::string signal_reference_orientation =
               signal_reference_node.attribute("orientation").value();
-          log_debug("Road: ",
-              road_id,
-              "Added SignalReference ",
-              s_position,
-              t_position,
-              signal_reference_orientation);
+
           carla::road::Road *road = map_builder.GetRoad(road_id);
           auto signal_reference = map_builder.AddSignalReference(
               road,

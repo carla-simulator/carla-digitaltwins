@@ -5,6 +5,7 @@
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
 #include "carla/road/MapBuilder.h"
+#include "Carla/Logging.h"
 #include "carla/StringUtil.h"
 #include "carla/road/element/RoadInfoElevation.h"
 #include "carla/road/element/RoadInfoGeometry.h"
@@ -30,6 +31,7 @@
 #include <memory>
 #include <algorithm>
 
+using namespace carla::road::element;
 
 namespace carla {
 namespace road {
@@ -78,7 +80,7 @@ namespace road {
       const double c,
       const double d) {
     DEBUG_ASSERT(road != nullptr);
-    auto elevation = std::make_unique<RoadInfoElevation>(s, a, b, c, d);
+    auto elevation = std::make_unique<carla::road::element::RoadInfoElevation>(s, a, b, c, d);
     _temp_road_info_container[road].emplace_back(std::move(elevation));
   }
 
@@ -96,7 +98,7 @@ namespace road {
       const double length,
       const std::vector<road::element::CrosswalkPoint> points) {
     DEBUG_ASSERT(road != nullptr);
-    auto cross = std::make_unique<RoadInfoCrosswalk>(s, name, t, zOffset, hdg, pitch, roll, std::move(orientation), width, length, std::move(points));
+    auto cross = std::make_unique<road::element::RoadInfoCrosswalk>(s, name, t, zOffset, hdg, pitch, roll, std::move(orientation), width, length, std::move(points));
     _temp_road_info_container[road].emplace_back(std::move(cross));
   }
 
@@ -106,7 +108,7 @@ namespace road {
       const double s,
       const std::string restriction) {
     DEBUG_ASSERT(lane != nullptr);
-    _temp_lane_info_container[lane].emplace_back(std::make_unique<RoadInfoLaneAccess>(s, restriction));
+    _temp_lane_info_container[lane].emplace_back(std::make_unique<road::element::RoadInfoLaneAccess>(s, restriction));
   }
 
   void MapBuilder::CreateLaneBorder(
@@ -117,7 +119,7 @@ namespace road {
       const double c,
       const double d) {
     DEBUG_ASSERT(lane != nullptr);
-    _temp_lane_info_container[lane].emplace_back(std::make_unique<RoadInfoLaneBorder>(s, a, b, c, d));
+    _temp_lane_info_container[lane].emplace_back(std::make_unique<road::element::RoadInfoLaneBorder>(s, a, b, c, d));
   }
 
   void MapBuilder::CreateLaneHeight(
@@ -126,7 +128,7 @@ namespace road {
       const double inner,
       const double outer) {
     DEBUG_ASSERT(lane != nullptr);
-    _temp_lane_info_container[lane].emplace_back(std::make_unique<RoadInfoLaneHeight>(s, inner, outer));
+    _temp_lane_info_container[lane].emplace_back(std::make_unique<road::element::RoadInfoLaneHeight>(s, inner, outer));
   }
 
   void MapBuilder::CreateLaneMaterial(
@@ -136,7 +138,7 @@ namespace road {
       const double friction,
       const double roughness) {
     DEBUG_ASSERT(lane != nullptr);
-    _temp_lane_info_container[lane].emplace_back(std::make_unique<RoadInfoLaneMaterial>(s, surface, friction,
+    _temp_lane_info_container[lane].emplace_back(std::make_unique<road::element::RoadInfoLaneMaterial>(s, surface, friction,
         roughness));
   }
 
@@ -145,7 +147,7 @@ namespace road {
       const double s,
       const std::string value) {
     DEBUG_ASSERT(lane != nullptr);
-    _temp_lane_info_container[lane].emplace_back(std::make_unique<RoadInfoLaneRule>(s, value));
+    _temp_lane_info_container[lane].emplace_back(std::make_unique<road::element::RoadInfoLaneRule>(s, value));
   }
 
   void MapBuilder::CreateLaneVisibility(
@@ -156,7 +158,7 @@ namespace road {
       const double left,
       const double right) {
     DEBUG_ASSERT(lane != nullptr);
-    _temp_lane_info_container[lane].emplace_back(std::make_unique<RoadInfoLaneVisibility>(s, forward, back,
+    _temp_lane_info_container[lane].emplace_back(std::make_unique<road::element::RoadInfoLaneVisibility>(s, forward, back,
         left, right));
   }
 
@@ -168,7 +170,7 @@ namespace road {
       const double c,
       const double d) {
     DEBUG_ASSERT(lane != nullptr);
-    _temp_lane_info_container[lane].emplace_back(std::make_unique<RoadInfoLaneWidth>(s, a, b, c, d));
+    _temp_lane_info_container[lane].emplace_back(std::make_unique<road::element::RoadInfoLaneWidth>(s, a, b, c, d));
   }
 
   void MapBuilder::CreateRoadMark(
@@ -185,7 +187,7 @@ namespace road {
       const std::string type_name,
       const double type_width) {
     DEBUG_ASSERT(lane != nullptr);
-    RoadInfoMarkRecord::LaneChange lc;
+    road::element::RoadInfoMarkRecord::LaneChange lc;
 
     StringUtil::ToLower(lane_change);
 
@@ -198,7 +200,7 @@ namespace road {
     } else {
       lc = RoadInfoMarkRecord::LaneChange::Both;
     }
-    _temp_lane_info_container[lane].emplace_back(std::make_unique<RoadInfoMarkRecord>(s, road_mark_id, type,
+    _temp_lane_info_container[lane].emplace_back(std::make_unique<road::element::RoadInfoMarkRecord>(s, road_mark_id, type,
         weight, color,
         material, width, lc, height, type_name, type_width));
   }
@@ -216,7 +218,7 @@ namespace road {
     auto it = MakeRoadInfoIterator<RoadInfoMarkRecord>(_temp_lane_info_container[lane]);
     for (; !it.IsAtEnd(); ++it) {
       if (it->GetRoadMarkId() == road_mark_id) {
-        it->GetLines().emplace_back(std::make_unique<RoadInfoMarkTypeLine>(s, road_mark_id, length, space,
+        it->GetLines().emplace_back(std::make_unique<road::element::RoadInfoMarkTypeLine>(s, road_mark_id, length, space,
             tOffset, rule, width));
         break;
       }
@@ -230,7 +232,7 @@ namespace road {
       const double max,
       const std::string /*unit*/) {
     DEBUG_ASSERT(lane != nullptr);
-    _temp_lane_info_container[lane].emplace_back(std::make_unique<RoadInfoSpeed>(s, max));
+    _temp_lane_info_container[lane].emplace_back(std::make_unique<road::element::RoadInfoSpeed>(s, max));
   }
 
 

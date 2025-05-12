@@ -32,6 +32,8 @@
 
 namespace carla {
 namespace road {
+
+  using namespace carla::road::element;
   /// We use this epsilon to shift the waypoints away from the edges of the lane
   /// sections to avoid floating point precision errors.
   static constexpr double EPSILON = 10.0 * std::numeric_limits<double>::epsilon();

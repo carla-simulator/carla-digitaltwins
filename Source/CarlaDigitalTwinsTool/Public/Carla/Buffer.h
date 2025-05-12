@@ -250,7 +250,7 @@ namespace carla {
     /// allocated.
     void reset(size_type size) {
       if (_capacity < size) {
-        log_debug("allocating buffer of", size, "bytes");
+
         _data = std::make_unique<value_type[]>(size);
         _capacity = size;
       }

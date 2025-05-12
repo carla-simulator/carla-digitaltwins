@@ -7,7 +7,7 @@
 #include "carla/opendrive/parser/ControllerParser.h"
 
 #include "carla/road/MapBuilder.h"
-
+#include "carla/rpc/log.h"
 #include <pugixml/pugixml.hpp>
 
 namespace carla {
@@ -28,10 +28,6 @@ namespace parser {
       const std::string controller_name = controller_node.attribute("name").value();
       const uint32_t controller_sequence = controller_node.attribute("sequence").as_uint();
 
-      log_debug("Controller: ",
-        controller_id,
-        controller_name,
-        controller_sequence);
 
       std::set<road::SignId> signals;
 

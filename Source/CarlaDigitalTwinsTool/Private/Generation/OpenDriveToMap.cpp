@@ -10,7 +10,7 @@
 #include "Kismet/KismetRenderingLibrary.h"
 #include "KismetProceduralMeshLibrary.h"
 #include "StaticMeshAttributes.h"
-
+#include "FileHelpers.h"
 #include "Online/CustomFileDownloader.h"
 #include "Engine/Classes/Interfaces/Interface_CollisionDataProvider.h"
 #include "Engine/TriggerBox.h"
@@ -30,15 +30,14 @@
 #include "ContentBrowserModule.h"
 #include "Materials/MaterialInstanceConstant.h"
 #include "Math/Vector.h"
-#include "GameFramework/Actor.h"P
+#include "GameFramework/Actor.h"
 
-#include "Util/ProceduralCustomMesh.h"
-
+#include "Actor/ProceduralCustomMesh.h"
+#include "CarlaDigitalTwinsTool.h"
+#include "Kismet/GameplayStatics.h"
+#include "Generation/MapGenFunctionLibrary.h"
 //#include "Carla/BlueprintLibary/MapGenFunctionLibrary.h"
 //#include "OpenDrive/OpenDriveGenerator.h"
-
-
-
 
 #include "DrawDebugHelpers.h"
 
@@ -306,7 +305,7 @@ void UOpenDriveToMap::GenerateTile(){
   UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("UOpenDriveToMap::GenerateTile(): File to load %s"), *FilePath );
   FFileHelper::LoadFileToString(FileContent, *FilePath);
   std::string opendrive_xml = carla::rpc::FromLongFString(FileContent);
-  CarlaMap = carla::opendrive::OpenDriveParser::Load(opendrive_xml);
+  //CarlaMap = carla::opendrive::OpenDriveParser::Load(opendrive_xml);
 
   if ( CarlaMap != nullptr )
   {
@@ -322,24 +321,25 @@ void UOpenDriveToMap::GenerateTile(){
 
     AActor* QueryActor = UGameplayStatics::GetActorOfClass(
                             GEditor->GetEditorWorldContext().World(),
-                            ALargeMapManager::StaticClass() );
+                            AActor::StaticClass() );
     if( QueryActor != nullptr ){
-      ALargeMapManager* LmManager = Cast<ALargeMapManager>(QueryActor);
-      LmManager->GenerateMap_Editor();
-      NumTilesInXY  = LmManager->GetNumTilesInXY();
-      TileSize = LmManager->GetTileSize();
-      Tile0Offset = LmManager->GetTile0Offset();
+      //ALargeMapManager* LmManager = Cast<ALargeMapManager>(QueryActor);
+      //LmManager->GenerateMap_Editor();
+      //NumTilesInXY  = LmManager->GetNumTilesInXY();
+      //TileSize = LmManager->GetTileSize();
+      //Tile0Offset = LmManager->GetTile0Offset();
+      //LmManager->GetCarlaMapTile(CurrentTilesInXY);
 
-      FCarlaMapTile& CarlaTile =  LmManager->GetCarlaMapTile(CurrentTilesInXY);
+      //FCarlaMapTile& CarlaTile = FCarlaMapTile();
       UEditorLevelLibrary::SaveCurrentLevel();
 
       UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Current Tile is %s"), *( CurrentTilesInXY.ToString() ) );
       UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("NumTilesInXY is %s"), *( NumTilesInXY.ToString() ) );
       UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("TileSize is %f"), ( TileSize ) );
       UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Tile0Offset is %s"), *( Tile0Offset.ToString() ) );
-      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Tile Name is %s"), *(CarlaTile.Name) );
+      //UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Tile Name is %s"), *(CarlaTile.Name) );
 
-      UEditorLevelLibrary::LoadLevel(CarlaTile.Name);
+      //UEditorLevelLibrary::LoadLevel(CarlaTile.Name);
 
       MinPosition = FVector(CurrentTilesInXY.X * TileSize, CurrentTilesInXY.Y * -TileSize, 0.0f);
       MaxPosition = FVector((CurrentTilesInXY.X + 1.0f ) * TileSize, (CurrentTilesInXY.Y + 1.0f) * -TileSize, 0.0f);
@@ -431,9 +431,9 @@ void UOpenDriveToMap::LoadMap()
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::LoadMap(): File to load %s"), *FilePath );
   FFileHelper::LoadFileToString(FileContent, *FilePath);
   std::string opendrive_xml = carla::rpc::FromLongFString(FileContent);
-  CarlaMap = carla::opendrive::OpenDriveParser::Load(opendrive_xml);
-
-  if (!CarlaMap.has_value())
+  //CarlaMap = carla::opendrive::OpenDriveParser::Load(opendrive_xml);
+  //!CarlaMap.has_value()
+  if (true)
   {
     UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Invalid Map"));
   }
@@ -446,10 +446,11 @@ void UOpenDriveToMap::LoadMap()
 
     AActor* QueryActor = UGameplayStatics::GetActorOfClass(
                                 UEditorLevelLibrary::GetEditorWorld(),
-                                ALargeMapManager::StaticClass() );
+                                AActor::StaticClass() );
 
     if( QueryActor != nullptr )
     {
+      /*
       ALargeMapManager* LargeMapManager = Cast<ALargeMapManager>(QueryActor);
       NumTilesInXY  = LargeMapManager->GetNumTilesInXY();
       TileSize = LargeMapManager->GetTileSize();
@@ -461,6 +462,7 @@ void UOpenDriveToMap::LoadMap()
         GenerateTileStandalone();
       }while(GoNextTile());
       ReturnToMainLevel();
+      */
     }
   }
 }

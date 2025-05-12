@@ -33,7 +33,7 @@ namespace road {
   class Map : private MovableNonCopyable {
   public:
 
-
+    using Waypoint = element::Waypoint;
     /// ========================================================================
     /// -- Constructor ---------------------------------------------------------
     /// ========================================================================
@@ -54,39 +54,39 @@ namespace road {
     /// -- Geometry ------------------------------------------------------------
     /// ========================================================================
 
-    boost::optional<::carla::road::element::Waypoint> GetClosestWaypointOnRoad(
+    boost::optional<element::Waypoint> GetClosestWaypointOnRoad(
         const geom::Location &location,
         int32_t lane_type = static_cast<int32_t>(Lane::LaneType::Driving)) const;
 
-    boost::optional<::carla::road::element::Waypoint> GetWaypoint(
+    boost::optional<element::Waypoint> GetWaypoint(
         const geom::Location &location,
         int32_t lane_type = static_cast<int32_t>(Lane::LaneType::Driving)) const;
 
-    boost::optional<::carla::road::element::Waypoint> GetWaypoint(
+    boost::optional<element::Waypoint> GetWaypoint(
         ::carla::road::RoadId road_id,
         ::carla::road::LaneId lane_id,
         float s) const;
 
-    geom::Transform ComputeTransform(::carla::road::element::Waypoint waypoint) const;
+    geom::Transform ComputeTransform(element::Waypoint waypoint) const;
 
     /// ========================================================================
     /// -- Road information ----------------------------------------------------
     /// ========================================================================
 
-    const ::carla::road::Lane &GetLane(::carla::road::element::Waypoint waypoint) const;
+    const ::carla::road::Lane &GetLane(element::Waypoint waypoint) const;
 
-    ::carla::road::Lane::LaneType GetLaneType(::carla::road::element::Waypoint waypoint) const;
+    ::carla::road::Lane::LaneType GetLaneType(element::Waypoint waypoint) const;
 
-    double GetLaneWidth(::carla::road::element::Waypoint waypoint) const;
+    double GetLaneWidth(element::Waypoint waypoint) const;
 
-    ::carla::road::JuncId GetJunctionId(::carla::road::RoadId road_id) const;
+    JuncId GetJunctionId(RoadId road_id) const;
 
-    bool IsJunction(::carla::road::RoadId road_id) const;
+    bool IsJunction(RoadId road_id) const;
 
-    std::pair<const ::carla::road::element::RoadInfoMarkRecord *, const ::carla::road::element::RoadInfoMarkRecord *>
-        GetMarkRecord(::carla::road::element::Waypoint waypoint) const;
+    std::pair<const element::RoadInfoMarkRecord *, const element::RoadInfoMarkRecord *>
+        GetMarkRecord(element::Waypoint waypoint) const;
 
-    std::vector<::carla::road::element::LaneMarking> CalculateCrossedLanes(
+    std::vector<element::LaneMarking> CalculateCrossedLanes(
         const geom::Location &origin,
         const geom::Location &destination) const;
 

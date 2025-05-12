@@ -254,7 +254,7 @@ namespace road {
     std::pair<const Lane *, double> result =
         std::make_pair(nullptr, std::numeric_limits<double>::max());
 
-    const carla::road::element::DirectedPoint current_dp = dp_lane_zero;
+    carla::road::element::DirectedPoint current_dp = dp_lane_zero;
     for (const auto &lane : right_lanes) {
       const carla::road::element::RoadInfoLaneWidth* lane_width_info = lane.second->GetInfo<carla::road::element::RoadInfoLaneWidth>(s);
       const float half_width = static_cast<float>(lane_width_info->GetPolynomial().Evaluate(s)) * 0.5f;
