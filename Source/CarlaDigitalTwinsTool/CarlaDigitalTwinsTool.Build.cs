@@ -87,8 +87,9 @@ public class CarlaDigitalTwinsTool : ModuleRules
         {
             bEnableExceptions = true;
             PublicDefinitions.Add("DISABLE_WARNING_C4800=1");
-						PublicAdditionalLibraries.Add("shlwapi.lib");
+			PublicAdditionalLibraries.Add("shlwapi.lib");
         }
+		
         PublicIncludePaths.AddRange(
 			new string[] {
 				// ... add public include paths required here ...
@@ -162,14 +163,10 @@ public class CarlaDigitalTwinsTool : ModuleRules
         PublicDefinitions.Add("BOOST_NO_EXCEPTIONS");
         PublicDefinitions.Add("PUGIXML_NO_EXCEPTIONS");
         PublicDefinitions.Add("BOOST_DISABLE_ABI_HEADERS");
-        PublicDefinitions.Add("BOOST_TYPE_INDEX_FORCE_NO_RTTI_COMPATIBILITY");
+        // PublicDefinitions.Add("BOOST_TYPE_INDEX_FORCE_NO_RTTI_COMPATIBILITY");
 		if (IsWindows())
 		{
 			PublicDefinitions.Add("_USE_MATH_DEFINES");
-		}
-		else
-		{
-			PublicDefinitions.Add("_GNU_SOURCE");
 		}
     }
 }
