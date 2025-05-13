@@ -14,7 +14,7 @@
 // Carla C++ headers
 
 // Carla plugin headers
-#include "CarlaDigitalTwinsTool.h"
+#include "CarlaMeshGeneration.h"
 
 DEFINE_LOG_CATEGORY(LogCarlaMapGenFunctionLibrary);
 static const float OSMToCentimetersScaleFactor = 100.0f;

@@ -22,7 +22,7 @@
 DECLARE_LOG_CATEGORY_EXTERN(LogCarlaMapGenFunctionLibrary, Log, All);
 
 UCLASS(BlueprintType)
-class CARLADIGITALTWINSTOOL_API UMapGenFunctionLibrary : public UBlueprintFunctionLibrary
+class CARLAMESHGENERATION_API UMapGenFunctionLibrary : public UBlueprintFunctionLibrary
 {
   GENERATED_BODY()
 public:

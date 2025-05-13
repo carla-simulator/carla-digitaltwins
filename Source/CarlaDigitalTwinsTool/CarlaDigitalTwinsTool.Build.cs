@@ -36,7 +36,7 @@ public class CarlaDigitalTwinsTool : ModuleRules
 
 	private void BuildBoost()
 	{
-		var verbose = true;
+		var verbose = false;
 		var CurrentProcess = Process.GetCurrentProcess();
 		var BuildPath = Path.Combine(PluginDirectory, "Build");
 		
@@ -141,6 +141,9 @@ public class CarlaDigitalTwinsTool : ModuleRules
 				"RHI",
 				"RenderCore",
 				"MeshMergeUtilities",
+				"CarlaMeshGeneration",
+				"StreetMapImporting",
+				"StreetMapRuntime"
 
 				// ... add private dependencies that you statically link with here ...	
 			}
