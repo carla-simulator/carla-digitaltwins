@@ -52,30 +52,36 @@ set (
 	CACHE PATH ""
 )
 
-set (
-	UE_THIRD_PARTY
-	${UE_ROOT}/Engine/Source/ThirdParty CACHE PATH ""
-)
+if (IS_DIRECTORY ${UE_ROOT}/Engine/Source/ThirdParty)
+	set (UE_THIRD_PARTY ${UE_ROOT}/Engine/Source/ThirdParty CACHE PATH "")
+else ()
+	set (UE_THIRD_PARTY ${UE_ROOT}/Engine/Source/ThirdParty CACHE PATH "")
+endif ()
 
-set (
-	UE_INCLUDE
-	${UE_THIRD_PARTY}/Unix/LibCxx/include CACHE PATH ""
-)
+if (IS_DIRECTORY ${UE_THIRD_PARTY}/Unix/LibCxx/include)
+	set (UE_INCLUDE ${UE_THIRD_PARTY}/Unix/LibCxx/include CACHE PATH "")
+else ()
+	set (UE_INCLUDE ${UE_THIRD_PARTY}/Linux/LibCxx/include CACHE PATH "")
+endif ()
 
-set (
-	UE_LIBS
-	${UE_THIRD_PARTY}/Unix/LibCxx/lib/Unix/${TARGET_TRIPLE} CACHE PATH ""
-)
+if (IS_DIRECTORY ${UE_THIRD_PARTY}/Unix/LibCxx/lib/Unix/${TARGET_TRIPLE})
+	set (UE_LIBS ${UE_THIRD_PARTY}/Unix/LibCxx/lib/Unix/${TARGET_TRIPLE} CACHE PATH "")
+else ()
+	set (UE_LIBS ${UE_THIRD_PARTY}/Linux/LibCxx/lib/Linux/${TARGET_TRIPLE} CACHE PATH "")
+endif ()
 
-set (
-	UE_OPENSSL_INCLUDE
-	${UE_THIRD_PARTY}/OpenSSL/1.1.1t/include/Unix CACHE PATH ""
-)
+if (IS_DIRECTORY ${UE_THIRD_PARTY}/OpenSSL/1.1.1t/include/Unix)
+	set (UE_OPENSSL_INCLUDE ${UE_THIRD_PARTY}/OpenSSL/1.1.1t/include/Unix CACHE PATH "")
+else ()
+	set (UE_OPENSSL_INCLUDE ${UE_THIRD_PARTY}/OpenSSL/1.1.1t/include/Linux CACHE PATH "")
+endif ()
 
-set (
-	UE_OPENSSL_LIBS
-	${UE_THIRD_PARTY}/OpenSSL/1.1.1t/lib/Unix/x86_64-unknown-linux-gnu CACHE PATH ""
-)
+if (IS_DIRECTORY ${UE_THIRD_PARTY}/OpenSSL/1.1.1t/lib/Unix/x86_64-unknown-linux-gnu)
+	set (UE_OPENSSL_LIBS ${UE_THIRD_PARTY}/OpenSSL/1.1.1t/lib/Unix/x86_64-unknown-linux-gnu CACHE PATH "")
+else ()
+	set (UE_OPENSSL_LIBS ${UE_THIRD_PARTY}/OpenSSL/1.1.1t/lib/Linux/x86_64-unknown-linux-gnu CACHE PATH "")
+endif ()
+
 
 add_compile_options (
 	-fms-extensions
