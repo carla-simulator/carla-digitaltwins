@@ -4,6 +4,8 @@
 
 #include "Modules/ModuleManager.h"
 
+DECLARE_LOG_CATEGORY_EXTERN(LogCarlaDigitalTwinsTool, Log, All);
+
 class FCarlaDigitalTwinsToolModule : public IModuleInterface
 {
 public:

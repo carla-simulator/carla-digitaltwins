@@ -4,6 +4,8 @@
 
 #define LOCTEXT_NAMESPACE "FCarlaDigitalTwinsToolModule"
 
+DEFINE_LOG_CATEGORY(LogCarlaDigitalTwinsTool);
+
 void FCarlaDigitalTwinsToolModule::StartupModule()
 {
 	// This code will execute after your module is loaded into memory; the exact timing is specified in the .uplugin file per-module
