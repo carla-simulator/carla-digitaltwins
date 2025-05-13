@@ -8,10 +8,9 @@
 #include "Math/Vector2D.h"
 #include "EditorUtilityActor.h"
 #include "EditorUtilityObject.h"
+#include "Components/HierarchicalInstancedStaticMeshComponent.h"
 
 #include <Carla/Road/RoadMap.h>
-
-
 
 #include "OpenDriveToMap.generated.h"
 
@@ -80,6 +79,16 @@ public:
 
   UFUNCTION(BlueprintCallable)
   AActor* SpawnActorInEditorWorld(UClass* Class, FVector Location, FRotator Rotation);
+
+  UFUNCTION(BlueprintCallable, Category = "Assets Placement")
+  static void MoveActorsToSubLevelWithLargeMap(TArray<AActor*> Actors, ALargeMapManager* LargeMapManager);
+
+  UFUNCTION(BlueprintCallable, Category = "HoudiniImporterWidget")
+  static void UpdateGenericActorCoordinates(AActor* Actor, FVector TileOrigin);
+
+  UFUNCTION(BlueprintCallable, Category = "Assets Placement")
+  static void UpdateInstancedMeshCoordinates(
+      UHierarchicalInstancedStaticMeshComponent* Component, FVector TileOrigin);
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="File")
   FString FilePath;

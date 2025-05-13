@@ -28,7 +28,7 @@ namespace MeshReconstruction
     IntersectInfo Intersect(double isoLevel = 0) const;
   };
 
-  namespace
+  namespace Marching
   {
     // Cube has 8 vertices. Each vertex can have positive or negative sign.
     // 2^8 = 256 possible configurations mapped to intersected edges in each case.
@@ -165,10 +165,10 @@ namespace MeshReconstruction
 
     for (auto e = 0; e < 12; ++e)
     {
-      if (signConfigToIntersectedEdges[intersect.signConfig] & edges[e].edgeFlag)
+      if (Marching::signConfigToIntersectedEdges[intersect.signConfig] & Marching::edges[e].edgeFlag)
       {
-        auto v0 = edges[e].vert0;
-        auto v1 = edges[e].vert1;
+        auto v0 = Marching::edges[e].vert0;
+        auto v1 = Marching::edges[e].vert1;
         auto vert = LerpVertex(iso, v0, v1);
         intersect.edgeVertIndices[e] = vert;
       }

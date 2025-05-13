@@ -149,8 +149,6 @@ namespace geom {
     // -- Conversions to UE4 types ---------------------------------------------
     // =========================================================================
 
-#ifdef LIBCARLA_INCLUDED_FROM_UE4
-
     Transform(const FTransform &transform)
       : Transform(Location(transform.GetLocation()), Rotation(transform.Rotator())) {}
 
@@ -159,7 +157,6 @@ namespace geom {
       return FTransform{FRotator(rotation), FVector(location), scale};
     }
 
-#endif // LIBCARLA_INCLUDED_FROM_UE4
   };
 
 } // namespace geom

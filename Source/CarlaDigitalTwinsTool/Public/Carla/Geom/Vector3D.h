@@ -160,7 +160,6 @@ namespace geom {
     // -- Conversions to UE4 types ---------------------------------------------
     // =========================================================================
 
-#ifdef LIBCARLA_INCLUDED_FROM_UE4
 
     /// These 2 methods are explicitly deleted to avoid creating them by other users,
     /// unlike locations, some vectors have units and some don't, by removing
@@ -181,9 +180,6 @@ namespace geom {
     FVector ToFVector() const {
       return FVector{x, y, z};
     }
-
-#endif // LIBCARLA_INCLUDED_FROM_UE4
-
 
     // =========================================================================
   };

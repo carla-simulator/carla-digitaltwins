@@ -127,8 +127,6 @@ namespace geom {
     // -- Conversions to UE4 types ---------------------------------------------
     // =========================================================================
 
-#ifdef LIBCARLA_INCLUDED_FROM_UE4
-
     /// Return a Vector2D converted from centimeters to meters.
     Vector2D ToMeters() const {
       return *this * 1e-2f;
@@ -142,8 +140,6 @@ namespace geom {
     FVector2D ToFVector2D() const {
       return FVector2D{x, y};
     }
-
-#endif // LIBCARLA_INCLUDED_FROM_UE4
 
   };
 

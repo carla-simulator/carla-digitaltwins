@@ -157,8 +157,6 @@ namespace geom {
     // -- Conversions to UE4 types ---------------------------------------------
     // =========================================================================
 
-#ifdef LIBCARLA_INCLUDED_FROM_UE4
-
     operator FProceduralCustomMesh() const {
       FProceduralCustomMesh Mesh;
 
@@ -221,8 +219,6 @@ namespace geom {
 
       return Mesh;
     }
-
-#endif // LIBCARLA_INCLUDED_FROM_UE4
 
   private:
 

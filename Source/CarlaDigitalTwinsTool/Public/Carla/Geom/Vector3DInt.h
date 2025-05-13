@@ -127,8 +127,6 @@ namespace geom {
     // -- Conversions to UE4 types ---------------------------------------------
     // =========================================================================
 
-#ifdef LIBCARLA_INCLUDED_FROM_UE4
-
     Vector3DInt(const FIntVector &v) = delete;
     Vector3DInt& operator=(const FIntVector &rhs) = delete;
 
@@ -145,8 +143,6 @@ namespace geom {
     FIntVector ToFIntVector() const {
       return FIntVector{x, y, z};
     }
-
-#endif // LIBCARLA_INCLUDED_FROM_UE4
 
   };
 

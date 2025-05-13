@@ -134,8 +134,6 @@ namespace geom {
     // -- Conversions to UE4 types ---------------------------------------------
     // =========================================================================
 
-#ifdef LIBCARLA_INCLUDED_FROM_UE4
-
     Rotation(const FRotator &rotator)
       : Rotation(rotator.Pitch, rotator.Yaw, rotator.Roll) {}
 
@@ -143,7 +141,7 @@ namespace geom {
       return FRotator{pitch, yaw, roll};
     }
 
-#endif // LIBCARLA_INCLUDED_FROM_UE4
+
   };
 
 } // namespace geom

@@ -31,11 +31,14 @@
 #include "Materials/MaterialInstanceConstant.h"
 #include "Math/Vector.h"
 #include "GameFramework/Actor.h"
-
+#include "EditorLevelUtils.h"
 #include "Actor/ProceduralCustomMesh.h"
+#include "Actor/LargeMapManager.h"
 #include "CarlaDigitalTwinsTool.h"
 #include "Kismet/GameplayStatics.h"
 #include "Generation/MapGenFunctionLibrary.h"
+#include "Carla/Geom/Simplification.h"
+#include "Carla/Geom/Deformation.h"
 //#include "Carla/BlueprintLibary/MapGenFunctionLibrary.h"
 //#include "OpenDrive/OpenDriveGenerator.h"
 
@@ -323,23 +326,23 @@ void UOpenDriveToMap::GenerateTile(){
                             GEditor->GetEditorWorldContext().World(),
                             AActor::StaticClass() );
     if( QueryActor != nullptr ){
-      //ALargeMapManager* LmManager = Cast<ALargeMapManager>(QueryActor);
-      //LmManager->GenerateMap_Editor();
-      //NumTilesInXY  = LmManager->GetNumTilesInXY();
-      //TileSize = LmManager->GetTileSize();
-      //Tile0Offset = LmManager->GetTile0Offset();
-      //LmManager->GetCarlaMapTile(CurrentTilesInXY);
+      ALargeMapManager* LmManager = Cast<ALargeMapManager>(QueryActor);
+      LmManager->GenerateMap_Editor();
+      NumTilesInXY  = LmManager->GetNumTilesInXY();
+      TileSize = LmManager->GetTileSize();
+      Tile0Offset = LmManager->GetTile0Offset();
+      LmManager->GetCarlaMapTile(CurrentTilesInXY);
 
-      //FCarlaMapTile& CarlaTile = FCarlaMapTile();
+      FCarlaMapTile& CarlaTile = LmManager->GetCarlaMapTile(CurrentTilesInXY);
       UEditorLevelLibrary::SaveCurrentLevel();
 
       UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Current Tile is %s"), *( CurrentTilesInXY.ToString() ) );
       UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("NumTilesInXY is %s"), *( NumTilesInXY.ToString() ) );
       UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("TileSize is %f"), ( TileSize ) );
       UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Tile0Offset is %s"), *( Tile0Offset.ToString() ) );
-      //UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Tile Name is %s"), *(CarlaTile.Name) );
+      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Tile Name is %s"), *(CarlaTile.Name) );
 
-      //UEditorLevelLibrary::LoadLevel(CarlaTile.Name);
+      UEditorLevelLibrary::LoadLevel(CarlaTile.Name);
 
       MinPosition = FVector(CurrentTilesInXY.X * TileSize, CurrentTilesInXY.Y * -TileSize, 0.0f);
       MaxPosition = FVector((CurrentTilesInXY.X + 1.0f ) * TileSize, (CurrentTilesInXY.Y + 1.0f) * -TileSize, 0.0f);
@@ -450,7 +453,7 @@ void UOpenDriveToMap::LoadMap()
 
     if( QueryActor != nullptr )
     {
-      /*
+      
       ALargeMapManager* LargeMapManager = Cast<ALargeMapManager>(QueryActor);
       NumTilesInXY  = LargeMapManager->GetNumTilesInXY();
       TileSize = LargeMapManager->GetTileSize();
@@ -462,7 +465,7 @@ void UOpenDriveToMap::LoadMap()
         GenerateTileStandalone();
       }while(GoNextTile());
       ReturnToMainLevel();
-      */
+      
     }
   }
 }
@@ -499,7 +502,7 @@ void UOpenDriveToMap::GenerateAll(carla::road::Map* ParamCarlaMap,
   FVector MinLocation,
   FVector MaxLocation )
 {
-  if (!ParamCarlaMap.has_value())
+  if (ParamCarlaMap != nullptr)
   {
     UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Invalid Map"));
   }else
@@ -733,10 +736,12 @@ void UOpenDriveToMap::GenerateSpawnPoints( carla::road::Map* ParamCarlaMap, FVec
     if( Trans.GetLocation().X >= MinLocation.X && Trans.GetLocation().Y >= MinLocation.Y &&
         Trans.GetLocation().X <= MaxLocation.X && Trans.GetLocation().Y <= MaxLocation.Y)
     {
+    /*
       AVehicleSpawnPoint *Spawner = UEditorLevelLibrary::GetEditorWorld()->SpawnActor<AVehicleSpawnPoint>();
       Spawner->SetActorRotation(Trans.GetRotation());
       Spawner->SetActorLocation(Trans.GetTranslation() + FVector(0.f, 0.f, SpawnersHeight));
       ActorsToMove.Add(Spawner);
+    */
     }
   }
 }
@@ -943,9 +948,111 @@ void UOpenDriveToMap::MoveActorsToSubLevels(TArray<AActor*> ActorsToMove)
     ALargeMapManager* LmManager = Cast<ALargeMapManager>(QueryActor);
     if( LmManager ){
       UEditorLevelLibrary::SaveCurrentLevel();
-      UHoudiniImporterWidget::MoveActorsToSubLevelWithLargeMap(ActorsToMove, LmManager);
+      UOpenDriveToMap::MoveActorsToSubLevelWithLargeMap(ActorsToMove, LmManager);
     }
   }
 }
 
+void UOpenDriveToMap::MoveActorsToSubLevelWithLargeMap(TArray<AActor*> Actors, ALargeMapManager* LargeMapManager)
+{
+    TMap<FCarlaMapTile*, TArray<AActor*>> ActorsToMove;
+    for (AActor* Actor : Actors)
+    {
+        if (Actor == nullptr) {
+            continue;
+        }
+        UHierarchicalInstancedStaticMeshComponent* Component
+            = Cast<UHierarchicalInstancedStaticMeshComponent>(
+                Actor->GetComponentByClass(
+                    UHierarchicalInstancedStaticMeshComponent::StaticClass()));
+        FVector ActorLocation = Actor->GetActorLocation();
+        if (Component)
+        {
+            ActorLocation = FVector(0);
+            for (int32 i = 0; i < Component->GetInstanceCount(); ++i)
+            {
+                FTransform Transform;
+                Component->GetInstanceTransform(i, Transform, true);
+                ActorLocation = ActorLocation + Transform.GetTranslation();
+            }
+            ActorLocation = ActorLocation / Component->GetInstanceCount();
+        }
+        UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Actor at location %s"),
+            *ActorLocation.ToString());
+        FCarlaMapTile* Tile = LargeMapManager->GetCarlaMapTile(ActorLocation);
+        if (!Tile)
+        {
+            UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Error: actor %s in location %s is outside the map"),
+                *Actor->GetName(), *ActorLocation.ToString());
+            continue;
+        }
+
+        if (Component)
+        {
+            UpdateInstancedMeshCoordinates(Component, Tile->Location);
+        }
+        else
+        {
+            UpdateGenericActorCoordinates(Actor, Tile->Location);
+        }
+        ActorsToMove.FindOrAdd(Tile).Add(Actor);
+    }
+
+    for (auto& Element : ActorsToMove)
+    {
+        FCarlaMapTile* Tile = Element.Key;
+        TArray<AActor*> ActorList = Element.Value;
+        if (!ActorList.Num())
+        {
+            continue;
+        }
+
+        UWorld* World = UEditorLevelLibrary::GetEditorWorld();
+        ULevelStreamingDynamic* StreamingLevel = Tile->StreamingLevel;
+        StreamingLevel->bShouldBlockOnLoad = true;
+        StreamingLevel->SetShouldBeVisible(true);
+        StreamingLevel->SetShouldBeLoaded(true);
+        ULevelStreaming* Level =
+            UEditorLevelUtils::AddLevelToWorld(
+                World, *Tile->Name, ULevelStreamingDynamic::StaticClass(), FTransform());
+        int MovedActors = UEditorLevelUtils::MoveActorsToLevel(ActorList, Level, false, false);
+        // StreamingLevel->SetShouldBeLoaded(false);
+        UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Moved %d actors"), MovedActors);
+        FEditorFileUtils::SaveDirtyPackages(false, true, true, false, false, false, nullptr);
+        UEditorLevelUtils::RemoveLevelFromWorld(Level->GetLoadedLevel());
+    }
+
+    GEngine->PerformGarbageCollectionAndCleanupActors();
+    FText TransResetText(FText::FromString("Clean up after Move actors to sublevels"));
+    if (GEditor->Trans)
+    {
+        GEditor->Trans->Reset(TransResetText);
+        GEditor->Cleanse(true, true, TransResetText);
+    }
+}
+
+void UOpenDriveToMap::UpdateInstancedMeshCoordinates(
+    UHierarchicalInstancedStaticMeshComponent* Component, FVector TileOrigin)
+{
+    TArray<FTransform> NewTransforms;
+    for (int32 i = 0; i < Component->GetInstanceCount(); ++i)
+    {
+        FTransform Transform;
+        Component->GetInstanceTransform(i, Transform, true);
+        Transform.AddToTranslation(-TileOrigin);
+        NewTransforms.Add(Transform);
+        UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("New instance location %s"),
+            *Transform.GetTranslation().ToString());
+    }
+    Component->BatchUpdateInstancesTransforms(0, NewTransforms, true, true, true);
+}
+
+void UOpenDriveToMap::UpdateGenericActorCoordinates(
+    AActor* Actor, FVector TileOrigin)
+{
+    FVector LocalLocation = Actor->GetActorLocation() - TileOrigin;
+    Actor->SetActorLocation(LocalLocation);
+    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("%s New location %s"),
+        *Actor->GetName(), *LocalLocation.ToString());
+}
 #endif
