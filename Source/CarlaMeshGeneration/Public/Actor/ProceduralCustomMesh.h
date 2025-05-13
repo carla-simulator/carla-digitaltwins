@@ -10,7 +10,7 @@
 
 /// A definition of a Carla Mesh.
 USTRUCT(Blueprintable)
-struct CARLADIGITALTWINSTOOL_API FProceduralCustomMesh
+struct CARLAMESHGENERATION_API FProceduralCustomMesh
 {
   GENERATED_BODY()
 
