@@ -23,6 +23,10 @@
 #include <math.h>
 #include <float.h> //FLT_EPSILON, DBL_EPSILON
 
+#ifdef __clang__
+  #pragma clang diagnostic ignored "-Wshadow"
+#endif
+
 #define loopi(start_l, end_l) for (int i = start_l; i < end_l; ++i)
 #define loopi(start_l, end_l) for (int i = start_l; i < end_l; ++i)
 #define loopj(start_l, end_l) for (int j = start_l; j < end_l; ++j)
@@ -997,6 +1001,7 @@ namespace Simplify
         if (line[0] == 'v' && line[1] == 't')
         {
           if (line[2] == ' ')
+          {
             if (sscanf(line, "vt %lf %lf",
                        &uv.x, &uv.y) == 2)
             {
@@ -1008,6 +1013,7 @@ namespace Simplify
             {
               uvs.push_back(uv);
             }
+          }
         }
         else if (line[0] == 'v')
         {

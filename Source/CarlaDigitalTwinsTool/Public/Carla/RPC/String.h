@@ -8,16 +8,11 @@
 
 #include <string>
 
-#ifdef LIBCARLA_INCLUDED_FROM_UE4
-#include <Carla/enable-ue4-macros.h>
-#include "UnrealString.h"
-#include <Carla/disable-ue4-macros.h>
-#endif // LIBCARLA_INCLUDED_FROM_UE4
+#include "CoreMinimal.h"
 
 namespace carla {
 namespace rpc {
 
-#ifdef LIBCARLA_INCLUDED_FROM_UE4
 
   // Fast conversion from fstring
   static inline std::string FromFString(const FString &Str) {
@@ -57,7 +52,6 @@ namespace rpc {
     return result;
   }
 
-#endif // LIBCARLA_INCLUDED_FROM_UE4
 
 } // namespace rpc
 } // namespace carla

@@ -1195,7 +1195,7 @@ namespace road {
       std::thread neworker(
         [this, &write_mutex, &mesh_factory, &RoadsIDToGenerate, &road_out_mesh_list, i, num_roads_per_thread]() {
         std::map<road::Lane::LaneType, std::vector<std::unique_ptr<geom::Mesh>>> Current =
-          std::move(GenerateRoadsMultithreaded(mesh_factory, RoadsIDToGenerate,i, num_roads_per_thread ));
+          GenerateRoadsMultithreaded(mesh_factory, RoadsIDToGenerate,i, num_roads_per_thread );
         std::lock_guard<std::mutex> guard(write_mutex);
         for ( auto&& pair : Current ) {
           if (road_out_mesh_list.find(pair.first) != road_out_mesh_list.end()) {
@@ -1342,7 +1342,7 @@ namespace road {
       }
     }
 
-    return std::move(LineMarks);
+    return LineMarks;
   }
 
   std::vector<carla::geom::BoundingBox> Map::GetJunctionsBoundingBoxes() const {

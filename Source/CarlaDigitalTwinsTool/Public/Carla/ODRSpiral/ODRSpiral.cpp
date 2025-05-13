@@ -38,7 +38,7 @@
 // Edit to original file-----
 #include <Carla/ODRSpiral/ODRSpiral.h> // Enable usage on CarlaDigitalTwinsTool 
 #include <float.h>
-float M_PI = 3.14159265358979323846;
+
 // --------------------------
 #include <stdio.h>
 #include <math.h>

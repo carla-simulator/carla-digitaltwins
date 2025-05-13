@@ -8,7 +8,26 @@
 
 #include "Carla/Buffer.h"
 
-#define MCDBGQ_NOLOCKFREE_FREELIST 0
+#ifndef MCDBGQ_NOLOCKFREE_FREELIST
+  #define MCDBGQ_NOLOCKFREE_FREELIST 0
+#endif
+
+#ifndef MCDBGQ_TRACKMEM
+  #define MCDBGQ_TRACKMEM 0
+#endif
+
+#ifndef MCDBGQ_NOLOCKFREE_IMPLICITPRODBLOCKINDEX
+  #define MCDBGQ_NOLOCKFREE_IMPLICITPRODBLOCKINDEX 0
+#endif
+
+#ifndef MCDBGQ_NOLOCKFREE_IMPLICITPRODHASH
+  #define MCDBGQ_NOLOCKFREE_IMPLICITPRODHASH 0
+#endif
+
+#ifndef MCDBGQ_USEDEBUGFREELIST
+  #define MCDBGQ_USEDEBUGFREELIST 0
+#endif
+
 #if defined(__clang__)
 #  pragma clang diagnostic push
 #  pragma clang diagnostic ignored "-Wold-style-cast"

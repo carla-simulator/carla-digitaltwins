@@ -1,6 +1,8 @@
 cmake_minimum_required (VERSION 3.25)
 project (CarlaDigitalTwinsTool)
 
+set (CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 message (STATUS "Requesting boost components:")
 foreach (COMPONENT ${BOOST_COMPONENTS})
   message (STATUS " - ${COMPONENT}")

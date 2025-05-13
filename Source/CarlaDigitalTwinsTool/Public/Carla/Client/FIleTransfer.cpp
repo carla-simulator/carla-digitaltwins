@@ -25,7 +25,7 @@ namespace client {
     const char* override = std::getenv(OverridePathEV);
     if (override != NULL)
       return override;
-      std::string path;
+    std::string path;
     path += std::getenv(HomePathEV);
     path += "/carlaCache";
     return path;

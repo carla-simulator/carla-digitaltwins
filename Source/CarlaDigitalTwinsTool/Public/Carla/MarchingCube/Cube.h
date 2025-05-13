@@ -1,6 +1,10 @@
 #pragma once
 #include "DataStructs.h"
 
+#ifdef __clang__
+  #pragma clang diagnostic ignored "-Wbitfield-constant-conversion"
+#endif
+
 namespace MeshReconstruction
 {
   struct IntersectInfo
