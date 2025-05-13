@@ -169,7 +169,7 @@ public class CarlaDigitalTwinsTool : ModuleRules
         // PublicDefinitions.Add("BOOST_TYPE_INDEX_FORCE_NO_RTTI_COMPATIBILITY");
 		if (IsWindows())
 		{
-			PublicDefinitions.Add("_USE_MATH_DEFINES");
+			PrivateDefinitions.Add("_USE_MATH_DEFINES");
 		}
     }
 }
