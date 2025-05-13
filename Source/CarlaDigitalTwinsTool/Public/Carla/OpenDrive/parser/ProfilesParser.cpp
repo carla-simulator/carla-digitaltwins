@@ -4,9 +4,9 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-#include "carla/opendrive/parser/ProfilesParser.h"
+#include "Carla/OpenDrive/parser/ProfilesParser.h"
 
-#include "carla/road/MapBuilder.h"
+#include "Carla/Road/MapBuilder.h"
 
 #include <Carla/pugixml/pugixml.hpp>
 
@@ -125,7 +125,7 @@ namespace parser {
     }
 
     // map_builder calls
-    for (auto const pro : elevation_profile) {
+    for (const auto& pro : elevation_profile) {
       map_builder.AddRoadElevationProfile(pro.road, pro.s, pro.a, pro.b, pro.c, pro.d);
     }
     /// @todo: RoadInfo classes must be created to fit this information

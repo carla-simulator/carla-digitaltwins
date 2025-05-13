@@ -7,8 +7,8 @@
 #pragma once
 
 
-#include "carla/geom/Math.h"
-#include "carla/geom/Vector3D.h"
+#include "Carla/Geom/Math.h"
+#include "Carla/Geom/Vector3D.h"
 #include "Math/Rotator.h"
 
 namespace carla {

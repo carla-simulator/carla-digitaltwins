@@ -6,10 +6,10 @@
 
 #pragma once
 
-#include "carla/NonCopyable.h"
+#include "Carla/NonCopyable.h"
 #include <string>
 #include <vector>
-#include "carla/road/RoadTypes.h"
+#include "Carla/Road/RoadTypes.h"
 
 namespace carla {
 namespace road {

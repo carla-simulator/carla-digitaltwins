@@ -4,10 +4,10 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-#include "carla/geom/GeoLocation.h"
+#include "Carla/Geom/GeoLocation.h"
 
-#include "carla/geom/Location.h"
-#include "carla/geom/Math.h"
+#include "Carla/Geom/Location.h"
+#include "Carla/Geom/Math.h"
 
 #include <cmath>
 

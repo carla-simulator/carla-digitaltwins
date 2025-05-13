@@ -9,23 +9,23 @@
 #pragma warning(disable: 4800)
 #endif
 
-#include "carla/Road/RoadMap.h"
-#include "carla/Exception.h"
-#include "carla/geom/Math.h"
-#include "carla/geom/Vector3D.h"
-#include "carla/road/MeshFactory.h"
-#include "carla/road/Deformation.h"
-#include "carla/road/element/LaneCrossingCalculator.h"
-#include "carla/road/element/RoadInfoCrosswalk.h"
-#include "carla/road/element/RoadInfoElevation.h"
-#include "carla/road/element/RoadInfoGeometry.h"
-#include "carla/road/element/RoadInfoLaneOffset.h"
-#include "carla/road/element/RoadInfoLaneWidth.h"
-#include "carla/road/element/RoadInfoMarkRecord.h"
-#include "carla/road/element/RoadInfoSpeed.h"
-#include "carla/road/element/RoadInfoSignal.h"
+#include "Carla/Road/RoadMap.h"
+#include "Carla/Exception.h"
+#include "Carla/Geom/Math.h"
+#include "Carla/Geom/Vector3D.h"
+#include "Carla/Road/MeshFactory.h"
+#include "Carla/Road/Deformation.h"
+#include "Carla/Road/element/LaneCrossingCalculator.h"
+#include "Carla/Road/element/RoadInfoCrosswalk.h"
+#include "Carla/Road/element/RoadInfoElevation.h"
+#include "Carla/Road/element/RoadInfoGeometry.h"
+#include "Carla/Road/element/RoadInfoLaneOffset.h"
+#include "Carla/Road/element/RoadInfoLaneWidth.h"
+#include "Carla/Road/element/RoadInfoMarkRecord.h"
+#include "Carla/Road/element/RoadInfoSpeed.h"
+#include "Carla/Road/element/RoadInfoSignal.h"
 
-#include "marchingcube/MeshReconstruction.h"
+#include "Carla/MarchingCube/MeshReconstruction.h"
 
 #include <vector>
 #include <unordered_map>
@@ -1195,7 +1195,7 @@ namespace road {
       std::thread neworker(
         [this, &write_mutex, &mesh_factory, &RoadsIDToGenerate, &road_out_mesh_list, i, num_roads_per_thread]() {
         std::map<road::Lane::LaneType, std::vector<std::unique_ptr<geom::Mesh>>> Current =
-          std::move(GenerateRoadsMultithreaded(mesh_factory, RoadsIDToGenerate,i, num_roads_per_thread ));
+          GenerateRoadsMultithreaded(mesh_factory, RoadsIDToGenerate,i, num_roads_per_thread );
         std::lock_guard<std::mutex> guard(write_mutex);
         for ( auto&& pair : Current ) {
           if (road_out_mesh_list.find(pair.first) != road_out_mesh_list.end()) {
@@ -1342,7 +1342,7 @@ namespace road {
       }
     }
 
-    return std::move(LineMarks);
+    return LineMarks;
   }
 
   std::vector<carla::geom::BoundingBox> Map::GetJunctionsBoundingBoxes() const {

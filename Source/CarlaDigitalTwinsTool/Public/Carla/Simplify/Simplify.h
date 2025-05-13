@@ -799,8 +799,8 @@ namespace Simplify
           vids.clear();
           loopj(0, v.tcount)
           {
-            int k = refs[v.tstart + j].tid;
-            Triangle &t = triangles[k];
+            int n = refs[v.tstart + j].tid;
+            Triangle &t = triangles[n];
             loopk(0, 3)
             {
               int ofs = 0, id = t.v[k];
@@ -997,6 +997,7 @@ namespace Simplify
         if (line[0] == 'v' && line[1] == 't')
         {
           if (line[2] == ' ')
+          {
             if (sscanf(line, "vt %lf %lf",
                        &uv.x, &uv.y) == 2)
             {
@@ -1008,6 +1009,7 @@ namespace Simplify
             {
               uvs.push_back(uv);
             }
+          }
         }
         else if (line[0] == 'v')
         {

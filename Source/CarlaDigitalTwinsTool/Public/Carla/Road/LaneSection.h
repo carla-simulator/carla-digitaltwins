@@ -6,11 +6,11 @@
 
 #pragma once
 
-#include "carla/geom/CubicPolynomial.h"
-#include "carla/NonCopyable.h"
-#include "carla/road/Lane.h"
-#include "carla/road/RoadElementSet.h"
-#include "carla/road/RoadTypes.h"
+#include "Carla/Geom/CubicPolynomial.h"
+#include "Carla/NonCopyable.h"
+#include "Carla/Road/Lane.h"
+#include "Carla/Road/RoadElementSet.h"
+#include "Carla/Road/RoadTypes.h"
 
 #include <map>
 #include <vector>

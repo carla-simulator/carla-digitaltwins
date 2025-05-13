@@ -6,9 +6,9 @@
 
 #pragma once
 
-#include "carla/geom/BoundingBox.h"
-#include "carla/NonCopyable.h"
-#include "carla/road/RoadTypes.h"
+#include "Carla/Geom/BoundingBox.h"
+#include "Carla/NonCopyable.h"
+#include "Carla/Road/RoadTypes.h"
 
 #include <unordered_map>
 #include <unordered_set>

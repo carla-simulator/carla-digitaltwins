@@ -4,11 +4,11 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-#include "carla/opendrive/parser/JunctionParser.h"
+#include "Carla/OpenDrive/parser/JunctionParser.h"
 
-#include "carla/road/MapBuilder.h"
+#include "Carla/Road/MapBuilder.h"
 
-#include <pugixml/pugixml.hpp>
+#include <Carla/pugixml/pugixml.hpp>
 
 namespace carla {
 namespace opendrive {

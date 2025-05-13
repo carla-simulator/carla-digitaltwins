@@ -4,13 +4,13 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-#include "carla/opendrive/parser/ObjectParser.h"
+#include "Carla/OpenDrive/parser/ObjectParser.h"
 
-#include "carla/road/MapBuilder.h"
-#include "carla/road/element/RoadInfoCrosswalk.h"
-#include "carla/road/Road.h"
+#include "Carla/Road/MapBuilder.h"
+#include "Carla/Road/element/RoadInfoCrosswalk.h"
+#include "Carla/Road/Road.h"
 
-#include <pugixml/pugixml.hpp>
+#include <Carla/pugixml/pugixml.hpp>
 
 namespace carla {
 namespace opendrive {

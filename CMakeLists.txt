@@ -1,6 +1,4 @@
-cmake_minimum_required(VERSION 3.25)
-cmake_policy (SET CMP0167 NEW)
-
+cmake_minimum_required (VERSION 3.25)
 project (CarlaDigitalTwinsTool)
 
 message (STATUS "Requesting boost components:")
@@ -21,7 +19,6 @@ set (BOOST_INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/boost-install)
 
 set (Boost_VERBOSE ON)
 set (Boost_DEBUG ON)
-set (Boost_NO_BOOST_CMAKE ON)
 
 find_package (
   Boost ${BOOST_VERSION}
@@ -81,9 +78,13 @@ if (NOT ${Boost_FOUND})
         -B ${BOOST_BUILD_DIR}
         -G ${CMAKE_GENERATOR}
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+        -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON
         -DBOOST_INSTALL_LAYOUT=system
         -DCMAKE_INSTALL_MESSAGE=${CMAKE_INSTALL_MESSAGE}
         -DBOOST_ENABLE_PYTHON=${BUILD_BOOST_PYTHON}
+        -DBOOST_FILESYSTEM_DISABLE_STATX=ON
+        -DBOOST_FILESYSTEM_DISABLE_GETRANDOM=ON
         -DBOOST_GIL_BUILD_EXAMPLES=OFF
         -DBOOST_GIL_BUILD_HEADER_TESTS=OFF
     RESULTS_VARIABLE

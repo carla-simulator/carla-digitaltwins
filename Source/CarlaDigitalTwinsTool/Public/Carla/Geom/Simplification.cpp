@@ -4,8 +4,8 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-#include "carla/geom/Simplification.h"
-#include "simplify/Simplify.h"
+#include "Carla/Geom/Simplification.h"
+#include "Carla/Simplify/Simplify.h"
 
 namespace carla {
 namespace geom {

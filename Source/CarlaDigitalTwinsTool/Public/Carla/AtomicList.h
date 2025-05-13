@@ -6,8 +6,8 @@
 
 #pragma once
 
-#include "carla/AtomicSharedPtr.h"
-#include "carla/NonCopyable.h"
+#include "Carla/AtomicSharedPtr.h"
+#include "Carla/NonCopyable.h"
 
 #include <algorithm>
 #include <mutex>

@@ -4,20 +4,20 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-#include "carla/road/element/Geometry.h"
+#include "Carla/Road/element/Geometry.h"
 
-#include "carla/Debug.h"
-#include "carla/Exception.h"
-#include "carla/geom/Location.h"
-#include "carla/geom/Math.h"
-#include "carla/geom/Vector2D.h"
+#include "Carla/Debug.h"
+#include "Carla/Exception.h"
+#include "Carla/Geom/Location.h"
+#include "Carla/Geom/Math.h"
+#include "Carla/Geom/Vector2D.h"
 
 #include <Carla/disable-ue4-macros.h>
 #include <boost/array.hpp>
 #include <boost/math/tools/rational.hpp>
 #include <Carla/enable-ue4-macros.h>
 
-#include <odrSpiral/odrSpiral.h>
+#include <Carla/ODRSpiral/ODRSpiral.h>
 
 #include <algorithm>
 #include <cmath>

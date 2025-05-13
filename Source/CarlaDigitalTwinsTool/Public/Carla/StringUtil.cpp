@@ -4,7 +4,7 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-#include "carla/StringUtil.h"
+#include "Carla/StringUtil.h"
 
 #ifdef _WIN32
 #  include <shlwapi.h>

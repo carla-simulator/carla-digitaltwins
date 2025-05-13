@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "carla/NonCopyable.h"
+#include "Carla/NonCopyable.h"
 
 #include <Carla/disable-ue4-macros.h>
 

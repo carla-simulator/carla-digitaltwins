@@ -6,8 +6,8 @@
 
 #pragma once
 
-#include "carla/road/Signal.h"
-#include "carla/road/element/RoadInfo.h"
+#include "Carla/Road/Signal.h"
+#include "Carla/Road/element/RoadInfo.h"
 
 namespace carla {
 namespace road {

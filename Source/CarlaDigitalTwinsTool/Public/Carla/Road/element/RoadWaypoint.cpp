@@ -4,7 +4,7 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-#include "carla/Road/element/RoadWaypoint.h"
+#include "Carla/Road/element/RoadWaypoint.h"
 
 #include <Carla/disable-ue4-macros.h>
 #include <boost/container_hash/hash.hpp>

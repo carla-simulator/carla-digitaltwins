@@ -6,9 +6,9 @@
 
 #pragma once
 
-#include "carla/geom/Vector3D.h"
-#include "carla/geom/Vector3DInt.h"
-#include "carla/geom/Math.h"
+#include "Carla/Geom/Vector3D.h"
+#include "Carla/Geom/Vector3DInt.h"
+#include "Carla/Geom/Math.h"
 
 #ifdef LIBCARLA_INCLUDED_FROM_UE4
 #include "Math/Vector.h"

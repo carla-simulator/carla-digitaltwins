@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "carla/Platform.h"
+#include "Carla/Platform.h"
 
 #define LIBCARLA_LOG_LEVEL_DEBUG     10
 #define LIBCARLA_LOG_LEVEL_INFO      20

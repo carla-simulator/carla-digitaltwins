@@ -6,8 +6,8 @@
 
 #pragma once
 
-#include "carla/road/element/RoadInfo.h"
-#include "carla/geom/CubicPolynomial.h"
+#include "Carla/Road/element/RoadInfo.h"
+#include "Carla/Geom/CubicPolynomial.h"
 
 namespace carla {
 namespace road {

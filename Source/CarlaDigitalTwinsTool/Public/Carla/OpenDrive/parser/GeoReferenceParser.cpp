@@ -4,14 +4,14 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-#include "carla/opendrive/parser/GeoReferenceParser.h"
+#include "Carla/OpenDrive/parser/GeoReferenceParser.h"
 
-#include "carla/Logging.h"
-#include "carla/StringUtil.h"
-#include "carla/geom/GeoLocation.h"
-#include "carla/road/MapBuilder.h"
+#include "Carla/Logging.h"
+#include "Carla/StringUtil.h"
+#include "Carla/Geom/GeoLocation.h"
+#include "Carla/Road/MapBuilder.h"
 
-#include <pugixml/pugixml.hpp>
+#include <Carla/pugixml/pugixml.hpp>
 
 #include <limits>
 #include <string>

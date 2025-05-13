@@ -6,8 +6,8 @@
 
 #pragma once
 
-#include "carla/Debug.h"
-#include "carla/geom/Vector3D.h"
+#include "Carla/Debug.h"
+#include "Carla/Geom/Vector3D.h"
 
 #include <cmath>
 #include <type_traits>

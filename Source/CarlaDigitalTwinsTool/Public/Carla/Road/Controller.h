@@ -6,8 +6,8 @@
 
 #pragma once
 
-#include "carla/NonCopyable.h"
-#include "carla/road/RoadTypes.h"
+#include "Carla/NonCopyable.h"
+#include "Carla/Road/RoadTypes.h"
 
 #include <set>
 
