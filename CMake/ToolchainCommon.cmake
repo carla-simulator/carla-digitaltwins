@@ -10,19 +10,10 @@
 
 if (LINUX)
 
-set (UE_ROOT $ENV{CARLA_UNREAL_ENGINE_PATH})
-
-if (NOT UE_ROOT)
-	set (UE_ROOT $ENV{UE_ROOT})
-endif ()
-
-if ("${UE_ROOT}" STREQUAL "")
-	set (UE_ROOT ${CARLA_UNREAL_ENGINE_PATH})
-	set (ENV{UE_ROOT} ${UE_ROOT}) # @TODO
-endif ()
+set (UE_ROOT $ENV{${CARLA_UE_ENV_VAR_NAME}})
 
 if (NOT EXISTS ${UE_ROOT})
-	message (FATAL_ERROR "The specified Carla Unreal Engine 5 path does not exist (\"${UE_ROOT}\").")
+	message (FATAL_ERROR "The specified Carla Unreal Engine path does not exist (\"${UE_ROOT}\").")
 endif ()
 
 set (ARCH ${CMAKE_HOST_SYSTEM_PROCESSOR})
