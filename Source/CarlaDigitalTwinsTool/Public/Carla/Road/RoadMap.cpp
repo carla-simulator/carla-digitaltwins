@@ -4,6 +4,11 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4800)
+#endif
+
 #include "carla/Road/RoadMap.h"
 #include "carla/Exception.h"
 #include "carla/geom/Math.h"
@@ -29,6 +34,10 @@
 #include <thread>
 #include <iomanip>
 #include <cmath>
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 namespace carla {
 namespace road {

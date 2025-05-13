@@ -36,7 +36,7 @@ public class CarlaDigitalTwinsTool : ModuleRules
 
 	private void BuildBoost()
 	{
-		var verbose = false;
+		var verbose = true;
 		var CurrentProcess = Process.GetCurrentProcess();
 		var BuildPath = Path.Combine(PluginDirectory, "Build");
 		
@@ -82,9 +82,12 @@ public class CarlaDigitalTwinsTool : ModuleRules
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 		bUseUnity = false;
+
         if (IsWindows())
         {
             bEnableExceptions = true;
+            PublicDefinitions.Add("DISABLE_WARNING_C4800=1");
+						PublicAdditionalLibraries.Add("shlwapi.lib");
         }
         PublicIncludePaths.AddRange(
 			new string[] {

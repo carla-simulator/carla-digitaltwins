@@ -1,6 +1,6 @@
 @echo off
 
-set BOOST_COMPONENTS="asio;iterator;date_time;geometry;container;variant2;gil"
+set BOOST_COMPONENTS="asio;iterator;date_time;geometry;container;variant2;gil;filesystem"
 set SCRIPT_PATH=%~f0
 set SOURCE_PATH=%SCRIPT_PATH:Setup.bat=%
 

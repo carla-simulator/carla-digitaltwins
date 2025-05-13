@@ -1,6 +1,6 @@
 #! /bin/bash
 
-BOOST_COMPONENTS="asio;iterator;date_time;geometry;container;variant2;gil"
+BOOST_COMPONENTS="asio;iterator;date_time;geometry;container;variant2;gil;filesystem"
 
 SCRIPT_PATH=$(readlink -f -- "${BASH_SOURCE[0]}")
 SOURCE_PATH=$(dirname "${SCRIPT_PATH}")
