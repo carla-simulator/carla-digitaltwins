@@ -9,11 +9,11 @@
 #include <memory>
 #include <vector>
 
-#include <carla/geom/Mesh.h>
-#include <carla/road/Road.h>
-#include <carla/road/LaneSection.h>
-#include <carla/road/Lane.h>
-#include <carla/rpc/OpendriveGenerationParameters.h>
+#include <Carla/Geom/Mesh.h>
+#include <Carla/Road/Road.h>
+#include <Carla/Road/LaneSection.h>
+#include <Carla/Road/Lane.h>
+#include <Carla/RPC/OpendriveGenerationParameters.h>
 
 namespace carla {
 namespace geom {

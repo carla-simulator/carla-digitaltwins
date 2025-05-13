@@ -7,18 +7,18 @@
 #pragma once
 
 #include "Carla/Geom/GeoLocation.h"
-#include "carla/geom/Mesh.h"
-#include "carla/geom/Rtree.h"
-#include "carla/geom/Transform.h"
-#include "carla/NonCopyable.h"
-#include "carla/road/element/LaneMarking.h"
-#include "carla/road/element/RoadInfoMarkRecord.h"
-#include "carla/Road/element/RoadWaypoint.h"
+#include "Carla/Geom/Mesh.h"
+#include "Carla/Geom/Rtree.h"
+#include "Carla/Geom/Transform.h"
+#include "Carla/NonCopyable.h"
+#include "Carla/Road/element/LaneMarking.h"
+#include "Carla/Road/element/RoadInfoMarkRecord.h"
+#include "Carla/Road/element/RoadWaypoint.h"
 #include "Carla/Road/MapData.h"
-#include "carla/road/RoadTypes.h"
-#include "carla/road/MeshFactory.h"
-#include "carla/geom/Vector3D.h"
-#include "carla/rpc/OpendriveGenerationParameters.h"
+#include "Carla/Road/RoadTypes.h"
+#include "Carla/Road/MeshFactory.h"
+#include "Carla/Geom/Vector3D.h"
+#include "Carla/RPC/OpendriveGenerationParameters.h"
 
 
 #include <Carla/disable-ue4-macros.h>

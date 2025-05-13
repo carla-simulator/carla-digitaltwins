@@ -133,7 +133,7 @@ namespace pugi
 #endif
 }
 
-// The PugiXML namespace
+// The pugixml namespace
 namespace pugi
 {
 	// Tree node types

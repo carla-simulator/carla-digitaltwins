@@ -71,7 +71,7 @@ namespace geom {
 
     Vector3D MakeSafeUnitVector(const float epsilon) const  {
       const float length = Length();
-      const float k = (length > std::max(epsilon, 0.0f)) ? (1.0f / length) : 1.0f;
+      const float k = (length > std::fmax(epsilon, 0.0f)) ? (1.0f / length) : 1.0f;
       return Vector3D(x * k, y * k, z * k);
     }
 

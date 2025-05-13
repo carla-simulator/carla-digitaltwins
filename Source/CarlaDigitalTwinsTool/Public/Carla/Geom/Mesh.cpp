@@ -4,7 +4,7 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-#include <carla/geom/Mesh.h>
+#include <Carla/Geom/Mesh.h>
 
 #include <string>
 #include <sstream>
@@ -13,7 +13,7 @@
 #include <fstream>
 #include <algorithm>
 
-#include <carla/geom/Math.h>
+#include <Carla/Geom/Math.h>
 
 namespace carla {
 namespace geom {

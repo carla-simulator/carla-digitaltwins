@@ -6,10 +6,10 @@
 
 #pragma once
 
-#include "carla/geom/Location.h"
-#include "carla/geom/Math.h"
-#include "carla/geom/CubicPolynomial.h"
-#include "carla/geom/Rtree.h"
+#include "Carla/Geom/Location.h"
+#include "Carla/Geom/Math.h"
+#include "Carla/Geom/CubicPolynomial.h"
+#include "Carla/Geom/Rtree.h"
 
 namespace carla {
 namespace road {

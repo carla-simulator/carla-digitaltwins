@@ -41,6 +41,7 @@
 #include "Carla/Geom/Deformation.h"
 //#include "Carla/BlueprintLibary/MapGenFunctionLibrary.h"
 //#include "OpenDrive/OpenDriveGenerator.h"
+#include "Carla/RPC/String.h"
 
 #include "DrawDebugHelpers.h"
 

@@ -1,6 +1,6 @@
-#include "carla/Buffer.h"
+#include "Carla/Buffer.h"
 
-#include "carla/BufferPool.h"
+#include "Carla/BufferPool.h"
 
 namespace carla {
 

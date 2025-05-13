@@ -4,7 +4,7 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-#include "carla/Exception.h"
+#include "Carla/Exception.h"
 
 #include <Carla/disable-ue4-macros.h>
 #include <boost/assert/source_location.hpp>

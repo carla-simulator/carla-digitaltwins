@@ -8,8 +8,8 @@
 
 #include <vector>
 #include <string>
-#include <carla/geom/Vector3D.h>
-#include <carla/geom/Vector2D.h>
+#include <Carla/Geom/Vector3D.h>
+#include <Carla/Geom/Vector2D.h>
 
 
 #include "Actor/ProceduralCustomMesh.h"

@@ -6,11 +6,11 @@
 
 #pragma once
 
-#include "carla/Memory.h"
-#include "carla/NonCopyable.h"
-#include "carla/road/RoadTypes.h"
-#include "carla/road/LaneValidity.h"
-#include "carla/geom/Transform.h"
+#include "Carla/Memory.h"
+#include "Carla/NonCopyable.h"
+#include "Carla/Road/RoadTypes.h"
+#include "Carla/Road/LaneValidity.h"
+#include "Carla/Geom/Transform.h"
 
 #include <string>
 #include <vector>

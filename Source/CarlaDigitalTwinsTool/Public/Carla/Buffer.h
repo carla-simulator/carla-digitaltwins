@@ -6,9 +6,9 @@
 
 #pragma once
 
-#include "carla/Debug.h"
-#include "carla/Exception.h"
-#include "carla/Logging.h"
+#include "Carla/Debug.h"
+#include "Carla/Exception.h"
+#include "Carla/Logging.h"
 
 #include <Carla/disable-ue4-macros.h>
 #include <boost/asio/buffer.hpp>

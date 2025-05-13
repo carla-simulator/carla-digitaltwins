@@ -4,9 +4,9 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-#include "carla/geom/Math.h"
+#include "Carla/Geom/Math.h"
 
-#include "carla/geom/Rotation.h"
+#include "Carla/Geom/Rotation.h"
 
 namespace carla {
 namespace geom {

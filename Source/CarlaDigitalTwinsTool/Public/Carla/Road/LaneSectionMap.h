@@ -6,8 +6,8 @@
 
 #pragma once
 
-#include "carla/NonCopyable.h"
-#include "carla/road/LaneSection.h"
+#include "Carla/NonCopyable.h"
+#include "Carla/Road/LaneSection.h"
 
 #include <map>
 #include <unordered_map>

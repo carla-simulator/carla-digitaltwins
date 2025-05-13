@@ -2,7 +2,7 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-#include "LargeMapManager.h"
+#include "Actor/LargeMapManager.h"
 
 #include "Engine/WorldComposition.h"
 #include "Engine/ObjectLibrary.h"
@@ -13,8 +13,8 @@
 #include "LandscapeComponent.h"
 #include "Kismet/GameplayStatics.h"
 
-#include "FileHelper.h"
-#include "Paths.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 
 #define LARGEMAP_LOGS 1
 

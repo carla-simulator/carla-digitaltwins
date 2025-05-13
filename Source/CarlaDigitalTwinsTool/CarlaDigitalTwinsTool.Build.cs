@@ -163,6 +163,13 @@ public class CarlaDigitalTwinsTool : ModuleRules
         PublicDefinitions.Add("PUGIXML_NO_EXCEPTIONS");
         PublicDefinitions.Add("BOOST_DISABLE_ABI_HEADERS");
         PublicDefinitions.Add("BOOST_TYPE_INDEX_FORCE_NO_RTTI_COMPATIBILITY");
-        PublicDefinitions.Add("_USE_MATH_DEFINES");
+		if (IsWindows())
+		{
+			PublicDefinitions.Add("_USE_MATH_DEFINES");
+		}
+		else
+		{
+			PublicDefinitions.Add("_GNU_SOURCE");
+		}
     }
 }

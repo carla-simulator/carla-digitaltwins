@@ -6,9 +6,9 @@
 
 #pragma once
 
-#include "carla/geom/Location.h"
-#include "carla/geom/Math.h"
-#include "carla/geom/Rotation.h"
+#include "Carla/Geom/Location.h"
+#include "Carla/Geom/Math.h"
+#include "Carla/Geom/Rotation.h"
 
 #include <array>
 

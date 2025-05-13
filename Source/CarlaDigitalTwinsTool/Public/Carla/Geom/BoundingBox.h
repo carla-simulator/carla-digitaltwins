@@ -6,11 +6,11 @@
 
 #pragma once
 
-#include "carla/Debug.h"
+#include "Carla/Debug.h"
 
-#include "carla/geom/Transform.h"
-#include "carla/geom/Location.h"
-#include "carla/geom/Vector3D.h"
+#include "Carla/Geom/Transform.h"
+#include "Carla/Geom/Location.h"
+#include "Carla/Geom/Vector3D.h"
 
 #include <array>
 #include <algorithm>

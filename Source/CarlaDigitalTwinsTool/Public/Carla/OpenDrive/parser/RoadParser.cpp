@@ -4,14 +4,14 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-#include "carla/opendrive/parser/RoadParser.h"
+#include "Carla/OpenDrive/parser/RoadParser.h"
 
-#include "carla/Logging.h"
-#include "carla/StringUtil.h"
-#include "carla/road/MapBuilder.h"
-#include "carla/road/RoadTypes.h"
+#include "Carla/Logging.h"
+#include "Carla/StringUtil.h"
+#include "Carla/Road/MapBuilder.h"
+#include "Carla/Road/RoadTypes.h"
 
-#include <pugixml/pugixml.hpp>
+#include <Carla/pugixml/pugixml.hpp>
 
 namespace carla {
 namespace opendrive {
@@ -287,7 +287,7 @@ namespace parser {
      */
 
     // map_builder calls
-    for (auto const r : roads) {
+    for (const auto& r : roads) {
       carla::road::Road *road = map_builder.AddRoad(r.id,
           r.name,
           r.length,
@@ -296,22 +296,22 @@ namespace parser {
           r.successor);
 
       // type speed
-      for (auto const s : r.speed) {
+      for (const auto& s : r.speed) {
         map_builder.CreateRoadSpeed(road, s.s, s.type, s.max, s.unit);
       }
 
       // section offsets
-      for (auto const s : r.section_offsets) {
+      for (const auto& s : r.section_offsets) {
         map_builder.CreateSectionOffset(road, s.s, s.a, s.b, s.c, s.d);
       }
 
       // lane sections
       road::SectionId i = 0;
-      for (auto const s : r.sections) {
+      for (const auto& s : r.sections) {
         carla::road::LaneSection *section = map_builder.AddRoadSection(road, i++, s.s);
 
         // lanes
-        for (auto const l : s.lanes) {
+        for (const auto& l : s.lanes) {
           /*carla::road::Lane *lane = */ map_builder.AddRoadSectionLane(section, l.id,
               static_cast<uint32_t>(l.type), l.level, l.predecessor, l.successor);
         }

@@ -6,8 +6,8 @@
 
 #pragma once
 
-#include "carla/Debug.h"
-#include "carla/NonCopyable.h"
+#include "Carla/Debug.h"
+#include "Carla/NonCopyable.h"
 
 #include <thread>
 #include <vector>

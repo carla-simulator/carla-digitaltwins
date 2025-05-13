@@ -1,6 +1,4 @@
-cmake_minimum_required(VERSION 3.25)
-cmake_policy (SET CMP0167 NEW)
-
+cmake_minimum_required (VERSION 3.25)
 project (CarlaDigitalTwinsTool)
 
 message (STATUS "Requesting boost components:")
@@ -21,7 +19,6 @@ set (BOOST_INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/boost-install)
 
 set (Boost_VERBOSE ON)
 set (Boost_DEBUG ON)
-set (Boost_NO_BOOST_CMAKE ON)
 
 find_package (
   Boost ${BOOST_VERSION}

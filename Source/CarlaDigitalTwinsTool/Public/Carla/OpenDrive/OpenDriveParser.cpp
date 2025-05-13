@@ -4,22 +4,22 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-#include "carla/opendrive/OpenDriveParser.h"
+#include "Carla/OpenDrive/OpenDriveParser.h"
 
-#include "carla/Logging.h"
-#include "carla/opendrive/parser/ControllerParser.h"
-#include "carla/opendrive/parser/GeoReferenceParser.h"
-#include "carla/opendrive/parser/GeometryParser.h"
-#include "carla/opendrive/parser/JunctionParser.h"
-#include "carla/opendrive/parser/LaneParser.h"
-#include "carla/opendrive/parser/ObjectParser.h"
-#include "carla/opendrive/parser/ProfilesParser.h"
-#include "carla/opendrive/parser/RoadParser.h"
-#include "carla/opendrive/parser/SignalParser.h"
-#include "carla/opendrive/parser/TrafficGroupParser.h"
-#include "carla/road/MapBuilder.h"
+#include "Carla/Logging.h"
+#include "Carla/OpenDrive/parser/ControllerParser.h"
+#include "Carla/OpenDrive/parser/GeoReferenceParser.h"
+#include "Carla/OpenDrive/parser/GeometryParser.h"
+#include "Carla/OpenDrive/parser/JunctionParser.h"
+#include "Carla/OpenDrive/parser/LaneParser.h"
+#include "Carla/OpenDrive/parser/ObjectParser.h"
+#include "Carla/OpenDrive/parser/ProfilesParser.h"
+#include "Carla/OpenDrive/parser/RoadParser.h"
+#include "Carla/OpenDrive/parser/SignalParser.h"
+#include "Carla/OpenDrive/parser/TrafficGroupParser.h"
+#include "Carla/Road/MapBuilder.h"
 
-#include <pugixml/pugixml.hpp>
+#include <Carla/pugixml/pugixml.hpp>
 
 namespace carla {
 namespace opendrive {
