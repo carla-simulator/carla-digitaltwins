@@ -23,10 +23,6 @@
 #include <math.h>
 #include <float.h> //FLT_EPSILON, DBL_EPSILON
 
-#ifdef __clang__
-  #pragma clang diagnostic ignored "-Wshadow"
-#endif
-
 #define loopi(start_l, end_l) for (int i = start_l; i < end_l; ++i)
 #define loopi(start_l, end_l) for (int i = start_l; i < end_l; ++i)
 #define loopj(start_l, end_l) for (int j = start_l; j < end_l; ++j)
@@ -803,8 +799,8 @@ namespace Simplify
           vids.clear();
           loopj(0, v.tcount)
           {
-            int k = refs[v.tstart + j].tid;
-            Triangle &t = triangles[k];
+            int n = refs[v.tstart + j].tid;
+            Triangle &t = triangles[n];
             loopk(0, 3)
             {
               int ofs = 0, id = t.v[k];
