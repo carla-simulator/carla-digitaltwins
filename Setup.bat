@@ -27,6 +27,33 @@ cd /d "%DIGITAL_TWINS_TOOL_PLUGINS_STREETMAP%"
 git fetch
 git checkout %CURRENT_STREETMAP_COMMIT%
 
+:: CONTENT_ prefixed variables
+set "CONTENT_FOLDER=Content"
+set "CONTENT_TARGET_DIR=%CONTENT_FOLDER%\digitalTwins"
+set "CONTENT_REPO_URL=https://bitbucket.org/carla-simulator/digitaltwins.git"
+
+:: Check if the digitalTwins folder already exists
+if exist "%CONTENT_TARGET_DIR%\" (
+    echo The folder "%CONTENT_TARGET_DIR%" already exists.
+) else (
+    echo The folder "%CONTENT_TARGET_DIR%" does not exist. Cloning the repository...
+
+    :: Create the Content folder if it doesn't exist
+    if not exist "%CONTENT_FOLDER%\" (
+        mkdir "%CONTENT_FOLDER%"
+    )
+
+    :: Clone the repository into the target directory
+    git clone "%CONTENT_REPO_URL%" "%CONTENT_TARGET_DIR%"
+    
+    if errorlevel 1 (
+        echo ERROR: Failed to clone the repository.
+        exit /b 1
+    ) else (
+        echo Repository successfully cloned into "%CONTENT_TARGET_DIR%".
+    )
+)
+
 set BOOST_COMPONENTS="asio;iterator;date_time;geometry;container;variant2;gil;filesystem"
 set SCRIPT_PATH=%~f0
 set SOURCE_PATH=%SCRIPT_PATH:Setup.bat=%
