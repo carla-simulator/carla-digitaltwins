@@ -143,8 +143,7 @@ public class CarlaDigitalTwinsTool : ModuleRules
 				"MeshMergeUtilities",
 				"CarlaMeshGeneration",
 				"StreetMapImporting",
-				"StreetMapRuntime"
-
+				"StreetMapRuntime",
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);

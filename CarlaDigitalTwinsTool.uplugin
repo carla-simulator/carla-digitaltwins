@@ -17,7 +17,12 @@
 	"Modules": [
 		{
 			"Name": "CarlaDigitalTwinsTool",
-			"Type": "Runtime",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "CarlaMeshGeneration",
+			"Type": "Editor",
 			"LoadingPhase": "Default"
 		}
 	],
