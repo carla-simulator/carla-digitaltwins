@@ -26,6 +26,40 @@ cd "$DIGITAL_TWINS_TOOL_PLUGINS_STREETMAP" || exit 1
 git fetch
 git checkout "$CURRENT_STREETMAP_COMMIT"
 
+
+# CONTENT_ prefixed variables
+CONTENT_FOLDER="Content"
+CONTENT_TARGET_DIR="$CONTENT_FOLDER/digitalTwins"
+CONTENT_REPO_URL="https://bitbucket.org/carla-simulator/digitaltwins.git"
+
+# Check if the digitalTwins folder already exists
+if [ -d "$CONTENT_TARGET_DIR" ]; then
+    echo "The folder \"$CONTENT_TARGET_DIR\" already exists."
+else
+    echo "The folder \"$CONTENT_TARGET_DIR\" does not exist. Cloning the repository..."
+
+    # Check if Git is installed
+    if ! command -v git &> /dev/null; then
+        echo "ERROR: Git is not installed or not found in PATH."
+        exit 1
+    fi
+
+    # Create the Content folder if it doesn't exist
+    if [ ! -d "$CONTENT_FOLDER" ]; then
+        mkdir -p "$CONTENT_FOLDER"
+    fi
+
+    # Clone the repository into the target directory
+    git clone "$CONTENT_REPO_URL" "$CONTENT_TARGET_DIR"
+    
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Failed to clone the repository."
+        exit 1
+    else
+        echo "Repository successfully cloned into \"$CONTENT_TARGET_DIR\"."
+    fi
+fi
+
 BOOST_COMPONENTS="asio;iterator;date_time;geometry;container;variant2;gil;filesystem"
 
 SCRIPT_PATH=$(readlink -f -- "${BASH_SOURCE[0]}")
