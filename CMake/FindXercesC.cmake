@@ -98,6 +98,23 @@ if (NOT ${XercesC_FOUND})
     RESULTS_VARIABLE
       XERCESC_INSTALL_RESULT
   )
+
+  # @TODO HACK:
+  # --
+  if ("${BASH_EXECUTABLE}" STREQUAL "")
+    set (BASH_EXECUTABLE bash)
+    if (WIN32)
+      set (BASH_EXECUTABLE $ENV{PROGRAMFILES}/Git/bin/bash.exe)
+    endif ()
+  endif ()
+
+  execute_process (
+    COMMAND
+      ${BASH_EXECUTABLE}
+        ${CMAKE_CURRENT_LIST_DIR}/XercesCConfig_HACK.sh
+        ${XERCESC_INSTALL_DIR}/cmake/XercesCConfig.cmake
+  )
+  # --
   
   if (XERCESC_INSTALL_RESULT)
     message (FATAL_ERROR "Could not bootstrap XercesC, install step failed.")
