@@ -12,7 +12,10 @@ set "PLUGIN_BASE_DIR=%SCRIPT_DIR%.."
 set "DIGITAL_TWINS_TOOL_PLUGINS=%PLUGIN_BASE_DIR%"
 set "DIGITAL_TWINS_TOOL_PLUGINS_STREETMAP=%DIGITAL_TWINS_TOOL_PLUGINS%\StreetMap"
 
-:: Git config
+rem ============================================================================
+rem -- StreetMaps      ---------------------------------------------------------
+rem ============================================================================
+
 set "CURRENT_STREETMAP_COMMIT=afc7217a372e6f50dfa7eb85f819c5faf0818138"
 set "STREETMAP_BRANCH=aaron/digitalTwinsstandalone"
 set "STREETMAP_REPO=https://github.com/carla-simulator/StreetMap.git"
@@ -22,37 +25,46 @@ if not exist "%DIGITAL_TWINS_TOOL_PLUGINS_STREETMAP%\" (
     git clone -b %STREETMAP_BRANCH% %STREETMAP_REPO% "%DIGITAL_TWINS_TOOL_PLUGINS_STREETMAP%"
 )
 
-:: Move into repo directory and checkout specific commit
 cd /d "%DIGITAL_TWINS_TOOL_PLUGINS_STREETMAP%"
 git fetch
 git checkout %CURRENT_STREETMAP_COMMIT%
 
-:: CONTENT_ prefixed variables
+rem ============================================================================
+rem -- Digital TwinsContent-----------------------------------------------------
+rem ============================================================================
+
+cd /d "%~dp0"
+
 set "CONTENT_FOLDER=Content"
 set "CONTENT_TARGET_DIR=%CONTENT_FOLDER%\digitalTwins"
 set "CONTENT_REPO_URL=https://bitbucket.org/carla-simulator/digitaltwins.git"
 
-:: Check if the digitalTwins folder already exists
 if exist "%CONTENT_TARGET_DIR%\" (
-    echo The folder "%CONTENT_TARGET_DIR%" already exists.
+    echo Folder "%CONTENT_TARGET_DIR%" already exists. Skipping clone.
 ) else (
-    echo The folder "%CONTENT_TARGET_DIR%" does not exist. Cloning the repository...
+    echo Folder does not exist. Cloning repository...
 
-    :: Create the Content folder if it doesn't exist
     if not exist "%CONTENT_FOLDER%\" (
+        echo Creating content folder...
         mkdir "%CONTENT_FOLDER%"
     )
 
-    :: Clone the repository into the target directory
+    echo Running git clone...
     git clone "%CONTENT_REPO_URL%" "%CONTENT_TARGET_DIR%"
-    
+
+    echo Git clone returned code: %ERRORLEVEL%
     if errorlevel 1 (
-        echo ERROR: Failed to clone the repository.
+        echo ERROR: Failed to clone repository!
+        pause
         exit /b 1
     ) else (
-        echo Repository successfully cloned into "%CONTENT_TARGET_DIR%".
+        echo SUCCESS: Repo cloned into "%CONTENT_TARGET_DIR%"
     )
 )
+
+rem ============================================================================
+rem -- Boost  ------------------------------------------------------------------
+rem ============================================================================
 
 set BOOST_COMPONENTS="asio;iterator;date_time;geometry;container;variant2;gil;filesystem"
 set SCRIPT_PATH=%~f0
