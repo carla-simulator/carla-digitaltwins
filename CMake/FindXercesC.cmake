@@ -122,11 +122,25 @@ if (NOT ${XercesC_FOUND})
     endif ()
   endif ()
 
+  file (
+    GLOB_RECURSE
+    XERCESC_CONFIG_PATH_CANDIDATES
+    FOLLOW_SYMLINKS
+    LIST_DIRECTORIES FALSE
+    ${XERCESC_INSTALL_DIR}/**/XercesCConfig.cmake
+  )
+
+  if (NOT XERCESC_CONFIG_PATH_CANDIDATES)
+    message (FATAL_ERROR "Could not find XercesCConfig.cmake.")
+  endif ()
+
+  list (GET XERCESC_CONFIG_PATH_CANDIDATES 0 XERCESC_CONFIG_PATH)
+
   execute_process (
     COMMAND
       ${BASH_EXECUTABLE}
         ${CMAKE_CURRENT_LIST_DIR}/XercesCConfig_HACK.sh
-        ${XERCESC_INSTALL_DIR}/lib/cmake/XercesC/XercesCConfig.cmake
+        ${XERCESC_CONFIG_PATH}
   )
   # --
   
@@ -134,8 +148,15 @@ if (NOT ${XercesC_FOUND})
     message (FATAL_ERROR "Could not bootstrap XercesC, install step failed.")
   endif ()
 
-  list (APPEND CMAKE_PREFIX_PATH ${XERCESC_INSTALL_DIR}/lib/cmake/XercesC)
-  list (APPEND CMAKE_MODULE_PATH ${XERCESC_INSTALL_DIR}/lib/cmake/XercesC)
+  cmake_path (
+    GET
+    XERCESC_CONFIG_PATH
+    PARENT_PATH
+    XERCESC_CONFIG_DIR
+  )
+
+  list (APPEND CMAKE_PREFIX_PATH ${XERCESC_CONFIG_DIR})
+  list (APPEND CMAKE_MODULE_PATH ${XERCESC_CONFIG_DIR})
 
 endif ()
 
