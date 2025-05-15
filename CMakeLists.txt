@@ -1,8 +1,6 @@
 cmake_minimum_required (VERSION 3.25)
 project (CarlaDigitalTwinsTool)
 
-
-
 macro (DumpLibraryPath PATH)
   file (
     APPEND
@@ -28,11 +26,17 @@ macro (DumpPublicDefinition DEFINITION)
 endmacro ()
 
 macro (DumpDependencyInfo DEPENDENCY_NAME)
+  message (STATUS "Retrieving dependency info for ${DEPENDENCY_NAME}.")
 
   get_target_property (DEPENDENCY_TYPE ${DEPENDENCY_NAME} TYPE)
   if (NOT ("${DEPENDENCY_TYPE}" STREQUAL "INTERFACE_LIBRARY"))
     get_target_property (COMPONENT_LOCATION ${DEPENDENCY_NAME} LOCATION)
     DumpLibraryPath("${COMPONENT_LOCATION}\n")
+  else ()
+    get_target_property (DEPENDENCY_INTERFACE_LINK_LIBRARIES ${DEPENDENCY_NAME} INTERFACE_LINK_LIBRARIES)
+    foreach (DEPENDENCY_INTERFACE_LINK_LIBRARY ${DEPENDENCY_INTERFACE_LINK_LIBRARIES})
+      DumpLibraryPath("$<TARGET_PROPERTY:${DEPENDENCY_INTERFACE_LINK_LIBRARY},COMPONENT_LOCATION>\n")
+    endforeach ()
   endif ()
 
   DumpIncludePath("$<JOIN:$<TARGET_PROPERTY:${DEPENDENCY_NAME},INTERFACE_INCLUDE_DIRECTORIES>,\n>\n")

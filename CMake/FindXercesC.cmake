@@ -1,4 +1,5 @@
 
+set (XERCESC_VERSION 3.3.0)
 find_package (
   XercesC ${XERCESC_VERSION}
   EXACT
@@ -113,13 +114,8 @@ if (NOT ${XercesC_FOUND})
       XERCESC_INSTALL_RESULT
   )
 
-  # @TODO HACK:
-  # --
-  if ("${BASH_EXECUTABLE}" STREQUAL "")
-    set (BASH_EXECUTABLE bash)
-    if (WIN32)
-      set (BASH_EXECUTABLE $ENV{PROGRAMFILES}/Git/bin/bash.exe)
-    endif ()
+  if (XERCESC_INSTALL_RESULT)
+    message (FATAL_ERROR "Could not bootstrap XercesC, install step failed.")
   endif ()
 
   file (
@@ -136,6 +132,16 @@ if (NOT ${XercesC_FOUND})
 
   list (GET XERCESC_CONFIG_PATH_CANDIDATES 0 XERCESC_CONFIG_PATH)
 
+  #[[
+  # @TODO HACK:
+  # --
+  if ("${BASH_EXECUTABLE}" STREQUAL "")
+    set (BASH_EXECUTABLE bash)
+    if (WIN32)
+      set (BASH_EXECUTABLE $ENV{PROGRAMFILES}/Git/bin/bash.exe)
+    endif ()
+  endif ()
+
   execute_process (
     COMMAND
       ${BASH_EXECUTABLE}
@@ -143,11 +149,8 @@ if (NOT ${XercesC_FOUND})
         ${XERCESC_CONFIG_PATH}
   )
   # --
+  ]]
   
-  if (XERCESC_INSTALL_RESULT)
-    message (FATAL_ERROR "Could not bootstrap XercesC, install step failed.")
-  endif ()
-
   cmake_path (
     GET
     XERCESC_CONFIG_PATH
@@ -158,11 +161,11 @@ if (NOT ${XercesC_FOUND})
   list (APPEND CMAKE_PREFIX_PATH ${XERCESC_CONFIG_DIR})
   list (APPEND CMAKE_MODULE_PATH ${XERCESC_CONFIG_DIR})
 
-endif ()
+  find_package (
+    XercesC ${XERCESC_VERSION}
+    EXACT
+    REQUIRED
+    CONFIG
+  )
 
-find_package (
-  XercesC ${XERCESC_VERSION}
-  EXACT
-  REQUIRED
-  CONFIG
-)
+endif ()

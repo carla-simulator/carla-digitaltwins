@@ -7,19 +7,23 @@
 #include "Carla/StringUtil.h"
 
 #ifdef _WIN32
-#  include <shlwapi.h>
+	#include <shlwapi.h>
+	#ifndef HAS_SHLWAPI
+		#define HAS_SHLWAPI
+		#pragma comment(lib, "shlwapi.lib")
+	#endif
 #else
-#  include <fnmatch.h>
+	#include <fnmatch.h>
 #endif // _WIN32
 
 namespace carla {
 
-  bool StringUtil::Match(const char *str, const char *test) {
+	bool StringUtil::Match(const char* str, const char* test) {
 #ifdef _WIN32
-    return PathMatchSpecA(str, test);
+		return PathMatchSpecA(str, test);
 #else
-    return 0 == fnmatch(test, str, 0);
+		return 0 == fnmatch(test, str, 0);
 #endif // _WIN32
-  }
+	}
 
 } // namespace carla

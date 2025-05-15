@@ -1,4 +1,6 @@
 
+
+set (BOOST_VERSION 1.84.0)
 find_package (
   Boost ${BOOST_VERSION}
   EXACT
@@ -119,12 +121,12 @@ if (NOT ${Boost_FOUND})
   list (APPEND CMAKE_PREFIX_PATH ${BOOST_INSTALL_DIR})
   list (APPEND CMAKE_MODULE_PATH ${BOOST_INSTALL_DIR})
 
-endif ()
+  find_package (
+    Boost ${BOOST_VERSION}
+    EXACT
+    REQUIRED
+    COMPONENTS ${BOOST_COMPONENTS}
+    CONFIG
+  )
 
-find_package (
-  Boost ${BOOST_VERSION}
-  EXACT
-  REQUIRED
-  COMPONENTS ${BOOST_COMPONENTS}
-  CONFIG
-)
+endif ()

@@ -35,12 +35,15 @@ FMeshDescription UMapGenFunctionLibrary::BuildMeshDescriptionFromData(
   AttributeGetter.Register();
 
   TPolygonGroupAttributesRef<FName> PolygonGroupNames = AttributeGetter.GetPolygonGroupMaterialSlotNames();
-  TVertexAttributesRef<FVector> VertexPositions = AttributeGetter.GetVertexPositions();
-  TVertexInstanceAttributesRef<FVector> Tangents = AttributeGetter.GetVertexInstanceTangents();
-  TVertexInstanceAttributesRef<float> BinormalSigns = AttributeGetter.GetVertexInstanceBinormalSigns();
-  TVertexInstanceAttributesRef<FVector> Normals = AttributeGetter.GetVertexInstanceNormals();
-  TVertexInstanceAttributesRef<FVector4> Colors = AttributeGetter.GetVertexInstanceColors();
-  TVertexInstanceAttributesRef<FVector2D> UVs = AttributeGetter.GetVertexInstanceUVs();
+  auto VertexPositions = AttributeGetter.GetVertexPositions();
+  auto Tangents = AttributeGetter.GetVertexInstanceTangents();
+  auto BinormalSigns = AttributeGetter.GetVertexInstanceBinormalSigns();
+  auto Normals = AttributeGetter.GetVertexInstanceNormals();
+  auto Colors = AttributeGetter.GetVertexInstanceColors();
+  auto UVs = AttributeGetter.GetVertexInstanceUVs();
+
+  using PositionT = decltype(VertexPositions[0]);
+  using NormalT = decltype(Normals[0]);
 
   // Calculate the totals for each ProcMesh element type
   FPolygonGroupID PolygonGroupForSection;
@@ -75,7 +78,7 @@ FMeshDescription UMapGenFunctionLibrary::BuildMeshDescriptionFromData(
   {
     const FVector &Vert = Data.Vertices[VertexIndex];
     const FVertexID VertexID = MeshDescription.CreateVertex();
-    VertexPositions[VertexID] = Vert;
+    VertexPositions[VertexID] = (PositionT)Vert;
     VertexIndexToVertexID.Add(VertexIndex, VertexID);
   }
 
@@ -91,7 +94,7 @@ FMeshDescription UMapGenFunctionLibrary::BuildMeshDescriptionFromData(
     const FVertexInstanceID VertexInstanceID =
     MeshDescription.CreateVertexInstance(VertexID);
     IndiceIndexToVertexInstanceID.Add(IndiceIndex, VertexInstanceID);
-    Normals[VertexInstanceID] = Data.Normals[VertexIndex];
+    Normals[VertexInstanceID] = (NormalT)Data.Normals[VertexIndex];
 
     if(ParamTangents.Num() == Data.Vertices.Num())
     {
@@ -171,8 +174,12 @@ UStaticMesh* UMapGenFunctionLibrary::CreateMesh(
     Mesh->StaticMaterials.Add(FStaticMaterial(MaterialInstance));
     Mesh->BuildFromMeshDescriptions({ &Description }, Params);
     Mesh->CreateBodySetup();
+#if ENGINE_MAJOR_VERSION < 5
     Mesh->BodySetup->CollisionTraceFlag = ECollisionTraceFlag::CTF_UseComplexAsSimple;
     Mesh->BodySetup->CreatePhysicsMeshes();
+#else
+    unimplemented();
+#endif
     // Build mesh from source
     Mesh->NeverStream = false;
     TArray<UObject*> CreatedAssets;
