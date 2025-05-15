@@ -44,7 +44,7 @@
 #include "Carla/RPC/String.h"
 
 #include "DrawDebugHelpers.h"
-
+#include "Paths/GenerationPathsHelper.h"
 #if WITH_EDITOR
 UOpenDriveToMap::UOpenDriveToMap()
 {
@@ -133,7 +133,7 @@ FString LaneTypeToFString(carla::road::Lane::LaneType LaneType)
 
 void UOpenDriveToMap::ConvertOSMInOpenDrive()
 {
-  FilePath = FPaths::ProjectContentDir() + "CustomMaps/" + MapName + "/OpenDrive/" + MapName + ".osm";
+  FilePath = UGenerationPathsHelper::GetMapDirectoryPath(MapName) + "/OpenDrive/" + MapName + ".osm";
   FileDownloader->ConvertOSMInOpenDrive( FilePath , OriginGeoCoordinates.X, OriginGeoCoordinates.Y);
   FilePath.RemoveFromEnd(".osm", ESearchCase::Type::IgnoreCase);
   FilePath += ".xodr";
@@ -906,7 +906,7 @@ bool UOpenDriveToMap::IsInRoad(
 
 void UOpenDriveToMap::ImportXODR(){
   IPlatformFile& FileManager = FPlatformFileManager::Get().GetPlatformFile();
-  FString MyFileDestination = FPaths::ProjectContentDir() + "CustomMaps/" + MapName + "/OpenDrive/" + MapName + ".xodr";
+  FString MyFileDestination = UGenerationPathsHelper::GetMapDirectoryPath(MapName) + MapName + "/OpenDrive/" + MapName + ".xodr";
 
   if(FileManager.CopyFile(  *MyFileDestination, *LocalFilePath,
                               EPlatformFileRead::None,
@@ -924,7 +924,7 @@ void UOpenDriveToMap::ImportXODR(){
 
 void UOpenDriveToMap::ImportOSM(){
   IPlatformFile& FileManager = FPlatformFileManager::Get().GetPlatformFile();
-  FString MyFileDestination = FPaths::ProjectContentDir() + "CustomMaps/" + MapName + "/OpenDrive/" + MapName + ".osm";
+  FString MyFileDestination = UGenerationPathsHelper::GetMapDirectoryPath(MapName) + MapName + "/OpenDrive/" + MapName + ".osm";
 
   if(FileManager.CopyFile(  *MyFileDestination, *LocalFilePath,
                               EPlatformFileRead::None,

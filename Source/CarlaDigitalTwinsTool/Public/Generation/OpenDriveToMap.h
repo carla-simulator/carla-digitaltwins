@@ -175,7 +175,6 @@ public:
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Heightmap" )
   float MaxHeight;
 
-
 protected:
 
   UFUNCTION(BlueprintCallable)
@@ -193,6 +192,7 @@ protected:
 
   UFUNCTION( BlueprintCallable )
   void MoveActorsToSubLevels(TArray<AActor*> ActorsToMove);
+
 
 private:
 

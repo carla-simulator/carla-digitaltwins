@@ -15,6 +15,7 @@
 
 // Carla plugin headers
 #include "CarlaMeshGeneration.h"
+#include "Paths/GenerationPathsHelper.h"
 
 DEFINE_LOG_CATEGORY(LogCarlaMapGenFunctionLibrary);
 static const float OSMToCentimetersScaleFactor = 100.0f;
@@ -148,7 +149,7 @@ UStaticMesh* UMapGenFunctionLibrary::CreateMesh(
   UStaticMesh::FBuildMeshDescriptionsParams Params;
   Params.bBuildSimpleCollision = true;
 
-  FString PackageName = "/Game/CustomMaps/" + MapName + "/Static/" + FolderName + "/" + MeshName.ToString();
+  FString PackageName = UGenerationPathsHelper::GetMapContentDirectoryPath(MapName) + FolderName + "/" + MeshName.ToString();
 
   if (!PlatformFile.DirectoryExists(*PackageName))
   {
