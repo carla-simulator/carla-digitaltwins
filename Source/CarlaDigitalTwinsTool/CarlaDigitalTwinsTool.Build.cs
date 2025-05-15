@@ -49,12 +49,18 @@ public class CarlaDigitalTwinsTool : ModuleRules
         continue;
       if (!File.Exists(Trimmed))
         throw new FileNotFoundException(Trimmed);
-      if (verbose)
-        Console.WriteLine("Adding " + Trimmed + " to PublicAdditionalLibraries");
-      if (Trimmed.EndsWith(".dll") || Trimmed.EndsWith(".so"))
+      if (Trimmed.EndsWith(".dll"))
+      {
         RuntimeDependencies.Add(Trimmed);
+        if (verbose)
+          Console.WriteLine("Adding " + Trimmed + " to RuntimeDependencies");
+      }
       else
+      {
         PublicAdditionalLibraries.Add(Trimmed);
+        if (verbose)
+          Console.WriteLine("Adding " + Trimmed + " to PublicAdditionalLibraries");
+      }
       Last = Trimmed;
     }
 
