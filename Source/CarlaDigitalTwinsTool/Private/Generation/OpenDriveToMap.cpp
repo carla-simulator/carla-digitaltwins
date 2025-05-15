@@ -39,7 +39,7 @@
 #include "Generation/MapGenFunctionLibrary.h"
 #include "Carla/Geom/Simplification.h"
 #include "Carla/Geom/Deformation.h"
-#include "Carla/BlueprintLibary/MapGenFunctionLibrary.h"
+#include "Generation/MapGenFunctionLibrary.h"
 #include "OpenDrive/OpenDriveGenerator.h"
 #include "Carla/RPC/String.h"
 

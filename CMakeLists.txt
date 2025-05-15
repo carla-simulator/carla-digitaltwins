@@ -1,6 +1,41 @@
 cmake_minimum_required (VERSION 3.25)
 project (CarlaDigitalTwinsTool)
 
+
+
+macro (DumpDependencyInfo DEPENDENCY_NAME)
+
+  set (FILE_BODY)
+  get_target_property (DEPENDENCY_TYPE ${DEPENDENCY_NAME} TYPE)
+  if (NOT ("${DEPENDENCY_TYPE}" STREQUAL "INTERFACE_LIBRARY"))
+    get_target_property (COMPONENT_LOCATION ${DEPENDENCY_NAME} LOCATION)
+    set (FILE_BODY "${FILE_BODY}${COMPONENT_LOCATION}\n")
+  endif ()
+  file (
+    APPEND
+    ${CMAKE_BINARY_DIR}/LinkLibraries.txt
+    ${FILE_BODY}
+  )
+
+  file (
+    GENERATE
+    OUTPUT
+      ${CMAKE_BINARY_DIR}/IncludeDirectories.txt
+    CONTENT
+      "$<JOIN:$<TARGET_PROPERTY:${DEPENDENCY_NAME},INTERFACE_INCLUDE_DIRECTORIES>,\n>\n"
+  )
+
+  file (
+    GENERATE
+    OUTPUT
+      ${CMAKE_BINARY_DIR}/PublicDefinitions.txt
+    CONTENT
+      "$<JOIN:$<TARGET_PROPERTY:${DEPENDENCY_NAME},INTERFACE_COMPILE_DEFINITIONS>,\n>\n"
+  )
+endmacro ()
+
+
+
 message (STATUS "Requesting boost components:")
 foreach (COMPONENT ${BOOST_COMPONENTS})
   message (STATUS " - ${COMPONENT}")
@@ -31,53 +66,13 @@ find_package (
   REQUIRED
 )
 
-set (FILE_BODY)
-foreach (T ${BOOST_COMPONENTS})
-  set (BOOST_COMPONENT Boost::${T})
-  get_target_property (DEPENDENCY_TYPE ${BOOST_COMPONENT} TYPE)
-  if (NOT ("${DEPENDENCY_TYPE}" STREQUAL "INTERFACE_LIBRARY"))
-    get_target_property (COMPONENT_LOCATION ${BOOST_COMPONENT} LOCATION)
-    set (FILE_BODY "${FILE_BODY}${COMPONENT_LOCATION}\n")
-  endif ()
-endforeach ()
-file (
-  WRITE
-  ${CMAKE_BINARY_DIR}/LinkLibraries.txt
-  ${FILE_BODY}
-)
+file (REMOVE ${CMAKE_BINARY_DIR}/LinkLibraries.txt)
+file (REMOVE ${CMAKE_BINARY_DIR}/IncludeDirectories.txt)
+file (REMOVE ${CMAKE_BINARY_DIR}/PublicDefinitions.txt)
 
-set (FILE_BODY)
-foreach (T ${BOOST_COMPONENTS})
-  set (BOOST_COMPONENT Boost::${T})
-  set (FILE_BODY "${FILE_BODY}$<JOIN:$<TARGET_PROPERTY:${BOOST_COMPONENT},INTERFACE_INCLUDE_DIRECTORIES>,\n>\n")
+foreach (BOOST_COMPONENT ${BOOST_COMPONENTS})
+  DumpDependencyInfo(Boost::${BOOST_COMPONENT})
 endforeach ()
-file (
-  WRITE
-  ${CMAKE_BINARY_DIR}/IncludeDirectories.sample.txt
-  ${FILE_BODY}
-)
-file (
-  GENERATE
-  OUTPUT
-    ${CMAKE_BINARY_DIR}/IncludeDirectories.txt
-  CONTENT
-    ${FILE_BODY}
-)
 
-set (FILE_BODY)
-foreach (T ${BOOST_COMPONENTS})
-  set (BOOST_COMPONENT Boost::${T})
-  set (FILE_BODY "${FILE_BODY}$<JOIN:$<TARGET_PROPERTY:${BOOST_COMPONENT},INTERFACE_COMPILE_DEFINITIONS>,\n>\n")
-endforeach ()
-file (
-  WRITE
-  ${CMAKE_BINARY_DIR}/PublicDefinitions.sample.txt
-  ${FILE_BODY}
-)
-file (
-  GENERATE
-  OUTPUT
-    ${CMAKE_BINARY_DIR}/PublicDefinitions.txt
-  CONTENT
-    ${FILE_BODY}
-)
+DumpDependencyInfo(XercesC::XercesC)
+DumpDependencyInfo(SUMO::)
