@@ -3,14 +3,14 @@
 #undef CreateDirectory
 
 #include "Online/CustomFileDownloader.h"
-//#include "OpenDriveToMap.h"
+#include "Generation/OpenDriveToMap.h"
 #include "HttpModule.h"
 #include "Http.h"
 #include "Misc/FileHelper.h"
 #include "CarlaDigitalTwinsTool.h"
 #include "Paths/GenerationPathsHelper.h"
 
-//#include <OSM2ODR.h>
+#include <OSM2ODR.h>
 
 void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0, float Lon_0)
 {
@@ -35,20 +35,19 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0,
     UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("File: %s does not exist"), *FilePath);
     return;
   }
-  //std::string OsmFile = std::string(TCHAR_TO_UTF8(*FileContent));
+  
+  std::string OsmFile = std::string(TCHAR_TO_UTF8(*FileContent));
 
-/*
   osm2odr::OSM2ODRSettings Settings;
   Settings.proj_string += " +lat_0=" + std::to_string(Lat_0) + " +lon_0=" + std::to_string(Lon_0);
   Settings.center_map = false;
   std::string OpenDriveFile = osm2odr::ConvertOSMToOpenDRIVE(OsmFile, Settings);
-*/
 
   FilePath.RemoveFromEnd(".osm", ESearchCase::Type::IgnoreCase);
   FilePath += ".xodr";
 
   // We use the LoadFileToString to load the file into
-  /*
+
   if (FFileHelper::SaveStringToFile(FString(OpenDriveFile.c_str()), *FilePath))
   {
     UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Sucsesfuly Written: \"%s\" to the text file"), *FilePath);
@@ -57,7 +56,6 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0,
   {
     UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Failed to write FString to file."));
   }
-  */
 }
 
 void UCustomFileDownloader::StartDownload()

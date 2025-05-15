@@ -4,7 +4,7 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-#include "DigitalTwinsBaseWidget.h"
+#include "Widget/DigitalTwinsBaseWidget.h"
 #include "Generation/OpenDriveToMap.h"
 #include "Misc/FileHelper.h"
 #include "ContentBrowserModule.h"

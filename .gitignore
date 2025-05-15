@@ -1,5 +1,7 @@
+.vs/
+.vscode/
 Binaries/
 Content/digitalTwins/
 Intermediate/
-Build*/
-third_party/
+Build/
+ThirdParty/

@@ -9,8 +9,8 @@
 #include "EditorUtilityActor.h"
 #include "EditorUtilityObject.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
-
 #include <Carla/Road/RoadMap.h>
+#include <boost/optional.hpp>
 
 #include "OpenDriveToMap.generated.h"
 
@@ -51,12 +51,12 @@ public:
 
   UFUNCTION(BlueprintCallable)
   float GetDistanceToDrivingLaneBorder(FVector Location) const{
-    return DistanceToLaneBorder(CarlaMap, Location);
+    return DistanceToLaneBorder(CarlaMap.value(), Location);
   }
 
   UFUNCTION(BlueprintCallable)
   bool GetIsInRoad(FVector Location) const {
-    return IsInRoad(CarlaMap, Location);
+    return IsInRoad(CarlaMap.value(), Location);
   }
 
   UFUNCTION(BlueprintCallable)
@@ -202,35 +202,40 @@ private:
   UFUNCTION(BlueprintCallable)
   void LoadMap();
 
-  void GenerateAll(carla::road::Map* ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
-  void GenerateRoadMesh(carla::road::Map* ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
-  void GenerateSpawnPoints(carla::road::Map* ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
-  void GenerateTreePositions(carla::road::Map* ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
-  void GenerateLaneMarks(carla::road::Map* ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
-
-  carla::rpc::OpendriveGenerationParameters opg_parameters;
-  carla::road::Map* CarlaMap;
+  void GenerateAll(const carla::road::Map& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
+  void GenerateRoadMesh(const carla::road::Map& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
+  // void GenerateSpawnPoints(const carla::road::Map& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
+  void GenerateTreePositions(const carla::road::Map& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
+  void GenerateLaneMarks(const carla::road::Map& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
 
   FTransform GetSnappedPosition(FTransform Origin);
 
   float GetHeightForLandscape(FVector Origin);
 
-  float DistanceToLaneBorder(carla::road::Map* CarlaMap,
+  float DistanceToLaneBorder(
+      const carla::road::Map& CarlaMap,
       FVector &location,
       int32_t lane_type = static_cast<int32_t>(carla::road::Lane::LaneType::Driving)) const;
 
-  bool IsInRoad(carla::road::Map* ParamCarlaMap,
-        FVector &location) const;
+  bool IsInRoad(
+      const carla::road::Map& ParamCarlaMap,
+      FVector &location) const;
 
   void InitTextureData();
 
   void ImportXODR();
   void ImportOSM();
 
+  carla::rpc::OpendriveGenerationParameters opg_parameters;
+
+  boost::optional<carla::road::Map> CarlaMap;
+
   UPROPERTY()
   UCustomFileDownloader* FileDownloader;
+  
   UPROPERTY()
   TArray<AActor*> Landscapes;
+
   UPROPERTY()
   UTexture2D* Heightmap;
 
