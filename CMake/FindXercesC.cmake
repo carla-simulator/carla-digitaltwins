@@ -56,18 +56,32 @@ if (NOT ${XercesC_FOUND})
 
   message (STATUS "Configuring xerces-c.")
 
+  set (
+    XERCESC_CONFIGURE_COMMAND
+    ${CMAKE_COMMAND}
+      -S ${XERCESC_SOURCE_DIR}
+      -B ${XERCESC_BUILD_DIR}
+      -G ${CMAKE_GENERATOR}
+      -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+      -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
+      -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+      -DCMAKE_INSTALL_MESSAGE=${CMAKE_INSTALL_MESSAGE}
+      -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}
+      -DCMAKE_MODULE_PATH=${CMAKE_MODULE_PATH}
+  )
+
+  if (NOT WIN32)
+    set (
+      XERCESC_CONFIGURE_COMMAND
+      ${XERCESC_CONFIGURE_COMMAND} 
+      -Dtranscoder=gnuiconv
+      -Dnetwork=OFF
+    )
+  endif ()
+
   execute_process (
     COMMAND
-      ${CMAKE_COMMAND}
-        -S ${XERCESC_SOURCE_DIR}
-        -B ${XERCESC_BUILD_DIR}
-        -G ${CMAKE_GENERATOR}
-        -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-        -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
-        -DCMAKE_POSITION_INDEPENDENT_CODE=ON
-        -DCMAKE_INSTALL_MESSAGE=${CMAKE_INSTALL_MESSAGE}
-        -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}
-        -DCMAKE_MODULE_PATH=${CMAKE_MODULE_PATH}
+      ${XERCESC_CONFIGURE_COMMAND}
     RESULTS_VARIABLE
       XERCESC_CONFIGURE_RESULT
   )
@@ -112,7 +126,7 @@ if (NOT ${XercesC_FOUND})
     COMMAND
       ${BASH_EXECUTABLE}
         ${CMAKE_CURRENT_LIST_DIR}/XercesCConfig_HACK.sh
-        ${XERCESC_INSTALL_DIR}/cmake/XercesCConfig.cmake
+        ${XERCESC_INSTALL_DIR}/lib/cmake/XercesC/XercesCConfig.cmake
   )
   # --
   
@@ -120,8 +134,8 @@ if (NOT ${XercesC_FOUND})
     message (FATAL_ERROR "Could not bootstrap XercesC, install step failed.")
   endif ()
 
-  list (APPEND CMAKE_PREFIX_PATH ${XERCESC_INSTALL_DIR}/cmake)
-  list (APPEND CMAKE_MODULE_PATH ${XERCESC_INSTALL_DIR}/cmake)
+  list (APPEND CMAKE_PREFIX_PATH ${XERCESC_INSTALL_DIR}/lib/cmake/XercesC)
+  list (APPEND CMAKE_MODULE_PATH ${XERCESC_INSTALL_DIR}/lib/cmake/XercesC)
 
 endif ()
 
@@ -129,6 +143,5 @@ find_package (
   XercesC ${XERCESC_VERSION}
   EXACT
   REQUIRED
-  COMPONENTS ${XERCESC_COMPONENTS}
   CONFIG
 )
