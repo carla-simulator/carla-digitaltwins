@@ -30,4 +30,7 @@ public:
 
   UFUNCTION(BlueprintCallable)
   void DestroyOpenDriveToMap();
+
+  UFUNCTION(BlueprintCallable)
+  void CreatePlugin(FString PluginName);
 };
