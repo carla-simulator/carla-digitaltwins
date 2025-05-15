@@ -39,8 +39,8 @@
 #include "Generation/MapGenFunctionLibrary.h"
 #include "Carla/Geom/Simplification.h"
 #include "Carla/Geom/Deformation.h"
-//#include "Carla/BlueprintLibary/MapGenFunctionLibrary.h"
-//#include "OpenDrive/OpenDriveGenerator.h"
+#include "Carla/BlueprintLibary/MapGenFunctionLibrary.h"
+#include "OpenDrive/OpenDriveGenerator.h"
 #include "Carla/RPC/String.h"
 
 #include "DrawDebugHelpers.h"
@@ -309,7 +309,7 @@ void UOpenDriveToMap::GenerateTile(){
   UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("UOpenDriveToMap::GenerateTile(): File to load %s"), *FilePath );
   FFileHelper::LoadFileToString(FileContent, *FilePath);
   std::string opendrive_xml = carla::rpc::FromLongFString(FileContent);
-  //CarlaMap = carla::opendrive::OpenDriveParser::Load(opendrive_xml);
+  CarlaMap = carla::opendrive::OpenDriveParser::Load(opendrive_xml);
 
   if ( CarlaMap != nullptr )
   {
@@ -435,9 +435,9 @@ void UOpenDriveToMap::LoadMap()
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::LoadMap(): File to load %s"), *FilePath );
   FFileHelper::LoadFileToString(FileContent, *FilePath);
   std::string opendrive_xml = carla::rpc::FromLongFString(FileContent);
-  //CarlaMap = carla::opendrive::OpenDriveParser::Load(opendrive_xml);
-  //!CarlaMap.has_value()
-  if (true)
+  CarlaMap = carla::opendrive::OpenDriveParser::Load(opendrive_xml);
+  
+  if (!CarlaMap.has_value())
   {
     UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Invalid Map"));
   }
@@ -737,12 +737,10 @@ void UOpenDriveToMap::GenerateSpawnPoints( carla::road::Map* ParamCarlaMap, FVec
     if( Trans.GetLocation().X >= MinLocation.X && Trans.GetLocation().Y >= MinLocation.Y &&
         Trans.GetLocation().X <= MaxLocation.X && Trans.GetLocation().Y <= MaxLocation.Y)
     {
-    /*
       AVehicleSpawnPoint *Spawner = UEditorLevelLibrary::GetEditorWorld()->SpawnActor<AVehicleSpawnPoint>();
       Spawner->SetActorRotation(Trans.GetRotation());
       Spawner->SetActorLocation(Trans.GetTranslation() + FVector(0.f, 0.f, SpawnersHeight));
       ActorsToMove.Add(Spawner);
-    */
     }
   }
 }
