@@ -80,6 +80,7 @@ list (APPEND CMAKE_PREFIX_PATH ${CMAKE_CURRENT_LIST_DIR}/CMake)
 list (APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/CMake)
 
 set (BOOST_VERSION 1.84.0)
+message (STATUS "Looking for Boost")
 find_package (
   Boost ${BOOST_VERSION}
   EXACT
@@ -88,28 +89,32 @@ find_package (
 )
 
 set (XERCESC_VERSION 3.3.0)
+message (STATUS "Looking for XercesC")
 find_package (
   XercesC ${XERCESC_VERSION}
   EXACT
   REQUIRED
 )
 
-# This is incorrect:
-set (SUMO_COMMIT 1da3c07e39f3e2e0d97f8f709a7255a0df8c6200)
-find_package (
-  SUMO
-  REQUIRED
-)
-
+message (STATUS "Looking for SQLite3")
 find_package (
   SQLite3
   REQUIRED
 )
 
 set (PROJ_VERSION 7.2.1)
+message (STATUS "Looking for PROJ")
 find_package (
   PROJ ${PROJ_VERSION}
   EXACT
+  REQUIRED
+)
+
+# This is incorrect:
+set (SUMO_COMMIT 1da3c07e39f3e2e0d97f8f709a7255a0df8c6200)
+message (STATUS "Looking for SUMO")
+find_package (
+  SUMO
   REQUIRED
 )
 

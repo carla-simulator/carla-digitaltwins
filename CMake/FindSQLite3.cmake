@@ -10,20 +10,22 @@ set (SQLITE3_SOURCE_DIR ${THIRD_PARTY_ROOT_DIR}/${DEPENDENCY_NAME})
 set (SQLITE3_BUILD_DIR ${THIRD_PARTY_BUILD_DIR}/${DEPENDENCY_NAME})
 set (SQLITE3_INSTALL_DIR ${THIRD_PARTY_INSTALL_DIR}/${DEPENDENCY_NAME})
 
+set (SQLITE3_AMALG_VERSION 3340100)
+
 find_package (
   ${DEPENDENCY_NAME}
   QUIET
   NO_MODULE
 )
 
-if (NOT ${SQLITE3_FOUND})
+if (NOT ${SQLite3_FOUND})
     
   message (STATUS "Could not find ${DEPENDENCY_NAME}, bootstrapping...")
 
   if (NOT EXISTS ${THIRD_PARTY_ROOT_DIR}/sqlite3.zip)
     set (
       SQLITE3_DOWNLOAD_URL
-      https://www.sqlite.org/2021/sqlite-amalgamation-3340100.zp
+      https://www.sqlite.org/2021/sqlite-amalgamation-${SQLITE3_AMALG_VERSION}.zip
     )
     message (STATUS "Downloading ${DEPENDENCY_NAME} from ${SQLITE3_DOWNLOAD_URL}")
     file (
@@ -46,12 +48,23 @@ if (NOT ${SQLITE3_FOUND})
     message (STATUS "Renaming extracted ${DEPENDENCY_NAME} directories.")
     file (
       RENAME
-        ${THIRD_PARTY_ROOT_DIR}/sqlite3-${SQLITE3_COMMIT}
+        ${THIRD_PARTY_ROOT_DIR}/sqlite-amalgamation-${SQLITE3_AMALG_VERSION}
         ${SQLITE3_SOURCE_DIR}
     )
   endif ()
 
   message (STATUS "Configuring ${DEPENDENCY_NAME}.")
+
+  file (
+    WRITE ${SQLITE3_SOURCE_DIR}/CMakeLists.txt
+    "cmake_minimum_required (VERSION ${CMAKE_VERSION})\n"
+    "project (SQLite3)\n"
+    "add_library (libsqlite3 sqlite3.h sqlite3ext.h sqlite3.c)\n"
+    "add_executable (sqlite3 shell.c)\n"
+    "target_link_libraries (sqlite3 PRIVATE libsqlite3)\n"
+    "install (FILES sqlite3.h sqlite3ext.h DESTINATION include)\n"
+    "install (TARGETS libsqlite3 sqlite3)\n"
+  )
 
   execute_process (
     COMMAND

@@ -1,4 +1,6 @@
 
+set (PROJ_VERSION 7.2.1)
+
 cmake_path (GET CMAKE_CURRENT_LIST_DIR PARENT_PATH WORKSPACE_PATH)
 set (THIRD_PARTY_ROOT_DIR ${WORKSPACE_PATH}/ThirdParty)
 set (THIRD_PARTY_BUILD_DIR ${THIRD_PARTY_ROOT_DIR}/Build)
@@ -46,12 +48,19 @@ if (NOT ${PROJ_FOUND})
     message (STATUS "Renaming extracted ${DEPENDENCY_NAME} directories.")
     file (
       RENAME
-        ${THIRD_PARTY_ROOT_DIR}/proj-${PROJ_COMMIT}
+        ${THIRD_PARTY_ROOT_DIR}/proj-${PROJ_VERSION}
         ${PROJ_SOURCE_DIR}
     )
   endif ()
 
   message (STATUS "Configuring ${DEPENDENCY_NAME}.")
+
+  set (LIB_EXT .a)
+  set (EXE_EXT)
+  if (WIN32)
+    set (LIB_EXT .lib)
+    set (EXE_EXT .exe)
+  endif ()
 
   execute_process (
     COMMAND
@@ -66,6 +75,9 @@ if (NOT ${PROJ_FOUND})
         -DCMAKE_INSTALL_MESSAGE=${CMAKE_INSTALL_MESSAGE}
         -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}
         -DCMAKE_MODULE_PATH=${CMAKE_MODULE_PATH}
+        -DSQLITE3_INCLUDE_DIR=${THIRD_PARTY_INSTALL_DIR}/SQLite3/include
+        -DSQLITE3_LIBRARY=${THIRD_PARTY_INSTALL_DIR}/SQLite3/lib/libsqlite3${LIB_EXT}
+        -DEXE_SQLITE3=${THIRD_PARTY_INSTALL_DIR}/SQLite3/bin/sqlite3${EXE_EXT}
         -DENABLE_TIFF=OFF
         -DENABLE_CURL=OFF
         -DBUILD_SHARED_LIBS=OFF
