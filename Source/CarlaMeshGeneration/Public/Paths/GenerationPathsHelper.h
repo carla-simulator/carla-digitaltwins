@@ -16,6 +16,11 @@ class CARLAMESHGENERATION_API UGenerationPathsHelper : public UBlueprintFunction
 public:
 
   UFUNCTION(BlueprintCallable, BlueprintPure)
+  static FString GetRawMapDirectoryPath(FString MapName) {
+      return FPaths::ProjectPluginsDir() + MapName + "/Maps/";
+  }
+
+  UFUNCTION(BlueprintCallable, BlueprintPure)
   static FString GetMapDirectoryPath(FString MapName) {
       return "/" + MapName + "/Maps/";
   }
