@@ -5,35 +5,6 @@ find_package (
   NO_MODULE
 )
 
-if (NOT ${Boost_FOUND})
-
-  set (
-    DEPENDENCY_NAME
-    Boost
-  )
-
-  set (
-    DEPENDENCY_URL
-    https://github.com/boostorg/boost/releases/download/${BOOST_TAG}/${BOOST_TAG}.zip
-  )
-
-  set (
-    DEPENDENCY_TAG
-    boost-${BOOST_VERSION}
-  )
-
-  include (${CMAKE_CURRENT_LIST_DIR}/Util.cmake)
-
-  find_package (
-    Boost ${BOOST_VERSION}
-    EXACT
-    REQUIRED
-    COMPONENTS ${BOOST_COMPONENTS}
-    CONFIG
-  )
-
-endif ()
-
 cmake_path (GET CMAKE_CURRENT_LIST_DIR PARENT_PATH WORKSPACE_PATH)
 set (THIRD_PARTY_ROOT_DIR ${WORKSPACE_PATH}/ThirdParty)
 set (THIRD_PARTY_BUILD_DIR ${THIRD_PARTY_ROOT_DIR}/Build)
@@ -85,14 +56,15 @@ if (NOT ${SUMO_FOUND})
   # HACK:
   # --
   cmake_path (GET CMAKE_CURRENT_LIST_DIR PARENT_PATH XERCESC_INSTALL_DIR)
-  set (XERCESC_INSTALL_DIR ${XERCESC_INSTALL_DIR}/ThirdPaty/Install/XercesC)
+  set (XERCESC_INSTALL_DIR ${XERCESC_INSTALL_DIR}/ThirdParty/Install/XercesC)
   set (XERCESC_INCLUDE_DIR ${XERCESC_INSTALL_DIR}/include)
   set (XERCESC_LIBRARY_DIR ${XERCESC_INSTALL_DIR}/lib)
+  message (STATUS "XERCESC_INSTALL_DIR=${XERCESC_INSTALL_DIR}")
   file (
-    GLOB
+    GLOB_RECURSE
     XERCESC_LIBRARY_CANDIDATES
-    LIST_DIRECTORIES FALSE
     FOLLOW_SYMLINKS
+    LIST_DIRECTORIES FALSE
     ${XERCESC_INSTALL_DIR}/lib/*xerces-c.*
   )
   if (NOT XERCESC_LIBRARY_CANDIDATES)
