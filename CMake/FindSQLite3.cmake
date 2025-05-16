@@ -1,0 +1,118 @@
+
+cmake_path (GET CMAKE_CURRENT_LIST_DIR PARENT_PATH WORKSPACE_PATH)
+set (THIRD_PARTY_ROOT_DIR ${WORKSPACE_PATH}/ThirdParty)
+set (THIRD_PARTY_BUILD_DIR ${THIRD_PARTY_ROOT_DIR}/Build)
+set (THIRD_PARTY_INSTALL_DIR ${THIRD_PARTY_ROOT_DIR}/Install)
+file (MAKE_DIRECTORY ${THIRD_PARTY_ROOT_DIR})
+
+set (DEPENDENCY_NAME SQLite3)
+set (SQLITE3_SOURCE_DIR ${THIRD_PARTY_ROOT_DIR}/${DEPENDENCY_NAME})
+set (SQLITE3_BUILD_DIR ${THIRD_PARTY_BUILD_DIR}/${DEPENDENCY_NAME})
+set (SQLITE3_INSTALL_DIR ${THIRD_PARTY_INSTALL_DIR}/${DEPENDENCY_NAME})
+
+find_package (
+  ${DEPENDENCY_NAME}
+  QUIET
+  NO_MODULE
+)
+
+if (NOT ${SQLITE3_FOUND})
+    
+  message (STATUS "Could not find ${DEPENDENCY_NAME}, bootstrapping...")
+
+  if (NOT EXISTS ${THIRD_PARTY_ROOT_DIR}/sqlite3.zip)
+    set (
+      SQLITE3_DOWNLOAD_URL
+      https://www.sqlite.org/2021/sqlite-amalgamation-3340100.zp
+    )
+    message (STATUS "Downloading ${DEPENDENCY_NAME} from ${SQLITE3_DOWNLOAD_URL}")
+    file (
+      DOWNLOAD
+      ${SQLITE3_DOWNLOAD_URL}
+      ${THIRD_PARTY_ROOT_DIR}/sqlite3.zip
+    )
+  endif ()
+
+  if (NOT IS_DIRECTORY ${SQLITE3_SOURCE_DIR})
+    message (STATUS "Extracting downloaded ${DEPENDENCY_NAME} archive.")
+    file (
+      ARCHIVE_EXTRACT
+      INPUT ${THIRD_PARTY_ROOT_DIR}/sqlite3.zip
+      DESTINATION ${THIRD_PARTY_ROOT_DIR}
+    )
+  endif ()
+
+  if (NOT IS_DIRECTORY ${SQLITE3_SOURCE_DIR})
+    message (STATUS "Renaming extracted ${DEPENDENCY_NAME} directories.")
+    file (
+      RENAME
+        ${THIRD_PARTY_ROOT_DIR}/sqlite3-${SQLITE3_COMMIT}
+        ${SQLITE3_SOURCE_DIR}
+    )
+  endif ()
+
+  message (STATUS "Configuring ${DEPENDENCY_NAME}.")
+
+  execute_process (
+    COMMAND
+      ${CMAKE_COMMAND}
+        -S ${SQLITE3_SOURCE_DIR}
+        -B ${SQLITE3_BUILD_DIR}
+        -G ${CMAKE_GENERATOR}
+        -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+        -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+        -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
+        -DCMAKE_INSTALL_MESSAGE=${CMAKE_INSTALL_MESSAGE}
+        -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}
+        -DCMAKE_MODULE_PATH=${CMAKE_MODULE_PATH}
+        -DENABLE_TIFF=OFF
+        -DENABLE_CURL=OFF
+        -DBUILD_SHARED_LIBS=OFF
+        -DBUILD_SQLITE3SYNC=OFF
+        -DBUILD_SQLITE3INFO=OFF
+        -DBUILD_CCT=OFF
+        -DBUILD_CS2CS=OFF
+        -DBUILD_GEOD=OFF
+        -DBUILD_GIE=OFF
+        -DBUILD_SQLITE3=OFF
+        -DBUILD_TESTING=OFF
+    RESULTS_VARIABLE
+      SQLITE3_CONFIGURE_RESULT
+  )
+  
+  if (SQLITE3_CONFIGURE_RESULT)
+    message (FATAL_ERROR "Could not bootstrap ${DEPENDENCY_NAME}, configure step failed.")
+  endif ()
+
+  message (STATUS "Building ${DEPENDENCY_NAME}.")
+  execute_process (
+    COMMAND
+      ${CMAKE_COMMAND}
+        --build ${SQLITE3_BUILD_DIR}
+    RESULTS_VARIABLE
+      SQLITE3_BUILD_RESULT
+  )
+  
+  if (SQLITE3_BUILD_RESULT)
+    message (FATAL_ERROR "Could not bootstrap ${DEPENDENCY_NAME}, build step failed.")
+  endif ()
+
+  message (STATUS "Installing ${DEPENDENCY_NAME}.")
+  execute_process (
+    COMMAND
+      ${CMAKE_COMMAND}
+        --install ${SQLITE3_BUILD_DIR}
+        --prefix ${SQLITE3_INSTALL_DIR}
+    RESULTS_VARIABLE
+      SQLITE3_INSTALL_RESULT
+  )
+  
+  if (SQLITE3_INSTALL_RESULT)
+    message (FATAL_ERROR "Could not bootstrap ${DEPENDENCY_NAME}, install step failed.")
+  endif ()
+
+  list (APPEND CMAKE_PREFIX_PATH ${SQLITE3_INSTALL_DIR})
+  list (APPEND CMAKE_MODULE_PATH ${SQLITE3_INSTALL_DIR})
+
+endif ()

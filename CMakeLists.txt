@@ -101,6 +101,18 @@ find_package (
   REQUIRED
 )
 
+find_package (
+  SQLite3
+  REQUIRED
+)
+
+set (PROJ_VERSION 7.2.1)
+find_package (
+  PROJ ${PROJ_VERSION}
+  EXACT
+  REQUIRED
+)
+
 # Dump dependency information for consumption by the UE Plugin:
 
 file (REMOVE ${CMAKE_BINARY_DIR}/LinkLibraries.txt.in)
