@@ -1,6 +1,8 @@
 cmake_minimum_required (VERSION 3.25)
 project (CarlaDigitalTwinsTool)
 
+set (THREADS_PREFER_PTHREAD_FLAG ON)
+
 macro (DumpLibraryPath PATH)
   file (
     APPEND
@@ -102,7 +104,7 @@ find_package (
   REQUIRED
 )
 
-set (PROJ_VERSION 7.2.1)
+set (PROJ_VERSION 7.2.0)
 message (STATUS "Looking for PROJ")
 find_package (
   PROJ ${PROJ_VERSION}
