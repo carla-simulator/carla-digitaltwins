@@ -68,4 +68,5 @@ cmake \
     -G Ninja \
     --toolchain ${SOURCE_DIR}/CMake/ToolchainUE4.cmake \
     -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=OFF \
     -DBOOST_COMPONENTS=${BOOST_COMPONENTS}
