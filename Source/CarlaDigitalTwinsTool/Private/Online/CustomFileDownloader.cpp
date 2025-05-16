@@ -110,7 +110,7 @@ void FHttpDownloader::RequestComplete(FHttpRequestPtr HttpRequest, FHttpResponse
            *HttpRequest->GetURL(),
            HttpResponse->GetResponseCode());
 
-    FString CurrentFile = UGenerationPathsHelper::GetMapDirectoryPath(Filename) + "/OpenDrive/";
+    FString CurrentFile = FPaths::ProjectPluginsDir() + UGenerationPathsHelper::GetMapDirectoryPath(Filename) + "OpenDrive/";
     UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FHttpDownloader::RequestComplete CurrentFile %s."), *CurrentFile);
 
     // We will use this FileManager to deal with the file.
