@@ -57,10 +57,10 @@ if (NOT ${Boost_FOUND})
     )
   endif ()
 
-  set (BUILD_BOOST_PYTHON OFF)
+  set (BUILD_BOOST_PYTHON ON)
   list (FIND "${BOOST_COMPONENTS}" python PYTHON_COMPONENT_INDEX)
   if (${PYTHON_COMPONENT_INDEX} STREQUAL -1)
-    set (BUILD_BOOST_PYTHON ON)
+    set (BUILD_BOOST_PYTHON OFF)
   endif ()
 
   message (STATUS "Configuring boost.")
