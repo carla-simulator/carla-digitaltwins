@@ -41,7 +41,19 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0,
   osm2odr::OSM2ODRSettings Settings;
   Settings.proj_string += " +lat_0=" + std::to_string(Lat_0) + " +lon_0=" + std::to_string(Lon_0);
   Settings.center_map = false;
-  std::string OpenDriveFile = osm2odr::ConvertOSMToOpenDRIVE(OsmFile, Settings);
+  std::string OpenDriveFile;
+  try
+  {
+    OpenDriveFile = osm2odr::ConvertOSMToOpenDRIVE(OsmFile, Settings);
+    check(false);
+  }
+  catch (std::runtime_error& re)
+  {
+    FString fs;
+    fs = re.what();
+    UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("FileManipulation: osm2odr::ConvertOSMToOpenDRIVE failed: %s"), *fs);
+  }
+  
 
   FilePath.RemoveFromEnd(".osm", ESearchCase::Type::IgnoreCase);
   FilePath += ".xodr";
