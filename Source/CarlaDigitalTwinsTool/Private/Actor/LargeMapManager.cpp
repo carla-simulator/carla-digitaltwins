@@ -233,6 +233,14 @@ void ALargeMapManager::GenerateMap(FString InAssetsPath)
 
   ClearWorldAndTiles();
 
+
+  // Check if it ends with '/'
+  if (InAssetsPath.EndsWith(TEXT("/")))
+  {
+    // Remove the last character
+    InAssetsPath.LeftChopInline(1, false);
+  }
+
   AssetsPath = InAssetsPath;
 
   /// Retrive all the assets in the path

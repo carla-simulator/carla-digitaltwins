@@ -45,7 +45,6 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0,
   try
   {
     OpenDriveFile = osm2odr::ConvertOSMToOpenDRIVE(OsmFile, Settings);
-    check(false);
   }
   catch (std::runtime_error& re)
   {
@@ -122,7 +121,7 @@ void FHttpDownloader::RequestComplete(FHttpRequestPtr HttpRequest, FHttpResponse
            *HttpRequest->GetURL(),
            HttpResponse->GetResponseCode());
 
-    FString CurrentFile = FPaths::ProjectPluginsDir() + UGenerationPathsHelper::GetMapDirectoryPath(Filename) + "OpenDrive/";
+    FString CurrentFile = UGenerationPathsHelper::GetRawMapDirectoryPath(Filename) + "OpenDrive/";
     UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FHttpDownloader::RequestComplete CurrentFile %s."), *CurrentFile);
 
     // We will use this FileManager to deal with the file.

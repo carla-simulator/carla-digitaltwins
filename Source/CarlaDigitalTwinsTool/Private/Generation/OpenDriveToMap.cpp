@@ -325,7 +325,7 @@ void UOpenDriveToMap::GenerateTile(){
 
     AActor* QueryActor = UGameplayStatics::GetActorOfClass(
                             GEditor->GetEditorWorldContext().World(),
-                            AActor::StaticClass() );
+                            ALargeMapManager::StaticClass() );
     if( QueryActor != nullptr ){
       ALargeMapManager* LmManager = Cast<ALargeMapManager>(QueryActor);
       LmManager->GenerateMap_Editor();
@@ -450,7 +450,7 @@ void UOpenDriveToMap::LoadMap()
 
     AActor* QueryActor = UGameplayStatics::GetActorOfClass(
                                 UEditorLevelLibrary::GetEditorWorld(),
-                                AActor::StaticClass() );
+                                ALargeMapManager::StaticClass() );
 
     if( QueryActor != nullptr )
     {
