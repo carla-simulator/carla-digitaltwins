@@ -111,7 +111,6 @@ find_package (
   EXACT
   REQUIRED
 )
-message (STATUS "PROJ_LIBRARIES=${PROJ_LIBRARIES}")
 
 # This is incorrect:
 set (SUMO_COMMIT 1da3c07e39f3e2e0d97f8f709a7255a0df8c6200)

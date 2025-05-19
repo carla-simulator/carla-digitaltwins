@@ -136,25 +136,6 @@ if (NOT ${XercesC_FOUND})
 
   list (GET XERCESC_CONFIG_PATH_CANDIDATES 0 XERCESC_CONFIG_PATH)
 
-  #[[
-  # @TODO HACK:
-  # --
-  if ("${BASH_EXECUTABLE}" STREQUAL "")
-    set (BASH_EXECUTABLE bash)
-    if (WIN32)
-      set (BASH_EXECUTABLE $ENV{PROGRAMFILES}/Git/bin/bash.exe)
-    endif ()
-  endif ()
-
-  execute_process (
-    COMMAND
-      ${BASH_EXECUTABLE}
-        ${CMAKE_CURRENT_LIST_DIR}/XercesCConfig_HACK.sh
-        ${XERCESC_CONFIG_PATH}
-  )
-  # --
-  ]]
-  
   cmake_path (
     GET
     XERCESC_CONFIG_PATH
