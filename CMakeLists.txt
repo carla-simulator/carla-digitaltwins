@@ -111,6 +111,7 @@ find_package (
   EXACT
   REQUIRED
 )
+message (STATUS "PROJ_LIBRARIES=${PROJ_LIBRARIES}")
 
 # This is incorrect:
 set (SUMO_COMMIT 1da3c07e39f3e2e0d97f8f709a7255a0df8c6200)
@@ -128,10 +129,17 @@ file (REMOVE ${CMAKE_BINARY_DIR}/IncludeDirectories.txt.in)
 file (REMOVE ${CMAKE_BINARY_DIR}/IncludeDirectories.txt)
 file (REMOVE ${CMAKE_BINARY_DIR}/PublicDefinitions.txt.in)
 file (REMOVE ${CMAKE_BINARY_DIR}/PublicDefinitions.txt)
+
 foreach (BOOST_COMPONENT ${BOOST_COMPONENTS})
   DumpDependencyInfo(Boost::${BOOST_COMPONENT})
 endforeach ()
+
 DumpDependencyInfo(XercesC::XercesC)
+
+foreach (PROJ_LIB ${PROJ_LIBRARIES})
+  DumpDependencyInfo(${PROJ_LIB})
+endforeach ()
+
 if (SUMO_INSTALL_DIR)
   # Find OSM2ODR:
   file (

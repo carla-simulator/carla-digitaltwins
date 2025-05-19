@@ -88,7 +88,7 @@ if (NOT ${PROJ_FOUND})
         -DBUILD_CS2CS=OFF
         -DBUILD_GEOD=OFF
         -DBUILD_GIE=OFF
-        -DBUILD_PROJ=OFF
+        -DBUILD_PROJ=ON
         -DBUILD_TESTING=OFF
     RESULTS_VARIABLE
       PROJ_CONFIGURE_RESULT
@@ -125,7 +125,14 @@ if (NOT ${PROJ_FOUND})
     message (FATAL_ERROR "Could not bootstrap ${DEPENDENCY_NAME}, install step failed.")
   endif ()
 
-  list (APPEND CMAKE_PREFIX_PATH ${PROJ_INSTALL_DIR}/lib/cmake)
-  list (APPEND CMAKE_MODULE_PATH ${PROJ_INSTALL_DIR}/lib/cmake)
+  list (APPEND CMAKE_PREFIX_PATH ${PROJ_INSTALL_DIR}/lib/cmake/proj)
+  list (APPEND CMAKE_MODULE_PATH ${PROJ_INSTALL_DIR}/lib/cmake/proj)
 
+  find_package (
+    ${DEPENDENCY_NAME} ${PROJ_VERSION}
+    EXACT
+    CONFIG
+    REQUIRED
+  )
+  
 endif ()

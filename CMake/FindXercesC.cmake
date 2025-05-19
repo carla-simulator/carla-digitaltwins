@@ -162,13 +162,11 @@ if (NOT ${XercesC_FOUND})
   list (APPEND CMAKE_PREFIX_PATH ${XERCESC_CONFIG_DIR})
   list (APPEND CMAKE_MODULE_PATH ${XERCESC_CONFIG_DIR})
 
-  #[[
   find_package (
     XercesC ${XERCESC_VERSION}
     EXACT
     REQUIRED
     CONFIG
   )
-  ]]
 
 endif ()

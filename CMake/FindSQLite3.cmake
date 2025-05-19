@@ -60,6 +60,7 @@ if (NOT ${SQLite3_FOUND})
     "cmake_minimum_required (VERSION ${CMAKE_VERSION})\n"
     "project (SQLite3)\n"
     "add_library (libsqlite3 sqlite3.h sqlite3ext.h sqlite3.c)\n"
+    "set_target_properties (libsqlite3 PROPERTIES PREFIX \"\")\n"
     "add_executable (sqlite3 shell.c)\n"
     "target_link_libraries (sqlite3 PRIVATE libsqlite3)\n"
     "install (FILES sqlite3.h sqlite3ext.h DESTINATION include)\n"
