@@ -60,6 +60,11 @@ if (NOT ${SQLite3_FOUND})
     "cmake_minimum_required (VERSION ${CMAKE_VERSION})\n"
     "project (SQLite3)\n"
     "add_library (libsqlite3 sqlite3.h sqlite3ext.h sqlite3.c)\n"
+    "if (LINUX)\n"
+    " find_package (Threads REQUIRED)\n"
+    " target_link_libraries (libsqlite3 PRIVATE \${CMAKE_DL_LIBS})\n"
+    " target_link_libraries (libsqlite3 PRIVATE Threads::Threads)\n"
+    "endif ()\n"
     "set_target_properties (libsqlite3 PROPERTIES PREFIX \"\")\n"
     "add_executable (sqlite3 shell.c)\n"
     "target_link_libraries (sqlite3 PRIVATE libsqlite3)\n"
@@ -76,21 +81,10 @@ if (NOT ${SQLite3_FOUND})
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
         -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON
-        -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
+        -DBUILD_SHARED_LIBS=OFF
         -DCMAKE_INSTALL_MESSAGE=${CMAKE_INSTALL_MESSAGE}
         -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}
         -DCMAKE_MODULE_PATH=${CMAKE_MODULE_PATH}
-        -DENABLE_TIFF=OFF
-        -DENABLE_CURL=OFF
-        -DBUILD_SHARED_LIBS=OFF
-        -DBUILD_SQLITE3SYNC=OFF
-        -DBUILD_SQLITE3INFO=OFF
-        -DBUILD_CCT=OFF
-        -DBUILD_CS2CS=OFF
-        -DBUILD_GEOD=OFF
-        -DBUILD_GIE=OFF
-        -DBUILD_SQLITE3=OFF
-        -DBUILD_TESTING=OFF
     RESULTS_VARIABLE
       SQLITE3_CONFIGURE_RESULT
   )

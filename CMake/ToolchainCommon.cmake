@@ -10,6 +10,22 @@
 
 if (LINUX)
 
+cmake_policy (SET CMP0012 NEW)
+
+macro (create_filepath_variable_checked NAME VALUE)
+	set (${NAME}_FOUND FALSE)
+	if (IS_DIRECTORY "${VALUE}")
+		set (${NAME}_FOUND TRUE)
+	endif ()
+	if (EXISTS "${VALUE}")
+		set (${NAME}_FOUND TRUE)
+	endif ()
+	if (NOT ${${NAME}_FOUND})
+		message (FATAL_ERROR "${NAME}: Assigned value \"${VALUE}\" does not exist.")
+	endif ()
+	set (${NAME} ${VALUE} CACHE FILEPATH "")
+endmacro ()
+
 set (UE_ROOT $ENV{${CARLA_UE_ENV_VAR_NAME}})
 
 if (NOT EXISTS ${UE_ROOT})
@@ -52,11 +68,7 @@ set (
 	CACHE PATH ""
 )
 
-if (IS_DIRECTORY ${UE_ROOT}/Engine/Source/ThirdParty)
-	set (UE_THIRD_PARTY ${UE_ROOT}/Engine/Source/ThirdParty CACHE PATH "")
-else ()
-	set (UE_THIRD_PARTY ${UE_ROOT}/Engine/Source/ThirdParty CACHE PATH "")
-endif ()
+set (UE_THIRD_PARTY ${UE_ROOT}/Engine/Source/ThirdParty CACHE PATH "")
 
 if (IS_DIRECTORY ${UE_THIRD_PARTY}/Unix/LibCxx/include)
 	set (UE_INCLUDE ${UE_THIRD_PARTY}/Unix/LibCxx/include CACHE PATH "")
@@ -73,15 +85,29 @@ endif ()
 if (IS_DIRECTORY ${UE_THIRD_PARTY}/OpenSSL/1.1.1t/include/Unix)
 	set (UE_OPENSSL_INCLUDE ${UE_THIRD_PARTY}/OpenSSL/1.1.1t/include/Unix CACHE PATH "")
 else ()
-	set (UE_OPENSSL_INCLUDE ${UE_THIRD_PARTY}/OpenSSL/1.1.1t/include/Linux CACHE PATH "")
+	set (UE_OPENSSL_INCLUDE ${UE_THIRD_PARTY}/OpenSSL/1.1.1c/include/Linux CACHE PATH "")
 endif ()
 
 if (IS_DIRECTORY ${UE_THIRD_PARTY}/OpenSSL/1.1.1t/lib/Unix/x86_64-unknown-linux-gnu)
 	set (UE_OPENSSL_LIBS ${UE_THIRD_PARTY}/OpenSSL/1.1.1t/lib/Unix/x86_64-unknown-linux-gnu CACHE PATH "")
 else ()
-	set (UE_OPENSSL_LIBS ${UE_THIRD_PARTY}/OpenSSL/1.1.1t/lib/Linux/x86_64-unknown-linux-gnu CACHE PATH "")
+	set (UE_OPENSSL_LIBS ${UE_THIRD_PARTY}/OpenSSL/1.1.1c/lib/Linux/x86_64-unknown-linux-gnu CACHE PATH "")
 endif ()
 
+set (
+	CHECK_PATHS
+	${UE_THIRD_PARTY}
+	${UE_INCLUDE}
+	${UE_LIBS}
+	${UE_OPENSSL_INCLUDE}
+	${UE_OPENSSL_LIBS}
+)
+
+foreach (CHECK_PATH ${CHECK_PATHS})
+	if (NOT IS_DIRECTORY "${CHECK_PATH}")
+		message (FATAL_ERROR "${CHECK_PATH} is not a valid directory.")
+	endif ()
+endforeach ()
 
 add_compile_options (
 	-fms-extensions
@@ -92,100 +118,84 @@ add_compile_options (
 
 add_link_options (-stdlib=libc++ -L${UE_LIBS} )
 
-set (
+create_filepath_variable_checked (
 	CMAKE_AR
 	${UE_SYSROOT}/bin/llvm-ar
-	CACHE FILEPATH ""
 )
 
-set (
+create_filepath_variable_checked (
 	CMAKE_ASM_COMPILER
 	${UE_SYSROOT}/bin/clang
-	CACHE FILEPATH ""
 )
 
-set (
+create_filepath_variable_checked (
 	CMAKE_C_COMPILER
 	${UE_SYSROOT}/bin/clang
-	CACHE FILEPATH ""
 )
 
-set (
+create_filepath_variable_checked (
 	CMAKE_C_COMPILER_AR
 	${UE_SYSROOT}/bin/llvm-ar
-	CACHE FILEPATH ""
 )
 
-set (
+create_filepath_variable_checked (
 	CMAKE_CXX_COMPILER
 	${UE_SYSROOT}/bin/clang++
-	CACHE FILEPATH ""
 )
 
-set (
+create_filepath_variable_checked (
 	CMAKE_CXX_COMPILER_AR
 	${UE_SYSROOT}/bin/llvm-ar
-	CACHE FILEPATH ""
 )
 
-set (
+create_filepath_variable_checked (
 	CMAKE_OBJCOPY
 	${UE_SYSROOT}/bin/llvm-objcopy
-	CACHE FILEPATH ""
 )
 
-set (
+create_filepath_variable_checked (
 	CMAKE_ADDR2LINE
 	${UE_SYSROOT}/bin/${TARGET_TRIPLE}-addr2line
-	CACHE FILEPATH ""
 )
 
-set (
+create_filepath_variable_checked (
 	CMAKE_C_COMPILER_RANLIB
 	${UE_SYSROOT}/bin/${TARGET_TRIPLE}-ranlib
-	CACHE FILEPATH ""
 )
 
-set (
+create_filepath_variable_checked (
 	CMAKE_CXX_COMPILER_RANLIB
 	${UE_SYSROOT}/bin/${TARGET_TRIPLE}-ranlib
-	CACHE FILEPATH ""
 )
 
-set (
+create_filepath_variable_checked (
 	CMAKE_LINKER
 	${UE_SYSROOT}/bin/${TARGET_TRIPLE}-ld
-	CACHE FILEPATH ""
 )
 
-set (
+create_filepath_variable_checked (
 	CMAKE_NM
 	${UE_SYSROOT}/bin/${TARGET_TRIPLE}-nm
-	CACHE FILEPATH ""
 )
 
-set (
+create_filepath_variable_checked (
 	CMAKE_OBJDUMP
 	${UE_SYSROOT}/bin/${TARGET_TRIPLE}-objdump
-	CACHE FILEPATH ""
 )
 
-set (
+create_filepath_variable_checked (
 	CMAKE_RANLIB
 	${UE_SYSROOT}/bin/${TARGET_TRIPLE}-ranlib
-	CACHE FILEPATH ""
 )
 
-set (
+create_filepath_variable_checked (
 	CMAKE_READELF
 	${UE_SYSROOT}/bin/${TARGET_TRIPLE}-readelf
-	CACHE FILEPATH ""
 )
 
-set (
+create_filepath_variable_checked (
 	CMAKE_STRIP
 	${UE_SYSROOT}/bin/${TARGET_TRIPLE}-strip
-	CACHE FILEPATH ""
 )
 
 set (

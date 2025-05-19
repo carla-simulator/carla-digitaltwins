@@ -1,13 +1,19 @@
 cmake_minimum_required (VERSION 3.25)
 project (CarlaDigitalTwinsTool)
 
+set (LIB_EXT .a)
+if (WIN32)
+  set (LIB_EXT .lib)
+endif ()
+
+set (CMAKE_POSITION_INDEPENDENT_CODE ON)
 set (THREADS_PREFER_PTHREAD_FLAG ON)
 
 macro (DumpLibraryPath PATH)
   file (
     APPEND
     ${CMAKE_BINARY_DIR}/LinkLibraries.txt.in
-    ${PATH}
+    "${PATH}\n"
   )
 endmacro ()
 
@@ -15,7 +21,7 @@ macro (DumpIncludePath PATH)
   file (
     APPEND
     ${CMAKE_BINARY_DIR}/IncludeDirectories.txt.in
-    ${PATH}
+    "${PATH}\n"
   )
 endmacro ()
 
@@ -23,7 +29,7 @@ macro (DumpPublicDefinition DEFINITION)
   file (
     APPEND
     ${CMAKE_BINARY_DIR}/PublicDefinitions.txt.in
-    ${DEFINITION}
+    "${DEFINITION}\n"
   )
 endmacro ()
 
@@ -90,17 +96,17 @@ find_package (
   COMPONENTS ${BOOST_COMPONENTS}
 )
 
-set (XERCESC_VERSION 3.3.0)
+message (STATUS "Looking for SQLite3")
+find_package (
+  SQLite3
+  REQUIRED
+)
+
+set (XERCESC_VERSION 3.2.3)
 message (STATUS "Looking for XercesC")
 find_package (
   XercesC ${XERCESC_VERSION}
   EXACT
-  REQUIRED
-)
-
-message (STATUS "Looking for SQLite3")
-find_package (
-  SQLite3
   REQUIRED
 )
 
@@ -132,6 +138,9 @@ file (REMOVE ${CMAKE_BINARY_DIR}/PublicDefinitions.txt)
 foreach (BOOST_COMPONENT ${BOOST_COMPONENTS})
   DumpDependencyInfo(Boost::${BOOST_COMPONENT})
 endforeach ()
+
+DumpIncludePath(${THIRD_PARTY_INSTALL_DIR}/SQLite3/include)
+DumpLibraryPath(${THIRD_PARTY_INSTALL_DIR}/SQLite3/lib/libsqlite3${LIB_EXT})
 
 DumpDependencyInfo(XercesC::XercesC)
 
