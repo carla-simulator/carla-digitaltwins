@@ -59,6 +59,7 @@ if (NOT ${SQLite3_FOUND})
     WRITE ${SQLITE3_SOURCE_DIR}/CMakeLists.txt
     "cmake_minimum_required (VERSION ${CMAKE_VERSION})\n"
     "project (SQLite3)\n"
+    "add_compile_definitions (SQLITE_DISABLE_LFS=1)\n"
     "add_library (libsqlite3 sqlite3.h sqlite3ext.h sqlite3.c)\n"
     "if (LINUX)\n"
     " find_package (Threads REQUIRED)\n"
@@ -71,7 +72,6 @@ if (NOT ${SQLite3_FOUND})
     "install (FILES sqlite3.h sqlite3ext.h DESTINATION include)\n"
     "install (TARGETS libsqlite3 sqlite3)\n"
   )
-
   execute_process (
     COMMAND
       ${CMAKE_COMMAND}
