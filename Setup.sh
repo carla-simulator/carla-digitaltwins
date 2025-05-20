@@ -21,8 +21,8 @@ if [ ! -d "$STREETMAP_DIR/.git" ]; then
 fi
 
 # Move into repo and checkout the commit
-git -C $STREETMAP_DIR fetch
-git -C $STREETMAP_DIR checkout $CURRENT_STREETMAP_COMMIT
+git -C "$STREETMAP_DIR" fetch
+git -C "$STREETMAP_DIR" checkout $CURRENT_STREETMAP_COMMIT
 
 # CONTENT_ prefixed variables
 CONTENT_FOLDER=$SOURCE_DIR/Content
@@ -34,7 +34,7 @@ if [ -d "$CONTENT_TARGET_DIR" ]; then
 
     echo "The folder \"$CONTENT_TARGET_DIR\" already exists. Pulling..."
 
-    git -C $CONTENT_TARGET_DIR pull
+    git -C "$CONTENT_TARGET_DIR" pull
 
 else
 
@@ -50,7 +50,7 @@ else
     mkdir -p "$CONTENT_FOLDER"
 
     # Clone the repository into the target directory
-    git -C $CONTENT_FOLDER clone "$CONTENT_REPO_URL" digitalTwins
+    git -C "$CONTENT_FOLDER" clone "$CONTENT_REPO_URL" digitalTwins
     
     if [ $? -ne 0 ]; then
         echo "ERROR: Failed to clone the repository."
@@ -63,10 +63,10 @@ fi
 BOOST_COMPONENTS="asio;iterator;date_time;geometry;container;variant2;gil;filesystem"
 
 cmake \
-    -S ${SOURCE_DIR} \
-    -B ${SOURCE_DIR}/Build \
+    -S "${SOURCE_DIR}" \
+    -B "${SOURCE_DIR}/Build" \
     -G Ninja \
-    --toolchain ${SOURCE_DIR}/CMake/ToolchainUE4.cmake \
+    --toolchain "${SOURCE_DIR}/CMake/ToolchainUE4.cmake" \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=OFF \
     -DBOOST_COMPONENTS=${BOOST_COMPONENTS}
