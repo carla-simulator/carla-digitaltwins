@@ -1,8 +1,13 @@
 // Copyright (c) 2023 Computer Vision Center (CVC) at the Universitat Autonoma de Barcelona (UAB). This work is licensed under the terms of the MIT license. For a copy, see <https://opensource.org/licenses/MIT>.
 
 #include "Generation/OpenDriveToMap.h"
+#if ENGINE_MAJOR_VERSION < 5
 #include "DesktopPlatform/Public/IDesktopPlatform.h"
 #include "DesktopPlatform/Public/DesktopPlatformModule.h"
+#else
+#include "IDesktopPlatform.h"
+#include "DesktopPlatformModule.h"
+#endif
 #include "Misc/FileHelper.h"
 #include "Engine/LevelBounds.h"
 #include "Engine/SceneCapture2D.h"
@@ -12,21 +17,29 @@
 #include "StaticMeshAttributes.h"
 #include "FileHelpers.h"
 #include "Online/CustomFileDownloader.h"
+#if ENGINE_MAJOR_VERSION < 5
 #include "Engine/Classes/Interfaces/Interface_CollisionDataProvider.h"
+#endif
 #include "Engine/TriggerBox.h"
 #include "Engine/AssetManager.h"
 #include "Factories/MaterialInstanceConstantFactoryNew.h"
+#if ENGINE_MAJOR_VERSION < 5
 #include "PhysicsCore/Public/BodySetupEnums.h"
+#endif
 #include "PhysicsEngine/BodySetup.h"
 #include "RawMesh.h"
+#if ENGINE_MAJOR_VERSION < 5
 #include "AssetRegistryModule.h"
+#endif
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "MeshDescription.h"
 #include "EditorLevelLibrary.h"
 #include "ProceduralMeshConversion.h"
 #include "EditorLevelLibrary.h"
-
+#if ENGINE_MAJOR_VERSION > 4
+#include "Editor\Transactor.h"
+#endif
 #include "ContentBrowserModule.h"
 #include "Materials/MaterialInstanceConstant.h"
 #include "Math/Vector.h"
@@ -768,7 +781,12 @@ void UOpenDriveToMap::GenerateTreePositions( const boost::optional<carla::road::
 
 float UOpenDriveToMap::GetHeight(float PosX, float PosY, bool bDrivingLane){
   if( DefaultHeightmap ){
-    const FColor* FormatedImageData = static_cast<const FColor*>( DefaultHeightmap->PlatformData->Mips[0].BulkData.LockReadOnly());
+#if ENGINE_MAJOR_VERSION < 5
+      auto RawImageData = DefaultHeightmap->PlatformData->Mips[0].BulkData.LockReadOnly();
+#else
+      auto RawImageData = DefaultHeightmap->GetPlatformData()->Mips[0].BulkData.LockReadOnly();
+#endif
+    const FColor* FormatedImageData = static_cast<const FColor*>(RawImageData);
 
     int32 TextureSizeX = DefaultHeightmap->GetSizeX();
     int32 TextureSizeY = DefaultHeightmap->GetSizeY();
@@ -800,7 +818,11 @@ float UOpenDriveToMap::GetHeight(float PosX, float PosY, bool bDrivingLane){
     //UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("PixelColor %s "), *WorldEndPosition.ToString() );
     //UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Reading Pixel X: %d Y %d Total Size X %d Y %d"), PixelX, PixelY, TextureSizeX, TextureSizeY );
 
+#if ENGINE_MAJOR_VERSION < 5
     DefaultHeightmap->PlatformData->Mips[0].BulkData.Unlock();
+#else
+    DefaultHeightmap->GetPlatformData()->Mips[0].BulkData.Unlock();
+#endif
 
     float LandscapeHeight = ( (PixelColor.R/255.0f ) * ( MaxHeight - MinHeight ) ) + MinHeight;
 
@@ -1022,7 +1044,11 @@ void UOpenDriveToMap::MoveActorsToSubLevelWithLargeMap(TArray<AActor*> Actors, A
     FText TransResetText(FText::FromString("Clean up after Move actors to sublevels"));
     if (GEditor->Trans)
     {
+#if ENGINE_MAJOR_VERSION < 5
         GEditor->Trans->Reset(TransResetText);
+#else
+        GEditor->Trans->Reset(TransResetText);
+#endif
         GEditor->Cleanse(true, true, TransResetText);
     }
 }
