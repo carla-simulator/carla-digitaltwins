@@ -17,7 +17,7 @@ public:
 
   UFUNCTION(BlueprintCallable, BlueprintPure)
   static FString GetRawMapDirectoryPath(FString MapName) {
-      return FPaths::ProjectPluginsDir() + MapName + "/Maps/";
+      return FPaths::ProjectPluginsDir() + MapName + "/Content/Maps/";
   }
 
   UFUNCTION(BlueprintCallable, BlueprintPure)
