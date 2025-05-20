@@ -41,7 +41,18 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0,
   osm2odr::OSM2ODRSettings Settings;
   Settings.proj_string += " +lat_0=" + std::to_string(Lat_0) + " +lon_0=" + std::to_string(Lon_0);
   Settings.center_map = false;
-  std::string OpenDriveFile = osm2odr::ConvertOSMToOpenDRIVE(OsmFile, Settings);
+  std::string OpenDriveFile;
+  try
+  {
+    OpenDriveFile = osm2odr::ConvertOSMToOpenDRIVE(OsmFile, Settings);
+  }
+  catch (std::runtime_error& re)
+  {
+    FString fs;
+    fs = re.what();
+    UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("FileManipulation: osm2odr::ConvertOSMToOpenDRIVE failed: %s"), *fs);
+  }
+  
 
   FilePath.RemoveFromEnd(".osm", ESearchCase::Type::IgnoreCase);
   FilePath += ".xodr";
@@ -50,7 +61,7 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0,
 
   if (FFileHelper::SaveStringToFile(FString(OpenDriveFile.c_str()), *FilePath))
   {
-    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Sucsesfuly Written: \"%s\" to the text file"), *FilePath);
+    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Successfully Written: \"%s\" to the text file"), *FilePath);
   }
   else
   {
@@ -110,7 +121,7 @@ void FHttpDownloader::RequestComplete(FHttpRequestPtr HttpRequest, FHttpResponse
            *HttpRequest->GetURL(),
            HttpResponse->GetResponseCode());
 
-    FString CurrentFile = FPaths::ProjectPluginsDir() + UGenerationPathsHelper::GetMapDirectoryPath(Filename) + "OpenDrive/";
+    FString CurrentFile = UGenerationPathsHelper::GetRawMapDirectoryPath(Filename) + "OpenDrive/";
     UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FHttpDownloader::RequestComplete CurrentFile %s."), *CurrentFile);
 
     // We will use this FileManager to deal with the file.
@@ -126,7 +137,7 @@ void FHttpDownloader::RequestComplete(FHttpRequestPtr HttpRequest, FHttpResponse
     // We use the LoadFileToString to load the file into
     if (FFileHelper::SaveStringToFile(StringToWrite, *CurrentFile, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
     {
-      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Sucsesfuly Written "));
+      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Successfully Written "));
       DelegateToCall.ExecuteIfBound();
     }
     else
