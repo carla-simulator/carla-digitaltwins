@@ -53,6 +53,7 @@ void ALargeMapManager::BeginPlay()
   FWorldDelegates::LevelAddedToWorld.AddUObject(this, &ALargeMapManager::OnLevelAddedToWorld);
   FWorldDelegates::LevelRemovedFromWorld.AddUObject(this, &ALargeMapManager::OnLevelRemovedFromWorld);
 
+
   // Setup Origin rebase settings
   UWorldComposition* WorldComposition = World->WorldComposition;
   WorldComposition->bRebaseOriginIn3DSpace = true;
@@ -319,14 +320,17 @@ void ALargeMapManager::RegisterTilesInWorldComposition()
   UWorld* World = GetWorld();
   UWorldComposition* WorldComposition = World->WorldComposition;
   World->ClearStreamingLevels();
-  WorldComposition->TilesStreaming.Empty();
-  WorldComposition->GetTilesList().Empty();
-
-  for (auto& It : MapTiles)
+  if (WorldComposition)
   {
-    ULevelStreamingDynamic* StreamingLevel = It.Value.StreamingLevel;
-    World->AddStreamingLevel(StreamingLevel);
-    WorldComposition->TilesStreaming.Add(StreamingLevel);
+    WorldComposition->TilesStreaming.Empty();
+    WorldComposition->GetTilesList().Empty();
+
+    for (auto& It : MapTiles)
+    {
+      ULevelStreamingDynamic* StreamingLevel = It.Value.StreamingLevel;
+      World->AddStreamingLevel(StreamingLevel);
+      WorldComposition->TilesStreaming.Add(StreamingLevel);
+    }
   }
 }
 
@@ -729,7 +733,7 @@ void ALargeMapManager::PrintMapInfo()
   ULevel* CurrentLevel = World->GetCurrentLevel();
 
   FString Output = "";
-  Output += FString::Printf(TEXT("Num levels in world composition: %d\n"), World->WorldComposition->TilesStreaming.Num());
+  Output += FString::Printf(TEXT("Num levels in world composition: %d\n"), World->WorldComposition != nullptr ? World->WorldComposition->TilesStreaming.Num() : -1);
   Output += FString::Printf(TEXT("Num levels loaded: %d\n"), Levels.Num() );
   Output += FString::Printf(TEXT("Num tiles loaded: %d\n"), CurrentTilesLoaded.Num() );
   Output += FString::Printf(TEXT("Tiles loaded: [ "));
