@@ -771,19 +771,16 @@ void UOpenDriveToMap::GenerateTreePositions( const boost::optional<carla::road::
 
 void UOpenDriveToMap::GenerateTreesFromSegmentation( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation  )
 {
-  carla::geom::Vector3D CarlaMinLocation(MinLocation.X / 100, MinLocation.Y / 100, MinLocation.Z /100);
-  carla::geom::Vector3D CarlaMaxLocation(MaxLocation.X / 100, MaxLocation.Y / 100, MaxLocation.Z /100);
-
-  // FString PythonCode = TEXT("print('Hello from Python in Unreal!')");
-
-  // Run a Python command
-  // IPythonScriptPlugin::Get()->ExecPythonCommand(*PythonCode);
-
-  // std::cout << "PAth" << FPaths::ProjectContentDir() << std::endl;
-  // std::cout << "PAth" << FPaths::ProjectContentDir() / TEXT("Plugins/carla-digitaltwins/Content/Python/segmenter.py") << std::endl;
-
   FString ScriptPath = FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins/Content/Python/segmenter.py");
-  FString Command = FString::Printf(TEXT("exec(open(r'%s').read())"), *ScriptPath.Replace(TEXT("\\"), TEXT("\\\\")));
+
+  // Set args as you'd pass them on CLI
+  FString Args = TEXT("'--lon_min', '100.0', '--lat_min', '150.0', '--lon_max', '200.0', '--lat_max', '300.0'");
+  FString Command = FString::Printf(
+      TEXT("import sys, runpy; sys.argv = ['segmenter.py', %s]; runpy.run_path(r'%s', run_name='__main__')"),
+      *Args,
+      *ScriptPath.Replace(TEXT("\\"), TEXT("\\\\"))
+  );
+
   IPythonScriptPlugin::Get()->ExecPythonCommand(*Command);
 
 }
