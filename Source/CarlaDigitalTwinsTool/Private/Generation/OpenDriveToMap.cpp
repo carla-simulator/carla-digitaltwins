@@ -45,6 +45,8 @@
 
 #include "DrawDebugHelpers.h"
 #include "Paths/GenerationPathsHelper.h"
+#include "IPythonScriptPlugin.h"
+
 #if WITH_EDITOR
 UOpenDriveToMap::UOpenDriveToMap()
 {
@@ -508,6 +510,7 @@ void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& Param
   // GenerateSpawnPoints(ParamCarlaMap, MinLocation, MaxLocation);
   CreateTerrain(12800, 256);
   GenerateTreePositions(ParamCarlaMap, MinLocation, MaxLocation);
+  GenerateTreesFromSegmentation(ParamCarlaMap, MinLocation, MaxLocation);
   GenerationFinished(MinLocation, MaxLocation);
 }
 
@@ -764,6 +767,25 @@ void UOpenDriveToMap::GenerateTreePositions( const boost::optional<carla::road::
     Spawner->SetActorLabel("TreeSpawnPosition" + FString::FromInt(i) + GetStringForCurrentTile() );
     ++i;
   }
+}
+
+void UOpenDriveToMap::GenerateTreesFromSegmentation( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation  )
+{
+  carla::geom::Vector3D CarlaMinLocation(MinLocation.X / 100, MinLocation.Y / 100, MinLocation.Z /100);
+  carla::geom::Vector3D CarlaMaxLocation(MaxLocation.X / 100, MaxLocation.Y / 100, MaxLocation.Z /100);
+
+  // FString PythonCode = TEXT("print('Hello from Python in Unreal!')");
+
+  // Run a Python command
+  // IPythonScriptPlugin::Get()->ExecPythonCommand(*PythonCode);
+
+  // std::cout << "PAth" << FPaths::ProjectContentDir() << std::endl;
+  // std::cout << "PAth" << FPaths::ProjectContentDir() / TEXT("Plugins/carla-digitaltwins/Content/Python/segmenter.py") << std::endl;
+
+  FString ScriptPath = FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins/Content/Python/segmenter.py");
+  FString Command = FString::Printf(TEXT("exec(open(r'%s').read())"), *ScriptPath.Replace(TEXT("\\"), TEXT("\\\\")));
+  IPythonScriptPlugin::Get()->ExecPythonCommand(*Command);
+
 }
 
 float UOpenDriveToMap::GetHeight(float PosX, float PosY, bool bDrivingLane){
