@@ -1,7 +1,7 @@
 #! /bin/bash
 
-SCRIPT_PATH=$(readlink -f -- "${BASH_SOURCE[0]}")
-SOURCE_DIR=$(dirname "${SCRIPT_PATH}")
+SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
+SOURCE_DIR="$(dirname "${SCRIPT_PATH}")"
 
 # Configuration
 BUILD_STREETMAP=false
