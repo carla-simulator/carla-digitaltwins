@@ -772,7 +772,7 @@ void UOpenDriveToMap::GenerateTreePositions( const boost::optional<carla::road::
 void UOpenDriveToMap::GenerateTreesFromSegmentation( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation  )
 {
 
-  FString PythonExe = "/usr/bin/python3.10";
+  FString PythonExe = "/usr/bin/python3";
   FString ScriptPath = FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins/Content/Python/segmenter.py");
   FString ScriptArgs = FString::Printf(TEXT("\"%s\" --lon_min=10.5"), *ScriptPath);
 

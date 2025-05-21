@@ -1,5 +1,29 @@
-import argparse
 import sys
+import argparse
+import pathlib
+
+from samgeo import tms_to_geotiff, raster_to_vector
+from samgeo.text_sam import LangSAM
+
+
+def run_langsam(bbox, zoom, threshold=0.24):
+
+    outpath = pathlib.Path.cwd() / "outputs"
+    outpath.mkdir(parents=True, exist_ok=True)
+    print("Python outputs path:",outpath)
+
+    text_prompt = "tree"
+
+    image_path = str(outpath / "satellite.tif")
+    masktif_path = str(outpath / "masks.tif")
+    maskgeojson_path = str(outpath / "masks.geojson")
+
+    tms_to_geotiff(output=image_path, bbox=bbox, zoom=zoom, source="Satellite", overwrite=True)
+
+    sam = LangSAM()
+
+    sam.predict(image_path, text_prompt, output=masktif_path, box_threshold=threshold, text_threshold=threshold)
+    raster_to_vector(masktif_path, maskgeojson_path)
 
 def main():
 
@@ -18,5 +42,18 @@ def main():
     print("Coords:", lon_min, lat_min, lon_max, lat_max)
     print("Received sys.argv:", sys.argv)
 
+    lat_min = 41.383
+    lon_min = 2.155
+    lat_max = 41.387
+    lon_max = 2.165
+
+    zoom = 18
+    threshold = 0.24
+    bbox = [lon_min, lat_min, lon_max, lat_max]
+    
+    run_langsam(bbox, zoom, threshold)
+
+
 if __name__ == '__main__':
     main()
+    
