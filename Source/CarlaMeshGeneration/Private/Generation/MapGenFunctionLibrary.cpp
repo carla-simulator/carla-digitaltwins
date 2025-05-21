@@ -18,7 +18,7 @@
 #include "Paths/GenerationPathsHelper.h"
 
 #if WITH_EDITOR
-#include "Editor\Transactor.h"
+#include "Editor/Transactor.h"
 #endif
 
 #if ENGINE_MAJOR_VERSION < 5
