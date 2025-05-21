@@ -6,9 +6,12 @@ from samgeo import tms_to_geotiff, raster_to_vector
 from samgeo.text_sam import LangSAM
 
 
-def run_langsam(bbox, zoom, threshold=0.24):
+def run_langsam(bbox, zoom, threshold=0.24, plugin_path=None):
 
-    outpath = pathlib.Path.cwd() / "outputs"
+    if plugin_path is None:
+        outpath = pathlib.Path.cwd() / "pyoutputs"
+    else:
+        outpath = pathlib.Path(plugin_path) / "pyoutputs"
     outpath.mkdir(parents=True, exist_ok=True)
     print("Python outputs path:",outpath)
 
@@ -34,24 +37,32 @@ def main():
     parser.add_argument('--lat_min')
     parser.add_argument('--lon_max')
     parser.add_argument('--lat_max')
+    parser.add_argument('--zoom',default=20)
+    parser.add_argument('--threshold',default=0.24)
+    parser.add_argument('--plugin_path')
     args = parser.parse_args()
 
     lon_min, lat_min, lon_max, lat_max = args.lon_min, args.lat_min, args.lon_max, args.lat_max
+    zoom, threshold = args.zoom, args.threshold
+    plugin_path = args.plugin_path
     
     print("Args:", args)
     print("Coords:", lon_min, lat_min, lon_max, lat_max)
     print("Received sys.argv:", sys.argv)
 
+    # Hardcoded values for initial tests
     lat_min = 41.383
     lon_min = 2.155
     lat_max = 41.387
     lon_max = 2.165
 
-    zoom = 18
-    threshold = 0.24
     bbox = [lon_min, lat_min, lon_max, lat_max]
     
-    run_langsam(bbox, zoom, threshold)
+    run_langsam(bbox=bbox,
+                zoom=zoom,
+                threshold=threshold,
+                plugin_path=plugin_path
+                )
 
 
 if __name__ == '__main__':

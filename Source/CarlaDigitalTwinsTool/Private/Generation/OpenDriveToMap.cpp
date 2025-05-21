@@ -773,8 +773,10 @@ void UOpenDriveToMap::GenerateTreesFromSegmentation( const boost::optional<carla
 {
 
   FString PythonExe = "/usr/bin/python3";
-  FString ScriptPath = FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins/Content/Python/segmenter.py");
-  FString ScriptArgs = FString::Printf(TEXT("\"%s\" --lon_min=10.5"), *ScriptPath);
+  FString PluginPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins"));
+  FString ScriptPath = PluginPath / TEXT("Content/Python/segmenter.py");
+  // Hardcoded values for testing
+  FString ScriptArgs = FString::Printf(TEXT("\"%s\" --plugin_path=\"%s\" --lon_min=10.5 --lat_min=10.5 --lon_max=11.5 --lat_max=12.5 --zoom=20"), *ScriptPath, *PluginPath);
 
   // Create communication pipes
   void* ReadPipe = nullptr;
