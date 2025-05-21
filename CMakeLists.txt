@@ -102,7 +102,7 @@ find_package (
   REQUIRED
 )
 
-set (XERCESC_VERSION 3.2.3)
+set (XERCESC_VERSION 3.3.0)
 message (STATUS "Looking for XercesC")
 find_package (
   XercesC ${XERCESC_VERSION}
@@ -119,7 +119,7 @@ find_package (
 )
 
 # This is incorrect:
-set (SUMO_COMMIT 1da3c07e39f3e2e0d97f8f709a7255a0df8c6200)
+set (SUMO_BRANCH marcel/carla-staging)
 message (STATUS "Looking for SUMO")
 find_package (
   SUMO

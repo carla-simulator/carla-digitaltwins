@@ -1,8 +1,11 @@
 
+
+if (NOT TARGET XercesC::XercesC)
+
 # Removing the next line results in SUMO failing to build due to missing Threads::Threads target in ThirdParty/Install/XercesC/lib/cmake/XercesC/XercesCConfigInternal.cmake .
 find_package (Threads REQUIRED)
 
-set (XERCESC_VERSION 3.2.3)
+set (XERCESC_VERSION 3.3.0)
 find_package (
   XercesC ${XERCESC_VERSION}
   EXACT
@@ -152,5 +155,9 @@ if (NOT ${XercesC_FOUND})
     REQUIRED
     CONFIG
   )
+
+endif ()
+
+message (STATUS "XercesC_LIBRARIES=${XercesC_LIBRARIES}")
 
 endif ()
