@@ -77,8 +77,6 @@ macro (GenerateFinalDumpFiles)
   )
 endmacro ()
 
-
-
 message (STATUS "Requesting boost components:")
 foreach (COMPONENT ${BOOST_COMPONENTS})
   message (STATUS " - ${COMPONENT}")
@@ -86,6 +84,9 @@ endforeach ()
 
 list (APPEND CMAKE_PREFIX_PATH ${CMAKE_CURRENT_LIST_DIR}/CMake)
 list (APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/CMake)
+
+include (CMake/StreetMap.cmake)
+include (CMake/UEContent.cmake)
 
 set (BOOST_VERSION 1.84.0)
 message (STATUS "Looking for Boost")
