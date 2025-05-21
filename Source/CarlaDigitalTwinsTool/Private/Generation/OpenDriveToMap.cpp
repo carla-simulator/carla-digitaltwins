@@ -776,7 +776,16 @@ void UOpenDriveToMap::GenerateTreesFromSegmentation( const boost::optional<carla
   FString PluginPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins"));
   FString ScriptPath = PluginPath / TEXT("Content/Python/segmenter.py");
   // Hardcoded values for testing
-  FString ScriptArgs = FString::Printf(TEXT("\"%s\" --plugin_path=\"%s\" --lon_min=10.5 --lat_min=10.5 --lon_max=11.5 --lat_max=12.5 --zoom=20"), *ScriptPath, *PluginPath);
+
+  FString Args;
+  Args += FString::Printf(TEXT("\"%s\" "), *ScriptPath);
+  Args += FString::Printf(TEXT("--plugin_path=\"%s\" "), *PluginPath);
+  Args += FString::Printf(TEXT("--lon_min=%.8f "), OriginGeoCoordinates.Y);
+  Args += FString::Printf(TEXT("--lat_min=%.8f "), OriginGeoCoordinates.X);
+  Args += FString::Printf(TEXT("--lon_max=%.8f "), FinalGeoCoordinates.Y);
+  Args += FString::Printf(TEXT("--lat_max=%.8f "), FinalGeoCoordinates.X);
+  Args += TEXT("--zoom=20 ");
+  Args += TEXT("--threshold=0.25 ");
 
   // Create communication pipes
   void* ReadPipe = nullptr;
@@ -786,7 +795,7 @@ void UOpenDriveToMap::GenerateTreesFromSegmentation( const boost::optional<carla
   // Launch process
   FProcHandle ProcHandle = FPlatformProcess::CreateProc(
       *PythonExe,
-      *ScriptArgs,
+      *Args,
       true,   // bLaunchDetached
       false,  // bLaunchHidden
       false,  // bLaunchReallyHidden
