@@ -2,6 +2,8 @@ import argparse
 import sys
 
 def main():
+
+    print(sys.version)
     
     parser = argparse.ArgumentParser()
     parser.add_argument('--lon_min')

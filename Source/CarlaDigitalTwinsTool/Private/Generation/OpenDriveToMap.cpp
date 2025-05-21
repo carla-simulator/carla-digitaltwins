@@ -771,17 +771,55 @@ void UOpenDriveToMap::GenerateTreePositions( const boost::optional<carla::road::
 
 void UOpenDriveToMap::GenerateTreesFromSegmentation( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation  )
 {
-  FString ScriptPath = FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins/Content/Python/segmenter.py");
 
-  // Set args as you'd pass them on CLI
-  FString Args = TEXT("'--lon_min', '100.0', '--lat_min', '150.0', '--lon_max', '200.0', '--lat_max', '300.0'");
-  FString Command = FString::Printf(
-      TEXT("import sys, runpy; sys.argv = ['segmenter.py', %s]; runpy.run_path(r'%s', run_name='__main__')"),
-      *Args,
-      *ScriptPath.Replace(TEXT("\\"), TEXT("\\\\"))
+  FString PythonExe = "/usr/bin/python3.10";
+  FString ScriptPath = FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins/Content/Python/segmenter.py");
+  FString ScriptArgs = FString::Printf(TEXT("\"%s\" --lon_min=10.5"), *ScriptPath);
+
+  // Create communication pipes
+  void* ReadPipe = nullptr;
+  void* WritePipe = nullptr;
+  FPlatformProcess::CreatePipe(ReadPipe, WritePipe);
+
+  // Launch process
+  FProcHandle ProcHandle = FPlatformProcess::CreateProc(
+      *PythonExe,
+      *ScriptArgs,
+      true,   // bLaunchDetached
+      false,  // bLaunchHidden
+      false,  // bLaunchReallyHidden
+      nullptr,
+      0,
+      nullptr,
+      WritePipe,  // Pipe for stdout/stderr
+      WritePipe
   );
 
-  IPythonScriptPlugin::Get()->ExecPythonCommand(*Command);
+  if (!ProcHandle.IsValid())
+  {
+      UE_LOG(LogTemp, Error, TEXT("Failed to launch Python script."));
+      FPlatformProcess::ClosePipe(ReadPipe, WritePipe);
+      return;
+  }
+
+  // Read output
+  FString Output;
+  while (FPlatformProcess::IsProcRunning(ProcHandle))
+  {
+      FString NewOutput = FPlatformProcess::ReadPipe(ReadPipe);
+      Output += NewOutput;
+      FPlatformProcess::Sleep(0.01f);
+  }
+
+  // Read any remaining output
+  Output += FPlatformProcess::ReadPipe(ReadPipe);
+
+  // Clean up
+  FPlatformProcess::CloseProc(ProcHandle);
+  FPlatformProcess::ClosePipe(ReadPipe, WritePipe);
+
+  // Print result to Unreal log
+  UE_LOG(LogTemp, Display, TEXT("Python Output:\n%s"), *Output);
 
 }
 
