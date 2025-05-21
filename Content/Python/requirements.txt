@@ -1,2 +1,4 @@
+geopandas
 segment-geospatial
 sam2
+shapely
