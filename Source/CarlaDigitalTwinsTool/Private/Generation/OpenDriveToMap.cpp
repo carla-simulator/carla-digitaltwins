@@ -751,7 +751,7 @@ void UOpenDriveToMap::GenerateTreePositions( const boost::optional<carla::road::
   carla::geom::Vector3D CarlaMaxLocation(MaxLocation.X / 100, MaxLocation.Y / 100, MaxLocation.Z /100);
 
   std::vector<std::pair<carla::geom::Transform, std::string>> Locations =
-    ParamCarlaMap->GetTreesTransform(CarlaMinLocation, CarlaMaxLocation,DistanceBetweenTrees, DistanceFromRoadEdge );
+    ParamCarlaMap->GetTreesTransform(CarlaMinLocation, CarlaMaxLocation, DistanceBetweenTrees, DistanceFromRoadEdge );
   int i = 0;
   for (auto &cl : Locations)
   {
@@ -871,12 +871,22 @@ TArray<FVector2D> UOpenDriveToMap::ReadTreeCoordinates()
 
 void UOpenDriveToMap::GenerateTreesFromSegmentation( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation  )
 {
-  TArray<FVector2D> TreeGeoCoordinates;
 
   RunPythonSegmentation();
-  TreeGeoCoordinates = ReadTreeCoordinates();
-  FVector2D Coord = TreeGeoCoordinates[3];
-  UE_LOG(LogTemp, Log, TEXT("Coordinate: X=%f, Y=%f"), Coord.X, Coord.Y);
+
+  TArray<FVector2D> TreeGeoCoordinates = ReadTreeCoordinates();
+
+  TArray<FVector2D> TreeCoordinates;
+
+  for (const FVector2D& Coord : TreeGeoCoordinates)
+  {
+      // UE_LOG(LogTemp, Log, TEXT("Coordinate: X=%f, Y=%f"), Coord.X, Coord.Y);
+
+      // X and Y in file are lon and lat, while in the plugin are lat and lon
+      FVector2D TreePos = UMapGenFunctionLibrary::GetTransversemercProjection( Coord.Y, Coord.X, OriginGeoCoordinates.X, OriginGeoCoordinates.Y );
+
+      TreeCoordinates.Add(TreePos);
+  }
 
 }
 
