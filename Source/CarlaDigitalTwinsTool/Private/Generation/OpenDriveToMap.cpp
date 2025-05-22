@@ -888,6 +888,25 @@ void UOpenDriveToMap::GenerateTreesFromSegmentation( const boost::optional<carla
       TreeCoordinates.Add(TreePos);
   }
 
+  int i = 0;
+  for (const FVector2D& Coord : TreeCoordinates)
+  {
+    FVector TreePos3D;
+    TreePos3D.X = Coord.X;
+    TreePos3D.Y = Coord.Y;
+    const FVector scale{ 1.0f, 1.0f, 1.0f };
+    TreePos3D.Z  = GetHeight(Coord.X, Coord.Y) + 0.3f;
+    FTransform NewTransform ( FRotator(), TreePos3D, scale );
+    NewTransform = GetSnappedPosition(NewTransform);
+
+    AActor* Spawner = UEditorLevelLibrary::GetEditorWorld()->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(),
+      NewTransform.GetLocation(), NewTransform.Rotator());
+
+    Spawner->Tags.Add(FName("TreeSpawnPositionSegment"));
+    Spawner->SetActorLabel("TreeSpawnPositionSegment" + FString::FromInt(i) + GetStringForCurrentTile() );
+    ++i;
+  }
+
 }
 
 float UOpenDriveToMap::GetHeight(float PosX, float PosY, bool bDrivingLane){
