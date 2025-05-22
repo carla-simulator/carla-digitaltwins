@@ -1,0 +1,29 @@
+name: Setup Script
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  setup-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Run Setup.bat
+        run: Setup.bat
+
+  setup-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Make Setup.sh executable
+        run: chmod +x Setup.sh
+
+      - name: Run Setup.sh
+        run: ./Setup.sh
