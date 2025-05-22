@@ -26,6 +26,7 @@
 #include "EditorLevelLibrary.h"
 #include "ProceduralMeshConversion.h"
 #include "EditorLevelLibrary.h"
+#include "Misc/Paths.h"
 
 #include "ContentBrowserModule.h"
 #include "Materials/MaterialInstanceConstant.h"
@@ -769,9 +770,8 @@ void UOpenDriveToMap::GenerateTreePositions( const boost::optional<carla::road::
   }
 }
 
-void UOpenDriveToMap::GenerateTreesFromSegmentation( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation  )
-{
-
+void UOpenDriveToMap::RunPythonSegmentation(){
+  
   FString PythonExe = "/usr/bin/python3";
   FString PluginPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins"));
   FString ScriptPath = PluginPath / TEXT("Content/Python/segmenter.py");
@@ -831,6 +831,52 @@ void UOpenDriveToMap::GenerateTreesFromSegmentation( const boost::optional<carla
 
   // Print result to Unreal log
   UE_LOG(LogTemp, Display, TEXT("Python Output:\n%s"), *Output);
+
+}
+
+TArray<FVector2D> UOpenDriveToMap::ReadTreeCoordinates()
+{
+    TArray<FVector2D> Coordinates;
+
+    FString PluginPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins"));
+    FString FilePositionsPath = PluginPath / TEXT("pyoutputs/points.csv");
+    FString FileContent;
+
+    if (FFileHelper::LoadFileToString(FileContent, *FilePositionsPath))
+    {
+        TArray<FString> Lines;
+        FileContent.ParseIntoArrayLines(Lines);
+
+        for (int32 i = 0; i < Lines.Num(); ++i)
+        {
+            FString Line = Lines[i];
+            TArray<FString> Columns;
+            Line.ParseIntoArray(Columns, TEXT(","), true);
+
+            if (Columns.Num() >= 2)
+            {
+                float X = FCString::Atof(*Columns[0]);
+                float Y = FCString::Atof(*Columns[1]);
+                Coordinates.Add(FVector2D(X, Y));
+            }
+        }
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Failed to read file at: %s"), *FilePositionsPath);
+    }
+
+    return Coordinates;
+}
+
+void UOpenDriveToMap::GenerateTreesFromSegmentation( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation  )
+{
+  TArray<FVector2D> TreeGeoCoordinates;
+
+  RunPythonSegmentation();
+  TreeGeoCoordinates = ReadTreeCoordinates();
+  FVector2D Coord = TreeGeoCoordinates[3];
+  UE_LOG(LogTemp, Log, TEXT("Coordinate: X=%f, Y=%f"), Coord.X, Coord.Y);
 
 }
 
