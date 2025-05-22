@@ -80,7 +80,10 @@ def run_langsam(bbox, zoom, threshold=0.24, plugin_path=None):
 
     gdf = gpd.read_file(maskgeojson_path)
 
-    sampled_points = sample_points_in_polygons(gdf, min_area_per_point=100)
+    # Reproject from Web Mercator (EPSG:3857) to latitude-longitude coordinates WGS84 (EPSG:4326)
+    gdf_latlon = gdf.to_crs(epsg=4326)
+
+    sampled_points = sample_points_in_polygons(gdf_latlon, min_area_per_point=100)
 
     points_list = [[pt.x, pt.y] for pt in sampled_points["geometry"]]
     np.savetxt(points_path, points_list, delimiter=",")

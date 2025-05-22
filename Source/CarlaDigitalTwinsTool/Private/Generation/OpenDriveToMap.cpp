@@ -763,14 +763,16 @@ void UOpenDriveToMap::GenerateTreePositions( const boost::optional<carla::road::
     AActor* Spawner = UEditorLevelLibrary::GetEditorWorld()->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(),
       NewTransform.GetLocation(), NewTransform.Rotator());
 
-    Spawner->Tags.Add(FName("TreeSpawnPosition"));
+    Spawner->Tags.Add(FName("TreeSpawnPositionStandard"));
     Spawner->Tags.Add(FName(cl.second.c_str()));
-    Spawner->SetActorLabel("TreeSpawnPosition" + FString::FromInt(i) + GetStringForCurrentTile() );
+    Spawner->SetActorLabel("TreeSpawnPositionStandard" + FString::FromInt(i) + GetStringForCurrentTile() );
     ++i;
   }
 }
 
 void UOpenDriveToMap::RunPythonSegmentation(){
+
+  UE_LOG(LogTemp, Log, TEXT("Running Python Segmentation Script..."));
   
   FString PythonExe = "/usr/bin/python3";
   FString PluginPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins"));
@@ -836,6 +838,8 @@ void UOpenDriveToMap::RunPythonSegmentation(){
 
 TArray<FVector2D> UOpenDriveToMap::ReadTreeCoordinates()
 {
+    UE_LOG(LogTemp, Warning, TEXT("Reading tree positions..."));
+
     TArray<FVector2D> Coordinates;
 
     FString PluginPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins"));
@@ -880,8 +884,6 @@ void UOpenDriveToMap::GenerateTreesFromSegmentation( const boost::optional<carla
 
   for (const FVector2D& Coord : TreeGeoCoordinates)
   {
-      // UE_LOG(LogTemp, Log, TEXT("Coordinate: X=%f, Y=%f"), Coord.X, Coord.Y);
-
       // X and Y in file are lon and lat, while in the plugin are lat and lon
       FVector2D TreePos = UMapGenFunctionLibrary::GetTransversemercProjection( Coord.Y, Coord.X, OriginGeoCoordinates.X, OriginGeoCoordinates.Y );
 
@@ -902,8 +904,10 @@ void UOpenDriveToMap::GenerateTreesFromSegmentation( const boost::optional<carla
     AActor* Spawner = UEditorLevelLibrary::GetEditorWorld()->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(),
       NewTransform.GetLocation(), NewTransform.Rotator());
 
-    Spawner->Tags.Add(FName("TreeSpawnPositionSegment"));
-    Spawner->SetActorLabel("TreeSpawnPositionSegment" + FString::FromInt(i) + GetStringForCurrentTile() );
+    // Spawner->Tags.Add(FName("TreeSpawnPositionSegment"));
+    // Spawner->SetActorLabel("TreeSpawnPositionSegment" + FString::FromInt(i) + GetStringForCurrentTile() );
+    Spawner->Tags.Add(FName("TreeSpawnPosition"));
+    Spawner->SetActorLabel("TreeSpawnPosition" + FString::FromInt(i) + GetStringForCurrentTile() );
     ++i;
   }
 
