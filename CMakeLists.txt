@@ -77,8 +77,6 @@ macro (GenerateFinalDumpFiles)
   )
 endmacro ()
 
-
-
 message (STATUS "Requesting boost components:")
 foreach (COMPONENT ${BOOST_COMPONENTS})
   message (STATUS " - ${COMPONENT}")

@@ -1,5 +1,3 @@
-
-
 if (NOT TARGET XercesC::XercesC)
 
 # Removing the next line results in SUMO failing to build due to missing Threads::Threads target in ThirdParty/Install/XercesC/lib/cmake/XercesC/XercesCConfigInternal.cmake .
@@ -76,6 +74,7 @@ if (NOT ${XercesC_FOUND})
       -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}
       -DCMAKE_MODULE_PATH=${CMAKE_MODULE_PATH}
       -DBUILD_SHARED_LIBS=OFF
+      -DCMAKE_IGNORE_PATH=${CMAKE_IGNORE_PATH}
   )
 
   if (NOT WIN32)
@@ -156,8 +155,10 @@ if (NOT ${XercesC_FOUND})
     CONFIG
   )
 
-endif ()
+else ()
 
-message (STATUS "XercesC_LIBRARIES=${XercesC_LIBRARIES}")
+  message (STATUS "Found ${DEPENDENCY_NAME}. Skipping build...")
+
+endif ()
 
 endif ()
