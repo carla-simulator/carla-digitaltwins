@@ -68,6 +68,6 @@ cmake \
     -G Ninja \
     --toolchain "${SOURCE_DIR}/CMake/ToolchainUE4.cmake" \
     -DCMAKE_IGNORE_PATH="${HOME}/anaconda3;${HOME}/anaconda3/bin;${HOME}/anaconda3/lib;${HOME}/anaconda3/include" \
-    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
     -DBUILD_SHARED_LIBS=OFF \
     -DBOOST_COMPONENTS=${BOOST_COMPONENTS}

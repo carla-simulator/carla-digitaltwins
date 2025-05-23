@@ -36,7 +36,7 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0,
     return;
   }
   
-  std::string OsmFile = std::string(TCHAR_TO_UTF8(*FileContent));
+  std::string OsmFile = std::string(FTCHARToUTF8(*FileContent, FileContent.Len()).Get());
 
   osm2odr::OSM2ODRSettings Settings;
   Settings.proj_string += " +lat_0=" + std::to_string(Lat_0) + " +lon_0=" + std::to_string(Lon_0);
