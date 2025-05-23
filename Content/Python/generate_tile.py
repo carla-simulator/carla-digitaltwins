@@ -6,12 +6,16 @@ import os
 import subprocess
 
 
-"""Generic function for running a commandlet with its arguments."""
-ue4_path = os.environ["UE4_ROOT"]
-uproject_path = unreal.Paths.project_dir() + ("CarlaUE4.uproject")
-run = "-run=%s" % ("GenerateTileCommandlet")
 
-print("Before any Commandlet:")
+
+ue4_root = unreal.Paths.convert_relative_path_to_full(unreal.Paths.engine_dir())
+if ue4_root is None:
+    raise("UE4_ROOT environment variable is not set.")
+else:
+    print(f"UE4_ROOT: {ue4_root}")
+
+uproject_path = unreal.Paths.get_project_file_path()
+run = "-run=%s" % ("GenerateTileCommandlet")
 
 argparser = argparse.ArgumentParser()
 
@@ -27,7 +31,7 @@ arguments = args.paramstring
 
 if os.name == "nt":
     sys_name = "Win64"
-    editor_path = "%s/Engine/Binaries/%s/UE4Editor" % (ue4_path, sys_name)
+    editor_path = "%sBinaries/%s/UE4Editor" % (ue4_root, sys_name)
     command = [editor_path, uproject_path, run]
     command.extend(arguments)
     full_command = editor_path + " " + uproject_path + " " + run + " " + arguments
@@ -36,7 +40,7 @@ if os.name == "nt":
     subprocess.check_call(full_command, shell=True)
 elif os.name == "posix":
     sys_name = "Linux"
-    editor_path = "%s/Engine/Binaries/%s/UE4Editor" % (ue4_path, sys_name)
+    editor_path = "%sBinaries/%s/UE4Editor" % (ue4_root, sys_name)
     full_command = editor_path + " " + uproject_path + " " + run + " " + arguments
     print("Commandlet:", full_command)
     print("Arguments:", arguments)

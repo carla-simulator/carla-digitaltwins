@@ -292,7 +292,7 @@ void UOpenDriveToMap::GenerateTileStandalone(){
 #if PLATFORM_WINDOWS
   GenerateTile();
 #else
-  GenerateTile();
+  ExecuteTileCommandlet();
 #endif
   UEditorLoadingAndSavingUtils::SaveDirtyPackages(true, true);
   UEditorLevelLibrary::SaveCurrentLevel();
@@ -306,7 +306,7 @@ void UOpenDriveToMap::GenerateTile(){
   }
 
   FString FileContent;
-  // UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("UOpenDriveToMap::GenerateTile(): File to load %s"), *FPaths::ConvertRelativePathToFull(FilePath) );
+  UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("UOpenDriveToMap::GenerateTile(): File to load %s"), *FilePath );
   FFileHelper::LoadFileToString(FileContent, *FilePath);
   std::string opendrive_xml = carla::rpc::FromLongFString(FileContent);
   CarlaMap = carla::opendrive::OpenDriveParser::Load(opendrive_xml);
@@ -461,7 +461,7 @@ void UOpenDriveToMap::LoadMap()
       Tile0Offset = LargeMapManager->GetTile0Offset();
       CurrentTilesInXY = FIntVector(0,0,0);
       ULevel* PersistantLevel = UEditorLevelLibrary::GetEditorWorld()->PersistentLevel;
-      BaseLevelName = LargeMapManager->LargeMapTilePath + "/" + LargeMapManager->LargeMapName;
+      BaseLevelName = LargeMapManager->LargeMapTilePath + LargeMapManager->LargeMapName;
       do{
         GenerateTileStandalone();
       }while(GoNextTile());
