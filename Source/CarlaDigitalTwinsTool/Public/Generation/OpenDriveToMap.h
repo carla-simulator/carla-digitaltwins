@@ -117,6 +117,15 @@ public:
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
   bool bSatelliteSegmentationTrees = true;
 
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+  int SatelliteSegmentationZoom = 20;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+  float SatelliteSegmentationThreshold = 0.2f;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+  float TreeEffectiveRadius = 7.0f;
+
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defaults")
   UMaterialInstance* DefaultRoadMaterial;
 

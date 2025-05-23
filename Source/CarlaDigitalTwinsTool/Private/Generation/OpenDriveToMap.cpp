@@ -797,8 +797,9 @@ void UOpenDriveToMap::RunTreeSegmentation(){
   Args += FString::Printf(TEXT("--lat_min=%.8f "), OriginGeoCoordinates.X);
   Args += FString::Printf(TEXT("--lon_max=%.8f "), FinalGeoCoordinates.Y);
   Args += FString::Printf(TEXT("--lat_max=%.8f "), FinalGeoCoordinates.X);
-  Args += TEXT("--zoom=20 ");
-  Args += TEXT("--threshold=0.25 ");
+  Args += FString::Printf(TEXT("--zoom=%d "), SatelliteSegmentationZoom);
+  Args += FString::Printf(TEXT("--threshold=%.8f "), SatelliteSegmentationThreshold);
+  Args += FString::Printf(TEXT("--tree_radius=%.8f "), TreeEffectiveRadius);
 
   // Create communication pipes
   void* ReadPipe = nullptr;

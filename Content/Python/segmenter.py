@@ -41,18 +41,22 @@ def hexagonal_tree_positions(polygon: Polygon, radius: float) -> list[Point]:
     
     return points
 
-def sample_tree_positions(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+def sample_tree_positions(gdf: gpd.GeoDataFrame, tree_radius: float) -> gpd.GeoDataFrame:
 
     all_tree_points = []
 
     for poly in gdf.geometry:
-        all_tree_points.extend(hexagonal_tree_positions(poly, TREE_RADIUS))
+        all_tree_points.extend(hexagonal_tree_positions(poly, tree_radius))
 
     tree_gdf = gpd.GeoDataFrame(geometry=all_tree_points, crs=gdf.crs)
 
     return tree_gdf
 
-def run_langsam(bbox: list[float], zoom: int, threshold: float = 0.24, plugin_path: str | None = None) -> None:
+def run_langsam(bbox: list[float],
+                zoom: int,
+                threshold: float = 0.2,
+                tree_radius: float = TREE_RADIUS,
+                plugin_path: str | None = None) -> None:
     """
     Run LangSam
     """
@@ -80,7 +84,7 @@ def run_langsam(bbox: list[float], zoom: int, threshold: float = 0.24, plugin_pa
 
     gdf = gpd.read_file(maskgeojson_path)
 
-    tree_gdf = sample_tree_positions(gdf)
+    tree_gdf = sample_tree_positions(gdf, tree_radius)
 
     # Reproject from Web Mercator (EPSG:3857) to latitude-longitude coordinates WGS84 (EPSG:4326)
     gdf_latlon = tree_gdf.to_crs(epsg=4326)
@@ -101,11 +105,13 @@ def main() -> None:
     parser.add_argument('--lat_max', type=float)
     parser.add_argument('--zoom',default=20, type=int)
     parser.add_argument('--threshold',default=0.24, type=float)
+    parser.add_argument('--tree_radius',default=TREE_RADIUS, type=float)
     parser.add_argument('--plugin_path', type=str)
     args = parser.parse_args()
 
     lon_min, lat_min, lon_max, lat_max = args.lon_min, args.lat_min, args.lon_max, args.lat_max
     zoom, threshold = args.zoom, args.threshold
+    tree_radius = args.tree_radius
     plugin_path = args.plugin_path
     
     print("Args:", args)
@@ -124,6 +130,7 @@ def main() -> None:
     run_langsam(bbox=bbox,
                 zoom=zoom,
                 threshold=threshold,
+                tree_radius=tree_radius,
                 plugin_path=plugin_path
                 )
 
