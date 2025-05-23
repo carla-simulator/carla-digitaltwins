@@ -516,10 +516,12 @@ void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& Param
 
   if (bSatelliteSegmentationTrees)
   {
+    UE_LOG(LogTemp, Log, TEXT("Generate trees spawning points from satellite segmentation"));
     GenerateSatelliteSegmentationTreePositions();
   }
   else
   {
+    UE_LOG(LogTemp, Log, TEXT("Generate trees spawning points from default method"));
     GenerateDefaultTreePositions(ParamCarlaMap, MinLocation, MaxLocation);
   }
     
@@ -885,6 +887,44 @@ TArray<FVector2D> UOpenDriveToMap::ReadTreeCoordinates()
     return Coordinates;
 }
 
+TArray<FVector2D> UOpenDriveToMap::ReadPolylinesCoordinates()
+{
+    UE_LOG(LogTemp, Warning, TEXT("Reading polylines..."));
+
+    TArray<FVector2D> Coordinates;
+
+    FString PluginPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins"));
+    FString FilePositionsPath = PluginPath / TEXT("pyoutputs/polylines.csv");
+    FString FileContent;
+
+    if (FFileHelper::LoadFileToString(FileContent, *FilePositionsPath))
+    {
+        TArray<FString> Lines;
+        FileContent.ParseIntoArrayLines(Lines);
+
+        for (int32 i = 0; i < Lines.Num(); ++i)
+        {
+            FString Line = Lines[i];
+            TArray<FString> Columns;
+            Line.ParseIntoArray(Columns, TEXT(","), true);
+
+            if (Columns.Num() >= 2)
+            {
+                float X = FCString::Atof(*Columns[0]);
+                float Y = FCString::Atof(*Columns[1]);
+                FVector2D Pos = UMapGenFunctionLibrary::GetTransversemercProjection( Y, X, OriginGeoCoordinates.X, OriginGeoCoordinates.Y );
+                Coordinates.Add(Pos);
+            }
+        }
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Failed to read file at: %s"), *FilePositionsPath);
+    }
+
+    return Coordinates;
+}
+
 void UOpenDriveToMap::GenerateSatelliteSegmentationTreePositions()
 {
 
@@ -902,6 +942,16 @@ void UOpenDriveToMap::GenerateSatelliteSegmentationTreePositions()
       TreeCoordinates.Add(TreePos);
   }
 
+  SpawnTrees(TreeCoordinates, "TreeSpawnPosition");
+
+  TArray<FVector2D> PolylinesCoordinates = ReadPolylinesCoordinates();
+
+  SpawnTrees(PolylinesCoordinates, "PolylinesCoordinates");
+
+}
+
+void UOpenDriveToMap::SpawnTrees(TArray<FVector2D> TreeCoordinates, FString Label)
+{
   int i = 0;
   for (const FVector2D& Coord : TreeCoordinates)
   {
@@ -916,13 +966,10 @@ void UOpenDriveToMap::GenerateSatelliteSegmentationTreePositions()
     AActor* Spawner = UEditorLevelLibrary::GetEditorWorld()->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(),
       NewTransform.GetLocation(), NewTransform.Rotator());
 
-    // Spawner->Tags.Add(FName("TreeSpawnPositionSegment"));
-    // Spawner->SetActorLabel("TreeSpawnPositionSegment" + FString::FromInt(i) + GetStringForCurrentTile() );
-    Spawner->Tags.Add(FName("TreeSpawnPosition"));
-    Spawner->SetActorLabel("TreeSpawnPosition" + FString::FromInt(i) + GetStringForCurrentTile() );
+    Spawner->Tags.Add(FName(Label));
+    Spawner->SetActorLabel(Label + FString::FromInt(i) + GetStringForCurrentTile() );
     ++i;
   }
-
 }
 
 float UOpenDriveToMap::GetHeight(float PosX, float PosY, bool bDrivingLane){

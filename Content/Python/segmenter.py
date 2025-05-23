@@ -84,6 +84,11 @@ def run_langsam(bbox: list[float],
 
     gdf = gpd.read_file(maskgeojson_path)
 
+    polylines = []
+    for idx, pol in gdf.to_crs(epsg=4326).iterrows():
+        polylines.extend([[p[0], p[1]] for p in list(pol["geometry"].exterior.coords)])
+    np.savetxt("polylines.csv", polylines, delimiter=",", fmt="%f, %f")
+
     tree_gdf = sample_tree_positions(gdf, tree_radius)
 
     # Reproject from Web Mercator (EPSG:3857) to latitude-longitude coordinates WGS84 (EPSG:4326)

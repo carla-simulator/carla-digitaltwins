@@ -233,6 +233,10 @@ private:
   // UFUNCTION(BlueprintCallable)
   void GenerateSatelliteSegmentationTreePositions();
 
+  TArray<FVector2D> ReadPolylinesCoordinates();
+
+  void SpawnTrees(TArray<FVector2D> TreeCoordinates, FString Label);
+
   void GenerateLaneMarks(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
 
   FTransform GetSnappedPosition(FTransform Origin);
