@@ -770,7 +770,7 @@ void UOpenDriveToMap::GenerateTreePositions( const boost::optional<carla::road::
   }
 }
 
-void UOpenDriveToMap::RunPythonSegmentation(){
+void UOpenDriveToMap::RunTreeSegmentation(){
 
   UE_LOG(LogTemp, Log, TEXT("Running Python Segmentation Script..."));
   
@@ -876,7 +876,7 @@ TArray<FVector2D> UOpenDriveToMap::ReadTreeCoordinates()
 void UOpenDriveToMap::GenerateTreesFromSegmentation( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation  )
 {
 
-  RunPythonSegmentation();
+  RunTreeSegmentation();
 
   TArray<FVector2D> TreeGeoCoordinates = ReadTreeCoordinates();
 

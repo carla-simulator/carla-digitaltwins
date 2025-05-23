@@ -4,55 +4,55 @@ import pathlib
 
 import numpy as np
 import geopandas as gpd
-from shapely.geometry import Point
+from shapely.geometry import Point, Polygon
 from samgeo import tms_to_geotiff, raster_to_vector
 from samgeo.text_sam import LangSAM
 
+# Radius around each tree position in meters
+TREE_RADIUS = 7
 
-def sample_points_in_polygons(gdf, min_area_per_point=100):
+def hexagonal_tree_positions(polygon: Polygon, radius: float) -> list[Point]:
     """
-    Sample points inside each polygon in a GeoDataFrame.
-
-    Args:
-        - gdf: GeoDataFrame with Polygon or MultiPolygon geometries
-        - min_area_per_point: Area threshold (in geometry units) for additional points beyond the centroid
-
-    Returns:
-        - GeoDataFrame of sampled Points with reference to original index
+    Fill polygon areas with fixed radii trees.
+    Use hexagonal packing, close to optimal for circles and the simplest dense packing in 2D
     """
-    sampled_points = []
+    
+    minx, miny, maxx, maxy = polygon.bounds
+    dx = radius * 2
+    dy = radius * np.sqrt(3)
 
-    for idx, row in gdf.iterrows():
-        geom = row.geometry
-        if geom.is_empty or geom.area == 0:
-            continue
+    points = []
+    y = miny
+    row = 0
+    while y < maxy:
+        x = minx + (radius if row % 2 else 0)
+        while x < maxx:
+            p = Point(x, y)
+            if polygon.contains(p):
+                points.append(p)
+            x += dx
+        y += dy * 0.5
+        row += 1
+    
+    # Sample the centroid if the area is small and no positions were sampled
+    if len(points)==0:
+        centroid = polygon.centroid
+        points.append(centroid)
+    
+    return points
 
-        # Always sample the centroid
-        centroid = geom.centroid
-        sampled_points.append({'geometry': centroid, 'source_index': idx})
+def sample_tree_positions(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 
-        # Estimate how many extra points to sample based on area
-        n_extra = int(geom.area // min_area_per_point)
+    all_tree_points = []
 
-        if n_extra > 0:
-            # Create a uniform grid inside the bounding box
-            minx, miny, maxx, maxy = geom.bounds
-            side = int(np.ceil(np.sqrt(n_extra * 2)))  # oversample slightly for spacing
+    for poly in gdf.geometry:
+        all_tree_points.extend(hexagonal_tree_positions(poly, TREE_RADIUS))
 
-            xs = np.linspace(minx, maxx, side)
-            ys = np.linspace(miny, maxy, side)
-            grid_points = [Point(x, y) for x in xs for y in ys]
+    tree_gdf = gpd.GeoDataFrame(geometry=all_tree_points, crs=gdf.crs)
 
-            # Keep only points inside the polygon and not the centroid
-            for pt in grid_points:
-                if geom.contains(pt) and pt != centroid:
-                    sampled_points.append({'geometry': pt, 'source_index': idx})
-                    if len(sampled_points) - 1 >= n_extra:  # -1 for the centroid already added
-                        break
+    return tree_gdf
 
-    return gpd.GeoDataFrame(sampled_points, geometry='geometry', crs=gdf.crs)
-
-def run_langsam(bbox, zoom, threshold=0.24, plugin_path=None):
+def run_langsam(bbox: list[float], zoom: int, threshold: float = 0.24, plugin_path: str | None = None) -> None:
     """
     Run LangSam
     """
@@ -80,17 +80,17 @@ def run_langsam(bbox, zoom, threshold=0.24, plugin_path=None):
 
     gdf = gpd.read_file(maskgeojson_path)
 
+    tree_gdf = sample_tree_positions(gdf)
+
     # Reproject from Web Mercator (EPSG:3857) to latitude-longitude coordinates WGS84 (EPSG:4326)
-    gdf_latlon = gdf.to_crs(epsg=4326)
+    gdf_latlon = tree_gdf.to_crs(epsg=4326)
 
-    sampled_points = sample_points_in_polygons(gdf_latlon, min_area_per_point=100)
-
-    points_list = [[pt.x, pt.y] for pt in sampled_points["geometry"]]
+    points_list = [[pt.x, pt.y] for pt in gdf_latlon["geometry"]]
     np.savetxt(points_path, points_list, delimiter=",")
 
     print("Trees segmentation done.")
 
-def main():
+def main() -> None:
 
     print(sys.version)
     

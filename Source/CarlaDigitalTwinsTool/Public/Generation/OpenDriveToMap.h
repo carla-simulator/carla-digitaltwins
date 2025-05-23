@@ -213,7 +213,7 @@ private:
 
   void GenerateTreePositions(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
 
-  void RunPythonSegmentation();
+  void RunTreeSegmentation();
 
   TArray<FVector2D> ReadTreeCoordinates();
 
