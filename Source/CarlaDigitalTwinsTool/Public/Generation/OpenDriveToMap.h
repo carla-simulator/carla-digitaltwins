@@ -228,12 +228,10 @@ private:
 
   void RunTreeSegmentation();
 
-  TArray<FVector2D> ReadTreeCoordinates();
+  TArray<FVector2D> ReadCSVCoordinates(FString path);
 
   // UFUNCTION(BlueprintCallable)
   void GenerateSatelliteSegmentationTreePositions();
-
-  TArray<FVector2D> ReadPolylinesCoordinates();
 
   void SpawnTrees(TArray<FVector2D> TreeCoordinates, FString Label);
 

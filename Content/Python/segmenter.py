@@ -73,7 +73,8 @@ def run_langsam(bbox: list[float],
     image_path = str(outpath / "satellite.tif")
     masktif_path = str(outpath / "masks.tif")
     maskgeojson_path = str(outpath / "masks.geojson")
-    points_path = str(outpath / "points.csv")
+    points_path = str(outpath / "tree_points.csv")
+    polylines_path = str(outpath / "polylines.csv")
 
     tms_to_geotiff(output=image_path, bbox=bbox, zoom=zoom, source="Satellite", overwrite=True)
 
@@ -87,7 +88,7 @@ def run_langsam(bbox: list[float],
     polylines = []
     for idx, pol in gdf.to_crs(epsg=4326).iterrows():
         polylines.extend([[p[0], p[1]] for p in list(pol["geometry"].exterior.coords)])
-    np.savetxt("polylines.csv", polylines, delimiter=",", fmt="%f, %f")
+    np.savetxt(polylines_path, polylines, delimiter=",", fmt="%f, %f")
 
     tree_gdf = sample_tree_positions(gdf, tree_radius)
 

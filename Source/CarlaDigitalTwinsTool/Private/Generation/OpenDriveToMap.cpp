@@ -850,51 +850,14 @@ void UOpenDriveToMap::RunTreeSegmentation(){
 
 }
 
-TArray<FVector2D> UOpenDriveToMap::ReadTreeCoordinates()
+TArray<FVector2D> UOpenDriveToMap::ReadCSVCoordinates(FString path)
 {
-    UE_LOG(LogTemp, Warning, TEXT("Reading tree positions..."));
+    UE_LOG(LogTemp, Warning, TEXT("Reading latlon coordinates"));
 
     TArray<FVector2D> Coordinates;
 
     FString PluginPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins"));
-    FString FilePositionsPath = PluginPath / TEXT("pyoutputs/points.csv");
-    FString FileContent;
-
-    if (FFileHelper::LoadFileToString(FileContent, *FilePositionsPath))
-    {
-        TArray<FString> Lines;
-        FileContent.ParseIntoArrayLines(Lines);
-
-        for (int32 i = 0; i < Lines.Num(); ++i)
-        {
-            FString Line = Lines[i];
-            TArray<FString> Columns;
-            Line.ParseIntoArray(Columns, TEXT(","), true);
-
-            if (Columns.Num() >= 2)
-            {
-                float X = FCString::Atof(*Columns[0]);
-                float Y = FCString::Atof(*Columns[1]);
-                Coordinates.Add(FVector2D(X, Y));
-            }
-        }
-    }
-    else
-    {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to read file at: %s"), *FilePositionsPath);
-    }
-
-    return Coordinates;
-}
-
-TArray<FVector2D> UOpenDriveToMap::ReadPolylinesCoordinates()
-{
-    UE_LOG(LogTemp, Warning, TEXT("Reading polylines..."));
-
-    TArray<FVector2D> Coordinates;
-
-    FString PluginPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins"));
-    FString FilePositionsPath = PluginPath / TEXT("pyoutputs/polylines.csv");
+    FString FilePositionsPath = PluginPath / path;
     FString FileContent;
 
     if (FFileHelper::LoadFileToString(FileContent, *FilePositionsPath))
@@ -930,21 +893,11 @@ void UOpenDriveToMap::GenerateSatelliteSegmentationTreePositions()
 
   RunTreeSegmentation();
 
-  TArray<FVector2D> TreeGeoCoordinates = ReadTreeCoordinates();
-
-  TArray<FVector2D> TreeCoordinates;
-
-  for (const FVector2D& Coord : TreeGeoCoordinates)
-  {
-      // X and Y in file are lon and lat, while in the plugin are lat and lon
-      FVector2D TreePos = UMapGenFunctionLibrary::GetTransversemercProjection( Coord.Y, Coord.X, OriginGeoCoordinates.X, OriginGeoCoordinates.Y );
-
-      TreeCoordinates.Add(TreePos);
-  }
+  TArray<FVector2D> TreeCoordinates = ReadCSVCoordinates("pyoutputs/tree_points.csv");
 
   SpawnTrees(TreeCoordinates, "TreeSpawnPosition");
 
-  TArray<FVector2D> PolylinesCoordinates = ReadPolylinesCoordinates();
+  TArray<FVector2D> PolylinesCoordinates = ReadCSVCoordinates("pyoutputs/polylines.csv");
 
   SpawnTrees(PolylinesCoordinates, "PolylinesCoordinates");
 
