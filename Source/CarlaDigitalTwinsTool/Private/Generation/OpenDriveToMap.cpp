@@ -26,6 +26,7 @@
 #include "EditorLevelLibrary.h"
 #include "ProceduralMeshConversion.h"
 #include "EditorLevelLibrary.h"
+#include "Misc/Paths.h"
 
 #include "ContentBrowserModule.h"
 #include "Materials/MaterialInstanceConstant.h"
@@ -45,6 +46,8 @@
 
 #include "DrawDebugHelpers.h"
 #include "Paths/GenerationPathsHelper.h"
+#include "IPythonScriptPlugin.h"
+
 #if WITH_EDITOR
 UOpenDriveToMap::UOpenDriveToMap()
 {
@@ -504,10 +507,24 @@ void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& Param
   FVector MaxLocation )
 {
   GenerateRoadMesh(ParamCarlaMap, MinLocation, MaxLocation);
+
   GenerateLaneMarks(ParamCarlaMap, MinLocation, MaxLocation);
+
   // GenerateSpawnPoints(ParamCarlaMap, MinLocation, MaxLocation);
+
   CreateTerrain(12800, 256);
-  GenerateTreePositions(ParamCarlaMap, MinLocation, MaxLocation);
+
+  if (bSatelliteSegmentationTrees)
+  {
+    UE_LOG(LogTemp, Log, TEXT("Generate trees spawning points from satellite segmentation"));
+    GenerateSatelliteSegmentationTreePositions();
+  }
+  else
+  {
+    UE_LOG(LogTemp, Log, TEXT("Generate trees spawning points from default method"));
+    GenerateDefaultTreePositions(ParamCarlaMap, MinLocation, MaxLocation);
+  }
+    
   GenerationFinished(MinLocation, MaxLocation);
 }
 
@@ -741,13 +758,13 @@ void UOpenDriveToMap::GenerateSpawnPoints( const boost::optional<carla::road::Ma
 }
   */
 
-void UOpenDriveToMap::GenerateTreePositions( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation  )
+void UOpenDriveToMap::GenerateDefaultTreePositions( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation  )
 {
   carla::geom::Vector3D CarlaMinLocation(MinLocation.X / 100, MinLocation.Y / 100, MinLocation.Z /100);
   carla::geom::Vector3D CarlaMaxLocation(MaxLocation.X / 100, MaxLocation.Y / 100, MaxLocation.Z /100);
 
   std::vector<std::pair<carla::geom::Transform, std::string>> Locations =
-    ParamCarlaMap->GetTreesTransform(CarlaMinLocation, CarlaMaxLocation,DistanceBetweenTrees, DistanceFromRoadEdge );
+    ParamCarlaMap->GetTreesTransform(CarlaMinLocation, CarlaMaxLocation, DistanceBetweenTrees, DistanceFromRoadEdge );
   int i = 0;
   for (auto &cl : Locations)
   {
@@ -762,6 +779,148 @@ void UOpenDriveToMap::GenerateTreePositions( const boost::optional<carla::road::
     Spawner->Tags.Add(FName("TreeSpawnPosition"));
     Spawner->Tags.Add(FName(cl.second.c_str()));
     Spawner->SetActorLabel("TreeSpawnPosition" + FString::FromInt(i) + GetStringForCurrentTile() );
+    ++i;
+  }
+}
+
+void UOpenDriveToMap::RunTreeSegmentation(){
+
+  UE_LOG(LogTemp, Log, TEXT("Running Python Segmentation Script..."));
+  
+  FString PythonExe = "/usr/bin/python3";
+  FString PluginPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins"));
+  FString ScriptPath = PluginPath / TEXT("Content/Python/segmenter.py");
+  // Hardcoded values for testing
+
+  FString Args;
+  Args += FString::Printf(TEXT("\"%s\" "), *ScriptPath);
+  Args += FString::Printf(TEXT("--plugin_path=\"%s\" "), *PluginPath);
+  Args += FString::Printf(TEXT("--lon_min=%.8f "), OriginGeoCoordinates.Y);
+  Args += FString::Printf(TEXT("--lat_min=%.8f "), OriginGeoCoordinates.X);
+  Args += FString::Printf(TEXT("--lon_max=%.8f "), FinalGeoCoordinates.Y);
+  Args += FString::Printf(TEXT("--lat_max=%.8f "), FinalGeoCoordinates.X);
+  Args += FString::Printf(TEXT("--zoom=%d "), SatelliteSegmentationZoom);
+  Args += FString::Printf(TEXT("--threshold=%.8f "), SatelliteSegmentationThreshold);
+  Args += FString::Printf(TEXT("--tree_radius=%.8f "), TreeEffectiveRadius);
+
+  // Create communication pipes
+  void* ReadPipe = nullptr;
+  void* WritePipe = nullptr;
+  FPlatformProcess::CreatePipe(ReadPipe, WritePipe);
+
+  // Launch process
+  FProcHandle ProcHandle = FPlatformProcess::CreateProc(
+      *PythonExe,
+      *Args,
+      true,   // bLaunchDetached
+      false,  // bLaunchHidden
+      false,  // bLaunchReallyHidden
+      nullptr,
+      0,
+      nullptr,
+      WritePipe,  // Pipe for stdout/stderr
+      WritePipe
+  );
+
+  if (!ProcHandle.IsValid())
+  {
+      UE_LOG(LogTemp, Error, TEXT("Failed to launch Python script."));
+      FPlatformProcess::ClosePipe(ReadPipe, WritePipe);
+      return;
+  }
+
+  // Read output
+  FString Output;
+  while (FPlatformProcess::IsProcRunning(ProcHandle))
+  {
+      FString NewOutput = FPlatformProcess::ReadPipe(ReadPipe);
+      Output += NewOutput;
+      FPlatformProcess::Sleep(0.01f);
+  }
+
+  // Read any remaining output
+  Output += FPlatformProcess::ReadPipe(ReadPipe);
+
+  // Clean up
+  FPlatformProcess::CloseProc(ProcHandle);
+  FPlatformProcess::ClosePipe(ReadPipe, WritePipe);
+
+  // Print result to Unreal log
+  UE_LOG(LogTemp, Display, TEXT("Python Output:\n%s"), *Output);
+
+}
+
+TArray<FVector2D> UOpenDriveToMap::ReadCSVCoordinates(FString path)
+{
+    UE_LOG(LogTemp, Warning, TEXT("Reading latlon coordinates"));
+
+    TArray<FVector2D> Coordinates;
+
+    FString PluginPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins"));
+    FString FilePositionsPath = PluginPath / path;
+    FString FileContent;
+
+    if (FFileHelper::LoadFileToString(FileContent, *FilePositionsPath))
+    {
+        TArray<FString> Lines;
+        FileContent.ParseIntoArrayLines(Lines);
+
+        for (int32 i = 0; i < Lines.Num(); ++i)
+        {
+            FString Line = Lines[i];
+            TArray<FString> Columns;
+            Line.ParseIntoArray(Columns, TEXT(","), true);
+
+            if (Columns.Num() >= 2)
+            {
+                float X = FCString::Atof(*Columns[0]);
+                float Y = FCString::Atof(*Columns[1]);
+                FVector2D Pos = UMapGenFunctionLibrary::GetTransversemercProjection( Y, X, OriginGeoCoordinates.X, OriginGeoCoordinates.Y );
+                Coordinates.Add(Pos);
+            }
+        }
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Failed to read file at: %s"), *FilePositionsPath);
+    }
+
+    return Coordinates;
+}
+
+void UOpenDriveToMap::GenerateSatelliteSegmentationTreePositions()
+{
+
+  RunTreeSegmentation();
+
+  TArray<FVector2D> TreeCoordinates = ReadCSVCoordinates("pyoutputs/tree_points.csv");
+
+  SpawnTrees(TreeCoordinates, "TreeSpawnPosition");
+
+  TArray<FVector2D> PolylinesCoordinates = ReadCSVCoordinates("pyoutputs/polylines.csv");
+
+  SpawnTrees(PolylinesCoordinates, "PolylinesCoordinates");
+
+}
+
+void UOpenDriveToMap::SpawnTrees(TArray<FVector2D> TreeCoordinates, FString Label)
+{
+  int i = 0;
+  for (const FVector2D& Coord : TreeCoordinates)
+  {
+    FVector TreePos3D;
+    TreePos3D.X = Coord.X;
+    TreePos3D.Y = Coord.Y;
+    const FVector scale{ 1.0f, 1.0f, 1.0f };
+    TreePos3D.Z  = GetHeight(Coord.X, Coord.Y) + 0.3f;
+    FTransform NewTransform ( FRotator(), TreePos3D, scale );
+    NewTransform = GetSnappedPosition(NewTransform);
+
+    AActor* Spawner = UEditorLevelLibrary::GetEditorWorld()->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(),
+      NewTransform.GetLocation(), NewTransform.Rotator());
+
+    Spawner->Tags.Add(FName(Label));
+    Spawner->SetActorLabel(Label + FString::FromInt(i) + GetStringForCurrentTile() );
     ++i;
   }
 }

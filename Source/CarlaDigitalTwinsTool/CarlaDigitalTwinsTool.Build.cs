@@ -166,6 +166,8 @@ public class CarlaDigitalTwinsTool : ModuleRules
       PrivateDependencyModuleNames.Add("PhysXVehicles");
     }
 
+    PrivateDependencyModuleNames.AddRange(new string[] { "PythonScriptPlugin" });
+
     DynamicallyLoadedModuleNames.AddRange(
       new string[]
       {
