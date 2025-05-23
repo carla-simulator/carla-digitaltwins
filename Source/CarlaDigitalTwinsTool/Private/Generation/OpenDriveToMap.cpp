@@ -507,11 +507,22 @@ void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& Param
   FVector MaxLocation )
 {
   GenerateRoadMesh(ParamCarlaMap, MinLocation, MaxLocation);
+
   GenerateLaneMarks(ParamCarlaMap, MinLocation, MaxLocation);
+
   // GenerateSpawnPoints(ParamCarlaMap, MinLocation, MaxLocation);
+
   CreateTerrain(12800, 256);
-  GenerateTreePositions(ParamCarlaMap, MinLocation, MaxLocation);
-  GenerateTreesFromSegmentation(ParamCarlaMap, MinLocation, MaxLocation);
+
+  if (bSatelliteSegmentationTrees)
+  {
+    GenerateSatelliteSegmentationTreePositions();
+  }
+  else
+  {
+    GenerateDefaultTreePositions(ParamCarlaMap, MinLocation, MaxLocation);
+  }
+    
   GenerationFinished(MinLocation, MaxLocation);
 }
 
@@ -745,7 +756,7 @@ void UOpenDriveToMap::GenerateSpawnPoints( const boost::optional<carla::road::Ma
 }
   */
 
-void UOpenDriveToMap::GenerateTreePositions( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation  )
+void UOpenDriveToMap::GenerateDefaultTreePositions( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation  )
 {
   carla::geom::Vector3D CarlaMinLocation(MinLocation.X / 100, MinLocation.Y / 100, MinLocation.Z /100);
   carla::geom::Vector3D CarlaMaxLocation(MaxLocation.X / 100, MaxLocation.Y / 100, MaxLocation.Z /100);
@@ -763,9 +774,9 @@ void UOpenDriveToMap::GenerateTreePositions( const boost::optional<carla::road::
     AActor* Spawner = UEditorLevelLibrary::GetEditorWorld()->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(),
       NewTransform.GetLocation(), NewTransform.Rotator());
 
-    Spawner->Tags.Add(FName("TreeSpawnPositionStandard"));
+    Spawner->Tags.Add(FName("TreeSpawnPosition"));
     Spawner->Tags.Add(FName(cl.second.c_str()));
-    Spawner->SetActorLabel("TreeSpawnPositionStandard" + FString::FromInt(i) + GetStringForCurrentTile() );
+    Spawner->SetActorLabel("TreeSpawnPosition" + FString::FromInt(i) + GetStringForCurrentTile() );
     ++i;
   }
 }
@@ -873,7 +884,7 @@ TArray<FVector2D> UOpenDriveToMap::ReadTreeCoordinates()
     return Coordinates;
 }
 
-void UOpenDriveToMap::GenerateTreesFromSegmentation( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation  )
+void UOpenDriveToMap::GenerateSatelliteSegmentationTreePositions()
 {
 
   RunTreeSegmentation();
