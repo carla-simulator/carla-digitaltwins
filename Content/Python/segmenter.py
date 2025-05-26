@@ -76,9 +76,13 @@ def run_langsam(bbox: list[float],
     points_path = str(outpath / "tree_points.csv")
     polylines_path = str(outpath / "polylines.csv")
 
+    print("Getting geotiles...",outpath)
+
     tms_to_geotiff(output=image_path, bbox=bbox, zoom=zoom, source="Satellite", overwrite=True)
 
     sam = LangSAM()
+
+    print("Running Sam...",outpath)
 
     sam.predict(image_path, text_prompt, output=masktif_path, box_threshold=threshold, text_threshold=threshold)
     raster_to_vector(masktif_path, maskgeojson_path)
@@ -89,6 +93,8 @@ def run_langsam(bbox: list[float],
     for idx, pol in gdf.to_crs(epsg=4326).iterrows():
         polylines.extend([[p[0], p[1]] for p in list(pol["geometry"].exterior.coords)])
     np.savetxt(polylines_path, polylines, delimiter=",", fmt="%f, %f")
+
+    print("Sampling tree positions...",outpath)
 
     tree_gdf = sample_tree_positions(gdf, tree_radius)
 
@@ -109,9 +115,9 @@ def main() -> None:
     parser.add_argument('--lat_min', type=float)
     parser.add_argument('--lon_max', type=float)
     parser.add_argument('--lat_max', type=float)
-    parser.add_argument('--zoom',default=20, type=int)
-    parser.add_argument('--threshold',default=0.24, type=float)
-    parser.add_argument('--tree_radius',default=TREE_RADIUS, type=float)
+    parser.add_argument('--zoom', default=20, type=int)
+    parser.add_argument('--threshold', default=0.24, type=float)
+    parser.add_argument('--tree_radius', default=TREE_RADIUS, type=float)
     parser.add_argument('--plugin_path', type=str)
     args = parser.parse_args()
 

@@ -295,7 +295,14 @@ void UOpenDriveToMap::GenerateTileStandalone(){
 #if PLATFORM_WINDOWS
   GenerateTile();
 #else
+
+  if (bSatelliteSegmentationTrees)
+  {
+    RunTreeSegmentation();
+  }
+
   ExecuteTileCommandlet();
+
 #endif
   UEditorLoadingAndSavingUtils::SaveDirtyPackages(true, true);
   UEditorLevelLibrary::SaveCurrentLevel();
@@ -890,8 +897,6 @@ TArray<FVector2D> UOpenDriveToMap::ReadCSVCoordinates(FString path)
 
 void UOpenDriveToMap::GenerateSatelliteSegmentationTreePositions()
 {
-
-  RunTreeSegmentation();
 
   TArray<FVector2D> TreeCoordinates = ReadCSVCoordinates("pyoutputs/tree_points.csv");
 
