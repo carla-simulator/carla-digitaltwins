@@ -904,7 +904,7 @@ void UOpenDriveToMap::GenerateSatelliteSegmentationTreePositions()
 
   TArray<FVector2D> PolylinesCoordinates = ReadCSVCoordinates("pyoutputs/polylines.csv");
 
-  SpawnTrees(PolylinesCoordinates, "PolylinesCoordinates");
+  SpawnPlaceholders(PolylinesCoordinates, "PolylinesCoordinates");
 
 }
 
@@ -926,6 +926,56 @@ void UOpenDriveToMap::SpawnTrees(TArray<FVector2D> TreeCoordinates, FString Labe
 
     Spawner->Tags.Add(FName(Label));
     Spawner->SetActorLabel(Label + FString::FromInt(i) + GetStringForCurrentTile() );
+    ++i;
+  }
+}
+
+void UOpenDriveToMap::SpawnPlaceholders(TArray<FVector2D> Coordinates, FString Label)
+{
+  UStaticMesh* SphereMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));  
+  UMaterialInterface* MarkerMaterial = LoadObject<UMaterialInterface>(
+    nullptr,
+    TEXT("/CarlaDigitalTwinsTool/digitalTwins/Static/Static/Materials/FireHydrant/M_FireHydrant.M_FireHydrant")
+);
+
+  int i = 0;
+  for (const FVector2D& Coord : Coordinates)
+  {
+    FVector Pos3D;
+    Pos3D.X = Coord.X;
+    Pos3D.Y = Coord.Y;
+    Pos3D.Z = GetHeight(Coord.X, Coord.Y) + 0.3f;
+
+    FTransform Transform(FRotator(), Pos3D, FVector(0.5f)); // Smaller spheres
+
+    Transform = GetSnappedPosition(Transform);
+
+    AStaticMeshActor* MarkerActor = UEditorLevelLibrary::GetEditorWorld()->SpawnActor<AStaticMeshActor>(
+        AStaticMeshActor::StaticClass(),
+        Transform.GetLocation(),
+        Transform.Rotator()
+    );
+
+    if (MarkerActor && SphereMesh)
+    {
+        UStaticMeshComponent* MeshComp = MarkerActor->GetStaticMeshComponent();
+        MeshComp->SetStaticMesh(SphereMesh);
+
+        MeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        MeshComp->SetCollisionProfileName(TEXT("NoCollision"));
+        MarkerActor->SetActorEnableCollision(false);
+        MeshComp->SetSimulatePhysics(false);
+        MeshComp->SetEnableGravity(false);
+
+        if (MarkerMaterial)
+        {
+            MeshComp->SetMaterial(0, MarkerMaterial);
+        }
+
+        MarkerActor->Tags.Add(FName(Label));
+        MarkerActor->SetActorLabel(Label + FString::FromInt(i) + GetStringForCurrentTile());
+    }
+
     ++i;
   }
 }
