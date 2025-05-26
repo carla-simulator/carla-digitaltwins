@@ -137,6 +137,19 @@ if (NOT ${PROJ_FOUND})
 else ()
 
   message (STATUS "Found ${DEPENDENCY_NAME}. Skipping build...")
+
+  if ("${PROJ_INCLUDE_DIR}" STREQUAL "")
+    message (FATAL_ERROR "PROJ_INCLUDE_DIR is not set!")
+  endif ()
+
+  if ("${PROJ_API_FILE}" STREQUAL "")
+    message (FATAL_ERROR "PROJ_API_FILE is not set!")
+  endif ()
+
+  if ("${PROJ_LIBRARY}" STREQUAL "")
+    set (PROJ_LIBRARY ${PROJ_LIBRARIES})
+  endif ()
+
   message (STATUS "PROJ_INCLUDE_DIR=${PROJ_INCLUDE_DIR}")
   message (STATUS "PROJ_API_FILE=${PROJ_API_FILE}")
   message (STATUS "PROJ_LIBRARY=${PROJ_LIBRARY}")
