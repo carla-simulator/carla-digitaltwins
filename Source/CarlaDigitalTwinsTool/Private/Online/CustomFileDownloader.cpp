@@ -16,35 +16,13 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0,
 {
   IPlatformFile &FileManager = FPlatformFileManager::Get().GetPlatformFile();
 
-  FString FileContent;
-  // Always first check if the file that you want to manipulate exist.
-  if (FileManager.FileExists(*FilePath))
-  {
-    // We use the LoadFileToString to load the file into
-    if (FFileHelper::LoadFileToString(FileContent, *FilePath, FFileHelper::EHashOptions::None))
-    {
-      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Text From File: %s"), *FilePath);
-    }
-    else
-    {
-      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Did not load text from file"));
-    }
-  }
-  else
-  {
-    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("File: %s does not exist"), *FilePath);
-    return;
-  }
-  
-  std::string OsmFile = std::string(FTCHARToUTF8(*FileContent, FileContent.Len()).Get());
-
   osm2odr::OSM2ODRSettings Settings;
   Settings.proj_string += " +lat_0=" + std::to_string(Lat_0) + " +lon_0=" + std::to_string(Lon_0);
   Settings.center_map = false;
   std::string OpenDriveFile;
   try
   {
-    OpenDriveFile = osm2odr::ConvertOSMToOpenDRIVE(OsmFile, Settings);
+    OpenDriveFile = osm2odr::ConvertOSMToOpenDRIVE(std::string(FTCHARToUTF8(*FilePath, FilePath.Len()).Get()), Settings);
   }
   catch (std::runtime_error& re)
   {
@@ -53,6 +31,7 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0,
     UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("FileManipulation: osm2odr::ConvertOSMToOpenDRIVE failed: %s"), *fs);
   }
   
+  std::cout << "OpenDriveFile: " << OpenDriveFile << std::endl;
 
   FilePath.RemoveFromEnd(".osm", ESearchCase::Type::IgnoreCase);
   FilePath += ".xodr";
