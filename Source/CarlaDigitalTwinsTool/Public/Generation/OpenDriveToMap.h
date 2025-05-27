@@ -118,6 +118,9 @@ public:
   bool bSatelliteSegmentationTrees = true;
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+  FString PythonBinPath = "/usr/bin/python3";
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
   int SatelliteSegmentationZoom = 20;
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
@@ -125,6 +128,9 @@ public:
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
   float TreeEffectiveRadius = 7.0f;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+  bool bShowDebugTreeAreas = false;
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defaults")
   UMaterialInstance* DefaultRoadMaterial;
@@ -230,7 +236,6 @@ private:
 
   TArray<FVector2D> ReadCSVCoordinates(FString path);
 
-  // UFUNCTION(BlueprintCallable)
   void GenerateSatelliteSegmentationTreePositions();
 
   void SpawnTrees(TArray<FVector2D> TreeCoordinates, FString Label);

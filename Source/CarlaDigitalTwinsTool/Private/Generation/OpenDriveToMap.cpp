@@ -794,7 +794,7 @@ void UOpenDriveToMap::RunTreeSegmentation(){
 
   UE_LOG(LogTemp, Log, TEXT("Running Python Segmentation Script..."));
   
-  FString PythonExe = "/usr/bin/python3";
+  FString PythonExe = PythonBinPath;
   FString PluginPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins"));
   FString ScriptPath = PluginPath / TEXT("Content/Python/segmenter.py");
   // Hardcoded values for testing
@@ -902,9 +902,12 @@ void UOpenDriveToMap::GenerateSatelliteSegmentationTreePositions()
 
   SpawnTrees(TreeCoordinates, "TreeSpawnPosition");
 
-  TArray<FVector2D> PolylinesCoordinates = ReadCSVCoordinates("pyoutputs/polylines.csv");
+  if (bShowDebugTreeAreas){
 
-  SpawnPlaceholders(PolylinesCoordinates, "PolylinesCoordinates");
+    TArray<FVector2D> PolylinesCoordinates = ReadCSVCoordinates("pyoutputs/polylines.csv");
+
+    SpawnPlaceholders(PolylinesCoordinates, "PolylinesCoordinates");
+  }
 
 }
 
@@ -936,7 +939,7 @@ void UOpenDriveToMap::SpawnPlaceholders(TArray<FVector2D> Coordinates, FString L
   UMaterialInterface* MarkerMaterial = LoadObject<UMaterialInterface>(
     nullptr,
     TEXT("/CarlaDigitalTwinsTool/digitalTwins/Static/Static/Materials/FireHydrant/M_FireHydrant.M_FireHydrant")
-);
+);  // Use this material to better visualize the boundaries of the masks
 
   int i = 0;
   for (const FVector2D& Coord : Coordinates)
