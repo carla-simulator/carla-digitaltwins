@@ -292,7 +292,7 @@ void UOpenDriveToMap::GenerateTileStandalone(){
 #if PLATFORM_WINDOWS
   GenerateTile();
 #else
-  GenerateTile();
+  ExecuteTileCommandlet();
 #endif
   UEditorLoadingAndSavingUtils::SaveDirtyPackages(true, true);
   UEditorLevelLibrary::SaveCurrentLevel();

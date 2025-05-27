@@ -22,7 +22,9 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0,
   std::string OpenDriveFile;
   try
   {
-    OpenDriveFile = osm2odr::ConvertOSMToOpenDRIVE(std::string(FTCHARToUTF8(*FilePath, FilePath.Len()).Get()), Settings);
+    FTCHARToUTF8 Conv(*FilePath, FilePath.Len());
+    auto InputPath = std::string(Conv.Get(), Conv.Length());
+    OpenDriveFile = osm2odr::ConvertOSMToOpenDRIVE(InputPath, Settings);
   }
   catch (std::runtime_error& re)
   {
@@ -38,14 +40,14 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0,
 
   // We use the LoadFileToString to load the file into
 
-  if (FFileHelper::SaveStringToFile(FString(OpenDriveFile.c_str()), *FilePath))
-  {
-    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Successfully Written: \"%s\" to the text file"), *FilePath);
-  }
-  else
-  {
-    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Failed to write FString to file."));
-  }
+  // if (FFileHelper::SaveStringToFile(FString(OpenDriveFile.c_str()), *FilePath))
+  // {
+  //   UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Successfully Written: \"%s\" to the text file"), *FilePath);
+  // }
+  // else
+  // {
+  //   UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Failed to write FString to file."));
+  // }
 }
 
 void UCustomFileDownloader::StartDownload()
