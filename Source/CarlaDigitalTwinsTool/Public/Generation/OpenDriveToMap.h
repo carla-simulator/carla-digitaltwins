@@ -189,6 +189,8 @@ protected:
   UFUNCTION( BlueprintImplementableEvent )
   void DownloadFinished();
 
+  UFUNCTION( BlueprintImplementableEvent )
+  void InitializeBuildingsInBP();
 
   UFUNCTION( BlueprintImplementableEvent )
   void ExecuteTileCommandlet();
