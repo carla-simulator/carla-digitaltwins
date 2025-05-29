@@ -3,17 +3,15 @@
 #include "Engine/Engine.h"
 #include "Generation/MapGenFunctionLibrary.h"
 
-TArray<FVector2D> UGeometryImporter::ReadCSVCoordinates(FString path, FVector2D OriginGeoCoordinates)
+TArray<FVector2D> UGeometryImporter::ReadCSVCoordinates(FString Path, FVector2D OriginGeoCoordinates)
 {
     UE_LOG(LogTemp, Warning, TEXT("Reading latlon coordinates"));
 
     TArray<FVector2D> Coordinates;
 
-    FString PluginPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins"));
-    FString FilePositionsPath = PluginPath / path;
     FString FileContent;
 
-    if (FFileHelper::LoadFileToString(FileContent, *FilePositionsPath))
+    if (FFileHelper::LoadFileToString(FileContent, *Path))
     {
         TArray<FString> Lines;
         FileContent.ParseIntoArrayLines(Lines);
@@ -35,7 +33,7 @@ TArray<FVector2D> UGeometryImporter::ReadCSVCoordinates(FString path, FVector2D 
     }
     else
     {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to read file at: %s"), *FilePositionsPath);
+        UE_LOG(LogTemp, Warning, TEXT("Failed to read file at: %s"), *Path);
     }
 
     return Coordinates;
@@ -68,8 +66,6 @@ USplineComponent* UGeometryImporter::CreateSpline(UWorld* World, const TArray<FV
 
     Spline->SetClosedLoop(true);
     Spline->UpdateSpline();
-
-    // UE_LOG(LogTemp, Log, TEXT("Spline spawned with %d points."), Spline->GetNumberOfSplinePoints());
 
     return Spline;
 }
@@ -129,8 +125,6 @@ TArray<USplineComponent*> UGeometryImporter::ImportGeoJsonPolygonsToSplines(UWor
             FVector Pos = FVector(Pos2D.X, Pos2D.Y, 0.0f);  // Initialize height as 0
             Points.Add(Pos);
         }
-
-        // UE_LOG(LogTemp, Log, TEXT("Number of points in polyline: %d"), Points.Num());
 
         // Remove last point if it's a duplicate of the first
         if (Points.Num() > 1 && Points[0].Equals(Points.Last(), 0.01f))
