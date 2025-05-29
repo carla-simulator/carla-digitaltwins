@@ -379,8 +379,8 @@ namespace road {
     /// Solves the signal references in the road
     void SolveSignalReferencesAndTransforms();
 
-    /// Solve the references between Controllers and Juntions
-    void SolveControllerAndJuntionReferences();
+    /// Solve the references between Controllers and Junctions
+    void SolveControllerAndJunctionReferences();
 
     /// Compute the conflicts of the roads (intersecting roads)
     void ComputeJunctionRoadConflicts(Map &map);
