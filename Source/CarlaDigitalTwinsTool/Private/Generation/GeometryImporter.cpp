@@ -1,7 +1,7 @@
+#include "Generation/GeometryImporter.h"
 #include "Misc/FileHelper.h"
 #include "Engine/Engine.h"
 #include "Generation/MapGenFunctionLibrary.h"
-#include "Generation/GeometryImporter.h"
 
 TArray<FVector2D> UGeometryImporter::ReadCSVCoordinates(FString path, FVector2D OriginGeoCoordinates)
 {
@@ -43,12 +43,17 @@ TArray<FVector2D> UGeometryImporter::ReadCSVCoordinates(FString path, FVector2D 
 
 USplineComponent* UGeometryImporter::CreateSpline(UWorld* World, const TArray<FVector>& Points)
 {
-    if (!World || Points.Num() < 2)
+
+    if (!World || Points.Num() < 2){
+        UE_LOG(LogTemp, Log, TEXT("Invalid world pointer"));
         return nullptr;
+    }
 
     AActor* SplineActor = World->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity);
-    if (!SplineActor)
+    if (!SplineActor){
+        UE_LOG(LogTemp, Log, TEXT("Spline actor not created"));
         return nullptr;
+    }
 
     USplineComponent* Spline = NewObject<USplineComponent>(SplineActor);
     Spline->RegisterComponent();
@@ -63,11 +68,15 @@ USplineComponent* UGeometryImporter::CreateSpline(UWorld* World, const TArray<FV
     Spline->SetClosedLoop(true);
     Spline->UpdateSpline();
 
+    // UE_LOG(LogTemp, Log, TEXT("Spline spawned with %d points."), Spline->GetNumberOfSplinePoints());
+
     return Spline;
 }
 
 TArray<USplineComponent*> UGeometryImporter::ImportGeoJsonPolygonsToSplines(UWorld* World, const FString& GeoJsonFilePath, const FVector2D OriginGeoCoordinates)
 {
+    UE_LOG(LogTemp, Log, TEXT("Importing geojson and creating splines from file: %s"), *GeoJsonFilePath);
+
     TArray<USplineComponent*> CreatedSplines;
 
     FString JsonString;
@@ -118,6 +127,8 @@ TArray<USplineComponent*> UGeometryImporter::ImportGeoJsonPolygonsToSplines(UWor
             FVector Pos = FVector(Pos2D.X, Pos2D.Y, 0.0f);  // Initialize height as 0
             Points.Add(Pos);
         }
+
+        // UE_LOG(LogTemp, Log, TEXT("Number of points in polyline: %d"), Points.Num());
 
         // Remove last point if it's a duplicate of the first
         if (Points.Num() > 1 && Points[0].Equals(Points.Last(), 0.01f))
