@@ -41,7 +41,7 @@ TArray<FVector2D> UGeometryImporter::ReadCSVCoordinates(FString path, FVector2D 
     return Coordinates;
 }
 
-USplineComponent* UGeometryImporter::CreateSpline(UWorld* World, const TArray<FVector>& Points)
+USplineComponent* UGeometryImporter::CreateSpline(UWorld* World, const TArray<FVector>& Points, const FString SplineName)
 {
 
     if (!World || Points.Num() < 2){
@@ -54,6 +54,7 @@ USplineComponent* UGeometryImporter::CreateSpline(UWorld* World, const TArray<FV
         UE_LOG(LogTemp, Log, TEXT("Spline actor not created"));
         return nullptr;
     }
+    SplineActor->SetActorLabel(SplineName);
 
     USplineComponent* Spline = NewObject<USplineComponent>(SplineActor);
     Spline->RegisterComponent();
@@ -102,6 +103,7 @@ TArray<USplineComponent*> UGeometryImporter::ImportGeoJsonPolygonsToSplines(UWor
         return CreatedSplines;
     }
 
+    int i = 0;
     for (const TSharedPtr<FJsonValue>& FeatureValue : *Features)
     {
         const TSharedPtr<FJsonObject> FeatureObj = FeatureValue->AsObject();
@@ -136,11 +138,14 @@ TArray<USplineComponent*> UGeometryImporter::ImportGeoJsonPolygonsToSplines(UWor
             Points.Pop();
         }
 
-        USplineComponent* Spline = CreateSpline(World, Points);
+        FString SplineName = "Spline_" + FString::FromInt(i);
+        USplineComponent* Spline = CreateSpline(World, Points, SplineName);
         if (Spline)
         {
             CreatedSplines.Add(Spline);
         }
+
+        i++;
     }
 
     return CreatedSplines;

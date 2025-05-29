@@ -16,7 +16,7 @@ public:
     TArray<FVector2D> ReadCSVCoordinates(FString path, FVector2D OriginGeoCoordinates);
 
     UFUNCTION(BlueprintCallable, Category = "GeometryImporter")
-    static USplineComponent* CreateSpline(UWorld* World, const TArray<FVector>& Points);
+    static USplineComponent* CreateSpline(UWorld* World, const TArray<FVector>& Points, const FString SplineName);
 
     UFUNCTION(BlueprintCallable, Category = "GeometryImporter")
     static TArray<USplineComponent*> ImportGeoJsonPolygonsToSplines(UWorld* World, const FString& GeoJsonFilePath, const FVector2D OriginGeoCoordinates);
