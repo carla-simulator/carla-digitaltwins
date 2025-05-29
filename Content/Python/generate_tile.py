@@ -37,12 +37,12 @@ if os.name == "nt":
     full_command = editor_path + " " + uproject_path + " " + run + " " + arguments
     print("Commandlet:", command)
     print("Arguments:", arguments)
-    subprocess.check_call(full_command, shell=True)
+    subprocess.run(full_command, shell=True).ycheck_returncode()
 elif os.name == "posix":
     sys_name = "Linux"
     editor_path = "%sBinaries/%s/UE4Editor" % (ue4_root, sys_name)
     full_command = editor_path + " " + uproject_path + " " + run + " " + arguments
     print("Commandlet:", full_command)
     print("Arguments:", arguments)
-    subprocess.call([full_command], shell=True)
+    subprocess.run(full_command, shell = True).check_returncode()
 

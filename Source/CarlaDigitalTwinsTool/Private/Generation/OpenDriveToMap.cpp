@@ -310,27 +310,37 @@ void UOpenDriveToMap::GenerateTileStandalone(){
 
 void UOpenDriveToMap::GenerateTile(){
 
-  if( FilePath.IsEmpty() ){
-    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("UOpenDriveToMap::GenerateTile(): Failed to load %s"), *FilePath );
+  IPlatformFile &FileManager = FPlatformFileManager::Get().GetPlatformFile();
+
+  if (!IsValid(this))
+  {
+    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("UOpenDriveToMap::GenerateTile() called on invalid UOpenDriveToMap object %p."), this);
+    return;
+  }
+
+  if (FilePath.Len() == 0 || !FileManager.FileExists(*FilePath))
+  {
+    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("UOpenDriveToMap::GenerateTile(): Attempted to load invalid file path \"%s\"."), *FilePath);
     return;
   }
 
   FString FileContent;
-  UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("UOpenDriveToMap::GenerateTile(): File to load %s"), *FilePath );
-  FFileHelper::LoadFileToString(FileContent, *FilePath);
+  auto FullPath = FPaths::ConvertRelativePathToFull(FilePath);
+  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateTile(): File to load %s"), *FullPath);
+  FFileHelper::LoadFileToString(FileContent, *FullPath);
   std::string opendrive_xml = carla::rpc::FromLongFString(FileContent);
   CarlaMap = carla::opendrive::OpenDriveParser::Load(opendrive_xml);
 
   if (!CarlaMap.has_value())
   {
-    UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Invalid Map"));
+    UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Failed to load \"%s\""), *FullPath);
   }
   else
   {
-    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Valid Map loaded"));
-    MapName = FPaths::GetCleanFilename(FilePath);
+    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Successfully loaded \"%s\""), *FullPath);
+    MapName = FPaths::GetCleanFilename(FullPath);
     MapName.RemoveFromEnd(".xodr", ESearchCase::Type::IgnoreCase);
-    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("MapName %s"), *MapName);
+    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("MapName %s"), *MapName);
     UEditorLevelLibrary::LoadLevel(*BaseLevelName);
 
     AActor* QueryActor = UGameplayStatics::GetActorOfClass(
@@ -347,11 +357,11 @@ void UOpenDriveToMap::GenerateTile(){
       FCarlaMapTile& CarlaTile = LmManager->GetCarlaMapTile(CurrentTilesInXY);
       UEditorLevelLibrary::SaveCurrentLevel();
 
-      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Current Tile is %s"), *( CurrentTilesInXY.ToString() ) );
-      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("NumTilesInXY is %s"), *( NumTilesInXY.ToString() ) );
-      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("TileSize is %f"), ( TileSize ) );
-      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Tile0Offset is %s"), *( Tile0Offset.ToString() ) );
-      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Tile Name is %s"), *(CarlaTile.Name) );
+      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Current Tile is %s"), *( CurrentTilesInXY.ToString() ) );
+      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("NumTilesInXY is %s"), *( NumTilesInXY.ToString() ) );
+      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("TileSize is %f"), ( TileSize ) );
+      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Tile0Offset is %s"), *( Tile0Offset.ToString() ) );
+      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Tile Name is %s"), *(CarlaTile.Name) );
 
       UEditorLevelLibrary::LoadLevel(CarlaTile.Name);
 
@@ -365,7 +375,7 @@ void UOpenDriveToMap::GenerateTile(){
       bMapLoaded = true;
       bTileFinished = false;
     }else{
-      UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Largemapmanager not found ") );
+      UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("LargeMapManager not found.") );
     }
 
     UEditorLoadingAndSavingUtils::SaveDirtyPackages(true, true);
@@ -453,10 +463,10 @@ void UOpenDriveToMap::LoadMap()
   }
   else
   {
-    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Valid Map loaded"));
+    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Valid Map loaded"));
     MapName = FPaths::GetCleanFilename(FilePath);
     MapName.RemoveFromEnd(".xodr", ESearchCase::Type::IgnoreCase);
-    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("MapName %s"), *MapName);
+    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("MapName %s"), *MapName);
 
     AActor* QueryActor = UGameplayStatics::GetActorOfClass(
                                 UEditorLevelLibrary::GetEditorWorld(),
@@ -471,7 +481,7 @@ void UOpenDriveToMap::LoadMap()
       Tile0Offset = LargeMapManager->GetTile0Offset();
       CurrentTilesInXY = FIntVector(0,0,0);
       ULevel* PersistantLevel = UEditorLevelLibrary::GetEditorWorld()->PersistentLevel;
-      BaseLevelName = LargeMapManager->LargeMapTilePath + LargeMapManager->LargeMapName;
+      BaseLevelName = LargeMapManager->LargeMapTilePath + "/" + LargeMapManager->LargeMapName;
       do{
         GenerateTileStandalone();
       }while(GoNextTile());

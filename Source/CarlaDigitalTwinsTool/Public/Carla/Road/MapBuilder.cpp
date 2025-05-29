@@ -54,7 +54,7 @@ namespace road {
     // compute transform requires the roads to have the RoadInfo
     SolveSignalReferencesAndTransforms();
 
-    SolveControllerAndJuntionReferences();
+    SolveControllerAndJunctionReferences();
 
     // remove temporal already used information
     _temp_road_info_container.clear();
@@ -822,7 +822,7 @@ namespace road {
     GenerateDefaultValiditiesForSignalReferences();
   }
 
-  void MapBuilder::SolveControllerAndJuntionReferences() {
+  void MapBuilder::SolveControllerAndJunctionReferences() {
     for(const auto& junction : _map_data._junctions) {
       for(const auto& controller : junction.second._controllers) {
         auto it = _map_data._controllers.find(controller);

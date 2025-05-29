@@ -16,6 +16,11 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0,
 {
   IPlatformFile &FileManager = FPlatformFileManager::Get().GetPlatformFile();
 
+  osm2odr::OSM2ODRSettings Settings;
+  Settings.proj_string += " +lat_0=" + std::to_string(Lat_0) + " +lon_0=" + std::to_string(Lon_0);
+  Settings.center_map = false;
+  std::string OpenDriveFile;
+
   FString FileContent;
   // Always first check if the file that you want to manipulate exist.
   if (FileManager.FileExists(*FilePath))
@@ -23,27 +28,23 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0,
     // We use the LoadFileToString to load the file into
     if (FFileHelper::LoadFileToString(FileContent, *FilePath, FFileHelper::EHashOptions::None))
     {
-      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Text From File: %s"), *FilePath);
+      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FileManipulation: Text From File: %s"), *FilePath);
     }
     else
     {
-      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Did not load text from file"));
+      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FileManipulation: Did not load text from file"));
     }
   }
   else
   {
-    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("File: %s does not exist"), *FilePath);
+    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("File: %s does not exist"), *FilePath);
     return;
   }
-  
-  std::string OsmFile = std::string(TCHAR_TO_UTF8(*FileContent));
 
-  osm2odr::OSM2ODRSettings Settings;
-  Settings.proj_string += " +lat_0=" + std::to_string(Lat_0) + " +lon_0=" + std::to_string(Lon_0);
-  Settings.center_map = false;
-  std::string OpenDriveFile;
   try
   {
+    FTCHARToUTF8 FileContentUTF8(*FileContent, FileContent.Len());
+    auto OsmFile = std::string(FileContentUTF8.Get(), FileContentUTF8.Length());
     OpenDriveFile = osm2odr::ConvertOSMToOpenDRIVE(OsmFile, Settings);
   }
   catch (std::runtime_error& re)
@@ -53,26 +54,23 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0,
     UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("FileManipulation: osm2odr::ConvertOSMToOpenDRIVE failed: %s"), *fs);
   }
   
-
   FilePath.RemoveFromEnd(".osm", ESearchCase::Type::IgnoreCase);
   FilePath += ".xodr";
 
-  // We use the LoadFileToString to load the file into
-
   if (FFileHelper::SaveStringToFile(FString(OpenDriveFile.c_str()), *FilePath))
   {
-    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Successfully Written: \"%s\" to the text file"), *FilePath);
+    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FileManipulation: Successfully Written: \"%s\" to the text file"), *FilePath);
   }
   else
   {
-    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Failed to write FString to file."));
+    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FileManipulation: Failed to write FString to file."));
   }
 }
 
 void UCustomFileDownloader::StartDownload()
 {
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FHttpDownloader CREATED"));
-  UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Map Name Is %s"), *ResultFileName );
+  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Map Name Is %s"), *ResultFileName );
   FHttpDownloader *Download = new FHttpDownloader("GET", Url, ResultFileName, DownloadDelegate);
   Download->Run();
 }
@@ -91,7 +89,7 @@ void FHttpDownloader::Run(void)
 {
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Starting download [%s] Url=[%s]"), *Verb, *Url);
   TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
-  UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Map Name Is %s"), *Filename );
+  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Map Name Is %s"), *Filename );
   Request->OnProcessRequestComplete().BindRaw(this, &FHttpDownloader::RequestComplete);
   Request->SetURL(Url);
   Request->SetVerb(Verb);
@@ -122,7 +120,7 @@ void FHttpDownloader::RequestComplete(FHttpRequestPtr HttpRequest, FHttpResponse
            HttpResponse->GetResponseCode());
 
     FString CurrentFile = UGenerationPathsHelper::GetRawMapDirectoryPath(Filename) + "OpenDrive/";
-    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FHttpDownloader::RequestComplete CurrentFile %s."), *CurrentFile);
+    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FHttpDownloader::RequestComplete CurrentFile %s."), *CurrentFile);
 
     // We will use this FileManager to deal with the file.
     IPlatformFile &FileManager = FPlatformFileManager::Get().GetPlatformFile();
@@ -137,13 +135,13 @@ void FHttpDownloader::RequestComplete(FHttpRequestPtr HttpRequest, FHttpResponse
     // We use the LoadFileToString to load the file into
     if (FFileHelper::SaveStringToFile(StringToWrite, *CurrentFile, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
     {
-      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Successfully Written "));
+      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FileManipulation: Successfully Written "));
       DelegateToCall.ExecuteIfBound();
     }
     else
     {
-      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Failed to write FString to file."));
-      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: CurrentFile %s."), *CurrentFile);
+      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FileManipulation: Failed to write FString to file."));
+      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FileManipulation: CurrentFile %s."), *CurrentFile);
     }
   }
   delete this;
