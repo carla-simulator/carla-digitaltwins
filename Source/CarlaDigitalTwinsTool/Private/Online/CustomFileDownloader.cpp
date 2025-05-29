@@ -28,16 +28,16 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0,
     // We use the LoadFileToString to load the file into
     if (FFileHelper::LoadFileToString(FileContent, *FilePath, FFileHelper::EHashOptions::None))
     {
-      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Text From File: %s"), *FilePath);
+      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FileManipulation: Text From File: %s"), *FilePath);
     }
     else
     {
-      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Did not load text from file"));
+      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FileManipulation: Did not load text from file"));
     }
   }
   else
   {
-    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("File: %s does not exist"), *FilePath);
+    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("File: %s does not exist"), *FilePath);
     return;
   }
 
@@ -59,18 +59,18 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0,
 
   if (FFileHelper::SaveStringToFile(FString(OpenDriveFile.c_str()), *FilePath))
   {
-    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Successfully Written: \"%s\" to the text file"), *FilePath);
+    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FileManipulation: Successfully Written: \"%s\" to the text file"), *FilePath);
   }
   else
   {
-    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Failed to write FString to file."));
+    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FileManipulation: Failed to write FString to file."));
   }
 }
 
 void UCustomFileDownloader::StartDownload()
 {
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FHttpDownloader CREATED"));
-  UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Map Name Is %s"), *ResultFileName );
+  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Map Name Is %s"), *ResultFileName );
   FHttpDownloader *Download = new FHttpDownloader("GET", Url, ResultFileName, DownloadDelegate);
   Download->Run();
 }
@@ -89,7 +89,7 @@ void FHttpDownloader::Run(void)
 {
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Starting download [%s] Url=[%s]"), *Verb, *Url);
   TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
-  UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Map Name Is %s"), *Filename );
+  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Map Name Is %s"), *Filename );
   Request->OnProcessRequestComplete().BindRaw(this, &FHttpDownloader::RequestComplete);
   Request->SetURL(Url);
   Request->SetVerb(Verb);
@@ -120,7 +120,7 @@ void FHttpDownloader::RequestComplete(FHttpRequestPtr HttpRequest, FHttpResponse
            HttpResponse->GetResponseCode());
 
     FString CurrentFile = UGenerationPathsHelper::GetRawMapDirectoryPath(Filename) + "OpenDrive/";
-    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FHttpDownloader::RequestComplete CurrentFile %s."), *CurrentFile);
+    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FHttpDownloader::RequestComplete CurrentFile %s."), *CurrentFile);
 
     // We will use this FileManager to deal with the file.
     IPlatformFile &FileManager = FPlatformFileManager::Get().GetPlatformFile();
@@ -135,13 +135,13 @@ void FHttpDownloader::RequestComplete(FHttpRequestPtr HttpRequest, FHttpResponse
     // We use the LoadFileToString to load the file into
     if (FFileHelper::SaveStringToFile(StringToWrite, *CurrentFile, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
     {
-      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Successfully Written "));
+      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FileManipulation: Successfully Written "));
       DelegateToCall.ExecuteIfBound();
     }
     else
     {
-      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Failed to write FString to file."));
-      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: CurrentFile %s."), *CurrentFile);
+      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FileManipulation: Failed to write FString to file."));
+      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FileManipulation: CurrentFile %s."), *CurrentFile);
     }
   }
   delete this;
