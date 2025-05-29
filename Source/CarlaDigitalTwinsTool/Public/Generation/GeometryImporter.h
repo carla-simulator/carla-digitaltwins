@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Components/SplineComponent.h"
+#include "JsonObjectConverter.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "GeometryImporter.generated.h"
 
@@ -10,6 +12,12 @@ class CARLADIGITALTWINSTOOL_API UGeometryImporter : public UBlueprintFunctionLib
 
 public:
 
-    UFUNCTION(BlueprintCallable, Category = "MyPlugin")
+    UFUNCTION(BlueprintCallable, Category = "GeometryImporter")
     TArray<FVector2D> ReadCSVCoordinates(FString path, FVector2D OriginGeoCoordinates);
+
+    UFUNCTION(BlueprintCallable, Category = "GeometryImporter")
+    static USplineComponent* CreateSpline(UWorld* World, const TArray<FVector>& Points);
+
+    UFUNCTION(BlueprintCallable, Category = "GeometryImporter")
+    static TArray<USplineComponent*> ImportGeoJsonPolygonsToSplines(UWorld* World, const FString& GeoJsonFilePath, const FVector2D OriginGeoCoordinates);
 };

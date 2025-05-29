@@ -1,7 +1,7 @@
 #include "Misc/FileHelper.h"
+#include "Engine/Engine.h"
 #include "Generation/MapGenFunctionLibrary.h"
 #include "Generation/GeometryImporter.h"
-#include "Engine/Engine.h"
 
 TArray<FVector2D> UGeometryImporter::ReadCSVCoordinates(FString path, FVector2D OriginGeoCoordinates)
 {
@@ -39,4 +39,98 @@ TArray<FVector2D> UGeometryImporter::ReadCSVCoordinates(FString path, FVector2D 
     }
 
     return Coordinates;
+}
+
+USplineComponent* UGeometryImporter::CreateSpline(UWorld* World, const TArray<FVector>& Points)
+{
+    if (!World || Points.Num() < 2)
+        return nullptr;
+
+    AActor* SplineActor = World->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity);
+    if (!SplineActor)
+        return nullptr;
+
+    USplineComponent* Spline = NewObject<USplineComponent>(SplineActor);
+    Spline->RegisterComponent();
+    Spline->SetMobility(EComponentMobility::Movable);
+    SplineActor->SetRootComponent(Spline);
+
+    for (int32 i = 0; i < Points.Num(); ++i)
+    {
+        Spline->AddSplinePoint(Points[i], ESplineCoordinateSpace::World);
+    }
+
+    Spline->SetClosedLoop(true);
+    Spline->UpdateSpline();
+
+    return Spline;
+}
+
+TArray<USplineComponent*> UGeometryImporter::ImportGeoJsonPolygonsToSplines(UWorld* World, const FString& GeoJsonFilePath, const FVector2D OriginGeoCoordinates)
+{
+    TArray<USplineComponent*> CreatedSplines;
+
+    FString JsonString;
+    if (!FFileHelper::LoadFileToString(JsonString, *GeoJsonFilePath))
+    {
+        UE_LOG(LogTemp, Error, TEXT("Failed to load GeoJSON file: %s"), *GeoJsonFilePath);
+        return CreatedSplines;
+    }
+
+    TSharedPtr<FJsonObject> JsonParsed;
+    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
+
+    if (!FJsonSerializer::Deserialize(Reader, JsonParsed) || !JsonParsed.IsValid())
+    {
+        UE_LOG(LogTemp, Error, TEXT("Failed to parse GeoJSON file."));
+        return CreatedSplines;
+    }
+
+    const TArray<TSharedPtr<FJsonValue>>* Features;
+    if (!JsonParsed->TryGetArrayField("features", Features))
+    {
+        UE_LOG(LogTemp, Error, TEXT("No 'features' array found in GeoJSON."));
+        return CreatedSplines;
+    }
+
+    for (const TSharedPtr<FJsonValue>& FeatureValue : *Features)
+    {
+        const TSharedPtr<FJsonObject> FeatureObj = FeatureValue->AsObject();
+        const TSharedPtr<FJsonObject> Geometry = FeatureObj->GetObjectField("geometry");
+
+        FString GeometryType = Geometry->GetStringField("type");
+        if (GeometryType != "Polygon")
+            continue;
+
+        const TArray<TSharedPtr<FJsonValue>>* Rings;
+        if (!Geometry->TryGetArrayField("coordinates", Rings) || Rings->Num() == 0)
+            continue;
+
+        const TArray<TSharedPtr<FJsonValue>>& OuterRing = (*Rings)[0]->AsArray();
+        TArray<FVector> Points;
+
+        for (const auto& Coord : OuterRing)
+        {
+            const TArray<TSharedPtr<FJsonValue>>& CoordArray = Coord->AsArray();
+            double Lon = CoordArray[0]->AsNumber();
+            double Lat = CoordArray[1]->AsNumber();
+            FVector2D Pos2D = UMapGenFunctionLibrary::GetTransversemercProjection( Lat, Lon, OriginGeoCoordinates.X, OriginGeoCoordinates.Y );
+            FVector Pos = FVector(Pos2D.X, Pos2D.Y, 0.0f);  // Initialize height as 0
+            Points.Add(Pos);
+        }
+
+        // Remove last point if it's a duplicate of the first
+        if (Points.Num() > 1 && Points[0].Equals(Points.Last(), 0.01f))
+        {
+            Points.Pop();
+        }
+
+        USplineComponent* Spline = CreateSpline(World, Points);
+        if (Spline)
+        {
+            CreatedSplines.Add(Spline);
+        }
+    }
+
+    return CreatedSplines;
 }
