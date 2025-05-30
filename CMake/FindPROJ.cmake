@@ -153,6 +153,7 @@ else ()
   message (STATUS "PROJ_INCLUDE_DIR=${PROJ_INCLUDE_DIR}")
   message (STATUS "PROJ_API_FILE=${PROJ_API_FILE}")
   message (STATUS "PROJ_LIBRARY=${PROJ_LIBRARY}")
-  add_compile_definitions (PROJ_DLL=)
 
 endif ()
+
+add_compile_definitions (PROJ_DLL=)
