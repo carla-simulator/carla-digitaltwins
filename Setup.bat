@@ -10,7 +10,7 @@ set BOOST_COMPONENTS="asio;iterator;date_time;geometry;container;variant2;gil;fi
 set SCRIPT_PATH=%~f0
 set SOURCE_PATH=%SCRIPT_PATH:Setup.bat=%
 
-set UE_VERSION=4
+set UE_VERSION=5
 
 :: Get script folder and go one level up
 set SCRIPT_DIR=%~dp0
@@ -23,7 +23,7 @@ set DIGITAL_TWINS_TOOL_PLUGINS_STREETMAP=%DIGITAL_TWINS_TOOL_PLUGINS%\StreetMap
 :: ============================================================================
 
 set CURRENT_STREETMAP_COMMIT=afc7217a372e6f50dfa7eb85f819c5faf0818138
-set STREETMAP_BRANCH=aaron/digitalTwinsstandalone
+set STREETMAP_BRANCH=marcel/ue5-fixes
 set STREETMAP_REPO=https://github.com/carla-simulator/StreetMap.git
 
 :: Clone repo if it doesn't exist
@@ -31,9 +31,9 @@ if not exist "%DIGITAL_TWINS_TOOL_PLUGINS_STREETMAP%\" (
     git clone -b %STREETMAP_BRANCH% %STREETMAP_REPO% "%DIGITAL_TWINS_TOOL_PLUGINS_STREETMAP%"
 )
 
-cd /d "%DIGITAL_TWINS_TOOL_PLUGINS_STREETMAP%"
-git fetch
-git checkout %CURRENT_STREETMAP_COMMIT%
+:: cd /d "%DIGITAL_TWINS_TOOL_PLUGINS_STREETMAP%"
+:: git fetch
+:: git checkout %CURRENT_STREETMAP_COMMIT%
 
 :: ============================================================================
 :: -- Digital TwinsContent-----------------------------------------------------
