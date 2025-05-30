@@ -11,11 +11,21 @@
 #include "Materials/MaterialInstance.h"
 #include "StaticMeshAttributes.h"
 #include "RenderingThread.h"
+#include "Editor/Transactor.h"
 // Carla C++ headers
 
 // Carla plugin headers
 #include "CarlaMeshGeneration.h"
 #include "Paths/GenerationPathsHelper.h"
+
+#if ENGINE_MAJOR_VERSION < 5
+using V2 = FVector2D;
+using V3 = FVector;
+#else
+#include "Materials/MaterialRenderProxy.h"
+using V2 = FVector2f;
+using V3 = FVector3f;
+#endif
 
 DEFINE_LOG_CATEGORY(LogCarlaMapGenFunctionLibrary);
 static const float OSMToCentimetersScaleFactor = 100.0f;
@@ -34,13 +44,13 @@ FMeshDescription UMapGenFunctionLibrary::BuildMeshDescriptionFromData(
   FStaticMeshAttributes AttributeGetter(MeshDescription);
   AttributeGetter.Register();
 
-  TPolygonGroupAttributesRef<FName> PolygonGroupNames = AttributeGetter.GetPolygonGroupMaterialSlotNames();
-  TVertexAttributesRef<FVector> VertexPositions = AttributeGetter.GetVertexPositions();
-  TVertexInstanceAttributesRef<FVector> Tangents = AttributeGetter.GetVertexInstanceTangents();
-  TVertexInstanceAttributesRef<float> BinormalSigns = AttributeGetter.GetVertexInstanceBinormalSigns();
-  TVertexInstanceAttributesRef<FVector> Normals = AttributeGetter.GetVertexInstanceNormals();
-  TVertexInstanceAttributesRef<FVector4> Colors = AttributeGetter.GetVertexInstanceColors();
-  TVertexInstanceAttributesRef<FVector2D> UVs = AttributeGetter.GetVertexInstanceUVs();
+  auto PolygonGroupNames = AttributeGetter.GetPolygonGroupMaterialSlotNames();
+  auto VertexPositions = AttributeGetter.GetVertexPositions();
+  auto Tangents = AttributeGetter.GetVertexInstanceTangents();
+  auto BinormalSigns = AttributeGetter.GetVertexInstanceBinormalSigns();
+  auto Normals = AttributeGetter.GetVertexInstanceNormals();
+  auto Colors = AttributeGetter.GetVertexInstanceColors();
+  auto UVs = AttributeGetter.GetVertexInstanceUVs();
 
   // Calculate the totals for each ProcMesh element type
   FPolygonGroupID PolygonGroupForSection;
@@ -73,9 +83,9 @@ FMeshDescription UMapGenFunctionLibrary::BuildMeshDescriptionFromData(
   VertexIndexToVertexID.Reserve(NumVertex);
   for (int32 VertexIndex = 0; VertexIndex < NumVertex; ++VertexIndex)
   {
-    const FVector &Vert = Data.Vertices[VertexIndex];
-    const FVertexID VertexID = MeshDescription.CreateVertex();
-    VertexPositions[VertexID] = Vert;
+    auto&Vert = Data.Vertices[VertexIndex];
+    auto VertexID = MeshDescription.CreateVertex();
+    VertexPositions[VertexID] = V3(Vert);
     VertexIndexToVertexID.Add(VertexIndex, VertexID);
   }
 
@@ -91,11 +101,11 @@ FMeshDescription UMapGenFunctionLibrary::BuildMeshDescriptionFromData(
     const FVertexInstanceID VertexInstanceID =
     MeshDescription.CreateVertexInstance(VertexID);
     IndiceIndexToVertexInstanceID.Add(IndiceIndex, VertexInstanceID);
-    Normals[VertexInstanceID] = Data.Normals[VertexIndex];
+    Normals[VertexInstanceID] = V3(Data.Normals[VertexIndex]);
 
     if(ParamTangents.Num() == Data.Vertices.Num())
     {
-      Tangents[VertexInstanceID] = ParamTangents[VertexIndex].TangentX;
+      Tangents[VertexInstanceID] = V3(ParamTangents[VertexIndex].TangentX);
       BinormalSigns[VertexInstanceID] =
         ParamTangents[VertexIndex].bFlipTangentY ? -1.f : 1.f;
     }else{
@@ -104,13 +114,13 @@ FMeshDescription UMapGenFunctionLibrary::BuildMeshDescriptionFromData(
     Colors[VertexInstanceID] = FLinearColor(0,0,0);
     if(Data.UV0.Num() == Data.Vertices.Num())
     {
-      UVs.Set(VertexInstanceID, 0, Data.UV0[VertexIndex]);
+      UVs.Set(VertexInstanceID, 0, V2(Data.UV0[VertexIndex]));
     }else{
-      UVs.Set(VertexInstanceID, 0, FVector2D(0,0));
+      UVs.Set(VertexInstanceID, 0, V2(0,0));
     }
-    UVs.Set(VertexInstanceID, 1, FVector2D(0,0));
-    UVs.Set(VertexInstanceID, 2, FVector2D(0,0));
-    UVs.Set(VertexInstanceID, 3, FVector2D(0,0));
+    UVs.Set(VertexInstanceID, 1, V2(0,0));
+    UVs.Set(VertexInstanceID, 2, V2(0,0));
+    UVs.Set(VertexInstanceID, 3, V2(0,0));
   }
 
   for (int32 TriIdx = 0; TriIdx < NumTri; TriIdx++)
@@ -167,12 +177,21 @@ UStaticMesh* UMapGenFunctionLibrary::CreateMesh(
 
     Mesh->InitResources();
 
+#if ENGINE_MAJOR_VERSION < 5
     Mesh->LightingGuid = FGuid::NewGuid();
     Mesh->StaticMaterials.Add(FStaticMaterial(MaterialInstance));
     Mesh->BuildFromMeshDescriptions({ &Description }, Params);
     Mesh->CreateBodySetup();
     Mesh->BodySetup->CollisionTraceFlag = ECollisionTraceFlag::CTF_UseComplexAsSimple;
     Mesh->BodySetup->CreatePhysicsMeshes();
+#else
+    Mesh->SetLightingGuid(FGuid::NewGuid());
+    Mesh->GetStaticMaterials().Add(FStaticMaterial(MaterialInstance));
+    Mesh->BuildFromMeshDescriptions({ &Description }, Params);
+    Mesh->CreateBodySetup();
+    // Mesh->GetBodySetup()->CollisionTraceFlag = ECollisionTraceFlag::CTF_UseComplexAsSimple;
+    // Mesh->GetBodySetup()->CreatePhysicsMeshes();
+#endif
     // Build mesh from source
     Mesh->NeverStream = false;
     TArray<UObject*> CreatedAssets;
@@ -212,7 +231,11 @@ void UMapGenFunctionLibrary::SetThreadToSleep(float seconds){
 }
 
 void UMapGenFunctionLibrary::FlushRenderingCommandsInBlueprint(){
-  FlushRenderingCommands(true);
+#if ENGINE_MAJOR_VERSION < 5
+    FlushRenderingCommands(true);
+#else
+    FlushRenderingCommands();
+#endif
  	FlushPendingDeleteRHIResources_GameThread();
 }
 
