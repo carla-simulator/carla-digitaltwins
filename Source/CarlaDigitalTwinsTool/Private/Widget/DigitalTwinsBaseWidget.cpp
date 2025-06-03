@@ -10,8 +10,8 @@
 #include "ContentBrowserModule.h"
 #include "IContentBrowserSingleton.h"
 #include "Misc/Paths.h"
-#include "HAL/PlatformFilemanager.h"
 #include "CarlaDigitalTwinsTool.h"
+#include "HAL/PlatformFileManager.h"
 
 static UOpenDriveToMap* OpenDriveToMapObject = nullptr;
 
