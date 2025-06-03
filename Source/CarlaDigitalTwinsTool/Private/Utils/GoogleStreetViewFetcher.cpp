@@ -1,14 +1,13 @@
 #include "Utils/GoogleStreetViewFetcher.h"
 #include "HttpModule.h"
-#include "Interfaces/IHttpResponse.h"
 #include "ImageUtils.h"
 #include "Misc/Base64.h"
 #include "Kismet/KismetMathLibrary.h"
 
-void UGoogleStreetViewFetcher::Initialize(double InOriginLat, double InOriginLon, const FString& InGoogleApiKey)
+
+void UGoogleStreetViewFetcher::Initialize(FVector2D InOriginGeoCoordinates, const FString& InGoogleApiKey)
 {
-    OriginLat = InOriginLat;
-    OriginLon = InOriginLon;
+    OriginGeoCoordinates = InOriginGeoCoordinates;
     GoogleApiKey = InGoogleApiKey;
 }
 
@@ -19,6 +18,9 @@ void UGoogleStreetViewFetcher::RequestStreetViewImageFromActor(AActor* CameraAct
         UE_LOG(LogTemp, Warning, TEXT("Camera actor is null."));
         return;
     }
+
+    double OriginLat = OriginGeoCoordinates.X;
+    double OriginLon = OriginGeoCoordinates.Y;
 
     FVector CameraLocation = CameraActor->GetActorLocation();
     FRotator CameraRotation = CameraActor->GetActorRotation();
@@ -35,7 +37,7 @@ void UGoogleStreetViewFetcher::RequestStreetViewImageFromActor(AActor* CameraAct
     UE_LOG(LogTemp, Log, TEXT("Requesting Street View image from URL: %s"), *URL);
 
     FHttpModule* Http = &FHttpModule::Get();
-    TSharedRef<IHttpRequest> Request = Http->CreateRequest();
+    TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = Http->CreateRequest();
     Request->SetURL(URL);
     Request->SetVerb("GET");
     Request->OnProcessRequestComplete().BindUObject(this, &UGoogleStreetViewFetcher::OnStreetViewResponseReceived);

@@ -3,6 +3,9 @@
 #include "CoreMinimal.h"
 #include "UObject/NoExportTypes.h"
 #include "Engine/Texture2D.h"
+#include "HttpModule.h"
+#include "Interfaces/IHttpRequest.h"
+#include "Interfaces/IHttpResponse.h"
 #include "GoogleStreetViewFetcher.generated.h"
 
 UCLASS(Blueprintable)
@@ -12,7 +15,7 @@ class CARLADIGITALTWINSTOOL_API UGoogleStreetViewFetcher : public UObject
 
 public:
     UFUNCTION(BlueprintCallable, Category = "GoogleStreetView")
-    void Initialize(double InOriginLat, double InOriginLon, const FString& InGoogleApiKey);
+    void Initialize(FVector2D OriginGeoCoordinates, const FString& InGoogleApiKey);
 
     UFUNCTION(BlueprintCallable, Category = "GoogleStreetView")
     void RequestStreetViewImageFromActor(AActor* CameraActor);
@@ -23,7 +26,6 @@ public:
 private:
     void OnStreetViewResponseReceived(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);
 
-    double OriginLat;
-    double OriginLon;
+    FVector2D OriginGeoCoordinates;
     FString GoogleApiKey;
 };
