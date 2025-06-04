@@ -3,6 +3,8 @@
 #include "ImageUtils.h"
 #include "Misc/Base64.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "Engine/StaticMeshActor.h"
+#include "Materials/MaterialInstanceDynamic.h"
 
 
 void UGoogleStreetViewFetcher::Initialize(FVector2D InOriginGeoCoordinates, const FString& InGoogleApiKey)
@@ -65,5 +67,48 @@ void UGoogleStreetViewFetcher::OnStreetViewResponseReceived(FHttpRequestPtr Requ
     {
         UE_LOG(LogTemp, Error, TEXT("Failed to retrieve Street View image. HTTP code: %d"),
             Response.IsValid() ? Response->GetResponseCode() : -1);
+    }
+}
+
+void UGoogleStreetViewFetcher::RenderImage(UWorld* World, AActor* CameraActor)
+{
+    // Spawn a plane in front of the camera
+    FVector CameraLocation = CameraActor->GetActorLocation();
+    FRotator CameraRotation = CameraActor->GetActorRotation();
+
+    FVector PlaneLocation = CameraLocation + CameraRotation.Vector() * 100; // 100 units in front
+    FRotator PlaneRotation = CameraRotation;
+
+    // Create a plane actor
+    AStaticMeshActor* PlaneActor = World->SpawnActor<AStaticMeshActor>(PlaneLocation, PlaneRotation);
+    PlaneActor->SetActorLabel(TEXT("GoogleStreetViewRender"));
+    UStaticMeshComponent* MeshComp = PlaneActor->GetStaticMeshComponent();
+
+    // Assign built-in plane mesh
+    // ConstructorHelpers::FObjectFinder<UStaticMesh> PlaneMesh(TEXT("/Engine/BasicShapes/Plane"));
+    // if (PlaneMesh.Succeeded())
+    // {
+    //     MeshComp->SetStaticMesh(PlaneMesh.Object);
+    //     MeshComp->SetWorldScale3D(FVector(2.0f, 2.0f, 2.0f)); // Scale as needed
+    // }
+    UStaticMesh* PlaneMesh = Cast<UStaticMesh>(
+        StaticLoadObject(UStaticMesh::StaticClass(), nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"))
+    );
+    if (PlaneMesh)
+    {
+        MeshComp->SetStaticMesh(PlaneMesh);
+        MeshComp->SetWorldScale3D(FVector(2.0f, 2.0f, 2.0f));
+    }
+    else
+    {
+        UE_LOG(LogTemp, Error, TEXT("Failed to load plane mesh."));
+    }
+
+
+    // Create and apply dynamic material
+    UMaterialInstanceDynamic* DynMat = MeshComp->CreateAndSetMaterialInstanceDynamic(0);
+    if (DynMat && StreetViewTexture)
+    {
+        DynMat->SetTextureParameterValue("StreetViewTex", StreetViewTexture);
     }
 }

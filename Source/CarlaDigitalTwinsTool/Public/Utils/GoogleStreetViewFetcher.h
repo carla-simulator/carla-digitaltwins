@@ -20,6 +20,9 @@ public:
     UFUNCTION(BlueprintCallable, Category = "GoogleStreetView")
     void RequestStreetViewImageFromActor(AActor* CameraActor);
 
+    UFUNCTION(BlueprintCallable, Category = "GoogleStreetView")
+    void RenderImage(UWorld* World, AActor* CameraActor);
+
     UPROPERTY(BlueprintReadOnly, Category = "GoogleStreetView")
     UTexture2D* StreetViewTexture;
 
