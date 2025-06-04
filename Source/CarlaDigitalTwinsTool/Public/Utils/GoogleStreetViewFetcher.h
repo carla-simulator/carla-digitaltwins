@@ -18,13 +18,16 @@ public:
     void Initialize(FVector2D OriginGeoCoordinates, const FString& InGoogleAPIKey);
 
     UFUNCTION(BlueprintCallable, Category = "GoogleStreetView")
-    void RequestStreetViewImageFromActor(AActor* CameraActor);
+    void RequestGoogleStreetViewImage(AActor* CameraActor);
 
     UFUNCTION(BlueprintCallable, Category = "GoogleStreetView")
-    void RenderImage(UWorld* World, AActor* CameraActor);
+    void CreateRenderingMesh(UWorld* World, AActor* CameraActor);
 
     UPROPERTY(BlueprintReadOnly, Category = "GoogleStreetView")
     UTexture2D* StreetViewTexture;
+
+    UPROPERTY()
+    UStaticMeshComponent* TargetMeshComponent = nullptr;
 
 private:
     void OnStreetViewResponseReceived(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);

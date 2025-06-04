@@ -13,7 +13,7 @@ void UGoogleStreetViewFetcher::Initialize(FVector2D InOriginGeoCoordinates, cons
     GoogleAPIKey = InGoogleAPIKey;
 }
 
-void UGoogleStreetViewFetcher::RequestStreetViewImageFromActor(AActor* CameraActor)
+void UGoogleStreetViewFetcher::RequestGoogleStreetViewImage(AActor* CameraActor)
 {
     if (!CameraActor)
     {
@@ -36,7 +36,7 @@ void UGoogleStreetViewFetcher::RequestStreetViewImageFromActor(AActor* CameraAct
         TEXT("https://maps.googleapis.com/maps/api/streetview?size=640x480&location=%.6f,%.6f&heading=%d&pitch=0&key=%s"),
         lat, lon, heading, *GoogleAPIKey);
 
-    UE_LOG(LogTemp, Log, TEXT("Requesting Street View image from URL: %s"), *URL);
+    UE_LOG(LogTemp, Log, TEXT("Requesting Google Street View image from URL: %s"), *URL);
 
     FHttpModule* Http = &FHttpModule::Get();
     TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = Http->CreateRequest();
@@ -55,8 +55,35 @@ void UGoogleStreetViewFetcher::OnStreetViewResponseReceived(FHttpRequestPtr Requ
 
         if (Texture)
         {
-            UE_LOG(LogTemp, Log, TEXT("Successfully created Street View texture."));
+            UE_LOG(LogTemp, Log, TEXT("Successfully created Google Street View texture."));
             StreetViewTexture = Texture;
+
+            // Apply the texture to the mesh component
+            if (TargetMeshComponent)
+            {
+                // Load the material
+                UMaterialInterface* BaseMaterial = LoadObject<UMaterialInterface>(
+                    nullptr,
+                    TEXT("/CarlaDigitalTwinsTool/digitalTwins/Static/Utils/M_GoogleStreetViewBase.M_GoogleStreetViewBase")
+                );
+
+                if (BaseMaterial)
+                {
+                    UMaterialInstanceDynamic* DynMat = UMaterialInstanceDynamic::Create(BaseMaterial, this);
+                    if (DynMat)
+                    {
+                        DynMat->SetTextureParameterValue("StreetViewTex", Texture);
+                        TargetMeshComponent->SetMaterial(0, DynMat);
+                        UE_LOG(LogTemp, Log, TEXT("Applied dynamic material with Google Street View texture."));
+                    }
+                    else{
+                        UE_LOG(LogTemp, Error, TEXT("Failed to apply dynamic material with Google Street View texture."));
+                    }
+                }
+            }
+            else{
+                UE_LOG(LogTemp, Error, TEXT("Target component for Google Street View texture does not exist."));
+            }
         }
         else
         {
@@ -65,12 +92,12 @@ void UGoogleStreetViewFetcher::OnStreetViewResponseReceived(FHttpRequestPtr Requ
     }
     else
     {
-        UE_LOG(LogTemp, Error, TEXT("Failed to retrieve Street View image. HTTP code: %d"),
+        UE_LOG(LogTemp, Error, TEXT("Failed to retrieve Google Street View image. HTTP code: %d"),
             Response.IsValid() ? Response->GetResponseCode() : -1);
     }
 }
 
-void UGoogleStreetViewFetcher::RenderImage(UWorld* World, AActor* CameraActor)
+void UGoogleStreetViewFetcher::CreateRenderingMesh(UWorld* World, AActor* CameraActor)
 {
     // Spawn a plane in front of the camera
     FVector CameraLocation = CameraActor->GetActorLocation();
@@ -92,16 +119,12 @@ void UGoogleStreetViewFetcher::RenderImage(UWorld* World, AActor* CameraActor)
     {
         MeshComp->SetStaticMesh(PlaneMesh);
         MeshComp->SetWorldScale3D(FVector(2.0f, 2.0f, 2.0f));
+        UE_LOG(LogTemp, Log, TEXT("Setting static mesh to plane for Google Street View."));
     }
     else
     {
-        UE_LOG(LogTemp, Error, TEXT("Failed to load plane mesh."));
+        UE_LOG(LogTemp, Error, TEXT("Failed to load plane mesh for Google Street View."));
     }
 
-    // Create and apply dynamic material
-    UMaterialInstanceDynamic* DynMat = MeshComp->CreateAndSetMaterialInstanceDynamic(0);
-    if (DynMat && StreetViewTexture)
-    {
-        DynMat->SetTextureParameterValue("StreetViewTex", StreetViewTexture);
-    }
+    TargetMeshComponent = MeshComp;
 }
