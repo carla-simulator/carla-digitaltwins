@@ -7,10 +7,10 @@
 #include "Materials/MaterialInstanceDynamic.h"
 
 
-void UGoogleStreetViewFetcher::Initialize(FVector2D InOriginGeoCoordinates, const FString& InGoogleApiKey)
+void UGoogleStreetViewFetcher::Initialize(FVector2D InOriginGeoCoordinates, const FString& InGoogleAPIKey)
 {
     OriginGeoCoordinates = InOriginGeoCoordinates;
-    GoogleApiKey = InGoogleApiKey;
+    GoogleAPIKey = InGoogleAPIKey;
 }
 
 void UGoogleStreetViewFetcher::RequestStreetViewImageFromActor(AActor* CameraActor)
@@ -34,7 +34,7 @@ void UGoogleStreetViewFetcher::RequestStreetViewImageFromActor(AActor* CameraAct
 
     FString URL = FString::Printf(
         TEXT("https://maps.googleapis.com/maps/api/streetview?size=640x480&location=%.6f,%.6f&heading=%d&pitch=0&key=%s"),
-        lat, lon, heading, *GoogleApiKey);
+        lat, lon, heading, *GoogleAPIKey);
 
     UE_LOG(LogTemp, Log, TEXT("Requesting Street View image from URL: %s"), *URL);
 
@@ -85,12 +85,6 @@ void UGoogleStreetViewFetcher::RenderImage(UWorld* World, AActor* CameraActor)
     UStaticMeshComponent* MeshComp = PlaneActor->GetStaticMeshComponent();
 
     // Assign built-in plane mesh
-    // ConstructorHelpers::FObjectFinder<UStaticMesh> PlaneMesh(TEXT("/Engine/BasicShapes/Plane"));
-    // if (PlaneMesh.Succeeded())
-    // {
-    //     MeshComp->SetStaticMesh(PlaneMesh.Object);
-    //     MeshComp->SetWorldScale3D(FVector(2.0f, 2.0f, 2.0f)); // Scale as needed
-    // }
     UStaticMesh* PlaneMesh = Cast<UStaticMesh>(
         StaticLoadObject(UStaticMesh::StaticClass(), nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"))
     );
@@ -103,7 +97,6 @@ void UGoogleStreetViewFetcher::RenderImage(UWorld* World, AActor* CameraActor)
     {
         UE_LOG(LogTemp, Error, TEXT("Failed to load plane mesh."));
     }
-
 
     // Create and apply dynamic material
     UMaterialInstanceDynamic* DynMat = MeshComp->CreateAndSetMaterialInstanceDynamic(0);

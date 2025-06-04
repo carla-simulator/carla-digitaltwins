@@ -15,7 +15,7 @@ class CARLADIGITALTWINSTOOL_API UGoogleStreetViewFetcher : public UObject
 
 public:
     UFUNCTION(BlueprintCallable, Category = "GoogleStreetView")
-    void Initialize(FVector2D OriginGeoCoordinates, const FString& InGoogleApiKey);
+    void Initialize(FVector2D OriginGeoCoordinates, const FString& InGoogleAPIKey);
 
     UFUNCTION(BlueprintCallable, Category = "GoogleStreetView")
     void RequestStreetViewImageFromActor(AActor* CameraActor);
@@ -30,5 +30,5 @@ private:
     void OnStreetViewResponseReceived(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);
 
     FVector2D OriginGeoCoordinates;
-    FString GoogleApiKey;
+    FString GoogleAPIKey;
 };
