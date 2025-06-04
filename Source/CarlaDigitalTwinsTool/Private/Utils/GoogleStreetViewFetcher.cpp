@@ -72,7 +72,7 @@ void UGoogleStreetViewFetcher::OnStreetViewResponseReceived(FHttpRequestPtr Requ
                     UMaterialInstanceDynamic* DynMat = UMaterialInstanceDynamic::Create(BaseMaterial, this);
                     if (DynMat)
                     {
-                        DynMat->SetTextureParameterValue("StreetViewTex", Texture);
+                        DynMat->SetTextureParameterValue("StreetViewTex", StreetViewTexture);
                         TargetMeshComponent->SetMaterial(0, DynMat);
                         UE_LOG(LogTemp, Log, TEXT("Applied dynamic material with Google Street View texture."));
                     }
@@ -104,27 +104,42 @@ void UGoogleStreetViewFetcher::CreateRenderingMesh(UWorld* World, AActor* Camera
     FRotator CameraRotation = CameraActor->GetActorRotation();
 
     FVector PlaneLocation = CameraLocation + CameraRotation.Vector() * 100; // 100 units in front
-    FRotator PlaneRotation = CameraRotation;
+    // FRotator PlaneRotation = CameraRotation;
+    FVector Forward = CameraRotation.Vector(); // or CameraActor->GetActorForwardVector()
+    FRotator PlaneRotation = FRotationMatrix::MakeFromX(-Forward).Rotator();
+    // PlaneRotation.Yaw += 180.0f;
+    // PlaneRotation.Pitch += 90.0f;
+    PlaneRotation.Roll += 90.0f;
+    PlaneRotation.Yaw += 270.0f;
 
     // Create a plane actor
     AStaticMeshActor* PlaneActor = World->SpawnActor<AStaticMeshActor>(PlaneLocation, PlaneRotation);
     PlaneActor->SetActorLabel(TEXT("GoogleStreetViewRender"));
-    UStaticMeshComponent* MeshComp = PlaneActor->GetStaticMeshComponent();
 
-    // Assign built-in plane mesh
-    UStaticMesh* PlaneMesh = Cast<UStaticMesh>(
-        StaticLoadObject(UStaticMesh::StaticClass(), nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"))
-    );
-    if (PlaneMesh)
+    if (PlaneActor)
     {
-        MeshComp->SetStaticMesh(PlaneMesh);
-        MeshComp->SetWorldScale3D(FVector(2.0f, 2.0f, 2.0f));
-        UE_LOG(LogTemp, Log, TEXT("Setting static mesh to plane for Google Street View."));
-    }
-    else
-    {
-        UE_LOG(LogTemp, Error, TEXT("Failed to load plane mesh for Google Street View."));
-    }
+        PlaneActor->SetActorLabel(TEXT("GoogleStreetViewRender"));
 
-    TargetMeshComponent = MeshComp;
+        UStaticMeshComponent* MeshComp = NewObject<UStaticMeshComponent>(PlaneActor);
+        MeshComp->RegisterComponent();
+        MeshComp->AttachToComponent(PlaneActor->GetRootComponent(), FAttachmentTransformRules::KeepRelativeTransform);
+        PlaneActor->AddInstanceComponent(MeshComp);
+
+        UStaticMesh* PlaneMesh = Cast<UStaticMesh>(
+            StaticLoadObject(UStaticMesh::StaticClass(), nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"))
+        );
+
+        if (PlaneMesh && PlaneMesh->IsValidLowLevel())
+        {
+            MeshComp->SetStaticMesh(PlaneMesh);
+            MeshComp->SetWorldScale3D(FVector(3.0f));
+            UE_LOG(LogTemp, Log, TEXT("Assigned static mesh to Google Street View plane."));
+        }
+        else
+        {
+            UE_LOG(LogTemp, Error, TEXT("Failed to load or assign the plane mesh."));
+        }
+
+        TargetMeshComponent = MeshComp;
+    }
 }
