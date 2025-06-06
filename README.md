@@ -109,19 +109,24 @@ Make sure the **Digital Twins plugin** is correctly installed and built in your 
    - **OSMURL** – the URL from OpenStreetMap
    - **LocalFilePath** – optional local saving path
 
-   📸 *[Insert Screenshot: Digital Twins UI showing Filename, OSMURL, and LocalFilePath fields]*
+   ![image](https://github.com/user-attachments/assets/a076addd-3275-4304-b815-27575c9766b0)
+
 
 8. Go to [https://www.openstreetmap.org](https://www.openstreetmap.org).
 
 9. Search and zoom into the **area** you want to replicate.
 
 10. Click the **Export** button on the top menu, the one in the upper part of the window which is between other buttons. NOT THE BLUE ONE.
+   
+![image](https://github.com/user-attachments/assets/e6bbc00b-b30c-48f8-80ab-34a6419b3555)
+
 
 11. On the left side of the window screen, find the text:
     **“Overpass API”**  
     Right-click the link and select **“Copy link address”**.
 
-    📸 *[Insert Screenshot: OpenStreetMap export page showing Overpass API link]*
+    ![image](https://github.com/user-attachments/assets/a51d849a-55e3-49ca-95c8-d96c75692e9d)
+
 
 12. Go back to the Digital Twins tool in Unreal:
 
