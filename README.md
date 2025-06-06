@@ -143,7 +143,8 @@ Make sure the **Digital Twins plugin** is correctly installed and built in your 
 
     - You can check the progress in the **Output Log**.
 
-    📸 *[Insert Screenshot: Output Log showing map generation progress]*
+![image](https://github.com/user-attachments/assets/2fbca4f2-5e59-44fa-b9f1-62d3b6601917)
+
 
 15. Once the generation is complete, click **Play** to explore your generated digital twin of the map inside the Unreal environment.
 
