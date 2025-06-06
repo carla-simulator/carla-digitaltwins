@@ -86,11 +86,7 @@ Make sure the **Digital Twins plugin** is correctly installed and built in your 
 
    📸 *[Insert Screenshot: Plugin Content section showing "DigitalTwins"]*
 
-4. Navigate to the following folder:
-
-   ```
-   DigitalTwins → Widgets
-   ```
+4. Navigate to the plugin content folder:
 
 5. Inside that folder, locate the file named:  
    **`UW_DigitalTwins`**
@@ -119,9 +115,9 @@ Make sure the **Digital Twins plugin** is correctly installed and built in your 
 
 9. Search and zoom into the **area** you want to replicate.
 
-10. Click the **Export** button on the top menu.
+10. Click the **Export** button on the top menu, the one in the upper part of the window which is between other buttons. NOT THE BLUE ONE.
 
-11. On the next screen, find the text:
+11. On the left side of the window screen, find the text:
     **“Overpass API”**  
     Right-click the link and select **“Copy link address”**.
 
