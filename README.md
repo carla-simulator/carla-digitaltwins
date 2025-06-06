@@ -149,3 +149,22 @@ Make sure the **Digital Twins plugin** is correctly installed and built in your 
 15. Once the generation is complete, click **Play** to explore your generated digital twin of the map inside the Unreal environment.
 
 ---
+
+
+## 📦 Importing the Generated Map into Another Unreal Project
+
+Once the map generation process is complete:
+
+1. **Close the Unreal Editor**.
+
+2. Open your **file explorer** and navigate to the **`Plugins`** folder of the project where you originally generated the map.
+
+3. Inside the `Plugins` folder, you will see a plugin folder named after the **map name** you entered in the Digital Twins UI.
+
+4. **Copy that folder**.
+
+5. Go to the target Unreal project (the one where you want to use the map) and paste the copied folder into its own `Plugins` directory.
+
+6. Launch the target project. Unreal Engine will detect the plugin automatically and compile it if necessary.
+
+> ✅ Tip: Make sure the target project is also using **Unreal Engine 4.26** to avoid compatibility issues.
