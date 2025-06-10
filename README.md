@@ -55,10 +55,10 @@
 
    > Replace `ProjectName` with the actual name of your Unreal project.
 
-2. Once compiled, you can run the project using the binary:
+Once compiled, you can run the project using the uproject file:
 
    ```bash
-   ./Binaries/Linux/ProjectNameEditor
+   Double click on ProjectName.uproject
    ```
 
 ---
