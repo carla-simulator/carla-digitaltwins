@@ -18,6 +18,9 @@ public:
     void Initialize(ACameraActor* InCameraActor, FVector2D OriginGeoCoordinates, const FString& InGoogleAPIKey);
 
     UFUNCTION(BlueprintCallable, Category = "GoogleStreetView")
+    void SetCamera(ACameraActor* InCameraActor);
+
+    UFUNCTION(BlueprintCallable, Category = "GoogleStreetView")
     void RequestGoogleStreetViewImage();
 
     UFUNCTION(BlueprintCallable, Category = "GoogleStreetView")
@@ -31,6 +34,9 @@ public:
 
     UPROPERTY(EditAnywhere, Category = "GoogleStreetView")
     UStaticMeshComponent* TargetMeshComponent = nullptr;
+
+    UPROPERTY()
+    UMaterialInstanceDynamic* StreetViewPostProcessMaterial;
 
 private:
     void OnStreetViewResponseReceived(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);

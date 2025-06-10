@@ -18,7 +18,6 @@ void UGoogleStreetViewFetcher::Initialize(ACameraActor* InCameraActor, FVector2D
 void UGoogleStreetViewFetcher::SetCamera(ACameraActor* InCameraActor)
 {
     CameraActor = InCameraActor;
-    UE_LOG(LogTemp, Log, TEXT("Updating Google Street View camera."));
 }
 
 void UGoogleStreetViewFetcher::RequestGoogleStreetViewImage()
@@ -90,12 +89,16 @@ void UGoogleStreetViewFetcher::ApplyCameraTexture()
 {
     // Create a dynamic material instance from the post process material
     UMaterialInterface* BasePPMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/CarlaDigitalTwinsTool/digitalTwins/Static/Utils/M_GoogleStreetViewPost.M_GoogleStreetViewPost"));
-    UMaterialInstanceDynamic* DynMat = UMaterialInstanceDynamic::Create(BasePPMat, this);
+
+    if (!StreetViewPostProcessMaterial && BasePPMat)
+    {
+        StreetViewPostProcessMaterial = UMaterialInstanceDynamic::Create(BasePPMat, this);
+    }
 
     // Assign the fetched texture
     if (StreetViewTexture)
     {
-        DynMat->SetTextureParameterValue("StreetViewTex", StreetViewTexture);
+        StreetViewPostProcessMaterial->SetTextureParameterValue("StreetViewTex", StreetViewTexture);
     }
     else{
         UE_LOG(LogTemp, Error, TEXT("No StreetViewTexture."));
@@ -108,7 +111,7 @@ void UGoogleStreetViewFetcher::ApplyCameraTexture()
         // Cam->PostProcessSettings.bOverride_WeightedBlendables = true;    // Needed for UE5
 
         FWeightedBlendable Blendable;
-        Blendable.Object = DynMat;
+        Blendable.Object = StreetViewPostProcessMaterial;
         Blendable.Weight = 1.0f;
         Cam->PostProcessSettings.WeightedBlendables.Array.Add(Blendable);
     }

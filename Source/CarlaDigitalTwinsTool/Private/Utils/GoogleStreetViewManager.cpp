@@ -39,8 +39,6 @@ void AGoogleStreetViewManager::Tick(float DeltaTime)
     if (FVector::Dist(CurrentLocation, LastCameraLocation) > MovementThreshold ||
         FMath::Abs(CurrentRotation.Yaw - LastCameraRotation.Yaw) > RotationThreshold)
     {
-        UE_LOG(LogTemp, Log, TEXT("Updating Google Street View render."));
-
         LastCameraLocation = CurrentLocation;
         LastCameraRotation = CurrentRotation;
 
