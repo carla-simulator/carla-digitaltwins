@@ -609,12 +609,30 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
             ]
         ]
 
-        // Backplate
+        // Backplate checkbox + spawn/despawn
         + SVerticalBox::Slot().AutoHeight().Padding(2)
         [
             SNew(SCheckBox)
-            .IsChecked_Lambda([this,Index](){ return Heads[Index].bHasBackplate ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
-            .OnCheckStateChanged_Lambda([this,Index](ECheckBoxState S){ Heads[Index].bHasBackplate = (S==ECheckBoxState::Checked); PreviewViewport->UpdateMeshTransforms(Heads); })
+            .IsChecked_Lambda([this, Index]() {
+                return Heads[Index].bHasBackplate
+                    ? ECheckBoxState::Checked
+                    : ECheckBoxState::Unchecked;
+            })
+            .OnCheckStateChanged_Lambda([this, Index](ECheckBoxState State) {
+                const bool bNowHas = (State == ECheckBoxState::Checked);
+                Heads[Index].bHasBackplate = bNowHas;
+
+                if (bNowHas)
+                {
+                    // Spawnea el cubo de backplate
+                    PreviewViewport->AddBackplateMesh(Index);
+                }
+                else
+                {
+                    // Destruye el cubo de backplate
+                    PreviewViewport->RemoveBackplateMesh(Index);
+                }
+            })
             [
                 SNew(STextBlock).Text(FText::FromString("Has Backplate"))
             ]

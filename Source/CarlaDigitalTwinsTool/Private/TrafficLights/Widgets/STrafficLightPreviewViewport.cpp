@@ -172,6 +172,57 @@ UStaticMesh* STrafficLightPreviewViewport::LoadMeshForStyle(ETLHeadStyle Style)
                                               nullptr, Paths[idx]));
 }
 
+void STrafficLightPreviewViewport::AddBackplateMesh(int32 HeadIndex)
+{
+    if (!HeadMeshComponents.IsValidIndex(HeadIndex))
+        return;
+
+    if (BackplateMeshComponents.IsValidIndex(HeadIndex) &&
+        BackplateMeshComponents[HeadIndex] != nullptr)
+    {
+        return;
+    }
+
+    const FVector HeadLoc = HeadMeshComponents[HeadIndex]->GetComponentLocation();
+    const FVector BackplateLoc = HeadLoc + FVector(10.f, 0.f, 0.f);
+
+    UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(
+        PreviewScene->GetWorld()->GetCurrentLevel(), NAME_None, RF_Transient
+    );
+    Comp->SetStaticMesh(
+        Cast<UStaticMesh>(StaticLoadObject(
+            UStaticMesh::StaticClass(), nullptr,
+            TEXT("/Engine/BasicShapes/Cube.Cube")
+        ))
+    );
+    Comp->SetWorldScale3D(FVector(0.1f, 1.2f, 1.2f));
+    Comp->SetWorldLocation(BackplateLoc);
+
+    Comp->RegisterComponentWithWorld(PreviewScene->GetWorld());
+    Comp->AttachToComponent(
+        HeadMeshComponents[HeadIndex],
+        FAttachmentTransformRules::KeepWorldTransform
+    );
+
+    if (BackplateMeshComponents.Num() <= HeadIndex)
+    {
+        BackplateMeshComponents.SetNum(HeadMeshComponents.Num());
+    }
+    BackplateMeshComponents[HeadIndex] = Comp;
+}
+
+void STrafficLightPreviewViewport::RemoveBackplateMesh(int32 HeadIndex)
+{
+    if (!BackplateMeshComponents.IsValidIndex(HeadIndex))
+        return;
+
+    if (UStaticMeshComponent* Comp = BackplateMeshComponents[HeadIndex])
+    {
+        Comp->DestroyComponent();
+        BackplateMeshComponents[HeadIndex] = nullptr;
+    }
+}
+
 FLinearColor STrafficLightPreviewViewport::InitialColorFor(ETLHeadStyle Style) const
 {
     switch (Style)

@@ -53,6 +53,9 @@ public:
     /** Load a static mesh asset for the given head style */
     static UStaticMesh* LoadMeshForStyle(ETLHeadStyle Style);
 
+    void AddBackplateMesh   (int32 HeadIndex);
+    void RemoveBackplateMesh(int32 HeadIndex);
+
     /** Modules */
 public:
     UStaticMeshComponent* AddModuleMesh(int32 HeadIndex, const FTLModule& ModuleData);
@@ -75,6 +78,8 @@ private:
 
     /** Mesh components spawned for each head */
     TArray<UStaticMeshComponent*> HeadMeshComponents;
+
+    TArray<UStaticMeshComponent*> BackplateMeshComponents;
 
     /** Mesh components spawned for each head */
     TArray<UStaticMeshComponent*> ModuleMeshComponents;
