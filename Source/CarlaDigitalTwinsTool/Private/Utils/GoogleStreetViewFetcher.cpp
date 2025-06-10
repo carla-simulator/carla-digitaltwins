@@ -15,6 +15,12 @@ void UGoogleStreetViewFetcher::Initialize(ACameraActor* InCameraActor, FVector2D
     GoogleAPIKey = InGoogleAPIKey;
 }
 
+void UGoogleStreetViewFetcher::SetCamera(ACameraActor* InCameraActor)
+{
+    CameraActor = InCameraActor;
+    UE_LOG(LogTemp, Log, TEXT("Updating Google Street View camera."));
+}
+
 void UGoogleStreetViewFetcher::RequestGoogleStreetViewImage()
 {
     if (!CameraActor)
@@ -70,7 +76,7 @@ void UGoogleStreetViewFetcher::OnStreetViewResponseReceived(FHttpRequestPtr Requ
         }
         else
         {
-            UE_LOG(LogTemp, Warning, TEXT("Failed to convert Street View image to texture."));
+            UE_LOG(LogTemp, Warning, TEXT("Failed to convert Google Street View image to texture."));
         }
     }
     else
