@@ -113,7 +113,7 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildModuleEntry(int32 HeadIndex, i
           .Padding(0,0,0,4)
         [
             SNew(STextBlock)
-            .Font(FSlateFontInfo("Verdana", 10))
+            .Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
             .Text(FText::FromString(
                 FString::Printf(TEXT("Module %d"), ModuleIndex)
             ))
@@ -449,13 +449,21 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildModulesSection(int32 HeadIndex
 {
     TSharedRef<SVerticalBox> Container = SNew(SVerticalBox);
 
-    Container->AddSlot().AutoHeight().Padding(2,4)[
-        SNew(STextBlock).Text(FText::FromString("Modules")).Font(FSlateFontInfo("Verdana", 12))
+     Container->AddSlot()
+    .AutoHeight()
+    .Padding(2,4)
+    [
+        SNew(STextBlock)
+        .Text(FText::FromString("Modules"))
+        .Font(FCoreStyle::GetDefaultFontStyle("Regular", 12))
     ];
 
     for (int32 ModuleIndex = 0; ModuleIndex < Heads[HeadIndex].Modules.Num(); ++ModuleIndex)
     {
-        Container->AddSlot().AutoHeight().Padding(4,2)[
+        Container->AddSlot()
+        .AutoHeight()
+        .Padding(4,2)
+        [
             BuildModuleEntry(HeadIndex, ModuleIndex)
         ];
     }
