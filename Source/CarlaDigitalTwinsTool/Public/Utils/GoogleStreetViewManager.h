@@ -15,12 +15,12 @@ public:
     UFUNCTION(BlueprintCallable, Category = "GoogleStreetView")
     void Initialize(UWorld* World, FTransform CameraTransform, FVector2D InOriginGeoCoordinates, const FString& InGoogleAPIKey);
 
-    UPROPERTY(EditAnywhere)
+    UPROPERTY(EditAnywhere, Category = "GoogleStreetView")
     ACameraActor* CameraActor;
 
-    UPROPERTY(EditAnywhere)
+    UPROPERTY(EditAnywhere, Category = "GoogleStreetView")
     FVector2D OriginGeoCoordinates;
 
-    UPROPERTY(EditAnywhere)
+    UPROPERTY(EditAnywhere, Category = "GoogleStreetView")
     FString GoogleAPIKey;
 };

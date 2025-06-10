@@ -5,15 +5,17 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "Engine/StaticMeshActor.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Camera/CameraActor.h"
+#include "Camera/CameraComponent.h"
 
-
-void UGoogleStreetViewFetcher::Initialize(FVector2D InOriginGeoCoordinates, const FString& InGoogleAPIKey)
+void UGoogleStreetViewFetcher::Initialize(ACameraActor* InCameraActor, FVector2D InOriginGeoCoordinates, const FString& InGoogleAPIKey)
 {
+    CameraActor = InCameraActor;
     OriginGeoCoordinates = InOriginGeoCoordinates;
     GoogleAPIKey = InGoogleAPIKey;
 }
 
-void UGoogleStreetViewFetcher::RequestGoogleStreetViewImage(AActor* CameraActor)
+void UGoogleStreetViewFetcher::RequestGoogleStreetViewImage()
 {
     if (!CameraActor)
     {
@@ -58,31 +60,12 @@ void UGoogleStreetViewFetcher::OnStreetViewResponseReceived(FHttpRequestPtr Requ
             UE_LOG(LogTemp, Log, TEXT("Successfully created Google Street View texture."));
             StreetViewTexture = Texture;
 
-            // Apply the texture to the mesh component
-            if (TargetMeshComponent)
+            if (CameraActor)
             {
-                // Load the material
-                UMaterialInterface* BaseMaterial = LoadObject<UMaterialInterface>(
-                    nullptr,
-                    TEXT("/CarlaDigitalTwinsTool/digitalTwins/Static/Utils/M_GoogleStreetViewBase.M_GoogleStreetViewBase")
-                );
-
-                if (BaseMaterial)
-                {
-                    UMaterialInstanceDynamic* DynMat = UMaterialInstanceDynamic::Create(BaseMaterial, this);
-                    if (DynMat)
-                    {
-                        DynMat->SetTextureParameterValue("StreetViewTex", StreetViewTexture);
-                        TargetMeshComponent->SetMaterial(0, DynMat);
-                        UE_LOG(LogTemp, Log, TEXT("Applied dynamic material with Google Street View texture."));
-                    }
-                    else{
-                        UE_LOG(LogTemp, Error, TEXT("Failed to apply dynamic material with Google Street View texture."));
-                    }
-                }
+                ApplyCameraTexture();
             }
             else{
-                UE_LOG(LogTemp, Error, TEXT("Target component for Google Street View texture does not exist."));
+                UE_LOG(LogTemp, Error, TEXT("No Camera Actor available."));
             }
         }
         else
@@ -97,49 +80,33 @@ void UGoogleStreetViewFetcher::OnStreetViewResponseReceived(FHttpRequestPtr Requ
     }
 }
 
-void UGoogleStreetViewFetcher::CreateRenderingMesh(UWorld* World, AActor* CameraActor)
+void UGoogleStreetViewFetcher::ApplyCameraTexture()
 {
-    // Spawn a plane in front of the camera
-    FVector CameraLocation = CameraActor->GetActorLocation();
-    FRotator CameraRotation = CameraActor->GetActorRotation();
+    // Create a dynamic material instance from the post process material
+    UMaterialInterface* BasePPMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/CarlaDigitalTwinsTool/digitalTwins/Static/Utils/M_GoogleStreetViewPost.M_GoogleStreetViewPost"));
+    UMaterialInstanceDynamic* DynMat = UMaterialInstanceDynamic::Create(BasePPMat, this);
 
-    FVector PlaneLocation = CameraLocation + CameraRotation.Vector() * 100; // 100 units in front
-    // FRotator PlaneRotation = CameraRotation;
-    FVector Forward = CameraRotation.Vector(); // or CameraActor->GetActorForwardVector()
-    FRotator PlaneRotation = FRotationMatrix::MakeFromX(-Forward).Rotator();
-    // PlaneRotation.Yaw += 180.0f;
-    // PlaneRotation.Pitch += 90.0f;
-    PlaneRotation.Roll += 90.0f;
-    PlaneRotation.Yaw += 270.0f;
-
-    // Create a plane actor
-    AStaticMeshActor* PlaneActor = World->SpawnActor<AStaticMeshActor>(PlaneLocation, PlaneRotation);
-    PlaneActor->SetActorLabel(TEXT("GoogleStreetViewRender"));
-
-    if (PlaneActor)
+    // Assign the fetched texture
+    if (StreetViewTexture)
     {
-        PlaneActor->SetActorLabel(TEXT("GoogleStreetViewRender"));
+        DynMat->SetTextureParameterValue("StreetViewTex", StreetViewTexture);
+    }
+    else{
+        UE_LOG(LogTemp, Error, TEXT("No StreetViewTexture."));
+    }
 
-        UStaticMeshComponent* MeshComp = NewObject<UStaticMeshComponent>(PlaneActor);
-        MeshComp->RegisterComponent();
-        MeshComp->AttachToComponent(PlaneActor->GetRootComponent(), FAttachmentTransformRules::KeepRelativeTransform);
-        PlaneActor->AddInstanceComponent(MeshComp);
+    // Apply the post-process material to the camera
+    if (CameraActor && CameraActor->FindComponentByClass<UCameraComponent>())
+    {
+        UCameraComponent* Cam = CameraActor->FindComponentByClass<UCameraComponent>();
+        // Cam->PostProcessSettings.bOverride_WeightedBlendables = true;    // Needed for UE5
 
-        UStaticMesh* PlaneMesh = Cast<UStaticMesh>(
-            StaticLoadObject(UStaticMesh::StaticClass(), nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"))
-        );
-
-        if (PlaneMesh && PlaneMesh->IsValidLowLevel())
-        {
-            MeshComp->SetStaticMesh(PlaneMesh);
-            MeshComp->SetWorldScale3D(FVector(3.0f));
-            UE_LOG(LogTemp, Log, TEXT("Assigned static mesh to Google Street View plane."));
-        }
-        else
-        {
-            UE_LOG(LogTemp, Error, TEXT("Failed to load or assign the plane mesh."));
-        }
-
-        TargetMeshComponent = MeshComp;
+        FWeightedBlendable Blendable;
+        Blendable.Object = DynMat;
+        Blendable.Weight = 1.0f;
+        Cam->PostProcessSettings.WeightedBlendables.Array.Add(Blendable);
+    }
+    else{
+        UE_LOG(LogTemp, Error, TEXT("No camera actor or camera component."));
     }
 }

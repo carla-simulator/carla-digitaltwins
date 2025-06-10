@@ -18,7 +18,6 @@ void AGoogleStreetViewManager::BeginPlay()
     UGoogleStreetViewFetcher* Fetcher = NewObject<UGoogleStreetViewFetcher>();
     Fetcher->AddToRoot();
 
-    Fetcher->Initialize(OriginGeoCoordinates, GoogleAPIKey);
-    Fetcher->CreateRenderingMesh(GetWorld(), CameraActor);
-    Fetcher->RequestGoogleStreetViewImage(CameraActor);
+    Fetcher->Initialize(CameraActor, OriginGeoCoordinates, GoogleAPIKey);
+    Fetcher->RequestGoogleStreetViewImage();
 }

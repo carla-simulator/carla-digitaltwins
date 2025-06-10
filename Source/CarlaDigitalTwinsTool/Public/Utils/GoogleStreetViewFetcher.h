@@ -15,18 +15,21 @@ class CARLADIGITALTWINSTOOL_API UGoogleStreetViewFetcher : public UObject
 
 public:
     UFUNCTION(BlueprintCallable, Category = "GoogleStreetView")
-    void Initialize(FVector2D OriginGeoCoordinates, const FString& InGoogleAPIKey);
+    void Initialize(ACameraActor* InCameraActor, FVector2D OriginGeoCoordinates, const FString& InGoogleAPIKey);
 
     UFUNCTION(BlueprintCallable, Category = "GoogleStreetView")
-    void RequestGoogleStreetViewImage(AActor* CameraActor);
+    void RequestGoogleStreetViewImage();
 
     UFUNCTION(BlueprintCallable, Category = "GoogleStreetView")
-    void CreateRenderingMesh(UWorld* World, AActor* CameraActor);
+    void ApplyCameraTexture();
 
-    UPROPERTY(BlueprintReadOnly, Category = "GoogleStreetView")
+    UPROPERTY(EditAnywhere, Category = "GoogleStreetView")
+    ACameraActor* CameraActor;
+
+    UPROPERTY(EditAnywhere, Category = "GoogleStreetView")
     UTexture2D* StreetViewTexture;
 
-    UPROPERTY()
+    UPROPERTY(EditAnywhere, Category = "GoogleStreetView")
     UStaticMeshComponent* TargetMeshComponent = nullptr;
 
 private:
