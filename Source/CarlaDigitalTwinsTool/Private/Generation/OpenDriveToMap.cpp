@@ -336,6 +336,7 @@ void UOpenDriveToMap::GenerateTile(){
     UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("MapName %s"), *MapName);
     UEditorLevelLibrary::LoadLevel(*BaseLevelName);
 
+#if ENGINE_MAJOR_VERSION < 5
     AActor* QueryActor = UGameplayStatics::GetActorOfClass(
                             GEditor->GetEditorWorldContext().World(),
                             ALargeMapManager::StaticClass() );
@@ -345,10 +346,9 @@ void UOpenDriveToMap::GenerateTile(){
       NumTilesInXY  = LmManager->GetNumTilesInXY();
       TileSize = LmManager->GetTileSize();
       Tile0Offset = LmManager->GetTile0Offset();
-      LmManager->GetCarlaMapTile(CurrentTilesInXY);
-
-      FCarlaMapTile& CarlaTile = LmManager->GetCarlaMapTile(CurrentTilesInXY);
       UEditorLevelLibrary::SaveCurrentLevel();
+      LmManager->GetCarlaMapTile(CurrentTilesInXY);
+      FCarlaMapTile& CarlaTile = LmManager->GetCarlaMapTile(CurrentTilesInXY);
 
       UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Current Tile is %s"), *( CurrentTilesInXY.ToString() ) );
       UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("NumTilesInXY is %s"), *( NumTilesInXY.ToString() ) );
@@ -357,7 +357,7 @@ void UOpenDriveToMap::GenerateTile(){
       UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Tile Name is %s"), *(CarlaTile.Name) );
 
       UEditorLevelLibrary::LoadLevel(CarlaTile.Name);
-
+#endif
       MinPosition = FVector(CurrentTilesInXY.X * TileSize, CurrentTilesInXY.Y * -TileSize, 0.0f);
       MaxPosition = FVector((CurrentTilesInXY.X + 1.0f ) * TileSize, (CurrentTilesInXY.Y + 1.0f) * -TileSize, 0.0f);
 
@@ -367,10 +367,11 @@ void UOpenDriveToMap::GenerateTile(){
       bRoadsFinished = true;
       bMapLoaded = true;
       bTileFinished = false;
+#if ENGINE_MAJOR_VERSION < 5
     }else{
       UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Largemapmanager not found ") );
     }
-
+#endif
     UEditorLoadingAndSavingUtils::SaveDirtyPackages(true, true);
     UEditorLevelLibrary::SaveCurrentLevel();
 #if PLATFORM_LINUX
