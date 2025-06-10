@@ -34,10 +34,15 @@ void UGoogleStreetViewFetcher::RequestGoogleStreetViewImage()
     FVector CameraLocation = CameraActor->GetActorLocation();
     FRotator CameraRotation = CameraActor->GetActorRotation();
 
+    // Convert from cm to m
+    float X_m = CameraLocation.X / 100.0f;
+    float Y_m = CameraLocation.Y / 100.0f;
+
+    // Convert from m to lat and lon
     double metersPerDegree = 111320.0;
-    double lat = OriginLat + (CameraLocation.Y / metersPerDegree);
-    double lon = OriginLon + (CameraLocation.X / (metersPerDegree * FMath::Cos(FMath::DegreesToRadians(OriginLat))));
-    int heading = static_cast<int>(CameraRotation.Yaw) % 360;
+    double lat = OriginLat + (Y_m / metersPerDegree);
+    double lon = OriginLon + (X_m / (metersPerDegree * FMath::Cos(FMath::DegreesToRadians(OriginLat))));
+    int heading = static_cast<int>(FMath::Fmod(CameraRotation.Yaw + 360.0f, 360.0f));
 
     FString URL = FString::Printf(
         TEXT("https://maps.googleapis.com/maps/api/streetview?size=640x480&location=%.6f,%.6f&heading=%d&pitch=0&key=%s"),
