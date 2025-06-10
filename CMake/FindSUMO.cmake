@@ -130,3 +130,5 @@ else ()
   message (STATUS "Found ${DEPENDENCY_NAME}. Skipping build...")
 
 endif ()
+
+add_compile_definitions (PROJ_DLL=)
