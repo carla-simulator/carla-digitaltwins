@@ -19,7 +19,10 @@ public:
     void Initialize(UWorld* World, FTransform CameraTransform, FVector2D InOriginGeoCoordinates, const FString& InGoogleAPIKey);
 
     UPROPERTY(EditAnywhere, Category = "GoogleStreetView")
-    ACameraActor* CameraActor;
+    ACameraActor* GoogleCamera;
+
+    UPROPERTY(EditAnywhere, Category = "GoogleStreetView")
+    ACameraActor* EditorCamera;
 
     UPROPERTY(EditAnywhere, Category = "GoogleStreetView")
     FVector2D OriginGeoCoordinates;

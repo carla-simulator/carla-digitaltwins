@@ -38,7 +38,7 @@ void UGoogleStreetViewFetcher::RequestGoogleStreetViewImage()
     FVector2D latlon = UMapGenFunctionLibrary::InverseTransverseMercatorProjection( CameraLocation.X, CameraLocation.Y, OriginLat, OriginLon );
     double lat = latlon.X;
     double lon = latlon.Y;
-    int heading = static_cast<int>(FMath::Fmod(CameraRotation.Yaw + 360.0f, 360.0f));
+    int heading = static_cast<int>(FMath::Fmod(CameraRotation.Yaw + 90.0f + 360.0f, 360.0f));
 
     FString URL = FString::Printf(
         TEXT("https://maps.googleapis.com/maps/api/streetview?size=640x480&location=%.6f,%.6f&heading=%d&pitch=0&key=%s"),
