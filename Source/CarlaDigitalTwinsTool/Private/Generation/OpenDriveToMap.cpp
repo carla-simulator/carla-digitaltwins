@@ -1,8 +1,13 @@
 // Copyright (c) 2023 Computer Vision Center (CVC) at the Universitat Autonoma de Barcelona (UAB). This work is licensed under the terms of the MIT license. For a copy, see <https://opensource.org/licenses/MIT>.
 
 #include "Generation/OpenDriveToMap.h"
+#if ENGINE_MAJOR_VERSION < 5
 #include "DesktopPlatform/Public/IDesktopPlatform.h"
 #include "DesktopPlatform/Public/DesktopPlatformModule.h"
+#else
+#include "IDesktopPlatform.h"
+#include "DesktopPlatformModule.h"
+#endif
 #include "Misc/FileHelper.h"
 #include "Engine/LevelBounds.h"
 #include "Engine/SceneCapture2D.h"
@@ -12,21 +17,29 @@
 #include "StaticMeshAttributes.h"
 #include "FileHelpers.h"
 #include "Online/CustomFileDownloader.h"
+#if ENGINE_MAJOR_VERSION < 5
 #include "Engine/Classes/Interfaces/Interface_CollisionDataProvider.h"
+#endif
 #include "Engine/TriggerBox.h"
 #include "Engine/AssetManager.h"
 #include "Factories/MaterialInstanceConstantFactoryNew.h"
+#if ENGINE_MAJOR_VERSION < 5
 #include "PhysicsCore/Public/BodySetupEnums.h"
+#endif
 #include "PhysicsEngine/BodySetup.h"
 #include "RawMesh.h"
+#if ENGINE_MAJOR_VERSION < 5
 #include "AssetRegistryModule.h"
+#endif
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "MeshDescription.h"
 #include "EditorLevelLibrary.h"
 #include "ProceduralMeshConversion.h"
 #include "EditorLevelLibrary.h"
-
+#if ENGINE_MAJOR_VERSION > 4
+#include "Editor/Transactor.h"
+#endif
 #include "ContentBrowserModule.h"
 #include "Materials/MaterialInstanceConstant.h"
 #include "Math/Vector.h"
@@ -292,7 +305,7 @@ void UOpenDriveToMap::GenerateTileStandalone(){
 #if PLATFORM_WINDOWS
   GenerateTile();
 #else
-  ExecuteTileCommandlet();
+  GenerateTile();
 #endif
   UEditorLoadingAndSavingUtils::SaveDirtyPackages(true, true);
   UEditorLevelLibrary::SaveCurrentLevel();
@@ -300,39 +313,30 @@ void UOpenDriveToMap::GenerateTileStandalone(){
 
 void UOpenDriveToMap::GenerateTile(){
 
-  IPlatformFile &FileManager = FPlatformFileManager::Get().GetPlatformFile();
-
-  if (!IsValid(this))
-  {
-    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("UOpenDriveToMap::GenerateTile() called on invalid UOpenDriveToMap object %p."), this);
-    return;
-  }
-
-  if (FilePath.Len() == 0 || !FileManager.FileExists(*FilePath))
-  {
-    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("UOpenDriveToMap::GenerateTile(): Attempted to load invalid file path \"%s\"."), *FilePath);
+  if( FilePath.IsEmpty() ){
+    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("UOpenDriveToMap::GenerateTile(): Failed to load %s"), *FilePath );
     return;
   }
 
   FString FileContent;
-  auto FullPath = FPaths::ConvertRelativePathToFull(FilePath);
-  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateTile(): File to load %s"), *FullPath);
-  FFileHelper::LoadFileToString(FileContent, *FullPath);
+  // UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("UOpenDriveToMap::GenerateTile(): File to load %s"), *FPaths::ConvertRelativePathToFull(FilePath) );
+  FFileHelper::LoadFileToString(FileContent, *FilePath);
   std::string opendrive_xml = carla::rpc::FromLongFString(FileContent);
   CarlaMap = carla::opendrive::OpenDriveParser::Load(opendrive_xml);
 
   if (!CarlaMap.has_value())
   {
-    UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Failed to load \"%s\""), *FullPath);
+    UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Invalid Map"));
   }
   else
   {
-    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Successfully loaded \"%s\""), *FullPath);
-    MapName = FPaths::GetCleanFilename(FullPath);
+    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Valid Map loaded"));
+    MapName = FPaths::GetCleanFilename(FilePath);
     MapName.RemoveFromEnd(".xodr", ESearchCase::Type::IgnoreCase);
-    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("MapName %s"), *MapName);
-    UEditorLevelLibrary::LoadLevel(*BaseLevelName);
+    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("MapName %s"), *MapName);
 
+#if ENGINE_MAJOR_VERSION < 5
+    UEditorLevelLibrary::LoadLevel(*BaseLevelName);
     AActor* QueryActor = UGameplayStatics::GetActorOfClass(
                             GEditor->GetEditorWorldContext().World(),
                             ALargeMapManager::StaticClass() );
@@ -342,19 +346,18 @@ void UOpenDriveToMap::GenerateTile(){
       NumTilesInXY  = LmManager->GetNumTilesInXY();
       TileSize = LmManager->GetTileSize();
       Tile0Offset = LmManager->GetTile0Offset();
-      LmManager->GetCarlaMapTile(CurrentTilesInXY);
-
-      FCarlaMapTile& CarlaTile = LmManager->GetCarlaMapTile(CurrentTilesInXY);
       UEditorLevelLibrary::SaveCurrentLevel();
+      LmManager->GetCarlaMapTile(CurrentTilesInXY);
+      FCarlaMapTile& CarlaTile = LmManager->GetCarlaMapTile(CurrentTilesInXY);
 
-      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Current Tile is %s"), *( CurrentTilesInXY.ToString() ) );
-      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("NumTilesInXY is %s"), *( NumTilesInXY.ToString() ) );
-      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("TileSize is %f"), ( TileSize ) );
-      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Tile0Offset is %s"), *( Tile0Offset.ToString() ) );
-      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Tile Name is %s"), *(CarlaTile.Name) );
+      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Current Tile is %s"), *( CurrentTilesInXY.ToString() ) );
+      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("NumTilesInXY is %s"), *( NumTilesInXY.ToString() ) );
+      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("TileSize is %f"), ( TileSize ) );
+      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Tile0Offset is %s"), *( Tile0Offset.ToString() ) );
+      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Tile Name is %s"), *(CarlaTile.Name) );
 
       UEditorLevelLibrary::LoadLevel(CarlaTile.Name);
-
+#endif
       MinPosition = FVector(CurrentTilesInXY.X * TileSize, CurrentTilesInXY.Y * -TileSize, 0.0f);
       MaxPosition = FVector((CurrentTilesInXY.X + 1.0f ) * TileSize, (CurrentTilesInXY.Y + 1.0f) * -TileSize, 0.0f);
 
@@ -364,10 +367,11 @@ void UOpenDriveToMap::GenerateTile(){
       bRoadsFinished = true;
       bMapLoaded = true;
       bTileFinished = false;
+#if ENGINE_MAJOR_VERSION < 5
     }else{
-      UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("LargeMapManager not found.") );
+      UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Largemapmanager not found ") );
     }
-
+#endif
     UEditorLoadingAndSavingUtils::SaveDirtyPackages(true, true);
     UEditorLevelLibrary::SaveCurrentLevel();
 #if PLATFORM_LINUX
@@ -453,10 +457,10 @@ void UOpenDriveToMap::LoadMap()
   }
   else
   {
-    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Valid Map loaded"));
+    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Valid Map loaded"));
     MapName = FPaths::GetCleanFilename(FilePath);
     MapName.RemoveFromEnd(".xodr", ESearchCase::Type::IgnoreCase);
-    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("MapName %s"), *MapName);
+    UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("MapName %s"), *MapName);
 
     AActor* QueryActor = UGameplayStatics::GetActorOfClass(
                                 UEditorLevelLibrary::GetEditorWorld(),
@@ -778,7 +782,12 @@ void UOpenDriveToMap::GenerateTreePositions( const boost::optional<carla::road::
 
 float UOpenDriveToMap::GetHeight(float PosX, float PosY, bool bDrivingLane){
   if( DefaultHeightmap ){
-    const FColor* FormatedImageData = static_cast<const FColor*>( DefaultHeightmap->PlatformData->Mips[0].BulkData.LockReadOnly());
+#if ENGINE_MAJOR_VERSION < 5
+      auto RawImageData = DefaultHeightmap->PlatformData->Mips[0].BulkData.LockReadOnly();
+#else
+      auto RawImageData = DefaultHeightmap->GetPlatformData()->Mips[0].BulkData.LockReadOnly();
+#endif
+    const FColor* FormatedImageData = static_cast<const FColor*>(RawImageData);
 
     int32 TextureSizeX = DefaultHeightmap->GetSizeX();
     int32 TextureSizeY = DefaultHeightmap->GetSizeY();
@@ -810,7 +819,11 @@ float UOpenDriveToMap::GetHeight(float PosX, float PosY, bool bDrivingLane){
     //UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("PixelColor %s "), *WorldEndPosition.ToString() );
     //UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Reading Pixel X: %d Y %d Total Size X %d Y %d"), PixelX, PixelY, TextureSizeX, TextureSizeY );
 
+#if ENGINE_MAJOR_VERSION < 5
     DefaultHeightmap->PlatformData->Mips[0].BulkData.Unlock();
+#else
+    DefaultHeightmap->GetPlatformData()->Mips[0].BulkData.Unlock();
+#endif
 
     float LandscapeHeight = ( (PixelColor.R/255.0f ) * ( MaxHeight - MinHeight ) ) + MinHeight;
 
@@ -1032,7 +1045,11 @@ void UOpenDriveToMap::MoveActorsToSubLevelWithLargeMap(TArray<AActor*> Actors, A
     FText TransResetText(FText::FromString("Clean up after Move actors to sublevels"));
     if (GEditor->Trans)
     {
+#if ENGINE_MAJOR_VERSION < 5
         GEditor->Trans->Reset(TransResetText);
+#else
+        GEditor->Trans->Reset(TransResetText);
+#endif
         GEditor->Cleanse(true, true, TransResetText);
     }
 }
