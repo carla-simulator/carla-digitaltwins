@@ -36,11 +36,11 @@
 
    - **On Linux:**
      ```bash
-     ./setup.sh
+     ./Setup.sh
      ```
    - **On Windows (double-click or terminal):**
      ```cmd
-     setup.bat
+     Setup.bat
      ```
 
 ---
