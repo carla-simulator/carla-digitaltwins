@@ -45,6 +45,7 @@ private:
     /** Delete existing head by index */
     FReply OnDeleteModuleClicked(int32 HeadIndex, int32 ModuleIndex);
     void UpdateModuleMeshesInViewport(int32 HeadIndex);
+    void ChangeModulesOrientation(int32 HeadIndex, ETLHeadOrientation NewOrientation);
 
 
 private:

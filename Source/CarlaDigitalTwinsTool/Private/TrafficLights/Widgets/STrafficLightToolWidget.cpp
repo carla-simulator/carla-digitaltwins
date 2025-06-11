@@ -1,4 +1,5 @@
 #include "TrafficLights/Widgets/STrafficLightToolWidget.h"
+#include "Containers/UnrealString.h"
 #include "Misc/AssertionMacros.h"
 #include "Widgets/Layout/SSplitter.h"
 #include "Widgets/Layout/SBorder.h"
@@ -597,6 +598,9 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
             {
                 int32 Choice = HeadOrientationOptions.IndexOfByPredicate([&](auto& S){ return S == New; });
                 Heads[Index].Orientation = static_cast<ETLHeadOrientation>(Choice);
+                ChangeModulesOrientation(Index, Heads[Index].Orientation);
+                UpdateModuleMeshesInViewport(Index);
+                RefreshHeadList();
             })
             [
                 SNew(STextBlock)
@@ -1077,6 +1081,8 @@ FReply STrafficLightToolWidget::OnDeleteModuleClicked(int32 HeadIndex, int32 Mod
 
     Heads[HeadIndex].Modules.RemoveAt(ModuleIndex);
     PreviewViewport->RemoveModuleMeshForHead(HeadIndex, ModuleIndex);
+    ChangeModulesOrientation(HeadIndex, Heads[HeadIndex].Orientation);
+    UpdateModuleMeshesInViewport(HeadIndex);
     RefreshHeadList();
     return FReply::Handled();
 }
@@ -1111,15 +1117,44 @@ FString STrafficLightToolWidget::GetLightTypeText(ETLLightType Type)
 
 void STrafficLightToolWidget::UpdateModuleMeshesInViewport(int32 HeadIndex)
 {
-    if (!PreviewViewport.IsValid() || !Heads.IsValidIndex(HeadIndex))
-    {
-        return;
-    }
+    check(PreviewViewport.IsValid());
+    check(Heads.IsValidIndex(HeadIndex));
 
     PreviewViewport->RemoveModuleMeshesForHead(HeadIndex);
     const FTLHead& HeadData = Heads[HeadIndex];
     for (const FTLModule& Mod : HeadData.Modules)
     {
         PreviewViewport->AddModuleMesh(HeadData, Mod);
+    }
+}
+
+void STrafficLightToolWidget::ChangeModulesOrientation(int32 HeadIndex, ETLHeadOrientation NewOrientation)
+{
+    check(PreviewViewport.IsValid());
+    check(Heads.IsValidIndex(HeadIndex));
+
+    // Update the orientation of all modules in the specified head
+    FTLHead& HeadData = Heads[HeadIndex];
+    for (FTLModule& Module : HeadData.Modules)
+    {
+        // Reset the offset to identity before applying the new orientation
+        Module.Offset = FTransform::Identity;
+    }
+    for (int32 ModuleIndex = 0; ModuleIndex < HeadData.Modules.Num(); ++ModuleIndex)
+    {
+        FTLModule& Module = HeadData.Modules[ModuleIndex];
+        // Adjust the offset based on the new orientation
+        switch (NewOrientation)
+        {
+            case ETLHeadOrientation::Vertical:
+                Module.Offset.SetLocation(FVector(Module.Offset.GetLocation().X, Module.Offset.GetLocation().Y, ModuleIndex * 110.0f));
+                break;
+            case ETLHeadOrientation::Horizontal:
+                Module.Offset.SetLocation(FVector(Module.Offset.GetLocation().X, ModuleIndex * 110.0f, Module.Offset.GetLocation().Z));
+                break;
+            default:
+                Module.Offset = FTransform::Identity; // Reset to identity if no valid orientation
+                break;
+        }
     }
 }
