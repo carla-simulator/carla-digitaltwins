@@ -3,9 +3,15 @@
 ## ✅ Prerequisites
 
 - **Unreal Engine 4.26 installed**
-- Git installed
-- Operating System: **Linux** or **Windows**
-
+- **Git installed**
+- **Operating System**: Linux or Windows
+- **Enable Python Editor Script Plugin**  
+  To enable:
+  1. Open **Unreal Engine 4.26**.
+  2. Go to **Edit** > **Plugins**.
+  3. In the **Scripting** section, find **"Python Editor Script Plugin"**.
+  4. Check the box to **enable** it.
+  5. Restart the editor when prompted.
 ---
 
 ## 🧱 Common Setup Steps (Linux & Windows)
@@ -49,10 +55,10 @@
 
    > Replace `ProjectName` with the actual name of your Unreal project.
 
-2. Once compiled, you can run the project using the binary:
+Once compiled, you can run the project using the uproject file:
 
    ```bash
-   ./Binaries/Linux/ProjectNameEditor
+   Double click on ProjectName.uproject
    ```
 
 ---
