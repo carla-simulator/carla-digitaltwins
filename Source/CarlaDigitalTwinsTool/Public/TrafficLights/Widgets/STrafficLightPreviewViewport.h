@@ -33,33 +33,19 @@ public:
 
     /** Head */
 public:
-    /**
-     * Spawn a head mesh (cube) at the given world location; returns the mesh component for later transform updates
-     * @param Location - relative location in preview scene
-     * @param Style - head style to apply
-     * @return UStaticMeshComponent* or nullptr on failure
-     */
-    UStaticMeshComponent* AddHeadMesh(const FVector& Location, ETLHeadStyle Style);
-
-    /** Remove the mesh component at the given index */
-    void RemoveHeadMesh(int32 Index);
-
-    /** Update all mesh transforms from Head data array */
-    void UpdateMeshTransforms(const TArray<FTLHead>& Heads);
 
     /** Set the head style  */
     void SetHeadStyle(int32 Index, ETLHeadStyle Style);
-
-    /** Load a static mesh asset for the given head style */
-    static UStaticMesh* LoadMeshForStyle(ETLHeadStyle Style);
 
     void AddBackplateMesh   (int32 HeadIndex);
     void RemoveBackplateMesh(int32 HeadIndex);
 
     /** Modules */
 public:
-    UStaticMeshComponent* AddModuleMesh(int32 HeadIndex, const FTLModule& ModuleData);
+    UStaticMeshComponent* AddModuleMesh(const FTLHead& Head, const FTLModule& ModuleData);
     void RemoveModuleMeshesForHead(int32 HeadIndex);
+    void RemoveModuleMeshForHead(int32 HeadIndex, int32 ModuleIndex);
+
 
 private:
     FLinearColor InitialColorFor(ETLHeadStyle Style) const;

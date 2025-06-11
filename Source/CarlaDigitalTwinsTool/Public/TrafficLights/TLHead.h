@@ -20,12 +20,9 @@ struct FTLHead
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Head")
-    UStaticMesh* HeadMesh;
-
     /** Local transform relative to parent pole */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Head")
-    FTransform RelativeTransform { FTransform::Identity };
+    FTransform Transform { FTransform::Identity };
 
     /** Offset transform */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Head")

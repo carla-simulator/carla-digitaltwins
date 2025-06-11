@@ -1,4 +1,5 @@
 #include "TrafficLights/Widgets/STrafficLightToolWidget.h"
+#include "Misc/AssertionMacros.h"
 #include "Widgets/Layout/SSplitter.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Input/SButton.h"
@@ -218,7 +219,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildModuleEntry(int32 HeadIndex, i
                     M.Offset.SetLocation(L);
                     if (PreviewViewport.IsValid())
                 {
-                    PreviewViewport->UpdateMeshTransforms(Heads);
                     UpdateModuleMeshesInViewport(HeadIndex);
                 }
                 })
@@ -239,7 +239,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildModuleEntry(int32 HeadIndex, i
                     M.Offset.SetLocation(L);
                     if (PreviewViewport.IsValid())
                     {
-                        PreviewViewport->UpdateMeshTransforms(Heads);
                         UpdateModuleMeshesInViewport(HeadIndex);
                     }
                 })
@@ -268,7 +267,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildModuleEntry(int32 HeadIndex, i
                     M.Offset.SetLocation(L);
                     if (PreviewViewport.IsValid())
                     {
-                        PreviewViewport->UpdateMeshTransforms(Heads);
                         UpdateModuleMeshesInViewport(HeadIndex);
                     }
                 })
@@ -287,7 +285,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildModuleEntry(int32 HeadIndex, i
                     M.Offset.SetLocation(L);
                     if (PreviewViewport.IsValid())
                 {
-                    PreviewViewport->UpdateMeshTransforms(Heads);
                     UpdateModuleMeshesInViewport(HeadIndex);
                 }
                 })
@@ -316,7 +313,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildModuleEntry(int32 HeadIndex, i
                     M.Offset.SetLocation(L);
                     if (PreviewViewport.IsValid())
                     {
-                        PreviewViewport->UpdateMeshTransforms(Heads);
                         UpdateModuleMeshesInViewport(HeadIndex);
                     }
                 })
@@ -335,7 +331,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildModuleEntry(int32 HeadIndex, i
                     M.Offset.SetLocation(L);
                     if (PreviewViewport.IsValid())
                     {
-                        PreviewViewport->UpdateMeshTransforms(Heads);
                         UpdateModuleMeshesInViewport(HeadIndex);
                     }
                 })
@@ -369,7 +364,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildModuleEntry(int32 HeadIndex, i
                     M.Offset.SetRotation(FQuat(R));
                     if (PreviewViewport.IsValid())
                     {
-                        PreviewViewport->UpdateMeshTransforms(Heads);
                         UpdateModuleMeshesInViewport(HeadIndex);
                     }
                 })
@@ -390,7 +384,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildModuleEntry(int32 HeadIndex, i
                     M.Offset.SetRotation(FQuat(R));
                     if (PreviewViewport.IsValid())
                     {
-                        PreviewViewport->UpdateMeshTransforms(Heads);
                         UpdateModuleMeshesInViewport(HeadIndex);
                     }
                 })
@@ -411,7 +404,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildModuleEntry(int32 HeadIndex, i
                     M.Offset.SetRotation(FQuat(R));
                     if (PreviewViewport.IsValid())
                     {
-                        PreviewViewport->UpdateMeshTransforms(Heads);
                         UpdateModuleMeshesInViewport(HeadIndex);
                     }
                 })
@@ -437,10 +429,17 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildModuleEntry(int32 HeadIndex, i
                 M.Offset.SetScale3D(FVector(V));
                 if (PreviewViewport.IsValid())
                 {
-                    PreviewViewport->UpdateMeshTransforms(Heads);
                     UpdateModuleMeshesInViewport(HeadIndex);
                 }
             })
+        ]
+
+        // Delete Module button
+        + SVerticalBox::Slot().AutoHeight().Padding(0,2)
+        [
+            SNew(SButton)
+            .Text(FText::FromString("Delete Module"))
+            .OnClicked(this, &STrafficLightToolWidget::OnDeleteModuleClicked, HeadIndex, ModuleIndex)
         ]
     ];
 }
@@ -476,25 +475,24 @@ FReply STrafficLightToolWidget::OnAddHeadClicked()
     // Create new head data
     FTLHead NewHead;
     NewHead.HeadID = FGuid::NewGuid();
-    NewHead.RelativeTransform = FTransform::Identity;
+    NewHead.Transform = FTransform::Identity;
     NewHead.Offset = FTransform::Identity;
 
     const int32 Index {Heads.Add(NewHead)};
-    // Spawn mesh
-    PreviewViewport->AddHeadMesh(NewHead.RelativeTransform.GetLocation(), Heads[Index].HeadStyle);
-    // Refresh UI
+    OnAddModuleClicked(Index);
     RefreshHeadList();
     return FReply::Handled();
 }
 
 FReply STrafficLightToolWidget::OnDeleteHeadClicked(int32 Index)
 {
-    if (Heads.IsValidIndex(Index))
+    check(Heads.IsValidIndex(Index));
+    for (int32 ModuleIndex = 0; ModuleIndex < Heads[Index].Modules.Num(); ++ModuleIndex)
     {
-        Heads.RemoveAt(Index);
-        PreviewViewport->RemoveHeadMesh(Index);
-        RefreshHeadList();
+        Heads[Index].Modules.RemoveAt(ModuleIndex);
+        PreviewViewport->RemoveModuleMeshesForHead(ModuleIndex);
     }
+    Heads.RemoveAt(Index);
     RefreshHeadList();
     return FReply::Handled();
 }
@@ -553,7 +551,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
                 int32 Choice = HeadStyleOptions.IndexOfByPredicate([&](auto& S){ return S == New; });
                 Heads[Index].HeadStyle = static_cast<ETLHeadStyle>(Choice);
                 PreviewViewport->SetHeadStyle(Index, Heads[Index].HeadStyle);
-                PreviewViewport->UpdateMeshTransforms(Heads);
             })
             [
                 SNew(STextBlock)
@@ -577,7 +574,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
             {
                 int32 Choice = HeadAttachmentOptions.IndexOfByPredicate([&](auto& S){ return S == New; });
                 Heads[Index].Attachment = static_cast<ETLHeadAttachment>(Choice);
-                PreviewViewport->UpdateMeshTransforms(Heads);
             })
             [
                 SNew(STextBlock)
@@ -601,7 +597,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
             {
                 int32 Choice = HeadOrientationOptions.IndexOfByPredicate([&](auto& S){ return S == New; });
                 Heads[Index].Orientation = static_cast<ETLHeadOrientation>(Choice);
-                PreviewViewport->UpdateMeshTransforms(Heads);
             })
             [
                 SNew(STextBlock)
@@ -651,13 +646,12 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
             [
                 SNew(SNumericEntryBox<float>)
                 .Value_Lambda([this,Index]() {
-                    return Heads[Index].RelativeTransform.GetLocation().X;
+                    return Heads[Index].Transform.GetLocation().X;
                 })
                 .OnValueChanged_Lambda([this,Index](float V){
-                    FVector Loc{ Heads[Index].RelativeTransform.GetLocation() };
+                    FVector Loc{ Heads[Index].Transform.GetLocation() };
                     Loc.X = V;
-                    Heads[Index].RelativeTransform.SetLocation(Loc);
-                    PreviewViewport->UpdateMeshTransforms(Heads);
+                    Heads[Index].Transform.SetLocation(Loc);
                 })
             ]
 
@@ -665,13 +659,12 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
             [
                 SNew(SNumericEntryBox<float>)
                 .Value_Lambda([this,Index]() {
-                    return Heads[Index].RelativeTransform.GetLocation().Y;
+                    return Heads[Index].Transform.GetLocation().Y;
                 })
                 .OnValueChanged_Lambda([this,Index](float V){
-                    FVector Loc{ Heads[Index].RelativeTransform.GetLocation() };
+                    FVector Loc{ Heads[Index].Transform.GetLocation() };
                     Loc.Y = V;
-                    Heads[Index].RelativeTransform.SetLocation(Loc);
-                    PreviewViewport->UpdateMeshTransforms(Heads);
+                    Heads[Index].Transform.SetLocation(Loc);
                 })
             ]
 
@@ -679,13 +672,12 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
             [
                 SNew(SNumericEntryBox<float>)
                 .Value_Lambda([this,Index]() {
-                    return Heads[Index].RelativeTransform.GetLocation().Z;
+                    return Heads[Index].Transform.GetLocation().Z;
                 })
                 .OnValueChanged_Lambda([this,Index](float V){
-                    FVector Loc{ Heads[Index].RelativeTransform.GetLocation() };
+                    FVector Loc{ Heads[Index].Transform.GetLocation() };
                     Loc.Z = V;
-                    Heads[Index].RelativeTransform.SetLocation(Loc);
-                    PreviewViewport->UpdateMeshTransforms(Heads);
+                    Heads[Index].Transform.SetLocation(Loc);
                 })
             ]
         ]
@@ -698,14 +690,13 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
                 SNew(SSlider)
                 .MinValue(PosMin).MaxValue(PosMax)
                 .Value_Lambda([this,Index]() {
-                    return (Heads[Index].RelativeTransform.GetLocation().X - PosMin) / (PosMax - PosMin);
+                    return (Heads[Index].Transform.GetLocation().X - PosMin) / (PosMax - PosMin);
                 })
                 .OnValueChanged_Lambda([this,Index](float N){
                     const float V {FMath::Lerp(PosMin, PosMax, N)};
-                    FVector Loc{ Heads[Index].RelativeTransform.GetLocation() };
+                    FVector Loc{ Heads[Index].Transform.GetLocation() };
                     Loc.X = V;
-                    Heads[Index].RelativeTransform.SetLocation(Loc);
-                    PreviewViewport->UpdateMeshTransforms(Heads);
+                    Heads[Index].Transform.SetLocation(Loc);
                 })
             ]
 
@@ -714,14 +705,13 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
                 SNew(SSlider)
                 .MinValue(PosMin).MaxValue(PosMax)
                 .Value_Lambda([this,Index]() {
-                    return (Heads[Index].RelativeTransform.GetLocation().Y - PosMin) / (PosMax - PosMin);
+                    return (Heads[Index].Transform.GetLocation().Y - PosMin) / (PosMax - PosMin);
                 })
                 .OnValueChanged_Lambda([this,Index](float N){
                     const float V {FMath::Lerp(PosMin, PosMax, N)};
-                    FVector Loc{ Heads[Index].RelativeTransform.GetLocation() };
+                    FVector Loc{ Heads[Index].Transform.GetLocation() };
                     Loc.Y = V;
-                    Heads[Index].RelativeTransform.SetLocation(Loc);
-                    PreviewViewport->UpdateMeshTransforms(Heads);
+                    Heads[Index].Transform.SetLocation(Loc);
                 })
             ]
 
@@ -730,14 +720,13 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
                 SNew(SSlider)
                 .MinValue(PosMin).MaxValue(PosMax)
                 .Value_Lambda([this,Index]() {
-                    return (Heads[Index].RelativeTransform.GetLocation().Z - PosMin) / (PosMax - PosMin);
+                    return (Heads[Index].Transform.GetLocation().Z - PosMin) / (PosMax - PosMin);
                 })
                 .OnValueChanged_Lambda([this,Index](float N){
                     const float V {FMath::Lerp(PosMin, PosMax, N)};
-                    FVector Loc{ Heads[Index].RelativeTransform.GetLocation() };
+                    FVector Loc{ Heads[Index].Transform.GetLocation() };
                     Loc.Z = V;
-                    Heads[Index].RelativeTransform.SetLocation(Loc);
-                    PreviewViewport->UpdateMeshTransforms(Heads);
+                    Heads[Index].Transform.SetLocation(Loc);
                 })
             ]
         ]
@@ -761,7 +750,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
                     FVector Off{ Heads[Index].Offset.GetLocation() };
                     Off.X = V;
                     Heads[Index].Offset.SetLocation(Off);
-                    PreviewViewport->UpdateMeshTransforms(Heads);
                 })
             ]
 
@@ -775,7 +763,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
                     FVector Off{ Heads[Index].Offset.GetLocation() };
                     Off.Y = V;
                     Heads[Index].Offset.SetLocation(Off);
-                    PreviewViewport->UpdateMeshTransforms(Heads);
                 })
             ]
 
@@ -789,7 +776,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
                     FVector Off{ Heads[Index].Offset.GetLocation() };
                     Off.Z = V;
                     Heads[Index].Offset.SetLocation(Off);
-                    PreviewViewport->UpdateMeshTransforms(Heads);
                 })
             ]
         ]
@@ -809,7 +795,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
                     FVector Off{ Heads[Index].Offset.GetLocation() };
                     Off.X = V;
                     Heads[Index].Offset.SetLocation(Off);
-                    PreviewViewport->UpdateMeshTransforms(Heads);
                 })
             ]
 
@@ -825,7 +810,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
                     FVector Off{ Heads[Index].Offset.GetLocation() };
                     Off.Y = V;
                     Heads[Index].Offset.SetLocation(Off);
-                    PreviewViewport->UpdateMeshTransforms(Heads);
                 })
             ]
 
@@ -841,7 +825,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
                     FVector Off{ Heads[Index].Offset.GetLocation() };
                     Off.Z = V;
                     Heads[Index].Offset.SetLocation(Off);
-                    PreviewViewport->UpdateMeshTransforms(Heads);
                 })
             ]
         ]
@@ -865,7 +848,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
                     FRotator R{ Heads[Index].Offset.Rotator() };
                     R.Pitch = V;
                     Heads[Index].Offset.SetRotation(FQuat{ R });
-                    PreviewViewport->UpdateMeshTransforms(Heads);
                 })
             ]
 
@@ -879,7 +861,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
                     FRotator R{ Heads[Index].Offset.Rotator() };
                     R.Yaw = V;
                     Heads[Index].Offset.SetRotation(FQuat{ R });
-                    PreviewViewport->UpdateMeshTransforms(Heads);
                 })
             ]
 
@@ -893,7 +874,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
                     FRotator R{ Heads[Index].Offset.Rotator() };
                     R.Roll = V;
                     Heads[Index].Offset.SetRotation(FQuat{ R });
-                    PreviewViewport->UpdateMeshTransforms(Heads);
                 })
             ]
         ]
@@ -913,7 +893,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
                     FRotator R{ Heads[Index].Offset.Rotator() };
                     R.Pitch = V;
                     Heads[Index].Offset.SetRotation(FQuat{ R });
-                    PreviewViewport->UpdateMeshTransforms(Heads);
                 })
             ]
 
@@ -929,7 +908,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
                     FRotator R{ Heads[Index].Offset.Rotator() };
                     R.Yaw = V;
                     Heads[Index].Offset.SetRotation(FQuat{ R });
-                    PreviewViewport->UpdateMeshTransforms(Heads);
                 })
             ]
 
@@ -945,7 +923,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
                     FRotator R{ Heads[Index].Offset.Rotator() };
                     R.Roll = V;
                     Heads[Index].Offset.SetRotation(FQuat{ R });
-                    PreviewViewport->UpdateMeshTransforms(Heads);
                 })
             ]
         ]
@@ -967,7 +944,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
                     FVector S{ Heads[Index].Offset.GetScale3D() };
                     S.X = V;
                     Heads[Index].Offset.SetScale3D(S);
-                    PreviewViewport->UpdateMeshTransforms(Heads);
                 })
             ]
 
@@ -979,7 +955,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
                     FVector S{ Heads[Index].Offset.GetScale3D() };
                     S.Y = V;
                     Heads[Index].Offset.SetScale3D(S);
-                    PreviewViewport->UpdateMeshTransforms(Heads);
                 })
             ]
 
@@ -991,7 +966,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
                     FVector S{ Heads[Index].Offset.GetScale3D() };
                     S.Z = V;
                     Heads[Index].Offset.SetScale3D(S);
-                    PreviewViewport->UpdateMeshTransforms(Heads);
                 })
             ]
         ]
@@ -1007,7 +981,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::CreateHeadEntry(int32 Index)
                 FVector S{ Heads[Index].Offset.GetScale3D() };
                 S.X = V;
                 Heads[Index].Offset.SetScale3D(S);
-                PreviewViewport->UpdateMeshTransforms(Heads);
             })
         ]
 
@@ -1055,7 +1028,7 @@ FReply STrafficLightToolWidget::OnAddModuleClicked(int32 HeadIndex)
 {
     if (!Heads.IsValidIndex(HeadIndex))
     {
-        UE_LOG(LogTemp, Warning, TEXT("Invalid head index: %d"), HeadIndex);
+        UE_LOG(LogTemp, Warning, TEXT("STrafficLightToolWidget::OnAddModuleClicked - Invalid head index: %d"), HeadIndex);
         return FReply::Handled();
     }
 
@@ -1065,7 +1038,7 @@ FReply STrafficLightToolWidget::OnAddModuleClicked(int32 HeadIndex)
 
     FTLHead& HeadData = Heads[HeadIndex];
     HeadData.Modules.AddDefaulted();
-    PreviewViewport->AddModuleMesh(HeadIndex, NewModule);
+    PreviewViewport->AddModuleMesh(HeadData, NewModule);
 
     RefreshHeadList();
 
@@ -1074,10 +1047,11 @@ FReply STrafficLightToolWidget::OnAddModuleClicked(int32 HeadIndex)
 
 FReply STrafficLightToolWidget::OnDeleteModuleClicked(int32 HeadIndex, int32 ModuleIndex)
 {
-    if (Heads.IsValidIndex(HeadIndex) && Heads[HeadIndex].Modules.IsValidIndex(ModuleIndex))
-    {
-        Heads[HeadIndex].Modules.RemoveAt(ModuleIndex);
-    }
+    check(Heads.IsValidIndex(HeadIndex));
+    check(Heads[HeadIndex].Modules.IsValidIndex(ModuleIndex));
+
+    Heads[HeadIndex].Modules.RemoveAt(ModuleIndex);
+    PreviewViewport->RemoveModuleMeshForHead(HeadIndex, ModuleIndex);
     RefreshHeadList();
     return FReply::Handled();
 }
@@ -1118,9 +1092,9 @@ void STrafficLightToolWidget::UpdateModuleMeshesInViewport(int32 HeadIndex)
     }
 
     PreviewViewport->RemoveModuleMeshesForHead(HeadIndex);
-    FTLHead& HeadData = Heads[HeadIndex];
+    const FTLHead& HeadData = Heads[HeadIndex];
     for (const FTLModule& Mod : HeadData.Modules)
     {
-        PreviewViewport->AddModuleMesh(HeadIndex, Mod);
+        PreviewViewport->AddModuleMesh(HeadData, Mod);
     }
 }

@@ -3,6 +3,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "TrafficLights/TLHead.h"
 #include "UObject/UObjectGlobals.h"
 
 
@@ -52,124 +53,8 @@ STrafficLightPreviewViewport::~STrafficLightPreviewViewport()
     }
 }
 
-UStaticMeshComponent* STrafficLightPreviewViewport::AddHeadMesh(const FVector& Location, ETLHeadStyle Style)
-{
-    if (!PreviewScene.IsValid())
-    {
-        UE_LOG(LogTemp, Error, TEXT("Preview Scene is not valid"));
-        return nullptr;
-    }
-
-    if (!CubeMesh)
-    {
-        UE_LOG(LogTemp, Error, TEXT("Failed to load Cube Mesh"));
-        return nullptr;
-    }
-
-    UStaticMeshComponent* Comp {NewObject<UStaticMeshComponent>(PreviewScene->GetWorld()->GetCurrentLevel())};
-    Comp->RegisterComponentWithWorld(PreviewScene->GetWorld());
-    Comp->SetStaticMesh(CubeMesh);
-
-    if (BaseMaterial)
-    {
-        UMaterialInstanceDynamic* DynMat =
-            UMaterialInstanceDynamic::Create(BaseMaterial, Comp);
-        DynMat->SetVectorParameterValue(
-            TEXT("Color"),
-            InitialColorFor(Style)
-        );
-        Comp->SetMaterial(0, DynMat);
-        HeadDynMats.Add(DynMat);
-    }
-
-    Comp->SetRelativeLocation(Location);
-
-    HeadMeshComponents.Add(Comp);
-    return Comp;
-}
-
 void STrafficLightPreviewViewport::SetHeadStyle(int32 Index, ETLHeadStyle Style)
 {
-    if (!HeadMeshComponents.IsValidIndex(Index))
-    {
-        UE_LOG(LogTemp, Warning, TEXT("Invalid head index: %d"), Index);
-        return;
-    }
-
-    UStaticMeshComponent* Comp {HeadMeshComponents[Index]};
-    if (!Comp)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("No mesh component found for head index: %d"), Index);
-        return;
-    }
-
-    auto* DynMat = Cast<UMaterialInstanceDynamic>(Comp->GetMaterial(0));
-    if (!DynMat)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("No dynamic material instance found for head index: %d"), Index);
-        return;
-    }
-
-    UStaticMesh* NewMesh = LoadMeshForStyle(Style);
-    if (!NewMesh)
-    {
-        UE_LOG(LogTemp, Error, TEXT("Failed to load mesh for style: %d"), (int32)Style);
-        return;
-    }
-    Comp->SetStaticMesh(NewMesh);
-    // TODO: Remove colors when the have a proper asset for each style
-    FLinearColor C{InitialColorFor(Style)};
-    DynMat->SetVectorParameterValue("Color", C);
-    Comp->MarkRenderStateDirty();
-}
-
-void STrafficLightPreviewViewport::RemoveHeadMesh(int32 Index)
-{
-    if (HeadMeshComponents.IsValidIndex(Index))
-    {
-        UStaticMeshComponent* MeshComp {HeadMeshComponents[Index]};
-        if (MeshComp)
-        {
-            PreviewScene->RemoveComponent(MeshComp);
-            MeshComp->DestroyComponent();
-        }
-        HeadMeshComponents.RemoveAt(Index);
-    }
-}
-
-void STrafficLightPreviewViewport::UpdateMeshTransforms(const TArray<FTLHead>& Heads)
-{
-    int32 Count {FMath::Min(HeadMeshComponents.Num(), Heads.Num())};
-    for (int32 i {0}; i < Count; ++i)
-    {
-        UStaticMeshComponent* Mesh {HeadMeshComponents[i]};
-        if (!Mesh) continue;
-        const FTLHead& HeadData {Heads[i]};
-        FTransform FinalTransform {HeadData.RelativeTransform};
-        FinalTransform.ConcatenateRotation(HeadData.Offset.GetRotation());
-        FinalTransform.AddToTranslation(HeadData.Offset.GetLocation());
-        FinalTransform.SetScale3D(HeadData.Offset.GetScale3D());
-        Mesh->SetRelativeTransform(FinalTransform);
-    }
-}
-
-UStaticMesh* STrafficLightPreviewViewport::LoadMeshForStyle(ETLHeadStyle Style)
-{
-    //TODO: This should be configurable or loaded from a data table
-    const TCHAR* Paths[] = {
-        TEXT("/Engine/BasicShapes/Cube.Cube"),      // NorthAmerican
-        TEXT("/Engine/BasicShapes/Cube.Cube"),  // European
-        TEXT("/Engine/BasicShapes/Cube.Cube"), // Asian
-        TEXT("/Engine/BasicShapes/Cube.Cube")       // Custom
-    };
-    const int32 idx {(int32)Style};
-    if (idx < 0 || idx >= UE_ARRAY_COUNT(Paths))
-    {
-        UE_LOG(LogTemp, Warning, TEXT("Invalid ETLHeadStyle index: %d"), idx);
-        return nullptr;
-    }
-    return Cast<UStaticMesh>(StaticLoadObject(UStaticMesh::StaticClass(),
-                                              nullptr, Paths[idx]));
 }
 
 void STrafficLightPreviewViewport::AddBackplateMesh(int32 HeadIndex)
@@ -239,16 +124,9 @@ FLinearColor STrafficLightPreviewViewport::InitialColorFor(ETLHeadStyle Style) c
     }
 }
 
-UStaticMeshComponent* STrafficLightPreviewViewport::AddModuleMesh(int32 HeadIndex, const FTLModule& ModuleData)
+UStaticMeshComponent* STrafficLightPreviewViewport::AddModuleMesh(const FTLHead& Head, const FTLModule& ModuleData)
 {
-    if (!HeadMeshComponents.IsValidIndex(HeadIndex))
-    {
-        UE_LOG(LogTemp, Warning, TEXT("Invalid head index: %d"), HeadIndex);
-        return nullptr;
-    }
-    UStaticMeshComponent* HeadComp {HeadMeshComponents[HeadIndex]};
-    const FTransform HeadWorldTransform {HeadComp->GetComponentTransform()};
-    const FTransform ModuleWorldTransform {ModuleData.Offset * HeadWorldTransform};
+    const FTransform ModuleWorldTransform {ModuleData.Offset * Head.Transform};
 
     UStaticMeshComponent* Comp {NewObject<UStaticMeshComponent>(PreviewScene->GetWorld()->GetCurrentLevel())};
     if (!Comp)
@@ -293,4 +171,18 @@ void STrafficLightPreviewViewport::RemoveModuleMeshesForHead(int32 HeadIndex)
         }
     }
     ModuleMeshComponents.Empty();
+}
+
+void STrafficLightPreviewViewport::RemoveModuleMeshForHead(int32 HeadIndex, int32 ModuleIndex)
+{
+    check(ModuleMeshComponents.IsValidIndex(ModuleIndex));
+    UStaticMeshComponent* Comp {ModuleMeshComponents[ModuleIndex]};
+    if (!Comp)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("RemoveModuleMeshForHead: Invalid module index %d"), ModuleIndex);
+        ModuleMeshComponents.RemoveAt(ModuleIndex);
+        return;
+    }
+    Comp->DestroyComponent();
+    ModuleMeshComponents.RemoveAt(ModuleIndex);
 }
