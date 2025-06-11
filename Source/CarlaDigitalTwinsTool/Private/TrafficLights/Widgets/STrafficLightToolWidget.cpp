@@ -1033,11 +1033,36 @@ FReply STrafficLightToolWidget::OnAddModuleClicked(int32 HeadIndex)
     }
 
     // Create new head data
+    FTLHead& HeadData = Heads[HeadIndex];
+
     FTLModule NewModule;
     NewModule.ModuleID = FGuid::NewGuid();
 
-    FTLHead& HeadData = Heads[HeadIndex];
-    HeadData.Modules.AddDefaulted();
+    if (HeadData.Modules.Num() > 0)
+    {
+        // Copy the last module's offset as a starting point for the new module
+        const FTLModule& LastModule = HeadData.Modules.Last();
+        NewModule.Offset = LastModule.Offset;
+
+        switch (HeadData.Orientation)
+        {
+            case ETLHeadOrientation::Vertical:
+                NewModule.Offset.AddToTranslation(FVector(0.0f, 0.0f, 110.0f));
+                break;
+            case ETLHeadOrientation::Horizontal:
+                NewModule.Offset.AddToTranslation(FVector(0.0f, 110.0f, 0.0f));
+                break;
+            default:
+                NewModule.Offset = FTransform::Identity; // Default offset if no orientation is set
+                break;
+        }
+    }
+    else
+    {
+        // Default offset if no modules exist
+        NewModule.Offset = FTransform::Identity;
+    }
+    HeadData.Modules.Add(NewModule);
     PreviewViewport->AddModuleMesh(HeadData, NewModule);
 
     RefreshHeadList();
