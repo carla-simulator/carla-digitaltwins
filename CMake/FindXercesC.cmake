@@ -1,3 +1,7 @@
+if (NOT TARGET XercesC::XercesC)
+
+# Removing the next line results in SUMO failing to build due to missing Threads::Threads target in ThirdParty/Install/XercesC/lib/cmake/XercesC/XercesCConfigInternal.cmake .
+find_package (Threads REQUIRED)
 
 set (XERCESC_VERSION 3.3.0)
 find_package (
@@ -69,7 +73,8 @@ if (NOT ${XercesC_FOUND})
       -DCMAKE_INSTALL_MESSAGE=${CMAKE_INSTALL_MESSAGE}
       -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}
       -DCMAKE_MODULE_PATH=${CMAKE_MODULE_PATH}
-      -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
+      -DBUILD_SHARED_LIBS=OFF
+      -DCMAKE_IGNORE_PATH=${CMAKE_IGNORE_PATH}
   )
 
   if (NOT WIN32)
@@ -133,25 +138,6 @@ if (NOT ${XercesC_FOUND})
 
   list (GET XERCESC_CONFIG_PATH_CANDIDATES 0 XERCESC_CONFIG_PATH)
 
-  #[[
-  # @TODO HACK:
-  # --
-  if ("${BASH_EXECUTABLE}" STREQUAL "")
-    set (BASH_EXECUTABLE bash)
-    if (WIN32)
-      set (BASH_EXECUTABLE $ENV{PROGRAMFILES}/Git/bin/bash.exe)
-    endif ()
-  endif ()
-
-  execute_process (
-    COMMAND
-      ${BASH_EXECUTABLE}
-        ${CMAKE_CURRENT_LIST_DIR}/XercesCConfig_HACK.sh
-        ${XERCESC_CONFIG_PATH}
-  )
-  # --
-  ]]
-  
   cmake_path (
     GET
     XERCESC_CONFIG_PATH
@@ -168,5 +154,11 @@ if (NOT ${XercesC_FOUND})
     REQUIRED
     CONFIG
   )
+
+else ()
+
+  message (STATUS "Found ${DEPENDENCY_NAME}. Skipping build...")
+
+endif ()
 
 endif ()

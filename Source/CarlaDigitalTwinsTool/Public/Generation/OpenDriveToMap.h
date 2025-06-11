@@ -51,12 +51,12 @@ public:
 
   UFUNCTION(BlueprintCallable)
   float GetDistanceToDrivingLaneBorder(FVector Location) const{
-    return DistanceToLaneBorder(CarlaMap.value(), Location);
+    return DistanceToLaneBorder(CarlaMap, Location);
   }
 
   UFUNCTION(BlueprintCallable)
   bool GetIsInRoad(FVector Location) const {
-    return IsInRoad(CarlaMap.value(), Location);
+    return IsInRoad(CarlaMap, Location);
   }
 
   UFUNCTION(BlueprintCallable)
@@ -101,6 +101,9 @@ public:
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Settings" )
   FString LocalFilePath;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+  FVector2D FinalGeoCoordinates;
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
   FVector2D OriginGeoCoordinates;
@@ -186,6 +189,8 @@ protected:
   UFUNCTION( BlueprintImplementableEvent )
   void DownloadFinished();
 
+  UFUNCTION( BlueprintImplementableEvent )
+  void InitializeBuildingsInBP();
 
   UFUNCTION( BlueprintImplementableEvent )
   void ExecuteTileCommandlet();
@@ -202,23 +207,23 @@ private:
   UFUNCTION(BlueprintCallable)
   void LoadMap();
 
-  void GenerateAll(const carla::road::Map& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
-  void GenerateRoadMesh(const carla::road::Map& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
+  void GenerateAll(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
+  void GenerateRoadMesh(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
   // void GenerateSpawnPoints(const carla::road::Map& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
-  void GenerateTreePositions(const carla::road::Map& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
-  void GenerateLaneMarks(const carla::road::Map& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
+  void GenerateTreePositions(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
+  void GenerateLaneMarks(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
 
   FTransform GetSnappedPosition(FTransform Origin);
 
   float GetHeightForLandscape(FVector Origin);
 
   float DistanceToLaneBorder(
-      const carla::road::Map& CarlaMap,
+      const boost::optional<carla::road::Map>& CarlaMap,
       FVector &location,
       int32_t lane_type = static_cast<int32_t>(carla::road::Lane::LaneType::Driving)) const;
 
   bool IsInRoad(
-      const carla::road::Map& ParamCarlaMap,
+      const boost::optional<carla::road::Map>& ParamCarlaMap,
       FVector &location) const;
 
   void InitTextureData();
