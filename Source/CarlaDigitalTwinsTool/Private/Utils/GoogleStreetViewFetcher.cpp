@@ -7,6 +7,7 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
+#include "Generation/MapGenFunctionLibrary.h"
 
 void UGoogleStreetViewFetcher::Initialize(ACameraActor* InCameraActor, FVector2D InOriginGeoCoordinates, const FString& InGoogleAPIKey)
 {
@@ -34,14 +35,9 @@ void UGoogleStreetViewFetcher::RequestGoogleStreetViewImage()
     FVector CameraLocation = CameraActor->GetActorLocation();
     FRotator CameraRotation = CameraActor->GetActorRotation();
 
-    // Convert from cm to m
-    float X_m = CameraLocation.X / 100.0f;
-    float Y_m = CameraLocation.Y / 100.0f;
-
-    // Convert from m to lat and lon
-    double metersPerDegree = 111320.0;
-    double lat = OriginLat + (Y_m / metersPerDegree);
-    double lon = OriginLon + (X_m / (metersPerDegree * FMath::Cos(FMath::DegreesToRadians(OriginLat))));
+    FVector2D latlon = UMapGenFunctionLibrary::InverseTransverseMercatorProjection( CameraLocation.X, CameraLocation.Y, OriginLat, OriginLon );
+    double lat = latlon.X;
+    double lon = latlon.Y;
     int heading = static_cast<int>(FMath::Fmod(CameraRotation.Yaw + 360.0f, 360.0f));
 
     FString URL = FString::Printf(
