@@ -334,9 +334,9 @@ void UOpenDriveToMap::GenerateTile(){
     MapName = FPaths::GetCleanFilename(FilePath);
     MapName.RemoveFromEnd(".xodr", ESearchCase::Type::IgnoreCase);
     UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("MapName %s"), *MapName);
-    UEditorLevelLibrary::LoadLevel(*BaseLevelName);
 
 #if ENGINE_MAJOR_VERSION < 5
+    UEditorLevelLibrary::LoadLevel(*BaseLevelName);
     AActor* QueryActor = UGameplayStatics::GetActorOfClass(
                             GEditor->GetEditorWorldContext().World(),
                             ALargeMapManager::StaticClass() );
