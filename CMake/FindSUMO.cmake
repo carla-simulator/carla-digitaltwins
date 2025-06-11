@@ -12,6 +12,8 @@ set (THIRD_PARTY_INSTALL_DIR ${THIRD_PARTY_ROOT_DIR}/Install)
 file (MAKE_DIRECTORY ${THIRD_PARTY_ROOT_DIR})
 
 set (DEPENDENCY_NAME SUMO)
+set (SUMO_BRANCH marcel/carla-staging)
+string (REPLACE "/" "-" SUMO_BRANCH_CLEAN "${SUMO_BRANCH}")
 set (SUMO_SOURCE_DIR ${THIRD_PARTY_ROOT_DIR}/${DEPENDENCY_NAME})
 set (SUMO_BUILD_DIR ${THIRD_PARTY_BUILD_DIR}/${DEPENDENCY_NAME})
 set (SUMO_INSTALL_DIR ${THIRD_PARTY_INSTALL_DIR}/${DEPENDENCY_NAME})
@@ -23,7 +25,7 @@ if (NOT ${SUMO_FOUND})
   if (NOT EXISTS ${THIRD_PARTY_ROOT_DIR}/sumo.zip)
     set (
       SUMO_DOWNLOAD_URL
-      https://github.com/carla-simulator/sumo/archive/${SUMO_COMMIT}.zip
+      https://github.com/carla-simulator/sumo/archive/refs/heads/${SUMO_BRANCH}.zip
     )
     message (STATUS "Downloading SUMO from ${SUMO_DOWNLOAD_URL}")
     file (
@@ -46,37 +48,15 @@ if (NOT ${SUMO_FOUND})
     message (STATUS "Renaming extracted SUMO directories.")
     file (
       RENAME
-        ${THIRD_PARTY_ROOT_DIR}/sumo-${SUMO_COMMIT}
+        ${THIRD_PARTY_ROOT_DIR}/sumo-${SUMO_BRANCH_CLEAN}
         ${SUMO_SOURCE_DIR}
     )
   endif ()
 
   message (STATUS "Configuring SUMO.")
 
-  # HACK:
-  # --
-  set (XERCESC_INSTALL_DIR ${THIRD_PARTY_INSTALL_DIR}/XercesC)
-  set (XERCESC_INCLUDE_DIR ${XERCESC_INSTALL_DIR}/include)
-  set (XERCESC_LIBRARY_DIR ${XERCESC_INSTALL_DIR}/lib)
-  file (
-    GLOB_RECURSE
-    XERCESC_LIBRARY_CANDIDATES
-    FOLLOW_SYMLINKS
-    LIST_DIRECTORIES FALSE
-    ${XERCESC_INSTALL_DIR}/lib/*xerces-c.*
-  )
-  if (NOT XERCESC_LIBRARY_CANDIDATES)
-    message (FATAL_ERROR "Could not find XercesC. Aborting.")
-  endif ()
-  list (GET XERCESC_LIBRARY_CANDIDATES 0 XERCESC_LIBRARY)
-  # --
-
-  set (LIB_EXT .a)
-  set (LIB_PREFIX lib)
-  if (WIN32)
-    set (LIB_EXT .lib)
-    set (LIB_PREFIX)
-  endif ()
+  find_package (XercesC REQUIRED)
+  find_package (PROJ REQUIRED)
 
   execute_process (
     COMMAND
@@ -88,11 +68,25 @@ if (NOT ${SUMO_FOUND})
         -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON
         -DBUILD_SHARED_LIBS=OFF
+        -DCMAKE_IGNORE_PATH=${CMAKE_IGNORE_PATH}
         -DCMAKE_INSTALL_MESSAGE=${CMAKE_INSTALL_MESSAGE}
-        -DXercesC_INCLUDE_DIR=${XERCESC_INCLUDE_DIR}
-        -DXercesC_LIBRARY=${XERCESC_LIBRARY}
-        -DPROJ_INCLUDE_DIR=${THIRD_PARTY_INSTALL_DIR}/PROJ/include
-        -DPROJ_LIBRARY=${THIRD_PARTY_INSTALL_DIR}/PROJ/lib/${LIB_PREFIX}proj${LIB_EXT}
+        -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}
+        -DCMAKE_MODULE_PATH=${CMAKE_MODULE_PATH}
+        -DCMAKE_INSTALL_PREFIX=${SUMO_INSTALL_DIR}
+        -DCHECK_OPTIONAL_LIBS=OFF
+        -DPROFILING=OFF
+        -DPPROF=OFF
+        -DCOVERAGE=OFF
+        -DSUMO_UTILS=OFF
+        -DFMI=OFF
+        -DNETEDIT=OFF
+        -DENABLE_PYTHON_BINDINGS=OFF
+        -DENABLE_JAVA_BINDINGS=OFF
+        -DENABLE_CS_BINDINGS=OFF
+        -DCCACHE_SUPPORT=OFF
+        -DTCMALLOC=ON
+        -DVERBOSE_SUB=OFF
+        -DENABLE_GTEST=OFF
     RESULTS_VARIABLE
       SUMO_CONFIGURE_RESULT
   )
@@ -131,4 +125,10 @@ if (NOT ${SUMO_FOUND})
   list (APPEND CMAKE_PREFIX_PATH ${SUMO_INSTALL_DIR})
   list (APPEND CMAKE_MODULE_PATH ${SUMO_INSTALL_DIR})
 
+else ()
+
+  message (STATUS "Found ${DEPENDENCY_NAME}. Skipping build...")
+
 endif ()
+
+add_compile_definitions (PROJ_DLL=)

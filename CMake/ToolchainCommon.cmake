@@ -206,12 +206,29 @@ set (
 
 set (
 	CMAKE_CXX_STANDARD_LIBRARIES
-	"${UE_LIBS}/libc++.a ${UE_LIBS}/libc++abi.a"
+	${UE_LIBS}/libc++.a
+	${UE_LIBS}/libc++abi.a
 )
+
+foreach (CXX_STDLIB ${CMAKE_CXX_STANDARD_LIBRARIES})
+	if (NOT EXISTS ${CXX_STDLIB})
+		message (FATAL_ERROR "Could not find ${CXX_STDLIB}")
+	endif ()
+endforeach ()
+
+string (REPLACE ";" " " CMAKE_CXX_STANDARD_LIBRARIES "${CMAKE_CXX_STANDARD_LIBRARIES}")
 
 set (
 	CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES
-	${UE_INCLUDE} ${UE_INCLUDE}/c++/v1
+	${UE_INCLUDE}
+	${UE_INCLUDE}/c++/v1
 )
+
+foreach (CXX_STDINC ${CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES})
+	if (NOT EXISTS ${CXX_STDINC})
+		message (FATAL_ERROR "Could not find ${CXX_STDINC}")
+	endif ()
+endforeach ()
+
 
 endif ()
