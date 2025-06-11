@@ -56,7 +56,11 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0,
 
   auto Ar = TUniquePtr<FArchive>(
       FileManager.CreateFileWriter(*FilePath, 0));
+#if ENGINE_MAJOR_VERSION < 5
+  Ar->Serialize((void*)OpenDriveFile.data(), OpenDriveFile.size());
+#else
   Ar->Serialize(OpenDriveFile.data(), OpenDriveFile.size());
+#endif
   Ar->Close();
 
   if (Ar->IsError())
