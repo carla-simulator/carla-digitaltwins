@@ -2,11 +2,14 @@
 
 void AGoogleStreetViewManager::Initialize(UWorld* World, FTransform CameraTransform, FVector2D InOriginGeoCoordinates, const FString& InGoogleAPIKey)
 {
-    CameraActor = World->SpawnActor<ACameraActor>(ACameraActor::StaticClass(), CameraTransform);
-    CameraActor->SetActorLabel(TEXT("GoogleStreetViewCamera"));
+    GoogleCamera = World->SpawnActor<ACameraActor>(ACameraActor::StaticClass(), CameraTransform);
+    GoogleCamera->SetActorLabel(TEXT("GoogleStreetViewCamera"));
 
-    LastCameraLocation = CameraActor->GetActorLocation();
-    LastCameraRotation = CameraActor->GetActorRotation();
+    EditorCamera = World->SpawnActor<ACameraActor>(ACameraActor::StaticClass(), CameraTransform);
+    EditorCamera->SetActorLabel(TEXT("UnrealCamera"));
+
+    LastCameraLocation = GoogleCamera->GetActorLocation();
+    LastCameraRotation = GoogleCamera->GetActorRotation();
 
     OriginGeoCoordinates = InOriginGeoCoordinates;
     GoogleAPIKey = InGoogleAPIKey;
@@ -23,7 +26,7 @@ void AGoogleStreetViewManager::BeginPlay()
     Fetcher = NewObject<UGoogleStreetViewFetcher>();
     Fetcher->AddToRoot();
 
-    Fetcher->Initialize(CameraActor, OriginGeoCoordinates, GoogleAPIKey);
+    Fetcher->Initialize(GoogleCamera, OriginGeoCoordinates, GoogleAPIKey);
     Fetcher->RequestGoogleStreetViewImage();
 }
 
@@ -31,10 +34,10 @@ void AGoogleStreetViewManager::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
 
-    if (!CameraActor || !Fetcher) return;
+    if (!GoogleCamera || !Fetcher) return;
 
-    FVector CurrentLocation = CameraActor->GetActorLocation();
-    FRotator CurrentRotation = CameraActor->GetActorRotation();
+    FVector CurrentLocation = EditorCamera->GetActorLocation();
+    FRotator CurrentRotation = EditorCamera->GetActorRotation();
 
     if (FVector::Dist(CurrentLocation, LastCameraLocation) > MovementThreshold ||
         FMath::Abs(CurrentRotation.Yaw - LastCameraRotation.Yaw) > RotationThreshold)
@@ -42,7 +45,9 @@ void AGoogleStreetViewManager::Tick(float DeltaTime)
         LastCameraLocation = CurrentLocation;
         LastCameraRotation = CurrentRotation;
 
-        Fetcher->SetCamera(CameraActor);
+        GoogleCamera->SetActorLocationAndRotation(CurrentLocation,CurrentRotation);
+
+        Fetcher->SetCamera(GoogleCamera);
         Fetcher->RequestGoogleStreetViewImage();
     }
 }
