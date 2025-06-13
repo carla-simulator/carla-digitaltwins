@@ -183,13 +183,12 @@ UStaticMesh* UMapGenFunctionLibrary::CreateMesh(
 
     Mesh->SetLightingGuid(FGuid::NewGuid());
     Mesh->GetStaticMaterials().Add(FStaticMaterial(MaterialInstance));
+    Mesh->NaniteSettings.bEnabled = true;
     Mesh->BuildFromMeshDescriptions({ &Description }, Params);
     Mesh->CreateBodySetup();
 #if ENGINE_MAJOR_VERSION < 5
     Mesh->BodySetup->CollisionTraceFlag = ECollisionTraceFlag::CTF_UseComplexAsSimple;
     Mesh->BodySetup->CreatePhysicsMeshes();
-
-    Mesh.NaniteSettings.bEnabled = true;
 #endif
     // Build mesh from source
     Mesh->NeverStream = false;
@@ -199,6 +198,12 @@ UStaticMesh* UMapGenFunctionLibrary::CreateMesh(
     // Notify asset registry of new asset
     FAssetRegistryModule::AssetCreated(Mesh);
     //UPackage::SavePackage(Package, Mesh, EObjectFlags::RF_Public | EObjectFlags::RF_Standalone, *(MeshName.ToString()), GError, nullptr, true, true, SAVE_NoError);
+#if ENGINE_MAJOR_VERSION > 4
+
+    TArray<UStaticMesh*> MeshToEnableNanite;
+    MeshToEnableNanite.Add(Mesh);
+    UStaticMesh::BatchBuild(MeshToEnableNanite);
+#endif
     Package->MarkPackageDirty();
     return Mesh;
   }
