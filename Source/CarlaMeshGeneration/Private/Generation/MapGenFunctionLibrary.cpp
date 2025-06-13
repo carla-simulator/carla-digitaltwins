@@ -210,9 +210,10 @@ UStaticMesh* UMapGenFunctionLibrary::CreateMesh(
   return nullptr;
 }
 
+// Transverse Mercator projection, see e.g. https://proj.org/en/stable/operations/projections/tmerc.html
 FVector2D UMapGenFunctionLibrary::GetTransversemercProjection(float lat, float lon, float lat0, float lon0)
 {
-  // earth radius in m
+  // Earth radius in m
   const float R = 6373000.0f;
   float latt = FMath::DegreesToRadians(lat);
   float lonn  = FMath::DegreesToRadians(lon - lon0);
@@ -228,6 +229,26 @@ FVector2D UMapGenFunctionLibrary::GetTransversemercProjection(float lat, float l
   FVector2D Result = FVector2D(x, -(y - y0)) * OSMToCentimetersScaleFactor;
 
   return Result;
+}
+
+FVector2D UMapGenFunctionLibrary::InverseTransverseMercatorProjection(float x, float y, float lat0, float lon0)
+{
+    const float R = 6373000.0f;
+
+    x /= OSMToCentimetersScaleFactor;
+    y = -y / OSMToCentimetersScaleFactor;
+
+    float latt0 = FMath::DegreesToRadians(lat0);
+    float eps0 = latt0; // atan(tan(latt0)/cos(0));
+    float y0 = R * eps0;
+
+    float eps = (y + y0) / R;
+    float nab = x / R;
+
+    float lat = FMath::RadiansToDegrees(atan(sin(eps)/sqrt(tan(nab)*tan(nab)+cos(eps)*cos(eps))));
+    float lon = lon0 + FMath::RadiansToDegrees(atan(sinh(nab) / cos(eps)));
+
+    return FVector2D(lat, lon);
 }
 
 void UMapGenFunctionLibrary::SetThreadToSleep(float seconds){
