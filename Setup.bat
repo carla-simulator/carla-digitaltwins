@@ -42,7 +42,7 @@ git checkout %CURRENT_STREETMAP_COMMIT%
 cd /d "%~dp0"
 
 set CONTENT_FOLDER=Content
-set CONTENT_TARGET_DIR=%CONTENT_FOLDER%\digitalTwins
+set CONTENT_TARGET_DIR=%CONTENT_FOLDER%\
 set CONTENT_REPO_URL=https://bitbucket.org/carla-simulator/digitaltwins.git
 
 if exist "%CONTENT_TARGET_DIR%\" (

@@ -26,7 +26,7 @@ git -C "$STREETMAP_DIR" checkout $CURRENT_STREETMAP_COMMIT
 
 # CONTENT_ prefixed variables
 CONTENT_FOLDER=$SOURCE_DIR/Content
-CONTENT_TARGET_DIR="$CONTENT_FOLDER/digitalTwins"
+CONTENT_TARGET_DIR="$CONTENT_FOLDER/"
 CONTENT_REPO_URL="https://bitbucket.org/carla-simulator/digitaltwins.git"
 
 # Check if the digitalTwins folder already exists
