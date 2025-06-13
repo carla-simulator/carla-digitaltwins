@@ -11,6 +11,8 @@
 #include "Materials/MaterialInstance.h"
 #include "StaticMeshAttributes.h"
 #include "RenderingThread.h"
+#include "Components/InstancedStaticMeshComponent.h"
+#include "Components/SceneComponent.h"
 // Carla C++ headers
 
 // Carla plugin headers
@@ -186,6 +188,8 @@ UStaticMesh* UMapGenFunctionLibrary::CreateMesh(
 #if ENGINE_MAJOR_VERSION < 5
     Mesh->BodySetup->CollisionTraceFlag = ECollisionTraceFlag::CTF_UseComplexAsSimple;
     Mesh->BodySetup->CreatePhysicsMeshes();
+
+    Mesh.NaniteSettings.bEnabled = true;
 #endif
     // Build mesh from source
     Mesh->NeverStream = false;
@@ -244,4 +248,35 @@ void UMapGenFunctionLibrary::CleanupGEngine(){
     GEditor->Cleanse(true, true, TransResetText);
   }
 #endif
+}
+
+
+UInstancedStaticMeshComponent* UMapGenFunctionLibrary::AddInstancedStaticMeshComponentToActor(AActor* TargetActor){
+  if ( !TargetActor )
+  {
+      UE_LOG(LogCarlaMapGenFunctionLibrary, Warning, TEXT("Invalid TargetActor in AddInstancedStaticMeshComponentToActor"));
+      return nullptr;
+  }
+
+  if (!TargetActor->GetRootComponent())
+  {
+      USceneComponent* NewRoot = NewObject<USceneComponent>(TargetActor, TEXT("GeneratedRootComponent"));
+      TargetActor->SetRootComponent(NewRoot);
+      NewRoot->RegisterComponent();
+  }
+
+  // Crear el componente instanciado
+  UInstancedStaticMeshComponent* ISMComponent = NewObject<UInstancedStaticMeshComponent>(TargetActor);
+  if (!ISMComponent)
+  {
+      UE_LOG(LogCarlaMapGenFunctionLibrary, Error, TEXT("COuld not create UInstancedStaticMeshComponent"));
+      return nullptr;
+  }
+
+  ISMComponent->SetupAttachment(TargetActor->GetRootComponent());
+  ISMComponent->RegisterComponent();
+
+  TargetActor->AddInstanceComponent(ISMComponent);
+
+  return ISMComponent;
 }

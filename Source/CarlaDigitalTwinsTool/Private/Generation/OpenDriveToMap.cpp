@@ -38,6 +38,7 @@
 #include "ProceduralMeshConversion.h"
 #include "EditorLevelLibrary.h"
 #if ENGINE_MAJOR_VERSION > 4
+#include "Subsystems/UnrealEditorSubsystem.h"
 #include "Editor/Transactor.h"
 #endif
 #include "ContentBrowserModule.h"
@@ -374,10 +375,12 @@ void UOpenDriveToMap::GenerateTile(){
 #endif
     UEditorLoadingAndSavingUtils::SaveDirtyPackages(true, true);
     UEditorLevelLibrary::SaveCurrentLevel();
-#if PLATFORM_LINUX
-    //RemoveFromRoot();
-#endif
 
+#if ENGINE_MAJOR_VERSION < 5
+#if PLATFORM_LINUX
+    RemoveFromRoot();
+#endif
+#endif
   }
 }
 
@@ -439,6 +442,32 @@ void UOpenDriveToMap::OpenFileDialog()
   }
 }
 
+UWorld* UOpenDriveToMap::GetEditorWorld()
+{
+	UUnrealEditorSubsystem* UnrealEditorSubsystem = GEditor->GetEditorSubsystem<UUnrealEditorSubsystem>();
+
+  // Check if the world is valid
+  if (UnrealEditorSubsystem)
+  {
+    return UnrealEditorSubsystem->GetEditorWorld();
+  }
+  UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Not Editor subsystem found"));
+  return nullptr;
+}
+
+UWorld* UOpenDriveToMap::GetGameWorld()
+{
+	UUnrealEditorSubsystem* UnrealEditorSubsystem = GEditor->GetEditorSubsystem<UUnrealEditorSubsystem>();
+
+  // Check if the world is valid
+  if (UnrealEditorSubsystem)
+  {
+    return UnrealEditorSubsystem->GetGameWorld();
+  }
+  UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Not Editor subsystem found"));
+  return nullptr;
+}
+
 void UOpenDriveToMap::LoadMap()
 {
   if( FilePath.IsEmpty() ){
@@ -486,6 +515,8 @@ void UOpenDriveToMap::LoadMap()
     do{
       GenerateTileStandalone();
     }while(GoNextTile());
+    RemoveFromRoot();
+
 #endif
 
   }
@@ -540,7 +571,11 @@ void UOpenDriveToMap::GenerateRoadMesh( const boost::optional<carla::road::Map>&
 {
   opg_parameters.vertex_distance = 0.5f;
   opg_parameters.vertex_width_resolution = 8.0f;
+#if ENGINE_MAJOR_VERSION < 5
   opg_parameters.simplification_percentage = 50.0f;
+#else
+  opg_parameters.simplification_percentage = 0.0f;
+#endif
   double start = FPlatformTime::Seconds();
 
   carla::geom::Vector3D CarlaMinLocation(MinLocation.X / 100, MinLocation.Y / 100, MinLocation.Z /100);
@@ -571,8 +606,10 @@ void UOpenDriveToMap::GenerateRoadMesh( const boost::optional<carla::road::Map>&
           FVector VertexFVector = Vertex.ToFVector();
           Vertex.z += GetHeight(Vertex.x, Vertex.y, DistanceToLaneBorder(ParamCarlaMap,VertexFVector) > 65.0f );
         }
+#if ENGINE_MAJOR_VERSION < 5
         carla::geom::Simplification Simplify(0.15);
         Simplify.Simplificate(Mesh);
+  #endif
       }else{
         for( auto& Vertex : Mesh->GetVertices() )
         {
