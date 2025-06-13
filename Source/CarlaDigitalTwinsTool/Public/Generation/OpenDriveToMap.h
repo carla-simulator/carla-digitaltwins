@@ -115,6 +115,9 @@ public:
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
   FVector2D FinalGeoCoordinates;
 
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+  double DefaultLaneWidth = 3.35;
+
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defaults")
   UMaterialInstance* DefaultRoadMaterial;
 

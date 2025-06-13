@@ -12,7 +12,7 @@
 
 #include <OSM2ODR.h>
 
-void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0, float Lon_0)
+void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0, float Lon_0, double Default_lane_width)
 {
   IPlatformFile &FileManager = FPlatformFileManager::Get().GetPlatformFile();
 
@@ -39,6 +39,7 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(FString FilePath, float Lat_0,
   std::string OsmFile = std::string(TCHAR_TO_UTF8(*FileContent));
 
   osm2odr::OSM2ODRSettings Settings;
+  Settings.default_lane_width = Default_lane_width;
   Settings.proj_string += " +lat_0=" + std::to_string(Lat_0) + " +lon_0=" + std::to_string(Lon_0);
   Settings.center_map = false;
   std::string OpenDriveFile;
