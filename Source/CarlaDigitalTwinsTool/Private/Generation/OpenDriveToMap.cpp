@@ -319,9 +319,9 @@ void UOpenDriveToMap::GenerateTile(){
   }
 
   FString FileContent;
-  // UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("UOpenDriveToMap::GenerateTile(): File to load %s"), *FPaths::ConvertRelativePathToFull(FilePath) );
   FFileHelper::LoadFileToString(FileContent, *FilePath);
   std::string opendrive_xml = carla::rpc::FromLongFString(FileContent);
+  UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("UOpenDriveToMap::GenerateTile() Loading File..... "));
   CarlaMap = carla::opendrive::OpenDriveParser::Load(opendrive_xml);
 
   if (!CarlaMap.has_value())
@@ -375,7 +375,7 @@ void UOpenDriveToMap::GenerateTile(){
     UEditorLoadingAndSavingUtils::SaveDirtyPackages(true, true);
     UEditorLevelLibrary::SaveCurrentLevel();
 #if PLATFORM_LINUX
-    RemoveFromRoot();
+    //RemoveFromRoot();
 #endif
 
   }
@@ -465,7 +465,7 @@ void UOpenDriveToMap::LoadMap()
     AActor* QueryActor = UGameplayStatics::GetActorOfClass(
                                 UEditorLevelLibrary::GetEditorWorld(),
                                 ALargeMapManager::StaticClass() );
-
+#if ENGINE_MAJOR_VERSION < 5
     if( QueryActor != nullptr )
     {
       
@@ -482,6 +482,12 @@ void UOpenDriveToMap::LoadMap()
       ReturnToMainLevel();
       
     }
+#else
+    do{
+      GenerateTileStandalone();
+    }while(GoNextTile());
+#endif
+
   }
 }
 
@@ -517,11 +523,16 @@ void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& Param
   FVector MinLocation,
   FVector MaxLocation )
 {
+  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Roads..... "));
   GenerateRoadMesh(ParamCarlaMap, MinLocation, MaxLocation);
+  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Lane Marks..... "));
   GenerateLaneMarks(ParamCarlaMap, MinLocation, MaxLocation);
   // GenerateSpawnPoints(ParamCarlaMap, MinLocation, MaxLocation);
+  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Terrain..... "));
   CreateTerrain(12800, 256);
+  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Tree positions..... "));
   GenerateTreePositions(ParamCarlaMap, MinLocation, MaxLocation);
+  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Misc stuff..... "));
   GenerationFinished(MinLocation, MaxLocation);
 }
 
@@ -534,6 +545,7 @@ void UOpenDriveToMap::GenerateRoadMesh( const boost::optional<carla::road::Map>&
 
   carla::geom::Vector3D CarlaMinLocation(MinLocation.X / 100, MinLocation.Y / 100, MinLocation.Z /100);
   carla::geom::Vector3D CarlaMaxLocation(MaxLocation.X / 100, MaxLocation.Y / 100, MaxLocation.Z /100);
+  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT(" Generating roads between %s  and %s"), *(CarlaMinLocation.ToFVector().ToString()), *(CarlaMaxLocation.ToFVector().ToString()) );
   const auto Meshes = ParamCarlaMap->GenerateOrderedChunkedMeshInLocations(opg_parameters, CarlaMinLocation, CarlaMaxLocation);
   double end = FPlatformTime::Seconds();
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT(" GenerateOrderedChunkedMesh code executed in %f seconds. Simplification percentage is %f"), end - start, opg_parameters.simplification_percentage);
