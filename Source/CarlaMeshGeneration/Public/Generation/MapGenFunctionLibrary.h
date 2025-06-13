@@ -54,4 +54,7 @@ public:
 
   UFUNCTION(BlueprintCallable)
   static void CleanupGEngine();
+
+  UFUNCTION(BlueprintCallable)
+  static UInstancedStaticMeshComponent* AddInstancedStaticMeshComponentToActor(AActor* TargetActor);
 };

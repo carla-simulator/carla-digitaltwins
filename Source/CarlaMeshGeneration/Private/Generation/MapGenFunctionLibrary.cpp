@@ -11,6 +11,8 @@
 #include "Materials/MaterialInstance.h"
 #include "StaticMeshAttributes.h"
 #include "RenderingThread.h"
+#include "Components/InstancedStaticMeshComponent.h"
+#include "Components/SceneComponent.h"
 // Carla C++ headers
 
 // Carla plugin headers
@@ -181,6 +183,7 @@ UStaticMesh* UMapGenFunctionLibrary::CreateMesh(
 
     Mesh->SetLightingGuid(FGuid::NewGuid());
     Mesh->GetStaticMaterials().Add(FStaticMaterial(MaterialInstance));
+    Mesh->NaniteSettings.bEnabled = true;
     Mesh->BuildFromMeshDescriptions({ &Description }, Params);
     Mesh->CreateBodySetup();
 #if ENGINE_MAJOR_VERSION < 5
@@ -195,6 +198,12 @@ UStaticMesh* UMapGenFunctionLibrary::CreateMesh(
     // Notify asset registry of new asset
     FAssetRegistryModule::AssetCreated(Mesh);
     //UPackage::SavePackage(Package, Mesh, EObjectFlags::RF_Public | EObjectFlags::RF_Standalone, *(MeshName.ToString()), GError, nullptr, true, true, SAVE_NoError);
+#if ENGINE_MAJOR_VERSION > 4
+
+    TArray<UStaticMesh*> MeshToEnableNanite;
+    MeshToEnableNanite.Add(Mesh);
+    UStaticMesh::BatchBuild(MeshToEnableNanite);
+#endif
     Package->MarkPackageDirty();
     return Mesh;
   }
@@ -265,4 +274,35 @@ void UMapGenFunctionLibrary::CleanupGEngine(){
     GEditor->Cleanse(true, true, TransResetText);
   }
 #endif
+}
+
+
+UInstancedStaticMeshComponent* UMapGenFunctionLibrary::AddInstancedStaticMeshComponentToActor(AActor* TargetActor){
+  if ( !TargetActor )
+  {
+      UE_LOG(LogCarlaMapGenFunctionLibrary, Warning, TEXT("Invalid TargetActor in AddInstancedStaticMeshComponentToActor"));
+      return nullptr;
+  }
+
+  if (!TargetActor->GetRootComponent())
+  {
+      USceneComponent* NewRoot = NewObject<USceneComponent>(TargetActor, TEXT("GeneratedRootComponent"));
+      TargetActor->SetRootComponent(NewRoot);
+      NewRoot->RegisterComponent();
+  }
+
+  // Crear el componente instanciado
+  UInstancedStaticMeshComponent* ISMComponent = NewObject<UInstancedStaticMeshComponent>(TargetActor);
+  if (!ISMComponent)
+  {
+      UE_LOG(LogCarlaMapGenFunctionLibrary, Error, TEXT("COuld not create UInstancedStaticMeshComponent"));
+      return nullptr;
+  }
+
+  ISMComponent->SetupAttachment(TargetActor->GetRootComponent());
+  ISMComponent->RegisterComponent();
+
+  TargetActor->AddInstanceComponent(ISMComponent);
+
+  return ISMComponent;
 }
