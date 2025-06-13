@@ -8,6 +8,8 @@
 #include "Interfaces/IHttpResponse.h"
 #include "GoogleStreetViewFetcher.generated.h"
 
+DECLARE_LOG_CATEGORY_EXTERN(LogGoogleStreetView, Log, All);
+
 UCLASS(Blueprintable)
 class CARLADIGITALTWINSTOOL_API UGoogleStreetViewFetcher : public UObject
 {

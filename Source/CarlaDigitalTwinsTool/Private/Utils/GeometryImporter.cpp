@@ -3,9 +3,11 @@
 #include "Engine/Engine.h"
 #include "Generation/MapGenFunctionLibrary.h"
 
+DEFINE_LOG_CATEGORY(LogGeometryImporter);
+
 TArray<FVector2D> UGeometryImporter::ReadCSVCoordinates(FString Path, FVector2D OriginGeoCoordinates)
 {
-    UE_LOG(LogTemp, Warning, TEXT("Reading latlon coordinates"));
+    UE_LOG(LogGeometryImporter, Warning, TEXT("Reading latlon coordinates"));
 
     TArray<FVector2D> Coordinates;
 
@@ -33,7 +35,7 @@ TArray<FVector2D> UGeometryImporter::ReadCSVCoordinates(FString Path, FVector2D 
     }
     else
     {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to read file at: %s"), *Path);
+        UE_LOG(LogGeometryImporter, Warning, TEXT("Failed to read file at: %s"), *Path);
     }
 
     return Coordinates;
@@ -43,13 +45,13 @@ USplineComponent* UGeometryImporter::CreateSpline(UWorld* World, const TArray<FV
 {
 
     if (!World || Points.Num() < 2){
-        UE_LOG(LogTemp, Log, TEXT("Invalid world pointer"));
+        UE_LOG(LogGeometryImporter, Log, TEXT("Invalid world pointer"));
         return nullptr;
     }
 
     AActor* SplineActor = World->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity);
     if (!SplineActor){
-        UE_LOG(LogTemp, Log, TEXT("Spline actor not created"));
+        UE_LOG(LogGeometryImporter, Log, TEXT("Spline actor not created"));
         return nullptr;
     }
     SplineActor->SetActorLabel(SplineName);
@@ -73,14 +75,14 @@ USplineComponent* UGeometryImporter::CreateSpline(UWorld* World, const TArray<FV
 
 TArray<USplineComponent*> UGeometryImporter::ImportGeoJsonPolygonsToSplines(UWorld* World, const FString& GeoJsonFilePath, const FVector2D OriginGeoCoordinates)
 {
-    UE_LOG(LogTemp, Log, TEXT("Importing geojson and creating splines from file: %s"), *GeoJsonFilePath);
+    UE_LOG(LogGeometryImporter, Log, TEXT("Importing geojson and creating splines from file: %s"), *GeoJsonFilePath);
 
     TArray<USplineComponent*> CreatedSplines;
 
     FString JsonString;
     if (!FFileHelper::LoadFileToString(JsonString, *GeoJsonFilePath))
     {
-        UE_LOG(LogTemp, Error, TEXT("Failed to load GeoJSON file: %s"), *GeoJsonFilePath);
+        UE_LOG(LogGeometryImporter, Error, TEXT("Failed to load GeoJSON file: %s"), *GeoJsonFilePath);
         return CreatedSplines;
     }
 
@@ -89,14 +91,14 @@ TArray<USplineComponent*> UGeometryImporter::ImportGeoJsonPolygonsToSplines(UWor
 
     if (!FJsonSerializer::Deserialize(Reader, JsonParsed) || !JsonParsed.IsValid())
     {
-        UE_LOG(LogTemp, Error, TEXT("Failed to parse GeoJSON file."));
+        UE_LOG(LogGeometryImporter, Error, TEXT("Failed to parse GeoJSON file."));
         return CreatedSplines;
     }
 
     const TArray<TSharedPtr<FJsonValue>>* Features;
     if (!JsonParsed->TryGetArrayField("features", Features))
     {
-        UE_LOG(LogTemp, Error, TEXT("No 'features' array found in GeoJSON."));
+        UE_LOG(LogGeometryImporter, Error, TEXT("No 'features' array found in GeoJSON."));
         return CreatedSplines;
     }
 

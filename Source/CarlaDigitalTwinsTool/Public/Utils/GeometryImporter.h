@@ -5,6 +5,8 @@
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "GeometryImporter.generated.h"
 
+DECLARE_LOG_CATEGORY_EXTERN(LogGeometryImporter, Log, All);
+
 UCLASS(Blueprintable, BlueprintType)
 class CARLADIGITALTWINSTOOL_API UGeometryImporter : public UBlueprintFunctionLibrary
 {
