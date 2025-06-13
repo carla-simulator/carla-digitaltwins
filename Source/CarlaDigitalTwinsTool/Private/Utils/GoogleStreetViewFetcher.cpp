@@ -89,7 +89,7 @@ void UGoogleStreetViewFetcher::OnStreetViewResponseReceived(FHttpRequestPtr Requ
 void UGoogleStreetViewFetcher::ApplyCameraTexture()
 {
     // Create a dynamic material instance from the post process material
-    UMaterialInterface* BasePPMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/CarlaDigitalTwinsTool/digitalTwins/Static/Utils/M_GoogleStreetViewPost.M_GoogleStreetViewPost"));
+    UMaterialInterface* BasePPMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/CarlaDigitalTwinsTool/Static/Utils/M_GoogleStreetViewPost.M_GoogleStreetViewPost"));
 
     if (!StreetViewPostProcessMaterial && BasePPMat)
     {
