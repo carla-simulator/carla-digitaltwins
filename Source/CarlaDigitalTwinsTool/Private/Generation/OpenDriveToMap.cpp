@@ -1543,6 +1543,24 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
 
     UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Number of road splines: %i"), RoadSplines.Num());
 
+    // Project spline points to the floor
+    for (auto Spline : RoadSplines)
+    {
+      int32 NumPoints = Spline->GetNumberOfSplinePoints();
+      for (int32 i = 0; i < NumPoints; ++i)
+      {
+          FVector Pos = Spline->GetLocationAtSplinePoint(i, ESplineCoordinateSpace::Local);
+
+          Pos.Z = GetHeight(Pos.X, Pos.Y, false);
+
+          Spline->SetLocationAtSplinePoint(i, Pos, ESplineCoordinateSpace::Local, false);
+
+          Spline->UpdateSpline();
+
+          UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Spline updated"));
+      }
+    }
+
     SplineGenerationFinished(RoadSplines);
 }
 
