@@ -13,6 +13,7 @@
 #include "RenderingThread.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/SceneComponent.h"
+#include "PhysicsEngine/BodySetup.h"
 // Carla C++ headers
 
 // Carla plugin headers
@@ -161,7 +162,7 @@ UStaticMesh* UMapGenFunctionLibrary::CreateMesh(
   IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
 
   UStaticMesh::FBuildMeshDescriptionsParams Params;
-  Params.bBuildSimpleCollision = true;
+  Params.bBuildSimpleCollision = false;
 
   FString PackageName = UGenerationPathsHelper::GetMapContentDirectoryPath(MapName) + FolderName + "/" + MeshName.ToString();
 
@@ -185,11 +186,16 @@ UStaticMesh* UMapGenFunctionLibrary::CreateMesh(
     Mesh->GetStaticMaterials().Add(FStaticMaterial(MaterialInstance));
     Mesh->NaniteSettings.bEnabled = true;
     Mesh->BuildFromMeshDescriptions({ &Description }, Params);
+    // Ensure Mesh has a BodySetup
     Mesh->CreateBodySetup();
-#if ENGINE_MAJOR_VERSION < 5
-    Mesh->BodySetup->CollisionTraceFlag = ECollisionTraceFlag::CTF_UseComplexAsSimple;
-    Mesh->BodySetup->CreatePhysicsMeshes();
-#endif
+    UBodySetup* BodySetup = Mesh->GetBodySetup();
+    if (BodySetup)
+    {
+        // Set to use complex as simple collision
+        BodySetup->CollisionTraceFlag = CTF_UseComplexAsSimple;
+        BodySetup->InvalidatePhysicsData();
+        BodySetup->ClearPhysicsMeshes();
+    }
     // Build mesh from source
     Mesh->NeverStream = false;
     TArray<UObject*> CreatedAssets;
@@ -199,12 +205,15 @@ UStaticMesh* UMapGenFunctionLibrary::CreateMesh(
     FAssetRegistryModule::AssetCreated(Mesh);
     //UPackage::SavePackage(Package, Mesh, EObjectFlags::RF_Public | EObjectFlags::RF_Standalone, *(MeshName.ToString()), GError, nullptr, true, true, SAVE_NoError);
 #if ENGINE_MAJOR_VERSION > 4
-
     TArray<UStaticMesh*> MeshToEnableNanite;
     MeshToEnableNanite.Add(Mesh);
     UStaticMesh::BatchBuild(MeshToEnableNanite);
 #endif
+    // Finalize mesh
+    Mesh->Build(false); // Rebuilds mesh data, optionally pass true to mark as async
+    Mesh->PostEditChange(); 
     Package->MarkPackageDirty();
+    Mesh->ComplexCollisionMesh = Mesh;
     return Mesh;
   }
   return nullptr;
@@ -305,4 +314,143 @@ UInstancedStaticMeshComponent* UMapGenFunctionLibrary::AddInstancedStaticMeshCom
   TargetActor->AddInstanceComponent(ISMComponent);
 
   return ISMComponent;
+}
+
+UStaticMeshComponent* UMapGenFunctionLibrary::AddStaticMeshComponentToActor(AActor* TargetActor){
+  if ( !TargetActor )
+  {
+      UE_LOG(LogCarlaMapGenFunctionLibrary, Warning, TEXT("Invalid TargetActor in AddInstancedStaticMeshComponentToActor"));
+      return nullptr;
+  }
+
+  if (!TargetActor->GetRootComponent())
+  {
+      USceneComponent* NewRoot = NewObject<USceneComponent>(TargetActor, TEXT("GeneratedRootComponent"));
+      TargetActor->SetRootComponent(NewRoot);
+      NewRoot->RegisterComponent();
+  }
+
+  // Crear el componente instanciado
+  UStaticMeshComponent* SMComponent = NewObject<UStaticMeshComponent>(TargetActor);
+  if (!SMComponent)
+  {
+      UE_LOG(LogCarlaMapGenFunctionLibrary, Error, TEXT("Could not create UStaticMeshComponent"));
+      return nullptr;
+  }
+
+  SMComponent->SetupAttachment(TargetActor->GetRootComponent());
+  SMComponent->RegisterComponent();
+
+  TargetActor->AddInstanceComponent(SMComponent);
+
+  return SMComponent;
+}
+
+void UMapGenFunctionLibrary::SmoothVerticesDeep(
+  TArray<FVector>& Vertices,
+  const TArray<int32>& Indices,
+  int Depth,                 // Number of neighbor levels
+  int NumIterations,
+  float SmoothingFactor   // Blend between original and averaged
+)
+{
+  const int32 NumVertices = Vertices.Num();
+
+  // Step 1: Build adjacency map
+  TMap<int32, TSet<int32>> VertexNeighbors;
+  const int32 NumTriangles = Indices.Num() / 3;
+
+  for (int32 i = 0; i < NumTriangles; ++i)
+  {
+      int32 I0 = Indices[i * 3 + 0];
+      int32 I1 = Indices[i * 3 + 1];
+      int32 I2 = Indices[i * 3 + 2];
+
+      VertexNeighbors.FindOrAdd(I0).Add(I1);
+      VertexNeighbors.FindOrAdd(I0).Add(I2);
+
+      VertexNeighbors.FindOrAdd(I1).Add(I0);
+      VertexNeighbors.FindOrAdd(I1).Add(I2);
+
+      VertexNeighbors.FindOrAdd(I2).Add(I0);
+      VertexNeighbors.FindOrAdd(I2).Add(I1);
+  }
+
+  // Step 2: Iterative smoothing
+  for (int32 Iter = 0; Iter < NumIterations; ++Iter)
+  {
+    TArray<FVector> NewVertices = Vertices;
+    for (int32 i = 0; i < NumVertices; ++i)
+    {
+        TSet<int32> Visited;
+        TQueue<TPair<int32, int32>> Queue; // Pair of (vertex index, current depth)
+        Visited.Add(i);
+        Queue.Enqueue(TPair<int32, int32>(i, 0));
+        TArray<int32> CollectedNeighbors;
+
+        while (!Queue.IsEmpty())
+        {
+          TPair<int32, int32> Current;
+          Queue.Dequeue(Current);
+          int32 CurrentIndex = Current.Key;
+          int32 CurrentDepth = Current.Value;
+
+          if (CurrentDepth >= Depth)
+              continue;
+          const TSet<int32>* Neighbors = VertexNeighbors.Find(CurrentIndex);
+          if (!Neighbors) continue;
+
+          for (int32 NeighborIndex : *Neighbors)
+          {
+            if (!Visited.Contains(NeighborIndex))
+            {
+              Visited.Add(NeighborIndex);
+              CollectedNeighbors.Add(NeighborIndex);
+              Queue.Enqueue(TPair<int32, int32>(NeighborIndex, CurrentDepth + 1));
+            }
+          }
+        }
+
+        if (CollectedNeighbors.Num() > 0)
+        {
+          FVector Average = FVector::ZeroVector;
+          for (int32 NeighborIdx : CollectedNeighbors)
+          {
+            Average += Vertices[NeighborIdx];
+          }
+          Average /= CollectedNeighbors.Num();
+          NewVertices[i] = FMath::Lerp(Vertices[i], Average, SmoothingFactor);
+        }
+    }
+    Vertices = NewVertices;
+  }
+}
+
+float UMapGenFunctionLibrary::BicubicSampleG16(const TArrayView64<const uint16>& Pixels, int Width, int Height, float X, float Y)
+{
+  int ix = FMath::FloorToInt(X);
+  int iy = FMath::FloorToInt(Y);
+  float fx = X - ix;
+  float fy = Y - iy;
+
+  float patch[4][4];
+
+  // Fetch surrounding 4x4 pixel values
+  for (int m = -1; m <= 2; ++m)
+  {
+      for (int n = -1; n <= 2; ++n)
+      {
+          uint16 val = GetPixelG16(Pixels, Width, Height, ix + n, iy + m);
+          patch[m + 1][n + 1] = val / 65535.0f;  // Normalize to [0,1]
+      }
+  }
+
+  float col[4];
+  for (int i = 0; i < 4; ++i)
+  {
+      col[i] = CubicHermite(patch[i][0], patch[i][1], patch[i][2], patch[i][3], fx);
+  }
+
+  float result = CubicHermite(col[0], col[1], col[2], col[3], fy);
+  return FMath::Clamp(result, 0.0f, 1.0f); // Final result in [0,1]
 }
