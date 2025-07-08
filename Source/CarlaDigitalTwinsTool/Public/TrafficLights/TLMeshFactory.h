@@ -9,6 +9,7 @@
 #include "CoreMinimal.h"
 #include "Engine/DataTable.h"
 #include "Engine/StaticMesh.h"
+#include "TrafficLights/TLBackplateDataTable.h"
 #include "TrafficLights/TLHead.h"
 #include "TrafficLights/TLModule.h"
 #include "TrafficLights/TLPole.h"
@@ -24,16 +25,24 @@ public:
 	static TArray<UStaticMesh*> GetAllBaseMeshesForPole(const FTLPole& Pole);
 	static TArray<UStaticMesh*> GetAllExtendibleMeshesForPole(const FTLPole& Pole);
 	static TArray<UStaticMesh*> GetAllCapMeshesForPole(const FTLPole& Pole);
+	static UStaticMesh* GetBackplateCornerMesh(const FTLHead& Head);
+	static UStaticMesh* GetBackplateHorizontalMesh(const FTLHead& Head);
+	static UStaticMesh* GetBackplateVerticalMesh(const FTLHead& Head);
+	static UStaticMesh* GetBackplateMiddleMesh(const FTLHead& Head);
 
 	static UDataTable* GetModuleMeshTable();
 	static UDataTable* GetLightTypeMeshTable();
 	static UDataTable* GetPoleMeshTable();
+	static UDataTable* GetBackplateMeshTable();
 
 	static int32 CountLedMaterials(UStaticMesh* Mesh);
-	// static TArray<FStaticMaterial> GetLedMaterials(UStaticMesh* Mesh);
+
+private:
+	static FTLBackplateRow* GetBackplateRow(ETLStyle Style);
 
 private:
 	static UDataTable* LightTypeMeshTable;
 	static UDataTable* ModuleMeshTable;
 	static UDataTable* PoleMeshTable;
+	static UDataTable* BackplateMeshTable;
 };

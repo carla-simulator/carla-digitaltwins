@@ -2,6 +2,7 @@
 
 #include "Components/StaticMeshComponent.h"
 #include "Logging/LogVerbosity.h"
+#include "TrafficLights/TLBackplateDataTable.h"
 #include "TrafficLights/TLModuleDataTable.h"
 #include "TrafficLights/TLPoleDataTable.h"
 #include "UObject/NameTypes.h"
@@ -9,6 +10,7 @@
 UDataTable* FTLMeshFactory::ModuleMeshTable{nullptr};
 UDataTable* FTLMeshFactory::PoleMeshTable{nullptr};
 UDataTable* FTLMeshFactory::LightTypeMeshTable{nullptr};
+UDataTable* FTLMeshFactory::BackplateMeshTable{nullptr};
 
 UDataTable* FTLMeshFactory::GetLightTypeMeshTable()
 {
@@ -47,6 +49,19 @@ UDataTable* FTLMeshFactory::GetPoleMeshTable()
 		PoleMeshTable = Cast<UDataTable>(Loaded);
 	}
 	return PoleMeshTable;
+}
+
+UDataTable* FTLMeshFactory::GetBackplateMeshTable()
+{
+	if (!BackplateMeshTable)
+	{
+		constexpr TCHAR const* Path{
+			TEXT("/Game/Carla/Static/TrafficLight/TrafficLights2025/DataTables/"
+				 "Backplates.Backplates")};
+		UObject* Loaded = StaticLoadObject(UDataTable::StaticClass(), nullptr, Path);
+		BackplateMeshTable = Cast<UDataTable>(Loaded);
+	}
+	return BackplateMeshTable;
 }
 
 UStaticMesh* FTLMeshFactory::GetMeshForModule(const FTLHead& Head, const FTLModule& Module)
@@ -201,6 +216,52 @@ TArray<UStaticMesh*> FTLMeshFactory::GetAllCapMeshesForPole(const FTLPole& Pole)
 		}
 	}
 	return Meshes;
+}
+
+FTLBackplateRow* FTLMeshFactory::GetBackplateRow(ETLStyle Style)
+{
+	UDataTable* Table{GetBackplateMeshTable()};
+	if (!Table)
+	{
+		UE_LOG(LogTemp, Error, TEXT("PoleMeshFactory: BackplateMeshTable is null"));
+		return nullptr;
+	}
+
+	for (const FName& RowName : Table->GetRowNames())
+	{
+		FTLBackplateRow* Row{Table->FindRow<FTLBackplateRow>(RowName, TEXT("GetBackplateRow"))};
+		if (!Row)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("PoleMeshFactory: row '%s' not found"), *RowName.ToString());
+			continue;
+		}
+
+		if (Row->Style == Style)
+		{
+			return Row;
+		}
+	}
+	return nullptr;
+}
+
+UStaticMesh* FTLMeshFactory::GetBackplateCornerMesh(const FTLHead& Head)
+{
+	return GetBackplateRow(Head.Style) ? GetBackplateRow(Head.Style)->CornerMesh : nullptr;
+}
+
+UStaticMesh* FTLMeshFactory::GetBackplateHorizontalMesh(const FTLHead& Head)
+{
+	return GetBackplateRow(Head.Style) ? GetBackplateRow(Head.Style)->HorizontalMesh : nullptr;
+}
+
+UStaticMesh* FTLMeshFactory::GetBackplateVerticalMesh(const FTLHead& Head)
+{
+	return GetBackplateRow(Head.Style) ? GetBackplateRow(Head.Style)->VerticalMesh : nullptr;
+}
+
+UStaticMesh* FTLMeshFactory::GetBackplateMiddleMesh(const FTLHead& Head)
+{
+	return GetBackplateRow(Head.Style) ? GetBackplateRow(Head.Style)->MiddleMesh : nullptr;
 }
 
 int32 FTLMeshFactory::CountLedMaterials(UStaticMesh* Mesh)
