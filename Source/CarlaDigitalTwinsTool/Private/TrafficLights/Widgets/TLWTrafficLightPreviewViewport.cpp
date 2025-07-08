@@ -4,6 +4,7 @@
 #include "Engine/StaticMesh.h"
 #include "Logging/LogMacros.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Math/MathFwd.h"
 #include "TrafficLights/TLHead.h"
 #include "TrafficLights/TLLightTypeDataTable.h"
 #include "TrafficLights/TLMaterialFactory.h"
@@ -61,30 +62,6 @@ STrafficLightPreviewViewport::~STrafficLightPreviewViewport()
 		PreviewScene.Reset();
 		ViewportClient->Viewport = nullptr;
 	}
-}
-
-FVector2D STrafficLightPreviewViewport::GetAtlasCoordsForLightType(ETLLightType LightType) const
-{
-	if (LightTypesTable == nullptr)
-	{
-		UE_LOG(LogTemp, Error, TEXT("LightTypesTable is not set"));
-		return FVector2D::ZeroVector;
-	}
-	const UEnum* EnumPtr = StaticEnum<ETLLightType>();
-	if (!EnumPtr)
-	{
-		return FVector2D::ZeroVector;
-	}
-
-	const FString EnumName = EnumPtr->GetNameStringByValue(static_cast<int64>(LightType));
-	const FName RowName(*EnumName);
-
-	if (const FTLLightTypeRow* Row = LightTypesTable->FindRow<FTLLightTypeRow>(RowName, TEXT("GetAtlasCoordsForLightType")))
-	{
-		return Row->AtlasCoords;
-	}
-
-	return FVector2D::ZeroVector;
 }
 
 UStaticMeshComponent* STrafficLightPreviewViewport::AddModuleMesh(const FTLPole& Pole, const FTLHead& Head, FTLModule& ModuleData)
@@ -182,6 +159,96 @@ UStaticMeshComponent* STrafficLightPreviewViewport::AddPoleCapMesh(const FTLPole
 	return Comp;
 }
 
+void STrafficLightPreviewViewport::AddBackplate(const FTLPole& Pole, const FTLHead& Head)
+{
+	// 1) Compute head’s world transform and orientation
+	const FTransform HeadWorldTransform{Head.Transform * Pole.Transform};
+	const FVector HeadCenterLocation{HeadWorldTransform.GetLocation()};
+	const FQuat HeadWorldRotation{HeadWorldTransform.GetRotation()};
+
+	// 2) Load the four backplate meshes
+	UStaticMesh* CornerMesh{FTLMeshFactory::GetBackplateCornerMesh(Head)};
+	UStaticMesh* HorizontalMesh{FTLMeshFactory::GetBackplateHorizontalMesh(Head)};
+	UStaticMesh* VerticalMesh{FTLMeshFactory::GetBackplateVerticalMesh(Head)};
+	UStaticMesh* MiddleMesh{FTLMeshFactory::GetBackplateMiddleMesh(Head)};
+	check(CornerMesh && HorizontalMesh && VerticalMesh && MiddleMesh);
+
+	// 3) Compute the bounding box of the head, in world space
+	FBox HeadBounds(ForceInit);
+	for (const FTLModule& Module : Head.Modules)
+	{
+		if (Module.ModuleMeshComponent)
+		{
+			const FTransform& ModuleTransform{Module.ModuleMeshComponent->GetComponentTransform()};
+			HeadBounds += Module.ModuleMesh->GetBoundingBox().TransformBy(ModuleTransform);
+		}
+	}
+	const FVector BoundsMin{HeadBounds.Min};
+	const FVector BoundsMax{HeadBounds.Max};
+
+	struct FMeshPlacement
+	{
+		FVector Location;
+		FRotator Rotation;
+	};
+
+	TArray<FMeshPlacement> CornerPlacements{{FVector{BoundsMin.X, BoundsMin.Y, BoundsMax.Z}, FRotator{0.0f, 0.0f, 0.0f}},
+		{FVector{BoundsMin.X, BoundsMin.Y, BoundsMin.Z}, FRotator{90.0f, 0.0f, 0.0f}},
+		{FVector{BoundsMax.X, BoundsMin.Y, BoundsMin.Z}, FRotator{180.0f, 0.0f, 0.0f}},
+		{FVector{BoundsMax.X, BoundsMin.Y, BoundsMax.Z}, FRotator{270.0f, 0.0f, 0.0f}}};
+
+	for (const FMeshPlacement& Placement : CornerPlacements)
+	{
+		UStaticMeshComponent* CornerComponent{
+			NewObject<UStaticMeshComponent>(PreviewScene->GetWorld()->PersistentLevel, NAME_None, RF_Transient)};
+		CornerComponent->SetStaticMesh(CornerMesh);
+
+		const FTransform Transform{Placement.Rotation, Placement.Location, FVector{1.0f, 1.0f, 1.0f}};
+		PreviewScene->AddComponent(CornerComponent, Transform);
+		BackplateComponents.Add(CornerComponent);
+	}
+
+	const float ScaleZ{(BoundsMax.Z - BoundsMin.Z) / (HorizontalMesh->GetBoundingBox().GetExtent().Z * 2.0f)};
+	TArray<FMeshPlacement> VerticalPlacements{{FVector{BoundsMin.X, BoundsMin.Y, BoundsMin.Z}, FRotator{0.0f, 0.0f, 0.0f}},
+		{FVector{BoundsMax.X, BoundsMin.Y, BoundsMax.Z}, FRotator{180.0f, 0.0f, 0.0f}}};
+
+	for (const FMeshPlacement& Placement : VerticalPlacements)
+	{
+		UStaticMeshComponent* VerticalComponent{
+			NewObject<UStaticMeshComponent>(PreviewScene->GetWorld()->PersistentLevel, NAME_None, RF_Transient)};
+		VerticalComponent->SetStaticMesh(VerticalMesh);
+
+		const FTransform Transform{Placement.Rotation, Placement.Location, FVector{1.0f, 1.0f, ScaleZ}};
+		PreviewScene->AddComponent(VerticalComponent, Transform);
+		BackplateComponents.Add(VerticalComponent);
+	}
+
+	const float ScaleX{(BoundsMax.X - BoundsMin.X) / (HorizontalMesh->GetBoundingBox().GetExtent().X * 2.0f)};
+	TArray<FMeshPlacement> HorizontalPlacements{{FVector{BoundsMax.X, BoundsMin.Y, BoundsMax.Z}, FRotator{0.0f, 0.0f, 0.0f}},
+		{FVector{BoundsMin.X, BoundsMin.Y, BoundsMin.Z}, FRotator{180.0f, 0.0f, 0.0f}}};
+
+	for (const FMeshPlacement& Placement : HorizontalPlacements)
+	{
+		UStaticMeshComponent* HorizontalComponent{
+			NewObject<UStaticMeshComponent>(PreviewScene->GetWorld()->PersistentLevel, NAME_None, RF_Transient)};
+		HorizontalComponent->SetStaticMesh(HorizontalMesh);
+
+		const FTransform Transform{Placement.Rotation, Placement.Location, FVector{ScaleX, 1.0f, 1.0f}};
+		PreviewScene->AddComponent(HorizontalComponent, Transform);
+		BackplateComponents.Add(HorizontalComponent);
+	}
+
+	{
+		UStaticMeshComponent* MiddleComponent{
+			NewObject<UStaticMeshComponent>(PreviewScene->GetWorld()->PersistentLevel, NAME_None, RF_Transient)};
+		MiddleComponent->SetStaticMesh(MiddleMesh);
+		const FTransform Transform{
+			HeadWorldRotation, FVector{BoundsMax.X, BoundsMin.Y, BoundsMin.Z}, FVector{ScaleX, 1.0f, ScaleZ}};
+		PreviewScene->AddComponent(MiddleComponent, Transform);
+		BackplateComponents.Add(MiddleComponent);
+	}
+}
+
 void STrafficLightPreviewViewport::ClearModuleMeshes()
 {
 	for (UStaticMeshComponent* Comp : ModuleMeshComponents)
@@ -226,10 +293,24 @@ void STrafficLightPreviewViewport::ClearPoleMeshes()
 	PoleCapMeshComponents.Empty();
 }
 
+void STrafficLightPreviewViewport::ClearBackplates()
+{
+	for (UStaticMeshComponent* Comp : BackplateComponents)
+	{
+		if (Comp)
+		{
+			PreviewScene->RemoveComponent(Comp);
+			Comp->DestroyComponent();
+		}
+	}
+	BackplateComponents.Reset();
+}
+
 void STrafficLightPreviewViewport::Rebuild(TArray<FTLPole>& Poles)
 {
 	ClearModuleMeshes();
 	ClearPoleMeshes();
+	ClearBackplates();
 	for (FTLPole& Pole : Poles)
 	{
 		if (Pole.BasePoleMesh)
@@ -249,6 +330,10 @@ void STrafficLightPreviewViewport::Rebuild(TArray<FTLPole>& Poles)
 			for (FTLModule& Module : Head.Modules)
 			{
 				Module.ModuleMeshComponent = AddModuleMesh(Pole, Head, Module);
+			}
+			if (Head.bHasBackplate)
+			{
+				AddBackplate(Pole, Head);
 			}
 		}
 	}
@@ -284,4 +369,28 @@ void STrafficLightPreviewViewport::ResetFrame(const UStaticMeshComponent* Comp)
 
 	ViewportClient->SetViewLocation(CamPos);
 	ViewportClient->SetViewRotation(CamRot);
+}
+
+FVector2D STrafficLightPreviewViewport::GetAtlasCoordsForLightType(ETLLightType LightType) const
+{
+	if (LightTypesTable == nullptr)
+	{
+		UE_LOG(LogTemp, Error, TEXT("LightTypesTable is not set"));
+		return FVector2D::ZeroVector;
+	}
+	const UEnum* EnumPtr = StaticEnum<ETLLightType>();
+	if (!EnumPtr)
+	{
+		return FVector2D::ZeroVector;
+	}
+
+	const FString EnumName = EnumPtr->GetNameStringByValue(static_cast<int64>(LightType));
+	const FName RowName(*EnumName);
+
+	if (const FTLLightTypeRow* Row = LightTypesTable->FindRow<FTLLightTypeRow>(RowName, TEXT("GetAtlasCoordsForLightType")))
+	{
+		return Row->AtlasCoords;
+	}
+
+	return FVector2D::ZeroVector;
 }

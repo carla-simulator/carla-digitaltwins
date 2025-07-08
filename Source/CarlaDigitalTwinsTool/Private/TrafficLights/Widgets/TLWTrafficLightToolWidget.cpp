@@ -10,7 +10,6 @@
 #include "Misc/AssertionMacros.h"
 #include "TrafficLights/TLHead.h"
 #include "TrafficLights/TLLightTypeDataTable.h"
-#include "TrafficLights/TLMaterialFactory.h"
 #include "TrafficLights/TLMeshFactory.h"
 #include "TrafficLights/TLModule.h"
 #include "TrafficLights/TLPole.h"
@@ -1197,17 +1196,11 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildHeadEntry(int32 PoleIndex, int
 					})
 					.OnCheckStateChanged_Lambda([this, PoleIndex, HeadIndex](ECheckBoxState NewState)
 					{
-						FTLHead& Head{Poles[PoleIndex].Heads[HeadIndex]};
+                        FTLPole& Pole{Poles[PoleIndex]};
+						FTLHead& Head{Pole.Heads[HeadIndex]};
 						bool bOn{(NewState == ECheckBoxState::Checked)};
 						Head.bHasBackplate = bOn;
-						if (bOn)
-						{
-							// TODO: Add Backplate
-						}
-						else
-						{
-							// TODO: Remove Backplate
-						}
+						Rebuild();
 					})
 					[SNew(STextBlock)
 						.Text(FText::FromString("Has Backplate"))
