@@ -825,7 +825,7 @@ void UOpenDriveToMap::GenerateRoadMesh( const boost::optional<carla::road::Map>&
         for (auto& Vertex : Vertices)
         {
           FVector FV = Vertex.ToFVector();
-          Vertex.z += GetHeight(Vertex.x * 100.0f, Vertex.y * 100.0f, DistanceToLaneBorder(ParamCarlaMap, FV) > 65.0f) / 100.0f;
+          Vertex.z = GetHeight(Vertex.x * 100.0f, Vertex.y * 100.0f, DistanceToLaneBorder(ParamCarlaMap, FV) > 65.0f) / 100.0f;
         }
 #if ENGINE_MAJOR_VERSION < 5
         carla::geom::Simplification Simplify(0.15);
@@ -836,7 +836,7 @@ void UOpenDriveToMap::GenerateRoadMesh( const boost::optional<carla::road::Map>&
       {
         for (auto& Vertex : Vertices)
         {
-          Vertex.z += (GetHeight(Vertex.x * 100.0f, Vertex.y * 100.0f, false) + 0.15f) / 100.0f;
+          Vertex.z = (GetHeight(Vertex.x * 100.0f, Vertex.y * 100.0f, false) + 15.0f) / 100.0f;
         }
       }
 
@@ -977,7 +977,7 @@ void UOpenDriveToMap::GenerateLaneMarks(const boost::optional<carla::road::Map>&
     for (auto& Vertex : Mesh->GetVertices())
     {
       FVector VertexFVector = Vertex.ToFVector();
-      Vertex.z += GetHeight(Vertex.x * 100.0f, Vertex.y * 100.0f, DistanceToLaneBorder(ParamCarlaMap,VertexFVector) > 65.0f ) / 100.0f + 0.01f;
+      Vertex.z = GetHeight(Vertex.x * 100.0f, Vertex.y * 100.0f, DistanceToLaneBorder(ParamCarlaMap,VertexFVector) > 65.0f ) / 100.0f + 0.01f;
       MeshCentroid += Vertex.ToFVector();
     }
 
@@ -1219,7 +1219,7 @@ float UOpenDriveToMap::GetHeightForLandscape( FVector Origin ){
     CollisionQuery,
     CollisionParams) )
   {
-    return (HitResult.Location.Z) - 100.0f;
+    return (HitResult.Location.Z) -1.0f;
   }
   
   // If no hit, return the height based on the origin coordinates
