@@ -1175,7 +1175,7 @@ float UOpenDriveToMap::GetHeightForLandscape( FVector Origin ){
     CollisionQuery,
     CollisionParams) )
   {
-    return (HitResult.Location.Z) - 100.0f;
+    return (HitResult.Location.Z) -1.0f;
   }
   
   // If no hit, return the height based on the origin coordinates
