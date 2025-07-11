@@ -792,7 +792,9 @@ void UOpenDriveToMap::GenerateRoadMesh( const boost::optional<carla::road::Map>&
       {
         for (auto& Vertex : Vertices)
         {
-          Vertex.z = (GetHeight(Vertex.x * 100.0f, Vertex.y * 100.0f, false) + 15.0f) / 100.0f;
+          if (Vertex.z>0){  // Apply only to top vertices, to leave sidewalk wall
+            Vertex.z = (GetHeight(Vertex.x * 100.0f, Vertex.y * 100.0f, false) + 15.0f) / 100.0f;
+          }
         }
       }
 
