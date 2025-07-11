@@ -836,7 +836,9 @@ void UOpenDriveToMap::GenerateRoadMesh( const boost::optional<carla::road::Map>&
       {
         for (auto& Vertex : Vertices)
         {
-          Vertex.z = (GetHeight(Vertex.x * 100.0f, Vertex.y * 100.0f, false) + 15.0f) / 100.0f;
+          if (Vertex.z>0){  // Apply only to top vertices, to leave sidewalk wall
+            Vertex.z = (GetHeight(Vertex.x * 100.0f, Vertex.y * 100.0f, false) + 15.0f) / 100.0f;
+          }
         }
       }
 
@@ -1211,16 +1213,16 @@ float UOpenDriveToMap::GetHeightForLandscape( FVector Origin ){
   CollisionQuery.AddIgnoredActors(Landscapes);
   FCollisionResponseParams CollisionParams;
 
-  if( GetEditorWorld()->LineTraceSingleByChannel(
-    HitResult,
-    Start,
-    End,
-    ECollisionChannel::ECC_WorldStatic,
-    CollisionQuery,
-    CollisionParams) )
-  {
-    return (HitResult.Location.Z) -1.0f;
-  }
+  // if( GetEditorWorld()->LineTraceSingleByChannel(
+  //   HitResult,
+  //   Start,
+  //   End,
+  //   ECollisionChannel::ECC_WorldStatic,
+  //   CollisionQuery,
+  //   CollisionParams) )
+  // {
+  //   return (HitResult.Location.Z) -1.0f;
+  // }
   
   // If no hit, return the height based on the origin coordinates
   return GetHeight(Origin.X, Origin.Y, false) - 2.0f;
