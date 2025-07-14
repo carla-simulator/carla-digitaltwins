@@ -50,7 +50,7 @@ UObject* UBlueprintUtilFunctions::CopyAssetToPlugin(UObject* SourceObject, FStri
     {
       return ExistingAsset;
     }
-    UE_LOG(LogDigitalTwinsToolBlueprintUtil, Error, TEXT("Invalid Asset"), *TargetAssetPath);
+    UE_LOG(LogDigitalTwinsToolBlueprintUtil, Error, TEXT("Invalid Asset: %s"), *TargetAssetPath);
     return nullptr;
   }
 
