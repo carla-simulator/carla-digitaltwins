@@ -140,6 +140,7 @@ public class CarlaDigitalTwinsTool : ModuleRules
         "Blutility",
         "UMG",
         "EditorScriptingUtilities",
+        "ImageWriteQueue",
         "Landscape",
         "Foliage",
         "FoliageEdit",
