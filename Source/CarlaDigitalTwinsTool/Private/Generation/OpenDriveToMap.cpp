@@ -899,25 +899,26 @@ void UOpenDriveToMap::GenerateRoadMesh( const boost::optional<carla::road::Map>&
       TempActor->SetActorLabel(FString("SM_DrivingLane_") + FString::FromInt(Index));
     }
 
-    if (LaneType == carla::road::Lane::LaneType::Sidewalk && DefaultSidewalksMaterial)
-    {
-      UObject* DuplicatedMaterialObject = UBlueprintUtilFunctions::CopyAssetToPlugin(DefaultRoadMaterial, MapName);
-      UMaterialInstance* DuplicatedSidewalkMaterial = Cast<UMaterialInstance>(DuplicatedMaterialObject);
+    // if (LaneType == carla::road::Lane::LaneType::Sidewalk && DefaultSidewalksMaterial)
+    // {
+    //   UObject* DuplicatedMaterialObject = UBlueprintUtilFunctions::CopyAssetToPlugin(DefaultRoadMaterial, MapName);
+    //   UMaterialInstance* DuplicatedSidewalkMaterial = Cast<UMaterialInstance>(DuplicatedMaterialObject);
 
-      StaticMeshComponent->SetMaterial(0, DuplicatedSidewalkMaterial);
-      TempActor->SetActorLabel(FString("SM_Sidewalk_") + FString::FromInt(Index));
-    }
+    //   StaticMeshComponent->SetMaterial(0, DuplicatedSidewalkMaterial);
+    //   TempActor->SetActorLabel(FString("SM_Sidewalk_") + FString::FromInt(Index));
+    // }
 
     UStaticMesh* FinalMesh = nullptr;
 
-    if (LaneType == carla::road::Lane::LaneType::Sidewalk)
-    {
-      UObject* DuplicatedMaterialObject = UBlueprintUtilFunctions::CopyAssetToPlugin(DefaultSidewalksMaterial, MapName);
-      UMaterialInstance* DuplicatedSidewalkMaterial = Cast<UMaterialInstance>(DuplicatedMaterialObject);
+    // if (LaneType == carla::road::Lane::LaneType::Sidewalk)
+    // {
+    //   UObject* DuplicatedMaterialObject = UBlueprintUtilFunctions::CopyAssetToPlugin(DefaultSidewalksMaterial, MapName);
+    //   UMaterialInstance* DuplicatedSidewalkMaterial = Cast<UMaterialInstance>(DuplicatedMaterialObject);
 
-      FinalMesh = UMapGenFunctionLibrary::CreateMesh(Entry.MeshData, Tangents, DuplicatedSidewalkMaterial, MapName, "Sidewalk", FName(TEXT("SM_SidewalkMesh" + FString::FromInt(Index) + GetStringForCurrentTile())));
-    }
-    else if (LaneType == carla::road::Lane::LaneType::Driving)
+    //   FinalMesh = UMapGenFunctionLibrary::CreateMesh(Entry.MeshData, Tangents, DuplicatedSidewalkMaterial, MapName, "Sidewalk", FName(TEXT("SM_SidewalkMesh" + FString::FromInt(Index) + GetStringForCurrentTile())));
+    // }
+    // else if (LaneType == carla::road::Lane::LaneType::Driving)
+    if (LaneType == carla::road::Lane::LaneType::Driving)
     {
       UObject* DuplicatedMaterialObject = UBlueprintUtilFunctions::CopyAssetToPlugin(DefaultRoadMaterial, MapName);
       UMaterialInstance* DuplicatedRoadMaterial = Cast<UMaterialInstance>(DuplicatedMaterialObject);
