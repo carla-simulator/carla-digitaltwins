@@ -111,7 +111,7 @@ public:
   static UWorld* GetGameWorld();
 
   UFUNCTION(BlueprintCallable)
-  TArray<FRoadSignInfo> GetAllRoadSignsInfo(); 
+  TArray<FRoadSignInfo> GetAllRoadSignsInfo();
 
   UFUNCTION(BlueprintCallable, Category = "Assets Placement")
   static void MoveActorsToSubLevelWithLargeMap(TArray<AActor*> Actors, ALargeMapManager* LargeMapManager);
@@ -158,7 +158,7 @@ public:
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defaults")
   UMaterialInstance* DefaultLandscapeMaterial;
-  
+
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Parameters")
   FOpenDriveFileGenerationParameters OpenDriveGenParams;
 
@@ -249,6 +249,7 @@ private:
   // void GenerateSpawnPoints(const carla::road::Map& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
   void GenerateTreePositions(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
   void GenerateLaneMarks(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
+  void GenerateTrafficLights(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
 
   FTransform GetSnappedPosition(FTransform Origin);
 
@@ -274,7 +275,7 @@ private:
 
   UPROPERTY()
   UCustomFileDownloader* FileDownloader;
-  
+
   UPROPERTY()
   TArray<AActor*> Landscapes;
 

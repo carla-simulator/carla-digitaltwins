@@ -1,6 +1,16 @@
 // Copyright (c) 2023 Computer Vision Center (CVC) at the Universitat Autonoma de Barcelona (UAB). This work is licensed under the terms of the MIT license. For a copy, see <https://opensource.org/licenses/MIT>.
 
 #include "Generation/OpenDriveToMap.h"
+#include "Carla/Geom/BoundingBox.h"
+#include "Carla/Geom/Location.h"
+#include "Carla/Geom/Transform.h"
+#include "Carla/Road/Junction.h"
+#include "Carla/Road/Road.h"
+#include "Carla/Road/RoadTypes.h"
+#include "CoreGlobals.h"
+#include "Logging/LogMacros.h"
+#include "Math/MathFwd.h"
+#include "TrafficLights/TLModule.h"
 #if ENGINE_MAJOR_VERSION < 5
 #include "DesktopPlatform/Public/IDesktopPlatform.h"
 #include "DesktopPlatform/Public/DesktopPlatformModule.h"
@@ -62,6 +72,13 @@
 #include "DrawDebugHelpers.h"
 #include "Paths/GenerationPathsHelper.h"
 #if WITH_EDITOR
+#include "Carla/Road/InformationSet.h"
+#include "Carla/Road/Signal.h"
+#include "Carla/Road/SignalType.h"
+
+#include "TrafficLights/TrafficLightActor.h"
+#include "TrafficLights/TLPole.h"
+#include "TrafficLights/TLMeshFactory.h"
 
 
 
@@ -311,7 +328,7 @@ void UOpenDriveToMap::CreateTerrain(const int NumberOfTerrainX, const int Number
     if (!Actor) continue;
 
     UStaticMeshComponent* MeshComp = Actor->GetStaticMeshComponent();
-    
+
     MeshComp->SetStaticMesh(StaticMesh);
 
     MeshComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
@@ -407,7 +424,7 @@ void UOpenDriveToMap::CreateTerrainMesh(const int MeshIndex, const FVector2D Off
   MeshData.Triangles = Triangles;
   MeshData.Normals = Normals;
   MeshData.UV0 = UVs;
-    
+
   UObject* DuplicatedMaterialObject = UBlueprintUtilFunctions::CopyAssetToPlugin(DefaultLandscapeMaterial, MapName);
   UMaterialInstance* DuplicatedLandscapeMaterial = Cast<UMaterialInstance>(DuplicatedMaterialObject);
 
@@ -502,14 +519,14 @@ void UOpenDriveToMap::GenerateTile(){
 #endif
       MinPosition = FVector(CurrentTilesInXY.X * TileSize, CurrentTilesInXY.Y * -TileSize, 0.0f);
       MaxPosition = FVector((CurrentTilesInXY.X + 1.0f ) * TileSize, (CurrentTilesInXY.Y + 1.0f) * -TileSize, 0.0f);
-      
+
       WorldOriginPosition = FVector(0,0,0);
       WorldEndPosition = FVector(UMapGenFunctionLibrary::GetTransversemercProjection(
-        FinalGeoCoordinates.X, FinalGeoCoordinates.Y, 
+        FinalGeoCoordinates.X, FinalGeoCoordinates.Y,
         OriginGeoCoordinates.X, OriginGeoCoordinates.Y), 0);
 
       GenerateAll(CarlaMap, MinPosition, MaxPosition);
-      
+
 
       bHasStarted = true;
       bRoadsFinished = true;
@@ -625,7 +642,7 @@ void UOpenDriveToMap::LoadMap()
   FFileHelper::LoadFileToString(FileContent, *FilePath);
   std::string opendrive_xml = carla::rpc::FromLongFString(FileContent);
   CarlaMap = carla::opendrive::OpenDriveParser::Load(opendrive_xml);
-  
+
   if (!CarlaMap.has_value())
   {
     UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Invalid Map"));
@@ -643,7 +660,7 @@ void UOpenDriveToMap::LoadMap()
 #if ENGINE_MAJOR_VERSION < 5
     if( QueryActor != nullptr )
     {
-      
+
       ALargeMapManager* LargeMapManager = Cast<ALargeMapManager>(QueryActor);
       NumTilesInXY  = LargeMapManager->GetNumTilesInXY();
       TileSize = LargeMapManager->GetTileSize();
@@ -655,7 +672,7 @@ void UOpenDriveToMap::LoadMap()
         GenerateTileStandalone();
       }while(GoNextTile());
       ReturnToMainLevel();
-      
+
     }
 #else
 
@@ -726,6 +743,8 @@ void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& Param
   CreateTerrain(5,5, 64);
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Tree positions..... "));
   GenerateTreePositions(ParamCarlaMap, MinLocation, MaxLocation);
+  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Traffic Lights..... "));
+  GenerateTrafficLights(ParamCarlaMap, MinLocation, MaxLocation);
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Misc stuff..... "));
   GenerationFinished(MinLocation, MaxLocation);
 }
@@ -771,7 +790,7 @@ void UOpenDriveToMap::GenerateRoadMesh( const boost::optional<carla::road::Map>&
     ParallelFor(MeshList.size(), [&](int32 i)
     {
       const auto& Mesh = MeshList[i];
-      if (!Mesh->IsValid() || ( Mesh->GetVertices().size() == 0)) 
+      if (!Mesh->IsValid() || ( Mesh->GetVertices().size() == 0))
         return;
 
       auto& Vertices = Mesh->GetVertices();
@@ -1002,7 +1021,7 @@ void UOpenDriveToMap::GenerateLaneMarks(const boost::optional<carla::road::Map>&
 
     UStaticMesh* MeshToSet = UMapGenFunctionLibrary::CreateMesh(MeshData,  Tangents, DuplicatedLandscapeMaterial, MapName, "LaneMark", FName(TEXT("SM_LaneMarkMesh" + FString::FromInt(meshindex) + GetStringForCurrentTile() )));
     StaticMeshComponent->SetStaticMesh(MeshToSet);
-    
+
     TempActor->SetActorLocation(MeshCentroid * 100);
     TempActor->Tags.Add(*FString(lanemarkinfo[index].c_str()));
     TempActor->Tags.Add(FName("RoadLane"));
@@ -1072,6 +1091,62 @@ void UOpenDriveToMap::GenerateTreePositions( const boost::optional<carla::road::
     ++i;
   }
 }
+
+void UOpenDriveToMap::GenerateTrafficLights(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation)
+{
+    std::vector<const carla::road::element::RoadInfoSignal*> Signals {ParamCarlaMap->GetAllSignalReferences()};
+    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Signals found: %d"), Signals.size());
+    for (const carla::road::element::RoadInfoSignal* Info : Signals)
+    {
+        const carla::road::Signal* Signal {Info->GetSignal()};
+        if (carla::road::SignalType::IsTrafficLight(Signal->GetType()))
+        {
+            const carla::geom::Transform SignalTransform {Signal->GetTransform()};
+            UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Signal Transform: Location(%f, %f, %f), Pitch(%f), Yaw(%f), Roll(%f)"),
+              SignalTransform.location.x, SignalTransform.location.y, SignalTransform.location.z, SignalTransform.rotation.pitch, SignalTransform.rotation.yaw, SignalTransform.rotation.roll);
+            ATrafficLightActor* TL { GetEditorWorld()->SpawnActor<ATrafficLightActor>(ATrafficLightActor::StaticClass(), SignalTransform, FActorSpawnParameters())};
+
+            if (IsValid(TL))
+            {
+                //TODO: Move this default traffic light to a factory
+                FTLPole Pole;
+                Pole.Transform = SignalTransform;
+                Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshForPole(Pole);
+                Pole.ExtendiblePoleMesh = FTLMeshFactory::GetExtendibleMeshForPole(Pole);
+
+                FTLHead Head;
+                Head.Transform = FTransform(FRotator(), FVector(0, 15, 450));
+
+                FTLModule ModuleRed;
+                ModuleRed.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head,ModuleRed).Last();
+                FTLModuleLight RedLight;
+                RedLight.LightType = ETLLightType::SolidColorRed;
+                ModuleRed.Lights.Add(RedLight);
+                Head.Modules.Add(ModuleRed);
+
+                FTLModule ModuleAmber;
+                ModuleAmber.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head,ModuleAmber).Last();
+                FTLModuleLight AmberLight;
+                AmberLight.LightType = ETLLightType::SolidColorAmber;
+                ModuleAmber.Lights.Add(AmberLight);
+                Head.Modules.Add(ModuleAmber);
+
+                FTLModule ModuleGreen;
+                ModuleGreen.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head,ModuleGreen).Last();
+                FTLModuleLight GreenLight;
+                GreenLight.LightType = ETLLightType::SolidColorGreen;
+                ModuleGreen.Lights.Add(GreenLight);
+                Head.Modules.Add(ModuleGreen);
+
+                Pole.Heads.Add(Head);
+                TL->Poles.Empty();
+                TL->Poles.Add(Pole);
+                TL->BuildFromPoles();
+            }
+        }
+    }
+}
+
 
 float UOpenDriveToMap::GetHeight(float PosX, float PosY, bool bDrivingLane){
   if (DefaultHeightmap && HeightmapPixels.Num() > 0)
@@ -1177,7 +1252,7 @@ float UOpenDriveToMap::GetHeightForLandscape( FVector Origin ){
   {
     return (HitResult.Location.Z) - 100.0f;
   }
-  
+
   // If no hit, return the height based on the origin coordinates
   return GetHeight(Origin.X, Origin.Y, false) - 2.0f;
 }
@@ -1419,15 +1494,15 @@ TArray<FRoadSignInfo> UOpenDriveToMap::GetAllRoadSignsInfo()
     auto signalOrientation = SignalRef->GetOrientation();
     switch (signalOrientation)
     {
-      case carla::road::SignalOrientation::Positive: 
+      case carla::road::SignalOrientation::Positive:
         Info.Orientation = TEXT("Positive");
         break;
 
-      case carla::road::SignalOrientation::Negative: 
+      case carla::road::SignalOrientation::Negative:
         Info.Orientation = TEXT("Negative");
         break;
 
-      case carla::road::SignalOrientation::Both: 
+      case carla::road::SignalOrientation::Both:
         Info.Orientation = TEXT("Both");
         break;
 
