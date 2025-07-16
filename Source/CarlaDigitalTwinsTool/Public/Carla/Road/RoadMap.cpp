@@ -1308,17 +1308,19 @@ namespace carla::road {
       else
         road_ids.push_back(road.first);
     }
+
     road_ids.shrink_to_fit();
     if (road_ids.empty() && junction_ids.empty())
       return result;
 
-    auto compute_lane_spline_point = [this](auto transform, auto t)
-    {
-    };
+    // auto compute_lane_spline_point = [this](auto transform, auto t)
+    // {
+
+    // };
 
     auto compute_road_spline = [this](RoadId road_id)
     {
-      std::vector<geom::Location> local_result;
+      std::vector<std::vector<geom::Location>> local_result;
       auto& road = _data.GetRoad(road_id);
       assert(!road.IsJunction());
       auto lane_sections = road.GetLaneSections();
@@ -1327,18 +1329,52 @@ namespace carla::road {
         auto& lanes = lane_section.GetLanes();
         for (auto& [lane_id, lane] : lanes)
         {
+          if (lane_id == 0) continue;
+
           auto lane_length = lane.GetLength();
           auto s_start = lane.GetDistance();
           auto s_end = s_start + lane_length;
+
           auto sample_count = (std::size_t)std::round(lane_length / 0.5);
+
+          std::vector<geom::Location> left_edge;
+          std::vector<geom::Location> right_edge;
           for (std::size_t i = 0; i != sample_count; ++i)
           {
             auto alpha = (double)i / sample_count;
             auto s = std::lerp(s_start, s_end, alpha);
-            auto width = lane.GetInfo<RoadInfoLaneWidth>(s);
-            auto transform = lane.ComputeTransform(s);
 
+            auto transform = lane.ComputeTransform(s);
+            auto center_point = transform.location;
+
+            auto width = lane.GetInfo<RoadInfoLaneWidth>(s);
+            double half_width = width->GetPolynomial().Evaluate(s);
+
+            double yaw_deg = transform.rotation.yaw;
+            double yaw = geom::Math::ToRadians(yaw_deg);
+
+            geom::Location left;
+            left.x = center_point.x - half_width * std::sin(yaw);
+            left.y = center_point.y + half_width * std::cos(yaw);
+            left.z = center_point.z;
+            
+            geom::Location right;
+            right.x = center_point.x + half_width * std::sin(yaw);
+            right.y = center_point.y - half_width * std::cos(yaw);
+            right.z = center_point.z;
+
+            left_edge.push_back(left);
+            right_edge.push_back(right);
           }
+
+          std::reverse(left_edge.begin(), left_edge.end());
+
+          std::vector<geom::Location> lane_spline;
+          lane_spline.reserve(right_edge.size() + left_edge.size());
+          lane_spline.insert(lane_spline.end(), right_edge.begin(), right_edge.end());
+          lane_spline.insert(lane_spline.end(), left_edge.begin(), left_edge.end());
+
+          local_result.push_back(lane_spline);
         }
       }
       return local_result;
@@ -1364,10 +1400,18 @@ namespace carla::road {
             auto local_ids = std::span(road_ids.begin() + begin_offset, road_ids.begin() + end_offset);
             local_results.reserve(local_ids.size());
             for (auto road_id : local_ids)
-              local_results.push_back(compute_road_spline(road_id));
+            {
+              auto lane_splines = compute_road_spline(road_id);
+              for (auto& spline: lane_splines)
+              {
+                local_results.push_back(std::move(spline));
+              }
+            }
             std::scoped_lock<std::mutex> guard(result_lock);
-            for (auto& local_result : local_results)
-              result.push_back(std::move(local_result));
+            for (auto& spline : local_results)
+            {
+              result.push_back(std::move(spline));
+            }
           }));
       }
       for (auto& thread : threads)
@@ -1378,8 +1422,10 @@ namespace carla::road {
       for (auto road_id : road_ids)
       {
         auto local_result = compute_road_spline(road_id);
-        if (!local_result.empty())
-          result.push_back(std::move(local_result));
+        for (auto& spline : local_result)
+        {
+          result.push_back(std::move(spline));
+        }
       }
     }
     return result;
