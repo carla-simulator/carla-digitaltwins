@@ -7,28 +7,24 @@
 #pragma once
 
 // Engine headers
+#include "CarlaMeshGeneration.h"
 #include "CoreMinimal.h"
-#include "Kismet/BlueprintFunctionLibrary.h"
-#include "MeshDescription.h"
-#include "ProceduralMeshComponent.h"
-// Carla C++ headers
-
-// Carla plugin headers
-#include "Actor/ProceduralCustomMesh.h"
-
+#include "Containers/ArrayView.h"
 #include "DynamicMeshGeneration.generated.h"
-
 
 DECLARE_LOG_CATEGORY_EXTERN(LogCarlaDynamicMeshGeneration, Log, All);
 
 UCLASS(BlueprintType)
-class CARLAMESHGENERATION_API UDynamicMeshGeneration : public UBlueprintFunctionLibrary
+class CARLAMESHGENERATION_API UDynamicMeshGeneration :
+  public UBlueprintFunctionLibrary
 {
   GENERATED_BODY()
 public:
+
   UFUNCTION(BlueprintCallable)
   static UStaticMesh* CreateMeshFromPoints(
-      TArray<FVector2D> Points,
-      FName MeshName);
+    const TArray<FVector2D>& Points,
+    FTransform Transform,
+    FName MeshName);
 
 };
