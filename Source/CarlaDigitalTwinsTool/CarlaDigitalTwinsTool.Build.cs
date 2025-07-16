@@ -123,9 +123,10 @@ public class CarlaDigitalTwinsTool : ModuleRules
         "ProceduralMeshComponent",
         "MeshDescription",
         "RawMesh",
-        "AssetTools"
+        "AssetTools",
+        "Projects"
 				// ... add other public dependencies that you statically link with here ...
-			}
+      }
     );
 
 
@@ -140,6 +141,7 @@ public class CarlaDigitalTwinsTool : ModuleRules
         "Blutility",
         "UMG",
         "EditorScriptingUtilities",
+        "ImageWriteQueue",
         "Landscape",
         "Foliage",
         "FoliageEdit",
