@@ -99,6 +99,8 @@
 #include "Engine/Texture2D.h"
 // #include "Utils/GoogleStreetViewManager.h"
 #include "Utils/GeometryImporter.h"
+#include "Interfaces/IPluginManager.h"
+
 struct FTerrainMeshData
 {
   int32 MeshIndex;
@@ -1508,8 +1510,8 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
     PixelData->Pixels = Pixels;
     ImageTask->PixelData = MoveTemp(PixelData);
 
-    FString ImagePath = FPaths::ConvertRelativePathToFull(
-        FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins")) / TEXT("PythonIntermediate") / TEXT("road_render.png");
+    FString PluginPath = GetPluginPath();
+    FString ImagePath = PluginPath / TEXT("PythonIntermediate") / TEXT("road_render.png");
 
     ImageTask->Filename = ImagePath;
     ImageTask->Format = EImageFormat::PNG;
@@ -1531,8 +1533,7 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
         FVector2D(Center.X, Center.Y),
         FVector2D(Extent.X, Extent.Y));
 
-    auto JsonPath = FPaths::ConvertRelativePathToFull(
-        FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins")) / TEXT("PythonIntermediate") / TEXT("contours.json");
+    auto JsonPath = PluginPath / TEXT("PythonIntermediate") / TEXT("contours.json");
 
     auto RoadSplines = UGeometryImporter::CreateSplinesFromJson(
         World,
@@ -1569,7 +1570,7 @@ void UOpenDriveToMap::RunPythonRoadEdges(FVector2D Center, FVector2D Extent)
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Running Python road edges extraction script..."));
   
   FString PythonExe = PythonBinPath;
-  FString PluginPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins"));
+  FString PluginPath = GetPluginPath();
   FString ScriptPath = PluginPath / TEXT("Content/Python/road_edge_detection.py");
 
   FString Args;
@@ -1674,6 +1675,12 @@ TArray<FRoadSignInfo> UOpenDriveToMap::GetAllRoadSignsInfo()
   }
 
   return RoadSigns;
+}
+
+FString UOpenDriveToMap::GetPluginPath()
+{
+  FString PluginPath = FPaths::ConvertRelativePathToFull(IPluginManager::Get().FindPlugin("CarlaDigitalTwinsTool")->GetBaseDir());
+  return PluginPath;
 }
 
 #endif
