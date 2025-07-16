@@ -126,7 +126,7 @@ void STrafficLightToolWidget::RebuildModuleChain(FTLHead& Head)
 		Module.Transform = FTransform::Identity;
 		if (Module.ModuleMeshComponent)
 		{
-			Module.ModuleMeshComponent->SetRelativeTransform(Module.Transform * Module.Offset);
+			Module.ModuleMeshComponent->SetRelativeTransform(Module.Transform * Head.Transform * Module.Offset);
 		}
 	}
 
@@ -164,7 +164,7 @@ void STrafficLightToolWidget::RebuildModuleChain(FTLHead& Head)
 		const FTransform CurrLocal(FQuat::Identity, CurrSocket->RelativeLocation, FVector::OneVector);
 		const FTransform SnapDelta{PrevBase * PrevLocal * CurrLocal.Inverse()};
 		Curr.Transform = SnapDelta;
-		Curr.ModuleMeshComponent->SetRelativeTransform(Curr.Transform * Curr.Offset);
+		Curr.ModuleMeshComponent->SetRelativeTransform(Curr.Transform * Head.Transform * Curr.Offset);
 	}
 }
 

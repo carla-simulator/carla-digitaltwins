@@ -88,7 +88,7 @@ UStaticMeshComponent* ATrafficLightActor::AddModule(USceneComponent* Parent, FTL
 		if (Light.LightMID == nullptr)
 		{
 			UMaterialInterface* BaseMat = FMaterialFactory::GetLightMaterialInstance(Comp);
-			Light.LightMID = Comp->CreateDynamicMaterialInstance(LightIndex, BaseMat);
+			Light.LightMID = UMaterialInstanceDynamic::Create(BaseMat, Comp);
 		}
 		if (Light.LightMID)
 		{
