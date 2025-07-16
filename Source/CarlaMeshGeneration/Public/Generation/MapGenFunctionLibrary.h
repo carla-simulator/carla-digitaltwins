@@ -7,6 +7,7 @@
 #pragma once
 
 // Engine headers
+#include "Components/SceneComponent.h"
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "MeshDescription.h"
@@ -62,6 +63,9 @@ public:
   static UStaticMeshComponent* AddStaticMeshComponentToActor(AActor* TargetActor);
 
   UFUNCTION(BlueprintCallable)
+  static USceneComponent* AddSceneComponentToActor(AActor* TargetActor);
+
+  UFUNCTION(BlueprintCallable)
   static void SmoothVerticesDeep(
     TArray<FVector>& Vertices,
     const TArray<int32>& Indices,
@@ -76,7 +80,7 @@ public:
     Y = FMath::Clamp(Y, 0, Height - 1);
     return Pixels[Y * Width + X];
   }
-  
+
   static float CubicHermite(float A, float B, float C, float D, float T)
   {
     float a = -0.5f*A + 1.5f*B - 1.5f*C + 0.5f*D;

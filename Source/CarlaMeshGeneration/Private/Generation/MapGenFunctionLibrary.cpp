@@ -211,7 +211,7 @@ UStaticMesh* UMapGenFunctionLibrary::CreateMesh(
 #endif
     // Finalize mesh
     Mesh->Build(false); // Rebuilds mesh data, optionally pass true to mark as async
-    Mesh->PostEditChange(); 
+    Mesh->PostEditChange();
     Package->MarkPackageDirty();
     Mesh->ComplexCollisionMesh = Mesh;
     return Mesh;
@@ -345,6 +345,37 @@ UStaticMeshComponent* UMapGenFunctionLibrary::AddStaticMeshComponentToActor(AAct
 
   return SMComponent;
 }
+
+USceneComponent* UMapGenFunctionLibrary::AddSceneComponentToActor(AActor* TargetActor)
+{
+    if (!TargetActor)
+    {
+        UE_LOG(LogCarlaMapGenFunctionLibrary, Warning, TEXT("Invalid TargetActor in AddSceneComponentToActor"));
+        return nullptr;
+    }
+
+    if (!TargetActor->GetRootComponent())
+    {
+        USceneComponent* NewRoot = NewObject<USceneComponent>(TargetActor, TEXT("GeneratedRoot"));
+        TargetActor->SetRootComponent(NewRoot);
+        NewRoot->RegisterComponent();
+    }
+
+    USceneComponent* SceneComp = NewObject<USceneComponent>(TargetActor);
+    if (!SceneComp)
+    {
+        UE_LOG(LogCarlaMapGenFunctionLibrary, Error, TEXT("Could not create USceneComponent"));
+        return nullptr;
+    }
+
+    SceneComp->SetupAttachment(TargetActor->GetRootComponent());
+    SceneComp->RegisterComponent();
+
+    TargetActor->AddInstanceComponent(SceneComp);
+
+    return SceneComp;
+}
+
 
 void UMapGenFunctionLibrary::SmoothVerticesDeep(
   TArray<FVector>& Vertices,
