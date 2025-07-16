@@ -124,8 +124,9 @@ public class CarlaDigitalTwinsTool : ModuleRules
         "MeshDescription",
         "RawMesh",
         "AssetTools",
+        "Projects"
 				// ... add other public dependencies that you statically link with here ...
-			}
+      }
     );
 
 
