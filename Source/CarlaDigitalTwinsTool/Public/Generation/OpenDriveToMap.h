@@ -128,9 +128,6 @@ public:
   UFUNCTION(BlueprintCallable)
   void UnloadWorldPartitionRegion(const FBox& RegionBox);
 
-  UFUNCTION(BlueprintCallable)
-  FString GetPluginPath();
-
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="File")
   FString FilePath;
 

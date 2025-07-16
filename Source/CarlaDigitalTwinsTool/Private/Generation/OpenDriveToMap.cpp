@@ -99,7 +99,6 @@
 #include "Engine/Texture2D.h"
 // #include "Utils/GoogleStreetViewManager.h"
 #include "Utils/GeometryImporter.h"
-#include "Interfaces/IPluginManager.h"
 
 struct FTerrainMeshData
 {
@@ -1510,7 +1509,7 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
     PixelData->Pixels = Pixels;
     ImageTask->PixelData = MoveTemp(PixelData);
 
-    FString PluginPath = GetPluginPath();
+    FString PluginPath = UGenerationPathsHelper::GetPluginPath();
     FString ImagePath = PluginPath / TEXT("PythonIntermediate") / TEXT("road_render.png");
 
     ImageTask->Filename = ImagePath;
@@ -1570,7 +1569,7 @@ void UOpenDriveToMap::RunPythonRoadEdges(FVector2D Center, FVector2D Extent)
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Running Python road edges extraction script..."));
   
   FString PythonExe = PythonBinPath;
-  FString PluginPath = GetPluginPath();
+  FString PluginPath = UGenerationPathsHelper::GetPluginPath();
   FString ScriptPath = PluginPath / TEXT("Content/Python/road_edge_detection.py");
 
   FString Args;
@@ -1675,12 +1674,6 @@ TArray<FRoadSignInfo> UOpenDriveToMap::GetAllRoadSignsInfo()
   }
 
   return RoadSigns;
-}
-
-FString UOpenDriveToMap::GetPluginPath()
-{
-  FString PluginPath = FPaths::ConvertRelativePathToFull(IPluginManager::Get().FindPlugin("CarlaDigitalTwinsTool")->GetBaseDir());
-  return PluginPath;
 }
 
 #endif

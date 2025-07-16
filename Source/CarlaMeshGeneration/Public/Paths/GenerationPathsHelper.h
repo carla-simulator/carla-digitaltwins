@@ -7,6 +7,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Interfaces/IPluginManager.h"
 #include "GenerationPathsHelper.generated.h"
 
 UCLASS()
@@ -28,6 +29,12 @@ public:
   UFUNCTION(BlueprintCallable, BlueprintPure)
   static FString GetMapContentDirectoryPath(FString MapName) {
       return "/" + MapName + "/Static/";
+  }
+
+  UFUNCTION(BlueprintCallable)
+  static FString GetPluginPath() {
+    FString PluginPath = FPaths::ConvertRelativePathToFull(IPluginManager::Get().FindPlugin("CarlaDigitalTwinsTool")->GetBaseDir());
+    return PluginPath;
   }
 
 };
