@@ -1347,8 +1347,9 @@ namespace carla::road {
             auto transform = lane.ComputeTransform(s);
             auto center_point = transform.location;
 
-            auto width = lane.GetInfo<RoadInfoLaneWidth>(s);
-            double half_width = width->GetPolynomial().Evaluate(s);
+            auto width_info = lane.GetInfo<RoadInfoLaneWidth>(s);
+            double width = width_info->GetPolynomial().Evaluate(s);
+            double half_width = width / 2;
 
             double yaw_deg = transform.rotation.yaw;
             double yaw = geom::Math::ToRadians(yaw_deg);
