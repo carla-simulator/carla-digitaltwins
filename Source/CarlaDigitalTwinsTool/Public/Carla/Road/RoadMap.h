@@ -169,6 +169,9 @@ namespace road {
                                              const geom::Vector3D& minpos,
                                              const geom::Vector3D& maxpos) const;
 
+    std::vector<std::vector<geom::Location>> GenerateOrderedSplinesFromRoad(
+        const rpc::OpendriveGenerationParameters& params);
+
     /// Buids a mesh of all crosswalks based on the OpenDRIVE
     geom::Mesh GetAllCrosswalkMesh() const;
 

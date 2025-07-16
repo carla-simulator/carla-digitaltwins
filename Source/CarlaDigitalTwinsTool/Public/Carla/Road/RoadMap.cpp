@@ -34,13 +34,13 @@
 #include <thread>
 #include <iomanip>
 #include <cmath>
+#include <span>
 
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
 
-namespace carla {
-namespace road {
+namespace carla::road {
 
   using namespace carla::road::element;
   /// We use this epsilon to shift the waypoints away from the edges of the lane
@@ -1287,6 +1287,87 @@ namespace road {
     }
     return transforms;
   }
+  
+  std::vector<std::vector<geom::Location>> Map::GenerateOrderedSplinesFromRoad(
+    const rpc::OpendriveGenerationParameters& params)
+  {
+    std::vector<std::vector<geom::Location>> result;
+    std::mutex result_lock;
+    std::vector<RoadId> road_ids;
+    std::vector<RoadId> junction_ids;
+
+    auto parallelism = std::thread::hardware_concurrency();
+
+    road_ids.reserve(_data.GetRoads().size());
+    for (auto& road : _data.GetRoads())
+    {
+      if (road.second.GetLaneSections().begin()->GetLane(-1) == nullptr)
+        continue;
+      if (road.second.IsJunction())
+        junction_ids.push_back(road.first);
+      else
+        road_ids.push_back(road.first);
+    }
+    road_ids.shrink_to_fit();
+    if (road_ids.empty() && junction_ids.empty())
+      return result;
+
+    auto compute_road_spline = [this](RoadId road_id)
+    {
+      std::vector<geom::Location> local_result;
+      auto& road = _data.GetRoad(road_id);
+      assert(!road.IsJunction());
+      auto lane_sections = road.GetLaneSections();
+      for (auto& lane_section : lane_sections)
+      {
+        auto& lanes = lane_section.GetLanes();
+        for (auto& [lane_id, lane] : lanes)
+        {
+        }
+      }
+      return local_result;
+    };
+
+    auto compute_junction_spline = [this](RoadId road_id)
+    {
+      assert(0);
+    };
+
+    if (road_ids.size() > parallelism)
+    {
+      auto elements_per_thread = road_ids.size() / parallelism;
+      std::vector<std::thread> threads;
+      threads.reserve(parallelism);
+      for (std::size_t i = 0; i != parallelism; ++i)
+      {
+        threads.push_back(std::thread([&, thread_index = i]()
+          {
+            std::vector<std::vector<geom::Location>> local_results;
+            auto begin_offset = thread_index * elements_per_thread;
+            auto end_offset = std::min(begin_offset + elements_per_thread, road_ids.size());
+            auto local_ids = std::span(road_ids.begin() + begin_offset, road_ids.begin() + end_offset);
+            local_results.reserve(local_ids.size());
+            for (auto road_id : local_ids)
+              local_results.push_back(compute_road_spline(road_id));
+            std::scoped_lock<std::mutex> guard(result_lock);
+            for (auto& local_result : local_results)
+              result.push_back(std::move(local_result));
+          }));
+      }
+      for (auto& thread : threads)
+        thread.join();
+    }
+    else
+    {
+      for (auto road_id : road_ids)
+      {
+        auto local_result = compute_road_spline(road_id);
+        if (!local_result.empty())
+          result.push_back(std::move(local_result));
+      }
+    }
+    return result;
+  }
 
   geom::Mesh Map::GetAllCrosswalkMesh() const {
     geom::Mesh out_mesh;
@@ -1628,5 +1709,4 @@ namespace road {
       }
     }
 
-} // namespace road
-} // namespace carla
+} // namespace carla::road
