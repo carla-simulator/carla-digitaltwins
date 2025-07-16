@@ -47,9 +47,10 @@ public class CarlaMeshGeneration : ModuleRules
         "ProceduralMeshComponent",
         "MeshDescription",
         "RawMesh",
-        "AssetTools"
+        "AssetTools",
+        "Projects"
 				// ... add other public dependencies that you statically link with here ...
-			}
+      }
     );
 
 

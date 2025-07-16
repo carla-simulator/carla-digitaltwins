@@ -99,6 +99,7 @@
 #include "Engine/Texture2D.h"
 // #include "Utils/GoogleStreetViewManager.h"
 #include "Utils/GeometryImporter.h"
+
 struct FTerrainMeshData
 {
   int32 MeshIndex;
@@ -899,25 +900,9 @@ void UOpenDriveToMap::GenerateRoadMesh( const boost::optional<carla::road::Map>&
       TempActor->SetActorLabel(FString("SM_DrivingLane_") + FString::FromInt(Index));
     }
 
-    if (LaneType == carla::road::Lane::LaneType::Sidewalk && DefaultSidewalksMaterial)
-    {
-      UObject* DuplicatedMaterialObject = UBlueprintUtilFunctions::CopyAssetToPlugin(DefaultRoadMaterial, MapName);
-      UMaterialInstance* DuplicatedSidewalkMaterial = Cast<UMaterialInstance>(DuplicatedMaterialObject);
-
-      StaticMeshComponent->SetMaterial(0, DuplicatedSidewalkMaterial);
-      TempActor->SetActorLabel(FString("SM_Sidewalk_") + FString::FromInt(Index));
-    }
-
     UStaticMesh* FinalMesh = nullptr;
 
-    if (LaneType == carla::road::Lane::LaneType::Sidewalk)
-    {
-      UObject* DuplicatedMaterialObject = UBlueprintUtilFunctions::CopyAssetToPlugin(DefaultSidewalksMaterial, MapName);
-      UMaterialInstance* DuplicatedSidewalkMaterial = Cast<UMaterialInstance>(DuplicatedMaterialObject);
-
-      FinalMesh = UMapGenFunctionLibrary::CreateMesh(Entry.MeshData, Tangents, DuplicatedSidewalkMaterial, MapName, "Sidewalk", FName(TEXT("SM_SidewalkMesh" + FString::FromInt(Index) + GetStringForCurrentTile())));
-    }
-    else if (LaneType == carla::road::Lane::LaneType::Driving)
+    if (LaneType == carla::road::Lane::LaneType::Driving)
     {
       UObject* DuplicatedMaterialObject = UBlueprintUtilFunctions::CopyAssetToPlugin(DefaultRoadMaterial, MapName);
       UMaterialInstance* DuplicatedRoadMaterial = Cast<UMaterialInstance>(DuplicatedMaterialObject);
@@ -1508,8 +1493,8 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
     PixelData->Pixels = Pixels;
     ImageTask->PixelData = MoveTemp(PixelData);
 
-    FString ImagePath = FPaths::ConvertRelativePathToFull(
-        FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins")) / TEXT("PythonIntermediate") / TEXT("road_render.png");
+    FString PluginPath = UGenerationPathsHelper::GetDigitalTwinsPluginPath();
+    FString ImagePath = PluginPath / TEXT("PythonIntermediate") / TEXT("road_render.png");
 
     ImageTask->Filename = ImagePath;
     ImageTask->Format = EImageFormat::PNG;
@@ -1531,8 +1516,7 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
         FVector2D(Center.X, Center.Y),
         FVector2D(Extent.X, Extent.Y));
 
-    auto JsonPath = FPaths::ConvertRelativePathToFull(
-        FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins")) / TEXT("PythonIntermediate") / TEXT("contours.json");
+    auto JsonPath = PluginPath / TEXT("PythonIntermediate") / TEXT("contours.json");
 
     auto RoadSplines = UGeometryImporter::CreateSplinesFromJson(
         World,
@@ -1569,7 +1553,7 @@ void UOpenDriveToMap::RunPythonRoadEdges(FVector2D Center, FVector2D Extent)
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Running Python road edges extraction script..."));
   
   FString PythonExe = PythonBinPath;
-  FString PluginPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins"));
+  FString PluginPath = UGenerationPathsHelper::GetDigitalTwinsPluginPath();
   FString ScriptPath = PluginPath / TEXT("Content/Python/road_edge_detection.py");
 
   FString Args;
