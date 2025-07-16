@@ -1313,11 +1313,6 @@ namespace carla::road {
     if (road_ids.empty() && junction_ids.empty())
       return result;
 
-    // auto compute_lane_spline_point = [this](auto transform, auto t)
-    // {
-
-    // };
-
     auto compute_road_spline = [this](RoadId road_id)
     {
       std::vector<std::vector<geom::Location>> local_result;
@@ -1329,19 +1324,25 @@ namespace carla::road {
         auto& lanes = lane_section.GetLanes();
         for (auto& [lane_id, lane] : lanes)
         {
-          if (lane_id == 0) continue;
+          if (lane_id == 0)
+            continue;
 
           auto lane_length = lane.GetLength();
           auto s_start = lane.GetDistance();
           auto s_end = s_start + lane_length;
 
-          auto sample_count = (std::size_t)std::round(lane_length / 0.5);
+          auto resolution_meters = 0.5;
+          auto sample_count = (std::size_t)std::round(
+            lane_length / resolution_meters);
+          assert(sample_count > 0);
 
-          std::vector<geom::Location> left_edge;
-          std::vector<geom::Location> right_edge;
+          std::vector<geom::Location> spline_points;
+          spline_points.resize(sample_count * 2);
+          auto low = spline_points.begin();
+          auto high = spline_points.end() - 1;
           for (std::size_t i = 0; i != sample_count; ++i)
           {
-            auto alpha = (double)i / sample_count;
+            auto alpha = (double)i / (sample_count - 1);
             auto s = std::lerp(s_start, s_end, alpha);
 
             auto transform = lane.ComputeTransform(s);
@@ -1364,18 +1365,10 @@ namespace carla::road {
             right.y = center_point.y - half_width * std::cos(yaw);
             right.z = center_point.z;
 
-            left_edge.push_back(left);
-            right_edge.push_back(right);
+            *low++ = right;
+            *high-- = left;
           }
-
-          std::reverse(left_edge.begin(), left_edge.end());
-
-          std::vector<geom::Location> lane_spline;
-          lane_spline.reserve(right_edge.size() + left_edge.size());
-          lane_spline.insert(lane_spline.end(), right_edge.begin(), right_edge.end());
-          lane_spline.insert(lane_spline.end(), left_edge.begin(), left_edge.end());
-
-          local_result.push_back(lane_spline);
+          local_result.push_back(std::move(spline_points));
         }
       }
       return local_result;
