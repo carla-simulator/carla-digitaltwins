@@ -123,10 +123,11 @@ public class CarlaDigitalTwinsTool : ModuleRules
         "ProceduralMeshComponent",
         "MeshDescription",
         "RawMesh",
-        "AssetTools"
-              // ... add other public dependencies that you statically link with here ...
-                }
-        );
+        "AssetTools",
+        "Projects"
+				// ... add other public dependencies that you statically link with here ...
+      }
+    );
 
 
         PrivateDependencyModuleNames.AddRange(
