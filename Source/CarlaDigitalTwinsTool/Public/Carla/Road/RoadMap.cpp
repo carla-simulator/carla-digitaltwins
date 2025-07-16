@@ -1312,6 +1312,10 @@ namespace carla::road {
     if (road_ids.empty() && junction_ids.empty())
       return result;
 
+    auto compute_lane_spline_point = [this](auto transform, auto t)
+    {
+    };
+
     auto compute_road_spline = [this](RoadId road_id)
     {
       std::vector<geom::Location> local_result;
@@ -1323,6 +1327,18 @@ namespace carla::road {
         auto& lanes = lane_section.GetLanes();
         for (auto& [lane_id, lane] : lanes)
         {
+          auto lane_length = lane.GetLength();
+          auto s_start = lane.GetDistance();
+          auto s_end = s_start + lane_length;
+          auto sample_count = (std::size_t)std::round(lane_length / 0.5);
+          for (std::size_t i = 0; i != sample_count; ++i)
+          {
+            auto alpha = (double)i / sample_count;
+            auto s = std::lerp(s_start, s_end, alpha);
+            auto width = lane.GetInfo<RoadInfoLaneWidth>(s);
+            auto transform = lane.ComputeTransform(s);
+
+          }
         }
       }
       return local_result;
