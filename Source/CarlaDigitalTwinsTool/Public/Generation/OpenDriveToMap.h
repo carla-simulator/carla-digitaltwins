@@ -159,9 +159,6 @@ public:
   bool bSatelliteSegmentationTrees = true;
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
-  FString PythonBinPath = "/usr/bin/python3";
-
-  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
   int SatelliteSegmentationZoom = 20;
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
