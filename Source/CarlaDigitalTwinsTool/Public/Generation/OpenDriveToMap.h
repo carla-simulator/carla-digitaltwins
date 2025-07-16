@@ -43,6 +43,8 @@ class UProceduralMeshComponent;
 class UMeshComponent;
 class UCustomFileDownloader;
 class UMaterialInstance;
+class USplineComponent;
+
 /**
  *
  */
@@ -142,6 +144,9 @@ public:
   FVector2D FinalGeoCoordinates;
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+  FString PythonBinPath;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
   FVector2D OriginGeoCoordinates;
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defaults")
@@ -164,6 +169,7 @@ public:
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Settings" )
   float DistanceBetweenTrees = 50.0f;
+
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Settings" )
   float DistanceFromRoadEdge = 3.0f;
 
@@ -217,8 +223,17 @@ public:
 
 protected:
 
+    UFUNCTION(BlueprintCallable, Category = "Assets Placement")
+    void RenderRoadToTexture(UWorld* World);
+
+    UFUNCTION(BlueprintCallable, Category = "Assets Placement")
+    void RunPythonRoadEdges(FVector2D Center, FVector2D Extent);
+
   UFUNCTION(BlueprintCallable)
   TArray<AActor*> GenerateMiscActors(float Offset, FVector MinLocation, FVector MaxLocation );
+
+  UFUNCTION(BlueprintImplementableEvent)
+  void SplineGenerationFinished(const TArray<USplineComponent*>& Splines);
 
   UFUNCTION( BlueprintImplementableEvent )
   void GenerationFinished(FVector MinLocation, FVector MaxLocation);
