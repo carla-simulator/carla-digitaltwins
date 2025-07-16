@@ -1509,7 +1509,7 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
     PixelData->Pixels = Pixels;
     ImageTask->PixelData = MoveTemp(PixelData);
 
-    FString PluginPath = UGenerationPathsHelper::GetPluginPath();
+    FString PluginPath = UGenerationPathsHelper::GetDigitalTwinsPluginPath();
     FString ImagePath = PluginPath / TEXT("PythonIntermediate") / TEXT("road_render.png");
 
     ImageTask->Filename = ImagePath;
@@ -1569,7 +1569,7 @@ void UOpenDriveToMap::RunPythonRoadEdges(FVector2D Center, FVector2D Extent)
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Running Python road edges extraction script..."));
   
   FString PythonExe = PythonBinPath;
-  FString PluginPath = UGenerationPathsHelper::GetPluginPath();
+  FString PluginPath = UGenerationPathsHelper::GetDigitalTwinsPluginPath();
   FString ScriptPath = PluginPath / TEXT("Content/Python/road_edge_detection.py");
 
   FString Args;

@@ -32,7 +32,7 @@ public:
   }
 
   UFUNCTION(BlueprintCallable)
-  static FString GetPluginPath() {
+  static FString GetDigitalTwinsPluginPath() {
     FString PluginPath = FPaths::ConvertRelativePathToFull(IPluginManager::Get().FindPlugin("CarlaDigitalTwinsTool")->GetBaseDir());
     return PluginPath;
   }
