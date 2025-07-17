@@ -82,27 +82,21 @@ UStaticMeshComponent* ATrafficLightActor::AddModule(USceneComponent* Parent, FTL
 	Comp->SetWorldTransform(ModuleTransform);
 	Comp->SetStaticMesh(ModuleData.ModuleMesh);
 
+	UMaterialInterface* BaseMat{FMaterialFactory::GetLightMaterialInstance(Comp)};
+
 	int32 LightIndex{0};
 	for (FTLModuleLight& Light : ModuleData.Lights)
 	{
-		if (Light.LightMID == nullptr)
-		{
-			UMaterialInterface* BaseMat = FMaterialFactory::GetLightMaterialInstance(Comp);
-			Light.LightMID = UMaterialInstanceDynamic::Create(BaseMat, Comp);
-		}
-		if (Light.LightMID)
-		{
-			Light.LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light.EmissiveIntensity);
-			Light.LightMID->SetVectorParameterValue(TEXT("Emissive Color"), Light.EmissiveColor);
-			Light.LightMID->SetScalarParameterValue(TEXT("Offset U"), static_cast<float>(Light.U));
-			Light.LightMID->SetScalarParameterValue(TEXT("Offset Y"), static_cast<float>(Light.V));
-			const FName MaterialSlotName{FString::Printf(TEXT("led_%d"), LightIndex++)};
-			Comp->SetMaterialByName(MaterialSlotName, Light.LightMID);
-		}
+		const FName MaterialSlotName{FString::Printf(TEXT("led_%d"), LightIndex++)};
+		const int32 MaterialIndex{Comp->GetMaterialIndex(MaterialSlotName)};
+		Light.LightMID = Comp->CreateDynamicMaterialInstance(MaterialIndex, BaseMat);
+		Light.LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light.EmissiveIntensity);
+		Light.LightMID->SetVectorParameterValue(TEXT("Emissive Color"), Light.EmissiveColor);
+		Light.LightMID->SetScalarParameterValue(TEXT("Offset U"), static_cast<float>(Light.U));
+		Light.LightMID->SetScalarParameterValue(TEXT("Offset Y"), static_cast<float>(Light.V));
 	}
 
 	Comp->Modify();
-
 	ModuleMeshComponents.Add(Comp);
 	ModuleData.Transform = ModuleTransform;
 	ModuleData.ModuleMeshComponent = Comp;
