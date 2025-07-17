@@ -1150,6 +1150,8 @@ void UOpenDriveToMap::GenerateTrafficLights(const boost::optional<carla::road::M
                 ModuleRed.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head,ModuleRed).Last();
                 FTLModuleLight RedLight;
                 RedLight.LightType = ETLLightType::SolidColorRed;
+                RedLight.EmissiveColor = FLinearColor{1.0f,0.052026f,0.061974f,1.0f};
+                RedLight.EmissiveIntensity = 30.0f;
                 ModuleRed.Lights.Add(RedLight);
                 Head.Modules.Add(ModuleRed);
 
@@ -1157,6 +1159,8 @@ void UOpenDriveToMap::GenerateTrafficLights(const boost::optional<carla::road::M
                 ModuleAmber.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head,ModuleAmber).Last();
                 FTLModuleLight AmberLight;
                 AmberLight.LightType = ETLLightType::SolidColorAmber;
+                AmberLight.EmissiveColor = FLinearColor{0.930111f, 0.3564f, 0.014444f, 1.0f};
+                AmberLight.EmissiveIntensity = 30.0f;
                 ModuleAmber.Lights.Add(AmberLight);
                 Head.Modules.Add(ModuleAmber);
 
@@ -1164,6 +1168,8 @@ void UOpenDriveToMap::GenerateTrafficLights(const boost::optional<carla::road::M
                 ModuleGreen.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head,ModuleGreen).Last();
                 FTLModuleLight GreenLight;
                 GreenLight.LightType = ETLLightType::SolidColorGreen;
+                GreenLight.EmissiveColor = FLinearColor{0.100902f,1.0f,0.297537f,1.0f};
+                GreenLight.EmissiveIntensity = 30.0f;
                 ModuleGreen.Lights.Add(GreenLight);
                 Head.Modules.Add(ModuleGreen);
 

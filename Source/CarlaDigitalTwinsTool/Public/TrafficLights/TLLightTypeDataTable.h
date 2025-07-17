@@ -7,6 +7,7 @@
 #pragma once
 
 #include "Engine/DataTable.h"
+#include "HAL/Platform.h"
 #include "Math/MathFwd.h"
 #include "UObject/ObjectMacros.h"
 
@@ -22,4 +23,7 @@ struct FTLLightTypeRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|LightType")
 	FLinearColor Color;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|LightType")
+    float EmissiveIntensity;
 };

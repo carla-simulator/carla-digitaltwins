@@ -2,6 +2,7 @@
 
 #include "Components/StaticMeshComponent.h"
 #include "Logging/LogVerbosity.h"
+#include "Misc/AssertionMacros.h"
 #include "TrafficLights/TLBackplateDataTable.h"
 #include "TrafficLights/TLModuleDataTable.h"
 #include "TrafficLights/TLPoleDataTable.h"
@@ -17,11 +18,11 @@ UDataTable* FTLMeshFactory::GetLightTypeMeshTable()
 	if (!LightTypeMeshTable)
 	{
 		constexpr TCHAR const* Path{
-			TEXT("/Game/Carla/Static/TrafficLight/TrafficLights2025/"
-				 "DataTables/LightTypes.LightTypes")};
+			TEXT("/CarlaDigitalTwinsTool/Carla/Static/TrafficLight/TrafficLights2025/DataTables/LightTypes.LightTypes'")};
 		UObject* Loaded = StaticLoadObject(UDataTable::StaticClass(), nullptr, Path);
 		LightTypeMeshTable = Cast<UDataTable>(Loaded);
 	}
+    check(LightTypeMeshTable);
 	return LightTypeMeshTable;
 }
 
@@ -30,11 +31,11 @@ UDataTable* FTLMeshFactory::GetModuleMeshTable()
 	if (!ModuleMeshTable)
 	{
 		constexpr TCHAR const* Path{
-			TEXT("/Game/Carla/Static/TrafficLight/TrafficLights2025/DataTables/"
-				 "Modules.Modules")};
+			TEXT("/CarlaDigitalTwinsTool/Carla/Static/TrafficLight/TrafficLights2025/DataTables/Modules.Modules")};
 		UObject* Loaded = StaticLoadObject(UDataTable::StaticClass(), nullptr, Path);
 		ModuleMeshTable = Cast<UDataTable>(Loaded);
 	}
+    check(ModuleMeshTable);
 	return ModuleMeshTable;
 }
 
@@ -43,11 +44,11 @@ UDataTable* FTLMeshFactory::GetPoleMeshTable()
 	if (!PoleMeshTable)
 	{
 		constexpr TCHAR const* Path{
-			TEXT("/Game/Carla/Static/TrafficLight/TrafficLights2025/DataTables/"
-				 "Poles.Poles")};
+			TEXT("/CarlaDigitalTwinsTool/Carla/Static/TrafficLight/TrafficLights2025/DataTables/Poles.Poles")};
 		UObject* Loaded = StaticLoadObject(UDataTable::StaticClass(), nullptr, Path);
 		PoleMeshTable = Cast<UDataTable>(Loaded);
 	}
+    check(PoleMeshTable);
 	return PoleMeshTable;
 }
 
@@ -56,11 +57,11 @@ UDataTable* FTLMeshFactory::GetBackplateMeshTable()
 	if (!BackplateMeshTable)
 	{
 		constexpr TCHAR const* Path{
-			TEXT("/Game/Carla/Static/TrafficLight/TrafficLights2025/DataTables/"
-				 "Backplates.Backplates")};
+			TEXT("/CarlaDigitalTwinsTool/Carla/Static/TrafficLight/TrafficLights2025/DataTables/Backplates.Backplates")};
 		UObject* Loaded = StaticLoadObject(UDataTable::StaticClass(), nullptr, Path);
 		BackplateMeshTable = Cast<UDataTable>(Loaded);
 	}
+    check(BackplateMeshTable);
 	return BackplateMeshTable;
 }
 

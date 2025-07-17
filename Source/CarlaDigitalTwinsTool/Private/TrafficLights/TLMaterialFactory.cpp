@@ -5,8 +5,7 @@
 UMaterialInstanceDynamic* FMaterialFactory::GetLightMaterialInstance(UObject* Outer)
 {
 	static const FString Path{
-		TEXT("/Game/Carla/Static/TrafficLight/TrafficLights2025/TrafficLights/"
-			 "M_TrafficLights_Inst.M_TrafficLights_Inst")};
+		TEXT("/CarlaDigitalTwinsTool/Carla/Static/TrafficLight/TrafficLights2025/TrafficLights/M_TrafficLights_Inst.M_TrafficLights_Inst")};
 	TSoftObjectPtr<UMaterialInterface> SoftPtr{FSoftObjectPath(Path)};
 	UMaterialInterface* Mat = SoftPtr.LoadSynchronous();
 	if (!Mat)
