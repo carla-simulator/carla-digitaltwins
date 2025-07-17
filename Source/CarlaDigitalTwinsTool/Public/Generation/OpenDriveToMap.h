@@ -13,6 +13,7 @@
 #include "TextureResource.h"
 #include <boost/optional.hpp>
 #include "Generation/OpenDriveFileGenerationParameters.h"
+#include "Utils/DGTImplementable.h"
 #include "OpenDriveToMap.generated.h"
 
 USTRUCT(BlueprintType)
@@ -182,6 +183,9 @@ public:
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Stage" )
   bool bMapLoaded = false;
 
+  UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Digital Twins Tools" )
+  TArray<TSubclassOf<class UDGTImplementable>> ToolsClasses;
+
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="TileGeneration" )
   FVector MinPosition;
 
@@ -221,13 +225,15 @@ public:
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Heightmap" )
   float MaxHeight;
 
+  UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Heightmap" )
+  class AStreetMapActor* StreetMapActorReference;
 protected:
 
-    UFUNCTION(BlueprintCallable, Category = "Assets Placement")
-    void RenderRoadToTexture(UWorld* World);
+  UFUNCTION(BlueprintCallable, Category = "Assets Placement")
+  void RenderRoadToTexture(UWorld* World);
 
-    UFUNCTION(BlueprintCallable, Category = "Assets Placement")
-    void RunPythonRoadEdges(FVector2D Center, FVector2D Extent);
+  UFUNCTION(BlueprintCallable, Category = "Assets Placement")
+  void RunPythonRoadEdges(FVector2D Center, FVector2D Extent);
 
   UFUNCTION(BlueprintCallable)
   TArray<AActor*> GenerateMiscActors(float Offset, FVector MinLocation, FVector MaxLocation );
@@ -296,6 +302,8 @@ private:
   UPROPERTY()
   UTexture2D* Heightmap;
 
+  UPROPERTY()
+  TArray<UDGTImplementable*> ToolInstances;
 
   FSharedImageConstRef HeightmapCopy;
   TArrayView64<const uint16> HeightmapPixels;
