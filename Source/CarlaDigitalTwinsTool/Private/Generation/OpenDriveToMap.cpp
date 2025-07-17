@@ -719,7 +719,7 @@ void UOpenDriveToMap::LoadMap()
 #else
     UWorld* World = GetEditorWorld();
 
-    AStreetMapActor* StreetMapActorReference = Cast<AStreetMapActor>(UGameplayStatics::GetActorOfClass(World, AStreetMapActor::StaticClass()));
+    StreetMapActorReference = Cast<AStreetMapActor>(UGameplayStatics::GetActorOfClass(World, AStreetMapActor::StaticClass()));
     if( !IsValid(StreetMapActorReference) )
     {
       UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("StreetMapActorReference is not valid") );
