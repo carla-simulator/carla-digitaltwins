@@ -61,6 +61,7 @@
 #include "Carla/Road/element/RoadInfoSignal.h"
 #include "DrawDebugHelpers.h"
 #include "Paths/GenerationPathsHelper.h"
+#include "StreetMapActor.h"
 #include "Misc/Paths.h"
 #if WITH_EDITOR
 
@@ -247,7 +248,7 @@ void UOpenDriveToMap::CreateMap()
   {
     UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("URL and Local FilePath are Empty. URL: %s  Local FilePath: %s"), *Url, *LocalFilePath );
   }
-
+  
 }
 
 void UOpenDriveToMap::CreateTerrain(const int NumberOfTerrainX, const int NumberOfTerrainY, const float MeshGridResolution)
@@ -706,6 +707,13 @@ void UOpenDriveToMap::LoadMap()
       
     }
 #else
+    UWorld* World = GetEditorWorld();
+
+    AStreetMapActor* StreetMapActorReference = Cast<AStreetMapActor>(UGameplayStatics::GetActorOfClass(World, AStreetMapActor::StaticClass()));
+    if( !IsValid(StreetMapActorReference) )
+    {
+      UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("StreetMapActorReference is not valid") );
+    }
 
     if( DefaultHeightmap )
     {
@@ -713,12 +721,37 @@ void UOpenDriveToMap::LoadMap()
       HeightmapPixels = HeightmapCopy->AsG16();
     }
 
+    for( TSubclassOf<UDGTImplementable>& ToolToInstantiate : ToolsClasses )
+    {
+      if( ToolToInstantiate == nullptr )
+      {
+        UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("ToolToInstantiate is null") );
+        continue;
+      }
+
+      UDGTImplementable* Tool = NewObject<UDGTImplementable>(this, ToolToInstantiate);
+      ToolInstances.Add(Tool);
+    }
+
     do{
       GenerateTileStandalone();
     }while(GoNextTile());
 
+    if(IsValid(StreetMapActorReference))
+    {
+      StreetMapActorReference->SpawnTaggedTerrainSplines();
+    }
+    
+    for(UDGTImplementable* Tool : ToolInstances)
+    {
+      if( Tool )
+      {
+        Tool->RunUtilityFunction(World);
+      }
+    }
+
+
     RemoveFromRoot();
-    UWorld* World = GEditor->GetEditorWorldContext().World();
     if (World)
     {
       FString CurrentMapName = World->GetMapName();
