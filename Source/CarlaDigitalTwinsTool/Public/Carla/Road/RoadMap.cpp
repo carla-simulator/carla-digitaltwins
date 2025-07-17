@@ -36,6 +36,14 @@
 #include <cmath>
 #include <span>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <Windows.h>
+#undef min
+#undef max
+#endif
+
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
@@ -1289,7 +1297,7 @@ namespace carla::road {
   }
   
   std::vector<std::vector<geom::Location>> Map::GenerateOrderedSplinesFromRoad(
-    const rpc::OpendriveGenerationParameters& params)
+    const rpc::OpendriveGenerationParameters& params) const
   {
     std::vector<std::vector<geom::Location>> result;
     std::mutex result_lock;
@@ -1387,26 +1395,37 @@ namespace carla::road {
       for (std::size_t i = 0; i != parallelism; ++i)
       {
         threads.push_back(std::thread([&, thread_index = i]()
-          {
-            std::vector<std::vector<geom::Location>> local_results;
-            auto begin_offset = thread_index * elements_per_thread;
-            auto end_offset = std::min(begin_offset + elements_per_thread, road_ids.size());
-            auto local_ids = std::span(road_ids.begin() + begin_offset, road_ids.begin() + end_offset);
-            local_results.reserve(local_ids.size());
-            for (auto road_id : local_ids)
+        {
+            try
             {
-              auto lane_splines = compute_road_spline(road_id);
-              for (auto& spline: lane_splines)
+              std::vector<std::vector<geom::Location>> local_results;
+              auto begin_offset = thread_index * elements_per_thread;
+              auto end_offset = std::min(begin_offset + elements_per_thread, road_ids.size());
+              auto local_ids = std::span(road_ids.begin() + begin_offset, road_ids.begin() + end_offset);
+              local_results.reserve(local_ids.size());
+              for (auto road_id : local_ids)
               {
-                local_results.push_back(std::move(spline));
+                auto lane_splines = compute_road_spline(road_id);
+                for (auto& spline : lane_splines)
+                {
+                  local_results.push_back(std::move(spline));
+                }
+              }
+              std::scoped_lock<std::mutex> guard(result_lock);
+              for (auto& spline : local_results)
+              {
+                result.push_back(std::move(spline));
               }
             }
-            std::scoped_lock<std::mutex> guard(result_lock);
-            for (auto& spline : local_results)
+            catch (std::exception& e)
             {
-              result.push_back(std::move(spline));
+              puts(e.what());
+#ifdef _WIN32
+              if (IsDebuggerPresent())
+                DebugBreak();
+#endif
             }
-          }));
+        }));
       }
       for (auto& thread : threads)
         thread.join();

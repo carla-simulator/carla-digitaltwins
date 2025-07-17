@@ -5,8 +5,8 @@
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
 #include "Generation/DynamicMeshGeneration.h"
-#include "GeometryScript/MeshPrimitiveFunctions.h"
-#include "UDynamicMesh.h"
+// #include "GeometryScript/MeshPrimitiveFunctions.h"
+// #include "UDynamicMesh.h"
 
 DEFINE_LOG_CATEGORY(LogCarlaDynamicMeshGeneration);
 
@@ -17,13 +17,13 @@ UStaticMesh* UDynamicMeshGeneration::CreateMeshFromPoints(
   FTransform Transform,
   FName MeshName)
 {
-  auto Mesh = NewObject<UDynamicMesh>();
-  FGeometryScriptPrimitiveOptions Options;
-  UGeometryScriptLibrary_MeshPrimitiveFunctions::AppendSimpleExtrudePolygon(
-    Mesh,
-    Options,
-    Transform,
-    Points,
-    0, 0, false);
+  // auto Mesh = NewObject<UDynamicMesh>();
+  // FGeometryScriptPrimitiveOptions Options;
+  // UGeometryScriptLibrary_MeshPrimitiveFunctions::AppendSimpleExtrudePolygon(
+  //   Mesh,
+  //   Options,
+  //   Transform,
+  //   Points,
+  //   0, 0, false);
   return nullptr;
 }

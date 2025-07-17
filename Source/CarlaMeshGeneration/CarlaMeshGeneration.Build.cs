@@ -48,9 +48,7 @@ public class CarlaMeshGeneration : ModuleRules
         "MeshDescription",
         "RawMesh",
         "AssetTools",
-        "Projects",
-        "GeometryScriptingCore", // FGeometryScriptPrimitiveOptions & co
-        "GeometryFramework" // UDynamicMesh
+        "Projects"
 				// ... add other public dependencies that you statically link with here ...
       }
     );

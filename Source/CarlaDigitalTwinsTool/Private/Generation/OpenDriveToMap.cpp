@@ -100,6 +100,10 @@
 // #include "Utils/GoogleStreetViewManager.h"
 #include "Utils/GeometryImporter.h"
 
+#include "GeometryScript/MeshAssetFunctions.h"
+#include "GeometryScript/MeshPrimitiveFunctions.h"
+#include "UDynamicMesh.h"
+
 struct FTerrainMeshData
 {
   int32 MeshIndex;
@@ -763,7 +767,8 @@ void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& Param
   FVector MaxLocation )
 {
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Roads..... "));
-  GenerateRoadMesh(ParamCarlaMap, MinLocation, MaxLocation);
+  // GenerateRoadMesh(ParamCarlaMap, MinLocation, MaxLocation);
+  GenerateRoadMeshFromSplinePoints(ParamCarlaMap);
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Lane Marks..... "));
   GenerateLaneMarks(ParamCarlaMap, MinLocation, MaxLocation);
   // GenerateSpawnPoints(ParamCarlaMap, MinLocation, MaxLocation);
@@ -775,7 +780,51 @@ void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& Param
   GenerationFinished(MinLocation, MaxLocation);
 }
 
-void UOpenDriveToMap::GenerateRoadMesh( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation )
+void UOpenDriveToMap::GenerateRoadMeshFromSplinePoints(
+  const boost::optional<carla::road::Map>& ParamCarlaMap)
+{
+  TArray<UStaticMesh*> StaticMeshes;
+  auto splines = ParamCarlaMap->GenerateOrderedSplinesFromRoad(opg_parameters);
+  for (auto& spline : splines)
+  {
+    auto DynMesh = NewObject<UDynamicMesh>();
+    auto OutMesh = NewObject<UStaticMesh>();
+    TArray<FVector2D> Points;
+    Points.Reserve(spline.size());
+    for (auto& [x, y, z] : spline)
+      Points.Add(FVector2D(x, y));
+    FGeometryScriptPrimitiveOptions PrimitiveOptions;
+    UGeometryScriptLibrary_MeshPrimitiveFunctions::AppendSimpleExtrudePolygon(
+      DynMesh,
+      PrimitiveOptions,
+      FTransform(),
+      Points,
+      0, 0, false);
+    FGeometryScriptCopyMeshToAssetOptions CopyMeshOptions;
+    FGeometryScriptMeshWriteLOD WriteLOD;
+    EGeometryScriptOutcomePins Outcome;
+    UGeometryScriptLibrary_StaticMeshFunctions::CopyMeshToStaticMesh(
+      DynMesh,
+      OutMesh,
+      CopyMeshOptions,
+      WriteLOD,
+      Outcome,
+      nullptr);
+    StaticMeshes.Add(OutMesh);
+  }
+  auto World = GetWorld();
+  for (auto SM : StaticMeshes)
+  {
+    auto SMA = World->SpawnActor<AStaticMeshActor>(
+      AStaticMeshActor::StaticClass(),
+      FTransform());
+    auto SMC = SMA->GetStaticMeshComponent();
+    SMC->SetStaticMesh(SM);
+  }
+}
+
+void UOpenDriveToMap::GenerateRoadMesh(
+  const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation )
 {
   opg_parameters.vertex_distance = 0.5f;
   opg_parameters.vertex_width_resolution = 8.0f;

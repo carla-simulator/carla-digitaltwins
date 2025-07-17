@@ -158,7 +158,9 @@ public class CarlaDigitalTwinsTool : ModuleRules
         "CarlaMeshGeneration",
         "StreetMapImporting",
         "StreetMapRuntime",
-        "EngineSettings"
+        "EngineSettings",
+        "GeometryScriptingCore", // FGeometryScriptPrimitiveOptions & co
+        "GeometryFramework" // UDynamicMesh
 				// ... add private dependencies that you statically link with here ...	
 			}
       );
