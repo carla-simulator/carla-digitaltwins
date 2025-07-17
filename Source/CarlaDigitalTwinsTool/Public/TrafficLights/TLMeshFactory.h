@@ -41,8 +41,8 @@ private:
 	static FTLBackplateRow* GetBackplateRow(ETLStyle Style);
 
 private:
-	static UDataTable* LightTypeMeshTable;
-	static UDataTable* ModuleMeshTable;
-	static UDataTable* PoleMeshTable;
-	static UDataTable* BackplateMeshTable;
+	static UDataTable* s_LightTypeMeshTable;
+	static UDataTable* s_ModuleMeshTable;
+	static UDataTable* s_PoleMeshTable;
+	static UDataTable* s_BackplateMeshTable;
 };

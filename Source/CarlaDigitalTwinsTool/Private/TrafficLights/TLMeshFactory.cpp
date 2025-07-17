@@ -8,61 +8,61 @@
 #include "TrafficLights/TLPoleDataTable.h"
 #include "UObject/NameTypes.h"
 
-UDataTable* FTLMeshFactory::ModuleMeshTable{nullptr};
-UDataTable* FTLMeshFactory::PoleMeshTable{nullptr};
-UDataTable* FTLMeshFactory::LightTypeMeshTable{nullptr};
-UDataTable* FTLMeshFactory::BackplateMeshTable{nullptr};
+UDataTable* FTLMeshFactory::s_ModuleMeshTable{nullptr};
+UDataTable* FTLMeshFactory::s_PoleMeshTable{nullptr};
+UDataTable* FTLMeshFactory::s_LightTypeMeshTable{nullptr};
+UDataTable* FTLMeshFactory::s_BackplateMeshTable{nullptr};
 
 UDataTable* FTLMeshFactory::GetLightTypeMeshTable()
 {
-	if (!LightTypeMeshTable)
+	if (!s_LightTypeMeshTable)
 	{
 		constexpr TCHAR const* Path{
 			TEXT("/CarlaDigitalTwinsTool/Carla/Static/TrafficLight/TrafficLights2025/DataTables/LightTypes.LightTypes'")};
 		UObject* Loaded = StaticLoadObject(UDataTable::StaticClass(), nullptr, Path);
-		LightTypeMeshTable = Cast<UDataTable>(Loaded);
+		s_LightTypeMeshTable = Cast<UDataTable>(Loaded);
 	}
-    check(LightTypeMeshTable);
-	return LightTypeMeshTable;
+	check(s_LightTypeMeshTable);
+	return s_LightTypeMeshTable;
 }
 
 UDataTable* FTLMeshFactory::GetModuleMeshTable()
 {
-	if (!ModuleMeshTable)
+	if (!s_ModuleMeshTable)
 	{
 		constexpr TCHAR const* Path{
 			TEXT("/CarlaDigitalTwinsTool/Carla/Static/TrafficLight/TrafficLights2025/DataTables/Modules.Modules")};
 		UObject* Loaded = StaticLoadObject(UDataTable::StaticClass(), nullptr, Path);
-		ModuleMeshTable = Cast<UDataTable>(Loaded);
+		s_ModuleMeshTable = Cast<UDataTable>(Loaded);
 	}
-    check(ModuleMeshTable);
-	return ModuleMeshTable;
+	check(s_ModuleMeshTable);
+	return s_ModuleMeshTable;
 }
 
 UDataTable* FTLMeshFactory::GetPoleMeshTable()
 {
-	if (!PoleMeshTable)
+	if (!s_PoleMeshTable)
 	{
 		constexpr TCHAR const* Path{
 			TEXT("/CarlaDigitalTwinsTool/Carla/Static/TrafficLight/TrafficLights2025/DataTables/Poles.Poles")};
 		UObject* Loaded = StaticLoadObject(UDataTable::StaticClass(), nullptr, Path);
-		PoleMeshTable = Cast<UDataTable>(Loaded);
+		s_PoleMeshTable = Cast<UDataTable>(Loaded);
 	}
-    check(PoleMeshTable);
-	return PoleMeshTable;
+	check(s_PoleMeshTable);
+	return s_PoleMeshTable;
 }
 
 UDataTable* FTLMeshFactory::GetBackplateMeshTable()
 {
-	if (!BackplateMeshTable)
+	if (!s_BackplateMeshTable)
 	{
 		constexpr TCHAR const* Path{
 			TEXT("/CarlaDigitalTwinsTool/Carla/Static/TrafficLight/TrafficLights2025/DataTables/Backplates.Backplates")};
 		UObject* Loaded = StaticLoadObject(UDataTable::StaticClass(), nullptr, Path);
-		BackplateMeshTable = Cast<UDataTable>(Loaded);
+		s_BackplateMeshTable = Cast<UDataTable>(Loaded);
 	}
-    check(BackplateMeshTable);
-	return BackplateMeshTable;
+	check(s_BackplateMeshTable);
+	return s_BackplateMeshTable;
 }
 
 UStaticMesh* FTLMeshFactory::GetMeshForModule(const FTLHead& Head, const FTLModule& Module)

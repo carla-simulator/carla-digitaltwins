@@ -186,9 +186,9 @@ void ATrafficLightActor::AddBackplate(USceneComponent* Parent, FTLPole& Pole, FT
 		FVector Loc;
 		FRotator Rot;
 	};
-	const TArray<FPlacement> Corners = {{{BoundsMin.X, BoundsMin.Y, BoundsMax.Z}, {0.f, 0.f, 0.f}},
-		{{BoundsMin.X, BoundsMin.Y, BoundsMin.Z}, {90.f, 0.f, 0.f}}, {{BoundsMax.X, BoundsMin.Y, BoundsMin.Z}, {180.f, 0.f, 0.f}},
-		{{BoundsMax.X, BoundsMin.Y, BoundsMax.Z}, {270.f, 0.f, 0.f}}};
+	const TArray<FPlacement> Corners = {{{BoundsMin.X, BoundsMin.Y, BoundsMax.Z}, {0.0, 0.0, 0.0}},
+		{{BoundsMin.X, BoundsMin.Y, BoundsMin.Z}, {90.0, 0.0, 0.0}}, {{BoundsMax.X, BoundsMin.Y, BoundsMin.Z}, {180.0, 0.0, 0.0}},
+		{{BoundsMax.X, BoundsMin.Y, BoundsMax.Z}, {270.0, 0.0, 0.0}}};
 
 	for (const FPlacement& P : Corners)
 	{
@@ -196,29 +196,29 @@ void ATrafficLightActor::AddBackplate(USceneComponent* Parent, FTLPole& Pole, FT
 	}
 
 	/* ───────────────────────────────── 5) Verticales ────────────────────────────────────── */
-	const float ScaleZ{(BoundsMax.Z - BoundsMin.Z) / (HorizontalMesh->GetBoundingBox().GetExtent().Z * 2.f)};
+	const double ScaleZ{(BoundsMax.Z - BoundsMin.Z) / (HorizontalMesh->GetBoundingBox().GetExtent().Z * 2.0)};
 
 	const TArray<FPlacement> Verticals = {
-		{{BoundsMin.X, BoundsMin.Y, BoundsMin.Z}, {0.f, 0.f, 0.f}}, {{BoundsMax.X, BoundsMin.Y, BoundsMax.Z}, {180.f, 0.f, 0.f}}};
+		{{BoundsMin.X, BoundsMin.Y, BoundsMin.Z}, {0.0, 0.0, 0.0}}, {{BoundsMax.X, BoundsMin.Y, BoundsMax.Z}, {180.0, 0.0, 0.0}}};
 
 	for (const FPlacement& P : Verticals)
 	{
-		SpawnBackplatePiece(VerticalMesh, P.Loc, P.Rot, FVector{1.f, 1.f, ScaleZ});
+		SpawnBackplatePiece(VerticalMesh, P.Loc, P.Rot, FVector{1.0, 1.0, ScaleZ});
 	}
 
-	const float ScaleX{(BoundsMax.X - BoundsMin.X) / (HorizontalMesh->GetBoundingBox().GetExtent().X * 2.f)};
+	const double ScaleX{(BoundsMax.X - BoundsMin.X) / (HorizontalMesh->GetBoundingBox().GetExtent().X * 2.0)};
 
 	const TArray<FPlacement> Horizontals = {
-		{{BoundsMax.X, BoundsMin.Y, BoundsMax.Z}, {0.f, 0.f, 0.f}}, {{BoundsMin.X, BoundsMin.Y, BoundsMin.Z}, {180.f, 0.f, 0.f}}};
+		{{BoundsMax.X, BoundsMin.Y, BoundsMax.Z}, {0.0, 0.0, 0.0}}, {{BoundsMin.X, BoundsMin.Y, BoundsMin.Z}, {180.0, 0.0, 0.0}}};
 
 	for (const FPlacement& P : Horizontals)
 	{
-		SpawnBackplatePiece(HorizontalMesh, P.Loc, P.Rot, FVector{ScaleX, 1.f, 1.f});
+		SpawnBackplatePiece(HorizontalMesh, P.Loc, P.Rot, FVector{ScaleX, 1.0, 1.0});
 	}
 
 	SpawnBackplatePiece(MiddleMesh, FVector{BoundsMax.X, BoundsMin.Y, BoundsMin.Z},
 		HeadRotation.Rotator(),	   // misma rot que el head
-		FVector{ScaleX, 1.f, ScaleZ});
+		FVector{ScaleX, 1.0, ScaleZ});
 }
 
 void ATrafficLightActor::RebuildModuleChain(FTLHead& Head)
