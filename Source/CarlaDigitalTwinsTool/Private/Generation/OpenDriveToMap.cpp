@@ -1230,14 +1230,16 @@ TArray<FVector2D> UOpenDriveToMap::ReadCSVCoordinates(FString path)
 
 void UOpenDriveToMap::GenerateSatelliteSegmentationTreePositions()
 {
+  FString Path = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() / TEXT("carla-digitaltwins") / TEXT("PythonIntermediate/tree_masks.geojson"));
+  TArray<USplineComponent*> Splines = UGeometryImporter::ImportGeoJsonPolygonsToSplines(UEditorLevelLibrary::GetEditorWorld(), Path, OriginGeoCoordinates);
 
-  TArray<FVector2D> TreeCoordinates = ReadCSVCoordinates("PythonIntermediate/tree_points.csv");
+  // TArray<FVector2D> TreeCoordinates = ReadCSVCoordinates("PythonIntermediate/tree_points.csv");
 
-  SpawnTrees(TreeCoordinates, "TreeSpawnPosition");
+  // SpawnTrees(TreeCoordinates, "TreeSpawnPosition");
 
   if (bShowDebugTreeAreas){
 
-    TArray<FVector2D> PolylinesCoordinates = ReadCSVCoordinates("PythonIntermediate/polylines.csv");
+    TArray<FVector2D> PolylinesCoordinates = ReadCSVCoordinates("PythonIntermediate/tree_polylines.csv");
 
     SpawnPlaceholders(PolylinesCoordinates, "PolylinesCoordinates");
   }
@@ -1730,7 +1732,7 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
         FVector2D(Center.X, Center.Y),
         FVector2D(Extent.X, Extent.Y));
 
-    auto JsonPath = PluginPath / TEXT("PythonIntermediate") / TEXT("contours.json");
+    auto JsonPath = PluginPath / TEXT("PythonIntermediate") / TEXT("road_contours.json");
 
     auto RoadSplines = UGeometryImporter::CreateSplinesFromJson(
         World,
