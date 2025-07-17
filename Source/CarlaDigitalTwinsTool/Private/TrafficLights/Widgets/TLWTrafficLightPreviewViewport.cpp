@@ -192,10 +192,10 @@ void STrafficLightPreviewViewport::AddBackplate(const FTLPole& Pole, const FTLHe
 		FRotator Rotation;
 	};
 
-	TArray<FMeshPlacement> CornerPlacements{{FVector{BoundsMin.X, BoundsMin.Y, BoundsMax.Z}, FRotator{0.0f, 0.0f, 0.0f}},
-		{FVector{BoundsMin.X, BoundsMin.Y, BoundsMin.Z}, FRotator{90.0f, 0.0f, 0.0f}},
-		{FVector{BoundsMax.X, BoundsMin.Y, BoundsMin.Z}, FRotator{180.0f, 0.0f, 0.0f}},
-		{FVector{BoundsMax.X, BoundsMin.Y, BoundsMax.Z}, FRotator{270.0f, 0.0f, 0.0f}}};
+	TArray<FMeshPlacement> CornerPlacements{{FVector{BoundsMin.X, BoundsMin.Y, BoundsMax.Z}, FRotator{0.0, 0.0, 0.0}},
+		{FVector{BoundsMin.X, BoundsMin.Y, BoundsMin.Z}, FRotator{90.0, 0.0, 0.0}},
+		{FVector{BoundsMax.X, BoundsMin.Y, BoundsMin.Z}, FRotator{180.0, 0.0, 0.0}},
+		{FVector{BoundsMax.X, BoundsMin.Y, BoundsMax.Z}, FRotator{270.0, 0.0, 0.0}}};
 
 	for (const FMeshPlacement& Placement : CornerPlacements)
 	{
@@ -203,14 +203,14 @@ void STrafficLightPreviewViewport::AddBackplate(const FTLPole& Pole, const FTLHe
 			NewObject<UStaticMeshComponent>(PreviewScene->GetWorld()->PersistentLevel, NAME_None, RF_Transient)};
 		CornerComponent->SetStaticMesh(CornerMesh);
 
-		const FTransform Transform{Placement.Rotation, Placement.Location, FVector{1.0f, 1.0f, 1.0f}};
+		const FTransform Transform{Placement.Rotation, Placement.Location, FVector{1.0, 1.0, 1.0}};
 		PreviewScene->AddComponent(CornerComponent, Transform);
 		BackplateComponents.Add(CornerComponent);
 	}
 
-	const float ScaleZ{(BoundsMax.Z - BoundsMin.Z) / (HorizontalMesh->GetBoundingBox().GetExtent().Z * 2.0f)};
-	TArray<FMeshPlacement> VerticalPlacements{{FVector{BoundsMin.X, BoundsMin.Y, BoundsMin.Z}, FRotator{0.0f, 0.0f, 0.0f}},
-		{FVector{BoundsMax.X, BoundsMin.Y, BoundsMax.Z}, FRotator{180.0f, 0.0f, 0.0f}}};
+	const double ScaleZ{(BoundsMax.Z - BoundsMin.Z) / (HorizontalMesh->GetBoundingBox().GetExtent().Z * 2.0)};
+	TArray<FMeshPlacement> VerticalPlacements{{FVector{BoundsMin.X, BoundsMin.Y, BoundsMin.Z}, FRotator{0.0, 0.0, 0.0}},
+		{FVector{BoundsMax.X, BoundsMin.Y, BoundsMax.Z}, FRotator{180.0, 0.0, 0.0}}};
 
 	for (const FMeshPlacement& Placement : VerticalPlacements)
 	{
@@ -218,14 +218,14 @@ void STrafficLightPreviewViewport::AddBackplate(const FTLPole& Pole, const FTLHe
 			NewObject<UStaticMeshComponent>(PreviewScene->GetWorld()->PersistentLevel, NAME_None, RF_Transient)};
 		VerticalComponent->SetStaticMesh(VerticalMesh);
 
-		const FTransform Transform{Placement.Rotation, Placement.Location, FVector{1.0f, 1.0f, ScaleZ}};
+		const FTransform Transform{Placement.Rotation, Placement.Location, FVector{1.0, 1.0, ScaleZ}};
 		PreviewScene->AddComponent(VerticalComponent, Transform);
 		BackplateComponents.Add(VerticalComponent);
 	}
 
-	const float ScaleX{(BoundsMax.X - BoundsMin.X) / (HorizontalMesh->GetBoundingBox().GetExtent().X * 2.0f)};
-	TArray<FMeshPlacement> HorizontalPlacements{{FVector{BoundsMax.X, BoundsMin.Y, BoundsMax.Z}, FRotator{0.0f, 0.0f, 0.0f}},
-		{FVector{BoundsMin.X, BoundsMin.Y, BoundsMin.Z}, FRotator{180.0f, 0.0f, 0.0f}}};
+	const double ScaleX{(BoundsMax.X - BoundsMin.X) / (HorizontalMesh->GetBoundingBox().GetExtent().X * 2.0)};
+	TArray<FMeshPlacement> HorizontalPlacements{{FVector{BoundsMax.X, BoundsMin.Y, BoundsMax.Z}, FRotator{0.0, 0.0, 0.0}},
+		{FVector{BoundsMin.X, BoundsMin.Y, BoundsMin.Z}, FRotator{180.0, 0.0, 0.0}}};
 
 	for (const FMeshPlacement& Placement : HorizontalPlacements)
 	{
@@ -233,7 +233,7 @@ void STrafficLightPreviewViewport::AddBackplate(const FTLPole& Pole, const FTLHe
 			NewObject<UStaticMeshComponent>(PreviewScene->GetWorld()->PersistentLevel, NAME_None, RF_Transient)};
 		HorizontalComponent->SetStaticMesh(HorizontalMesh);
 
-		const FTransform Transform{Placement.Rotation, Placement.Location, FVector{ScaleX, 1.0f, 1.0f}};
+		const FTransform Transform{Placement.Rotation, Placement.Location, FVector{ScaleX, 1.0, 1.0}};
 		PreviewScene->AddComponent(HorizontalComponent, Transform);
 		BackplateComponents.Add(HorizontalComponent);
 	}
@@ -242,8 +242,7 @@ void STrafficLightPreviewViewport::AddBackplate(const FTLPole& Pole, const FTLHe
 		UStaticMeshComponent* MiddleComponent{
 			NewObject<UStaticMeshComponent>(PreviewScene->GetWorld()->PersistentLevel, NAME_None, RF_Transient)};
 		MiddleComponent->SetStaticMesh(MiddleMesh);
-		const FTransform Transform{
-			HeadWorldRotation, FVector{BoundsMax.X, BoundsMin.Y, BoundsMin.Z}, FVector{ScaleX, 1.0f, ScaleZ}};
+		const FTransform Transform{HeadWorldRotation, FVector{BoundsMax.X, BoundsMin.Y, BoundsMin.Z}, FVector{ScaleX, 1.0, ScaleZ}};
 		PreviewScene->AddComponent(MiddleComponent, Transform);
 		BackplateComponents.Add(MiddleComponent);
 	}
@@ -360,12 +359,12 @@ void STrafficLightPreviewViewport::ResetFrame(const UStaticMeshComponent* Comp)
 	Box += Comp->Bounds.GetBox();
 
 	const FVector Center{Box.GetCenter()};
-	const float Radius{Box.GetExtent().GetMax()};
-	const float Distance{Radius * -10.0f};
+	const double Radius{Box.GetExtent().GetMax()};
+	const double Distance{Radius * -10.0};
 	const FVector Forward{FVector::ForwardVector.Rotation().RotateVector(FVector(0, 1, 0))};
 	const FVector Up{FVector::UpVector};
-	const FVector CamPos{Center - Forward * Distance + Up * (Radius * 0.5f)};
-	const FRotator CamRot(0.0f, -90.0f, 0.0f);
+	const FVector CamPos{Center - Forward * Distance + Up * (Radius * 0.5)};
+	const FRotator CamRot(0.0, -90.0, 0.0);
 
 	ViewportClient->SetViewLocation(CamPos);
 	ViewportClient->SetViewRotation(CamRot);
