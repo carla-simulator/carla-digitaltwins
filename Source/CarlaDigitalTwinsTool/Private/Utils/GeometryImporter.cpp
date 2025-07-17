@@ -181,6 +181,8 @@ TArray<USplineComponent*> UGeometryImporter::ImportGeoJsonPolygonsToSplines(UWor
         i++;
     }
 
+    UE_LOG(LogGeometryImporter, Log, TEXT("Splines created from GeoJson file."));
+
     return CreatedSplines;
 }
 

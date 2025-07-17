@@ -150,6 +150,27 @@ public:
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
   FVector2D OriginGeoCoordinates;
 
+  UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Settings" )
+  float DistanceBetweenTrees = 50.0f;
+
+  UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Settings" )
+  float DistanceFromRoadEdge = 3.0f;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+  bool bSatelliteSegmentationTrees = true;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+  int SatelliteSegmentationZoom = 20;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+  float SatelliteSegmentationThreshold = 0.2f;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+  float TreeEffectiveRadius = 7.0f;
+
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+  bool bShowDebugTreeAreas = false;
+
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defaults")
   UMaterialInstance* DefaultRoadMaterial;
 
@@ -167,12 +188,6 @@ public:
   
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Parameters")
   FOpenDriveFileGenerationParameters OpenDriveGenParams;
-
-  UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Settings" )
-  float DistanceBetweenTrees = 50.0f;
-
-  UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Settings" )
-  float DistanceFromRoadEdge = 3.0f;
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Stage" )
   bool bHasStarted = false;
@@ -266,9 +281,23 @@ private:
   void LoadMap();
 
   void GenerateAll(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
+
   void GenerateRoadMesh(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
+
   // void GenerateSpawnPoints(const carla::road::Map& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
-  void GenerateTreePositions(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
+
+  void GenerateDefaultTreePositions(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
+
+  void RunTreeSegmentation();
+
+  TArray<FVector2D> ReadCSVCoordinates(FString path);
+
+  void GenerateSatelliteSegmentationTreePositions();
+
+  void SpawnTrees(TArray<FVector2D> TreeCoordinates, FString Label);
+
+  void SpawnPlaceholders(TArray<FVector2D> Coordinates, FString Label);
+
   void GenerateLaneMarks(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
 
   FTransform GetSnappedPosition(FTransform Origin);
