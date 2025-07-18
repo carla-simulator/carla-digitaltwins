@@ -12,7 +12,10 @@ class CARLADIGITALTWINSTOOL_API UDGTImplementable : public UEditorUtilityObject
   GENERATED_BODY()
 
 public:
+  UFUNCTION(BlueprintCallable, BlueprintImplementableEvent, Category = "CarlaDigitalTwinsTool")
+  void RunUtilityFunction(UWorld* World, class UOpenDriveToMap* OpenDriveToMap);
+  
+  UFUNCTION(BlueprintCallable, BlueprintImplementableEvent, Category = "CarlaDigitalTwinsTool")
+  void RunUtilityFunctionWithSplinesParamters(UWorld* World,  class UOpenDriveToMap* OpenDriveToMap, TArray<class USplineComponent*>& Splines);
 
-  UFUNCTION(BlueprintImplementableEvent, Category = "CarlaDigitalTwinsTool")
-  void RunUtilityFunction(UWorld* World);
 };

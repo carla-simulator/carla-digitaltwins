@@ -749,14 +749,15 @@ void UOpenDriveToMap::LoadMap()
 
     if(IsValid(StreetMapActorReference))
     {
-      StreetMapActorReference->SpawnTaggedTerrainSplines();
+      GeneratedSplines.Append(StreetMapActorReference->SpawnTaggedTerrainSplines());
     }
     
     for(UDGTImplementable* Tool : ToolInstances)
     {
       if( Tool )
       {
-        Tool->RunUtilityFunction(World);
+        Tool->RunUtilityFunction(World, this);
+        Tool->RunUtilityFunctionWithSplinesParamters(World, this, GeneratedSplines);
       }
     }
 
@@ -1659,7 +1660,7 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
       }
     }
 
-    SplineGenerationFinished(RoadSplines);
+    GeneratedSplines.Append(RoadSplines);
 }
 
 void UOpenDriveToMap::RunPythonRoadEdges(FVector2D Center, FVector2D Extent)
