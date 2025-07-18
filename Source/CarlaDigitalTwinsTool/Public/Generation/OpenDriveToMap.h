@@ -71,7 +71,7 @@ public:
   void CreateTerrainMesh(const int MeshIndex, const FVector2D Offset,  const int TileSizeX, const int TileSizeY, const float GridSectionSize);
 
   UFUNCTION(BlueprintCallable)
-  float GetHeight(float PosX, float PosY,bool bDrivingLane = false);
+  float GetHeight(float PosX, float PosY, bool bDrivingLane = false);
 
   UFUNCTION(BlueprintCallable)
   static AActor* SpawnActorWithCheckNoCollisions(UClass* ActorClassToSpawn, FTransform Transform);
@@ -227,6 +227,9 @@ public:
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Heightmap" )
   class AStreetMapActor* StreetMapActorReference;
+
+  UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Heightmap" )
+  TArray<USplineComponent*> GeneratedSplines;
 protected:
 
   UFUNCTION(BlueprintCallable, Category = "Assets Placement")
@@ -237,9 +240,6 @@ protected:
 
   UFUNCTION(BlueprintCallable)
   TArray<AActor*> GenerateMiscActors(float Offset, FVector MinLocation, FVector MaxLocation );
-
-  UFUNCTION(BlueprintImplementableEvent)
-  void SplineGenerationFinished(const TArray<USplineComponent*>& Splines);
 
   UFUNCTION( BlueprintImplementableEvent )
   void GenerationFinished(FVector MinLocation, FVector MaxLocation);
