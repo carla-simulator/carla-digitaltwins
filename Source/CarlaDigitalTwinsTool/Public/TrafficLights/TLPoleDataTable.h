@@ -20,20 +20,20 @@ struct FTLPoleRow : public FTableRowBase
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Pole")
-	ETLStyle Style;
+	ETLStyle Style{ETLStyle::NorthAmerican};
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|Pole")
-	ETLOrientation Orientation;
+	ETLOrientation Orientation{ETLOrientation::Vertical};
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|Pole")
-	UStaticMesh* BaseMesh;
+	UStaticMesh* BaseMesh{nullptr};
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|Pole")
-	UStaticMesh* ExtendibleMesh;
+	UStaticMesh* ExtendibleMesh{nullptr};
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|Pole")
-	UStaticMesh* CapMesh;
+	UStaticMesh* CapMesh{nullptr};
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|Pole")
-	UStaticMesh* ConnectorMesh;
+	UStaticMesh* ConnectorMesh{nullptr};
 };
