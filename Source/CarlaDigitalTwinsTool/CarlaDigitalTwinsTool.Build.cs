@@ -124,8 +124,10 @@ public class CarlaDigitalTwinsTool : ModuleRules
         "MeshDescription",
         "RawMesh",
         "AssetTools",
-        "Projects"
-				// ... add other public dependencies that you statically link with here ...
+        "Projects",
+        "CoreUObject",
+        "Engine",
+        "InputCore",
       }
     );
 
@@ -154,15 +156,17 @@ public class CarlaDigitalTwinsTool : ModuleRules
         "HTTP",
         "RHI",
         "RenderCore",
-        "MeshMergeUtilities",
+        "MeshUtilities",
         "CarlaMeshGeneration",
         "StreetMapImporting",
         "StreetMapRuntime",
         "InputCore",
         "AppFramework",
-        "EngineSettings"
-				// ... add private dependencies that you statically link with here ...
-			}
+        "EngineSettings",
+        "RenderCore",
+        "Projects",
+        "EditorFramework",
+          }
       );
 
         if (Target.Version.MajorVersion < 5)
@@ -186,6 +190,16 @@ public class CarlaDigitalTwinsTool : ModuleRules
         if (IsWindows())
         {
             PrivateDefinitions.Add("_USE_MATH_DEFINES");
+        }
+
+        if (Target.bBuildEditor)
+        {
+            PrivateDependencyModuleNames.AddRange(new string[] {
+                "UnrealEd",
+                "MeshUtilities",
+                "MeshMergeUtilities",
+                "EditorFramework"
+            });
         }
     }
 }

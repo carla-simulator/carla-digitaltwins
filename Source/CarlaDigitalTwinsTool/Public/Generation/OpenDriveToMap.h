@@ -230,6 +230,7 @@ public:
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Heightmap" )
   TArray<USplineComponent*> GeneratedSplines;
+
 protected:
 
   UFUNCTION(BlueprintCallable, Category = "Assets Placement")
@@ -237,6 +238,12 @@ protected:
 
   UFUNCTION(BlueprintCallable, Category = "Assets Placement")
   void RunPythonRoadEdges(FVector2D Center, FVector2D Extent);
+
+  UFUNCTION(BlueprintCallable, Category = "Mitsuba")
+  void ExportStaticMeshToOBJ(UStaticMesh *StaticMesh, const FString &OutputPath);
+
+  UFUNCTION(BlueprintCallable, Category = "Mitsuba")
+  void MergeDrivingLanes(UWorld *World);
 
   UFUNCTION(BlueprintCallable)
   TArray<AActor*> GenerateMiscActors(float Offset, FVector MinLocation, FVector MaxLocation );

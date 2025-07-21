@@ -83,9 +83,7 @@
 #include "TrafficLights/TLMeshFactory.h"
 
 #include "Generation/OpenDriveToMap.h"
-#if WITH_EDITOR
 #include "FileHelpers.h"
-#endif
 #include "UObject/ConstructorHelpers.h"
 
 #include "Editor.h"
@@ -115,6 +113,8 @@
 #include "Online/CustomFileDownloader.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/Texture2D.h"
+#include "IMeshMergeUtilities.h"
+#include "MeshMergeModule.h"
 // #include "Utils/GoogleStreetViewManager.h"
 #include "Utils/GeometryImporter.h"
 
@@ -813,6 +813,18 @@ void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& Param
   FVector MinLocation,
   FVector MaxLocation )
 {
+  auto WorldIniPosition = FVector2D(UMapGenFunctionLibrary::GetTransversemercProjection(
+    OriginGeoCoordinates.X, OriginGeoCoordinates.Y, 
+    OriginGeoCoordinates.X, OriginGeoCoordinates.Y));
+  auto WorldEndPosition = FVector2D(UMapGenFunctionLibrary::GetTransversemercProjection(
+    FinalGeoCoordinates.X, FinalGeoCoordinates.Y, 
+    OriginGeoCoordinates.X, OriginGeoCoordinates.Y));
+
+  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Origin Geo Coords: %f, %f"), OriginGeoCoordinates.X, OriginGeoCoordinates.Y);
+  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Final Geo Coords: %f, %f"), FinalGeoCoordinates.X, FinalGeoCoordinates.Y);
+  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Origin Unreal Coords: %f, %f"), WorldIniPosition.X, WorldIniPosition.Y);
+  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Final Unreal Coords: %f, %f"), WorldEndPosition.X, WorldEndPosition.Y);
+
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Roads..... "));
   GenerateRoadMesh(ParamCarlaMap, MinLocation, MaxLocation);
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Lane Marks..... "));
@@ -1774,6 +1786,140 @@ TArray<FRoadSignInfo> UOpenDriveToMap::GetAllRoadSignsInfo()
   }
 
   return RoadSigns;
+}
+
+void UOpenDriveToMap::ExportStaticMeshToOBJ(UStaticMesh* StaticMesh, const FString& OutputPath)
+{
+    if (!StaticMesh || !StaticMesh->GetRenderData())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("StaticMesh is null or has no render data."));
+        return;
+    }
+
+    FString ObjData;
+    ObjData += FString::Printf(TEXT("# Exported OBJ from %s\n"), *StaticMesh->GetName());
+
+    const FStaticMeshLODResources& LOD = StaticMesh->GetRenderData()->LODResources[0];
+
+    // Vertices
+    const FPositionVertexBuffer& PositionVertexBuffer = LOD.VertexBuffers.PositionVertexBuffer;
+    const FStaticMeshVertexBuffer& VertexBuffer = LOD.VertexBuffers.StaticMeshVertexBuffer;
+    const int32 VertexCount = PositionVertexBuffer.GetNumVertices();
+
+    for (int32 i = 0; i < VertexCount; ++i)
+    {
+        FVector Pos = (FVector)PositionVertexBuffer.VertexPosition(i);
+        ObjData += FString::Printf(TEXT("v %f %f %f\n"), Pos.X, Pos.Y, Pos.Z);
+    }
+
+    // Normals
+    for (int32 i = 0; i < VertexCount; ++i)
+    {
+        FVector Normal = (FVector)VertexBuffer.VertexTangentZ(i);
+        ObjData += FString::Printf(TEXT("vn %f %f %f\n"), Normal.X, Normal.Y, Normal.Z);
+    }
+
+    // UVs
+    for (int32 i = 0; i < VertexCount; ++i)
+    {
+        FVector2D UV = (FVector2D)VertexBuffer.GetVertexUV(i, 0);
+        ObjData += FString::Printf(TEXT("vt %f %f\n"), UV.X, 1.0f - UV.Y);  // Flip V
+    }
+
+    // Faces (triangles)
+    const FIndexArrayView Indices = LOD.IndexBuffer.GetArrayView();
+    const int32 NumTriangles = Indices.Num() / 3;
+
+    for (int32 i = 0; i < NumTriangles; ++i)
+    {
+        int32 i0 = Indices[i * 3 + 0] + 1;
+        int32 i1 = Indices[i * 3 + 1] + 1;
+        int32 i2 = Indices[i * 3 + 2] + 1;
+        ObjData += FString::Printf(TEXT("f %d/%d/%d %d/%d/%d %d/%d/%d\n"),
+            i0, i0, i0,
+            i1, i1, i1,
+            i2, i2, i2);
+    }
+
+    // Save to file
+    if (FFileHelper::SaveStringToFile(ObjData, *OutputPath))
+    {
+        UE_LOG(LogTemp, Log, TEXT("Successfully exported to OBJ: %s"), *OutputPath);
+    }
+    else
+    {
+        UE_LOG(LogTemp, Error, TEXT("Failed to save OBJ file."));
+    }
+}
+
+void UOpenDriveToMap::MergeDrivingLanes(UWorld* World)
+{
+  TArray<AActor*> FoundActors;
+  UGameplayStatics::GetAllActorsOfClass(World, AStaticMeshActor::StaticClass(), FoundActors);
+
+  TArray<UPrimitiveComponent*> ComponentsToMerge;
+
+  for (AActor* Actor : FoundActors)
+  {
+      for (const FName& Tag : Actor->Tags)
+      {
+          if (Tag.ToString().StartsWith("DrivingLane_"))
+          {
+              if (UStaticMeshComponent* SMC = Cast<UStaticMeshComponent>(Actor->GetComponentByClass(UStaticMeshComponent::StaticClass())))
+              {
+                  ComponentsToMerge.Add(SMC);
+              }
+              break;
+          }
+      }
+  }
+
+  if (ComponentsToMerge.Num() == 0)
+  {
+      UE_LOG(LogTemp, Warning, TEXT("No components to merge"));
+      return;
+  }
+
+  // Set up merge settings
+  FMeshMergingSettings MergeSettings;
+  MergeSettings.bMergeMaterials = true;
+  MergeSettings.bPivotPointAtZero = true;
+
+  // Prepare output package
+  FString PackageName = TEXT("/Game/Merged/MergedDrivingLane");
+  FString AssetName = TEXT("MergedDrivingLane");
+  UPackage* Package = CreatePackage(*PackageName);
+
+  // Get mesh merge utilities
+  IMeshMergeUtilities& MeshMergeUtilities =
+      FModuleManager::LoadModuleChecked<IMeshMergeModule>("MeshMergeUtilities").GetUtilities();
+
+  TArray<UObject*> AssetsToSync;
+  FVector MergedActorLocation = FVector::ZeroVector;
+
+  MeshMergeUtilities.MergeComponentsToStaticMesh(
+      ComponentsToMerge,
+      World,
+      MergeSettings,
+      nullptr,              // Base material (optional)
+      Package,              // Outer
+      AssetName,
+      AssetsToSync,
+      MergedActorLocation,
+      1.0f,                 // Screen size
+      false                 // bSilent
+  );
+
+  UE_LOG(LogTemp, Log, TEXT("Merged mesh saved to: %s"), *PackageName);
+
+  if (AssetsToSync.Num() > 0)
+  {
+      if (UStaticMesh* MergedMesh = Cast<UStaticMesh>(AssetsToSync[0]))
+      {
+          FString ObjPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Exported/MergedDrivingLane.obj"));
+          ExportStaticMeshToOBJ(MergedMesh, ObjPath);
+      }
+  }
 }
 
 #endif
