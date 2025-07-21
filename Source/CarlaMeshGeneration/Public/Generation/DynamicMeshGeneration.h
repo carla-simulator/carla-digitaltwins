@@ -28,7 +28,9 @@ class CARLAMESHGENERATION_API UDynamicMeshGeneration : public UBlueprintFunction
 public:
   UFUNCTION(BlueprintCallable)
   static UStaticMesh* CreateMeshFromPoints(
-      TArray<FVector2D> Points,
-      FName MeshName);
+      TArray<FVector> Points3D,
+      FName MeshName,
+      const FString& AssetPath,
+      bool bFlipped = true);
 
 };
