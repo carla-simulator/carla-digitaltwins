@@ -119,12 +119,14 @@ public class CarlaDigitalTwinsTool : ModuleRules
         PublicDependencyModuleNames.AddRange(
           new string[]
           {
-        "Core",
-        "ProceduralMeshComponent",
-        "MeshDescription",
-        "RawMesh",
-        "AssetTools",
-        "Projects"
+            "Core",
+            "Engine",
+            "ProceduralMeshComponent",
+            "MeshDescription",
+            "RawMesh",
+            "AssetTools",
+            "Projects",
+
 				// ... add other public dependencies that you statically link with here ...
       }
     );
@@ -133,37 +135,37 @@ public class CarlaDigitalTwinsTool : ModuleRules
         PrivateDependencyModuleNames.AddRange(
           new string[]
           {
-        "CoreUObject",
-        "Engine",
-        "Slate",
-        "SlateCore",
-        "UnrealEd",
-        "Blutility",
-        "UMG",
-        "EditorScriptingUtilities",
-        "ImageWriteQueue",
-        "Landscape",
-        "Foliage",
-        "FoliageEdit",
-        "MeshMergeUtilities",
-        "StaticMeshDescription",
-        "Json",
-        "JsonUtilities",
-        "Networking",
-        "Sockets",
-        "HTTP",
-        "RHI",
-        "RenderCore",
-        "MeshMergeUtilities",
-        "CarlaMeshGeneration",
-        "StreetMapImporting",
-        "StreetMapRuntime",
-        "InputCore",
-        "AppFramework",
-        "EngineSettings"
+            "CoreUObject",
+            "Engine",
+            "Slate",
+            "SlateCore",
+            "UnrealEd",
+            "Blutility",
+            "UMG",
+            "EditorScriptingUtilities",
+            "ImageWriteQueue",
+            "Landscape",
+            "Foliage",
+            "FoliageEdit",
+            "MeshMergeUtilities",
+            "StaticMeshDescription",
+            "Json",
+            "JsonUtilities",
+            "Networking",
+            "Sockets",
+            "HTTP",
+            "RHI",
+            "RenderCore",
+            "MeshMergeUtilities",
+            "CarlaMeshGeneration",
+            "StreetMapImporting",
+            "StreetMapRuntime",
+            "InputCore",
+            "AppFramework",
+            "EngineSettings",
 				// ... add private dependencies that you statically link with here ...
-			}
-      );
+			    }
+        );
 
         if (Target.Version.MajorVersion < 5)
         {

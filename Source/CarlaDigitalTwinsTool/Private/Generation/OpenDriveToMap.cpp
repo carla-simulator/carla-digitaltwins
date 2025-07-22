@@ -731,16 +731,31 @@ void UOpenDriveToMap::LoadMap()
       HeightmapPixels = HeightmapCopy->AsG16();
     }
 
-    for( TSubclassOf<UDGTImplementable>& ToolToInstantiate : ToolsClasses )
+    for (const TSubclassOf<UDGTImplementable>& ToolClass : ToolsClasses)
     {
-      if( ToolToInstantiate == nullptr )
-      {
-        UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("ToolToInstantiate is null") );
-        continue;
-      }
+        if (!ToolClass)
+        {
+            UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("ToolToInstantiate is null at index %d"), 
+                  ToolsClasses.IndexOfByKey(ToolClass));
+            continue;
+        }
 
-      UDGTImplementable* Tool = NewObject<UDGTImplementable>(this, ToolToInstantiate);
-      ToolInstances.Add(Tool);
+        // Log the class name before instantiation
+        UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Instantiating tool of class: %s"),
+              *ToolClass->GetName());
+
+        UDGTImplementable* Tool = NewObject<UDGTImplementable>(this, ToolClass);
+        if (!Tool)
+        {
+            UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Failed to instantiate tool of class: %s"),
+                  *ToolClass->GetName());
+            continue;
+        }
+
+        ToolInstances.Add(Tool);
+
+        UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Tool instance created: %s"),
+              *Tool->GetName());
     }
 
     do{
@@ -750,6 +765,21 @@ void UOpenDriveToMap::LoadMap()
     if(IsValid(StreetMapActorReference))
     {
       GeneratedSplines.Append(StreetMapActorReference->SpawnTaggedTerrainSplines());
+    }
+    else
+    {
+      UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("StreetMapActorReference is not valid") );
+    }
+    
+    if (World)
+    {
+      FString CurrentMapName = World->GetMapName();
+      CurrentMapName.RemoveFromStart(World->StreamingLevelsPrefix);
+      UGameplayStatics::OpenLevel(World, FName(*CurrentMapName));
+      AsyncTask(ENamedThreads::GameThread, [this, World]
+          {
+              RenderRoadToTexture(World);
+          });
     }
 
     for(UDGTImplementable* Tool : ToolInstances)
@@ -761,18 +791,7 @@ void UOpenDriveToMap::LoadMap()
       }
     }
 
-
     RemoveFromRoot();
-    if (World)
-    {
-      FString CurrentMapName = World->GetMapName();
-      CurrentMapName.RemoveFromStart(World->StreamingLevelsPrefix);
-      UGameplayStatics::OpenLevel(World, FName(*CurrentMapName));
-      AsyncTask(ENamedThreads::GameThread, [this, World]
-          {
-              RenderRoadToTexture(World);
-          });
-    }
 #endif
     Landscapes.Empty();
   }
