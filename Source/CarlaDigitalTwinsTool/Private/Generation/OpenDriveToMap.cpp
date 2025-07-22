@@ -1793,7 +1793,6 @@ TArray<FRoadSignInfo> UOpenDriveToMap::GetAllRoadSignsInfo()
 
 void UOpenDriveToMap::ExportStaticMeshToOBJ(UStaticMesh* StaticMesh, const FString& OutputPath)
 {
-  
   UE_LOG(LogTemp, Log, TEXT("Exporting mesh as OBJ to path: %s"), *OutputPath);
 
   if (!StaticMesh || !StaticMesh->GetRenderData())
@@ -1815,14 +1814,14 @@ void UOpenDriveToMap::ExportStaticMeshToOBJ(UStaticMesh* StaticMesh, const FStri
   for (int32 i = 0; i < VertexCount; ++i)
   {
       FVector Pos = (FVector)PositionVertexBuffer.VertexPosition(i);
-      ObjData += FString::Printf(TEXT("v %f %f %f\n"), Pos.X, Pos.Y, Pos.Z);
+      ObjData += FString::Printf(TEXT("v %f %f %f\n"), Pos.X, Pos.Z, Pos.Y);
   }
 
   // Normals
   for (int32 i = 0; i < VertexCount; ++i)
   {
       FVector Normal = (FVector)VertexBuffer.VertexTangentZ(i);
-      ObjData += FString::Printf(TEXT("vn %f %f %f\n"), Normal.X, Normal.Y, Normal.Z);
+      ObjData += FString::Printf(TEXT("vn %f %f %f\n"), Normal.X, Normal.Z, Normal.Y);
   }
 
   // UVs
@@ -1884,18 +1883,15 @@ void UOpenDriveToMap::MergeDrivingLanes(UWorld* World)
       return;
   }
 
-  // Set up merge settings
   FMeshMergingSettings MergeSettings;
   MergeSettings.bMergeMaterials = true;
   MergeSettings.bPivotPointAtZero = true;
 
-  // Prepare output package
   FString MapPath = FPaths::ConvertRelativePathToFull(UGenerationPathsHelper::GetRawMapDirectoryPath(MapName));
   FString AssetName = TEXT("MergedRoad");
   FString PackageName = MapPath / AssetName;
   UPackage* Package = CreatePackage(*PackageName);
 
-  // Get mesh merge utilities
   IMeshMergeUtilities& MeshMergeUtilities =
       FModuleManager::LoadModuleChecked<IMeshMergeModule>("MeshMergeUtilities").GetUtilities();
 
@@ -1924,7 +1920,7 @@ void UOpenDriveToMap::MergeDrivingLanes(UWorld* World)
       MergedMesh = Cast<UStaticMesh>(Asset);
       if (MergedMesh)
       {
-        FString ObjPath = MapPath / TEXT("MergedRoad.obj");
+        FString ObjPath = MapPath / FString::Printf(TEXT("MergedRoad_%.4f_%.4f.obj"), WorldEndPosition.X, WorldEndPosition.Y);
         ExportStaticMeshToOBJ(MergedMesh, ObjPath);
         break;
       }   
