@@ -733,16 +733,28 @@ void UOpenDriveToMap::LoadMap()
 			HeightmapPixels = HeightmapCopy->AsG16();
 		}
 
-		for (TSubclassOf<UDGTImplementable>& ToolToInstantiate : ToolsClasses)
+		for (const TSubclassOf<UDGTImplementable>& ToolClass : ToolsClasses)
 		{
-			if (ToolToInstantiate == nullptr)
+			if (!ToolClass)
 			{
-				UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("ToolToInstantiate is null"));
+				UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("ToolToInstantiate is null at index %d"),
+					ToolsClasses.IndexOfByKey(ToolClass));
 				continue;
 			}
 
-			UDGTImplementable* Tool = NewObject<UDGTImplementable>(this, ToolToInstantiate);
+			// Log the class name before instantiation
+			UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Instantiating tool of class: %s"), *ToolClass->GetName());
+
+			UDGTImplementable* Tool = NewObject<UDGTImplementable>(this, ToolClass);
+			if (!Tool)
+			{
+				UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Failed to instantiate tool of class: %s"), *ToolClass->GetName());
+				continue;
+			}
+
 			ToolInstances.Add(Tool);
+
+			UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Tool instance created: %s"), *Tool->GetName());
 		}
 
 		do
@@ -753,6 +765,18 @@ void UOpenDriveToMap::LoadMap()
 		if (IsValid(StreetMapActorReference))
 		{
 			GeneratedSplines.Append(StreetMapActorReference->SpawnTaggedTerrainSplines());
+		}
+		else
+		{
+			UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("StreetMapActorReference is not valid"));
+		}
+
+		if (World)
+		{
+			FString CurrentMapName = World->GetMapName();
+			CurrentMapName.RemoveFromStart(World->StreamingLevelsPrefix);
+			UGameplayStatics::OpenLevel(World, FName(*CurrentMapName));
+			AsyncTask(ENamedThreads::GameThread, [this, World] { RenderRoadToTexture(World); });
 		}
 
 		for (UDGTImplementable* Tool : ToolInstances)
@@ -765,13 +789,6 @@ void UOpenDriveToMap::LoadMap()
 		}
 
 		RemoveFromRoot();
-		if (World)
-		{
-			FString CurrentMapName = World->GetMapName();
-			CurrentMapName.RemoveFromStart(World->StreamingLevelsPrefix);
-			UGameplayStatics::OpenLevel(World, FName(*CurrentMapName));
-			AsyncTask(ENamedThreads::GameThread, [this, World] { RenderRoadToTexture(World); });
-		}
 #endif
 		Landscapes.Empty();
 	}
@@ -814,11 +831,8 @@ void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& Param
 	GenerateRoadMesh(ParamCarlaMap, MinLocation, MaxLocation);
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Lane Marks..... "));
 	GenerateLaneMarks(ParamCarlaMap, MinLocation, MaxLocation);
-	// GenerateSpawnPoints(ParamCarlaMap, MinLocation, MaxLocation);
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Terrain..... "));
 	CreateTerrain(5, 5, 64);
-	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Tree positions..... "));
-	GenerateTreePositions(ParamCarlaMap, MinLocation, MaxLocation);
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Traffic Lights..... "));
 	GenerateTrafficLights(ParamCarlaMap, MinLocation, MaxLocation);
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Misc stuff..... "));
@@ -881,7 +895,7 @@ void UOpenDriveToMap::GenerateRoadMesh(
 					for (auto& Vertex : Vertices)
 					{
 						FVector FV = Vertex.ToFVector();
-						Vertex.z =
+						Vertex.z +=
 							GetHeight(Vertex.x * 100.0f, Vertex.y * 100.0f, DistanceToLaneBorder(ParamCarlaMap, FV) > 65.0f) /
 							100.0f;
 					}
@@ -1021,9 +1035,10 @@ void UOpenDriveToMap::GenerateLaneMarks(
 		for (auto& Vertex : Mesh->GetVertices())
 		{
 			FVector VertexFVector = Vertex.ToFVector();
-			Vertex.z = GetHeight(Vertex.x * 100.0f, Vertex.y * 100.0f, DistanceToLaneBorder(ParamCarlaMap, VertexFVector) > 65.0f) /
-						   100.0f +
-					   0.01f;
+			Vertex.z +=
+				GetHeight(Vertex.x * 100.0f, Vertex.y * 100.0f, DistanceToLaneBorder(ParamCarlaMap, VertexFVector) > 65.0f) /
+					100.0f +
+				0.01f;
 			MeshCentroid += Vertex.ToFVector();
 		}
 
@@ -1114,28 +1129,6 @@ void UOpenDriveToMap::GenerateLaneMarks(
 		UGameplayStatics::OpenLevel(World, FName(*CurrentMapName));
 	}
 }
-
-/*
-void UOpenDriveToMap::GenerateSpawnPoints( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector
-MaxLocation  )
-{
-  float SpawnersHeight = 300.f;
-  const auto Waypoints = ParamCarlaMap.GenerateWaypointsOnRoadEntries();
-  TArray<AActor*> ActorsToMove;
-  for (const auto &Wp : Waypoints)
-  {
-	const FTransform Trans = ParamCarlaMap.ComputeTransform(Wp);
-	if( Trans.GetLocation().X >= MinLocation.X && Trans.GetLocation().Y >= MinLocation.Y &&
-		Trans.GetLocation().X <= MaxLocation.X && Trans.GetLocation().Y <= MaxLocation.Y)
-	{
-	  AVehicleSpawnPoint *Spawner = UEditorLevelLibrary::GetEditorWorld()->SpawnActor<AVehicleSpawnPoint>();
-	  Spawner->SetActorRotation(Trans.GetRotation());
-	  Spawner->SetActorLocation(Trans.GetTranslation() + FVector(0.f, 0.f, SpawnersHeight));
-	  ActorsToMove.Add(Spawner);
-	}
-  }
-}
-  */
 
 void UOpenDriveToMap::GenerateTreePositions(
 	const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation)
