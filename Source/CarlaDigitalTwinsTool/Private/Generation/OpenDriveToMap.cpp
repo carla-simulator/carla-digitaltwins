@@ -1211,7 +1211,7 @@ void UOpenDriveToMap::GenerateTrafficLights(const boost::optional<carla::road::M
                 Pole.Heads.Add(Head);
                 TL->Poles.Empty();
                 TL->Poles.Add(Pole);
-                TL->BuildFromPoles();
+                TL->Build();
             }
         }
     }
