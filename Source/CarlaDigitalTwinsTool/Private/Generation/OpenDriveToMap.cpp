@@ -1794,7 +1794,7 @@ TArray<FRoadSignInfo> UOpenDriveToMap::GetAllRoadSignsInfo()
 void UOpenDriveToMap::ExportStaticMeshToOBJ(UStaticMesh* StaticMesh, const FString& OutputPath)
 {
   
-  UE_LOG(LogTemp, Log, TEXT("Exporting mesh as OBJ tp path: %s"), *OutputPath);
+  UE_LOG(LogTemp, Log, TEXT("Exporting mesh as OBJ to path: %s"), *OutputPath);
 
   if (!StaticMesh || !StaticMesh->GetRenderData())
   {
@@ -1803,7 +1803,7 @@ void UOpenDriveToMap::ExportStaticMeshToOBJ(UStaticMesh* StaticMesh, const FStri
   }
 
   FString ObjData;
-  ObjData += FString::Printf(TEXT("# Exported OBJ from %s\n"), *StaticMesh->GetName());
+  ObjData += FString::Printf(TEXT("Exported OBJ from %s\n"), *StaticMesh->GetName());
 
   const FStaticMeshLODResources& LOD = StaticMesh->GetRenderData()->LODResources[0];
 
@@ -1891,7 +1891,9 @@ void UOpenDriveToMap::MergeDrivingLanes(UWorld* World)
 
   // Prepare output package
   FString PackageName = TEXT("/Game/Merged/MergedRoad");
+  FString MapPath = FPaths::ConvertRelativePathToFull(UGenerationPathsHelper::GetRawMapDirectoryPath(MapName) + MapName);
   FString AssetName = TEXT("MergedRoad");
+  // FString PackageName = MapPath + AssetName;
   UPackage* Package = CreatePackage(*PackageName);
 
   // Get mesh merge utilities
@@ -1916,13 +1918,18 @@ void UOpenDriveToMap::MergeDrivingLanes(UWorld* World)
 
   UE_LOG(LogTemp, Log, TEXT("Merged mesh saved to: %s"), *PackageName);
 
-  if (AssetsToSync.Num() > 0)
+  UStaticMesh* MergedMesh = nullptr;
+
+  for (UObject* Asset : AssetsToSync)
   {
-      if (UStaticMesh* MergedMesh = Cast<UStaticMesh>(AssetsToSync[0]))
+      MergedMesh = Cast<UStaticMesh>(Asset);
+      if (MergedMesh)
       {
-          FString ObjPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Exported/MergedRoad.obj"));
-          ExportStaticMeshToOBJ(MergedMesh, ObjPath);
-      }
+        // FString ObjPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Exported/MergedRoad.obj"));
+        FString ObjPath = MapPath / TEXT("MergedRoad.obj");
+        ExportStaticMeshToOBJ(MergedMesh, ObjPath);
+        break;
+      }   
   }
 }
 
