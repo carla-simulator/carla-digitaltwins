@@ -67,7 +67,6 @@ USceneComponent* ATrafficLightActor::AddRootPole(USceneComponent* Parent, FTLPol
 		return nullptr;
 	}
 
-	PoleRoot->RegisterComponent();
 	PoleRoot->AttachToComponent(Parent, FAttachmentTransformRules::KeepWorldTransform);
 	PoleRoot->SetWorldTransform(Pole.Transform);
 
@@ -78,7 +77,6 @@ USceneComponent* ATrafficLightActor::AddHead(USceneComponent* Parent, FTLPole& P
 {
 	USceneComponent* HeadRoot{UMapGenFunctionLibrary::AddSceneComponentToActor(this)};
 
-	HeadRoot->RegisterComponent();
 	HeadRoot->AttachToComponent(Parent, FAttachmentTransformRules::KeepWorldTransform);
 	HeadRoot->SetWorldTransform(Head.Transform * Pole.Transform);
 
@@ -95,7 +93,6 @@ UStaticMeshComponent* ATrafficLightActor::AddModule(USceneComponent* Parent, FTL
 		UE_LOG(LogTemp, Error, TEXT("Failed to create StaticMeshComponent for module"));
 		return nullptr;
 	}
-	Comp->RegisterComponent();
 	Comp->AttachToComponent(Parent, FAttachmentTransformRules::KeepWorldTransform);
 	Comp->SetWorldTransform(ModuleTransform);
 	Comp->SetStaticMesh(ModuleData.ModuleMesh);
@@ -131,7 +128,6 @@ UStaticMeshComponent* ATrafficLightActor::AddPoleBase(USceneComponent* Parent, F
 		return nullptr;
 	}
 
-	Comp->RegisterComponent();
 	Comp->AttachToComponent(Parent, FAttachmentTransformRules::KeepWorldTransform);
 	Comp->SetWorldTransform(Pole.Transform);
 	Comp->SetStaticMesh(Pole.BasePoleMesh);
@@ -147,12 +143,11 @@ UStaticMeshComponent* ATrafficLightActor::AddPoleExtensible(USceneComponent* Par
 	if (!Comp)
 		return nullptr;
 
-	Comp->RegisterComponent();
 	Comp->AttachToComponent(Parent, FAttachmentTransformRules::KeepWorldTransform);
 
 	FTransform T{Pole.Transform};
 	const double PoleSizeZ{Pole.ExtendiblePoleMesh->GetBoundingBox().GetSize().Z};
-    //TODO: Change the PoleHeight property to a double
+	// TODO: Change the PoleHeight property to a double
 	T.SetScale3D(FVector{1.0, 1.0, static_cast<double>(Pole.PoleHeight) / PoleSizeZ});
 	Comp->SetWorldTransform(T);
 	Comp->SetStaticMesh(Pole.ExtendiblePoleMesh);
@@ -170,7 +165,6 @@ UStaticMeshComponent* ATrafficLightActor::AddPoleCap(USceneComponent* Parent, FT
 		return nullptr;
 	}
 
-	Comp->RegisterComponent();
 	Comp->AttachToComponent(Parent, FAttachmentTransformRules::KeepWorldTransform);
 	Comp->SetWorldTransform(Pole.Transform);
 	Comp->SetStaticMesh(Pole.CapPoleMesh);
@@ -211,7 +205,6 @@ void ATrafficLightActor::AddBackplate(USceneComponent* Parent, FTLPole& Pole, FT
 	{
 		UStaticMeshComponent* Comp{UMapGenFunctionLibrary::AddStaticMeshComponentToActor(this)};
 		Comp->SetStaticMesh(Mesh);
-		Comp->RegisterComponent();
 		Comp->AttachToComponent(Parent, FAttachmentTransformRules::KeepWorldTransform);
 		Comp->SetWorldTransform(FTransform(RotWS, LocWS, ScaleWS));
 	};
