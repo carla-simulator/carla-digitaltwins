@@ -237,6 +237,9 @@ protected:
   void RenderRoadToTexture(UWorld* World);
 
   UFUNCTION(BlueprintCallable, Category = "Assets Placement")
+  void RunPythonScript(FString ScriptPath, FString Args);
+
+  UFUNCTION(BlueprintCallable, Category = "Assets Placement")
   void RunPythonRoadEdges(FVector2D Center, FVector2D Extent);
 
   UFUNCTION(BlueprintCallable, Category = "Mitsuba")

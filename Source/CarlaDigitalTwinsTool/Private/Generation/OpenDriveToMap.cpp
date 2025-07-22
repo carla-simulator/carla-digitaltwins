@@ -1679,17 +1679,9 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
     GeneratedSplines.Append(RoadSplines);
 }
 
-void UOpenDriveToMap::RunPythonRoadEdges(FVector2D Center, FVector2D Extent)
+void UOpenDriveToMap::RunPythonScript(FString ScriptPath, FString Args)
 {
-  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Running Python road edges extraction script..."));
-
   FString PythonExe = PythonBinPath;
-  FString PluginPath = UGenerationPathsHelper::GetDigitalTwinsPluginPath();
-  FString ScriptPath = PluginPath / TEXT("Content/Python/road_edge_detection.py");
-
-  FString Args;
-  Args += FString::Printf(TEXT("\"%s\" "), *ScriptPath);
-  Args += FString::Printf(TEXT("--plugin_path=\"%s\" "), *PluginPath);
 
   void* ReadPipe = nullptr;
   void* WritePipe = nullptr;
@@ -1729,6 +1721,20 @@ void UOpenDriveToMap::RunPythonRoadEdges(FVector2D Center, FVector2D Extent)
   FPlatformProcess::ClosePipe(ReadPipe, WritePipe);
 
   UE_LOG(LogCarlaDigitalTwinsTool, Display, TEXT("Python Output:\n%s"), *Output);
+}
+
+void UOpenDriveToMap::RunPythonRoadEdges(FVector2D Center, FVector2D Extent)
+{
+  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Running Python road edges extraction script..."));
+
+  FString PluginPath = UGenerationPathsHelper::GetDigitalTwinsPluginPath();
+  FString ScriptPath = PluginPath / TEXT("Content/Python/road_edge_detection.py");
+
+  FString Args;
+  Args += FString::Printf(TEXT("\"%s\" "), *ScriptPath);
+  Args += FString::Printf(TEXT("--plugin_path=\"%s\" "), *PluginPath);
+
+  RunPythonScript(ScriptPath, Args);
 }
 
 TArray<FRoadSignInfo> UOpenDriveToMap::GetAllRoadSignsInfo()
