@@ -15,6 +15,9 @@
 #include "UObject/UObjectGlobals.h"
 #include "EditorAssetLibrary.h"
 #include "FileHelpers.h"
+#include "WorldPartition/WorldPartitionBlueprintLibrary.h"
+#include "WorldPartition/WorldPartitionSubsystem.h"
+#include "Components/SplineComponent.h"
 
 DEFINE_LOG_CATEGORY(LogDigitalTwinsToolBlueprintUtil);
 
@@ -146,4 +149,46 @@ UObject* UBlueprintUtilFunctions::CopyAssetToPlugin(UObject* SourceObject, FStri
 #else
   return nullptr;
 #endif
+}
+
+void UBlueprintUtilFunctions::UnloadRegionWorldPartition(
+    UWorld* World,
+    const FBox& RegionBounds,
+    const FString& RegionName)
+{
+  // 1. Query descriptors in your region
+  TArray<FActorDesc> Descs;
+  //UWorldPartitionBlueprintLibrary::GetIntersectingActorDescs(RegionBounds, Descs);  // :contentReference[oaicite:0]{index=0}
+
+  // 2. Prepare an array for GUIDs to unload
+  TArray<FGuid> ToUnload;
+  ToUnload.Reserve(Descs.Num());
+
+  // 3. Filter out any actor whose CDO has a spline component
+  for (const FActorDesc& Desc : Descs)
+  {
+      // a) Get the actor class from the descriptor
+      UClass* ActorClass = Cast<UClass>(Desc.Class.TryLoad());
+      if (!ActorClass)
+      {
+          // No valid class—safe to unload
+          ToUnload.Add(Desc.Guid);
+          continue;
+      }
+
+      // b) Grab the class default object and check for spline
+      AActor* CDO = Cast<AActor>(ActorClass->GetDefaultObject());
+      if (CDO && CDO->FindComponentByClass<USplineComponent>())  // :contentReference[oaicite:1]{index=1}
+      {
+          // Skip any actor types that include a spline component
+          continue;
+      }
+
+      // c) Otherwise mark for unload
+      ToUnload.Add(Desc.Guid);
+  }
+
+  // 4. Issue the unload call for all the remaining GUIDs
+  //UWorldPartitionBlueprintLibrary::UnloadActors(ToUnload);
+  
 }

@@ -731,16 +731,31 @@ void UOpenDriveToMap::LoadMap()
       HeightmapPixels = HeightmapCopy->AsG16();
     }
 
-    for( TSubclassOf<UDGTImplementable>& ToolToInstantiate : ToolsClasses )
+    for (const TSubclassOf<UDGTImplementable>& ToolClass : ToolsClasses)
     {
-      if( ToolToInstantiate == nullptr )
-      {
-        UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("ToolToInstantiate is null") );
-        continue;
-      }
+        if (!ToolClass)
+        {
+            UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("ToolToInstantiate is null at index %d"), 
+                  ToolsClasses.IndexOfByKey(ToolClass));
+            continue;
+        }
 
-      UDGTImplementable* Tool = NewObject<UDGTImplementable>(this, ToolToInstantiate);
-      ToolInstances.Add(Tool);
+        // Log the class name before instantiation
+        UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Instantiating tool of class: %s"),
+              *ToolClass->GetName());
+
+        UDGTImplementable* Tool = NewObject<UDGTImplementable>(this, ToolClass);
+        if (!Tool)
+        {
+            UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Failed to instantiate tool of class: %s"),
+                  *ToolClass->GetName());
+            continue;
+        }
+
+        ToolInstances.Add(Tool);
+
+        UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Tool instance created: %s"),
+              *Tool->GetName());
     }
 
     do{
@@ -751,18 +766,11 @@ void UOpenDriveToMap::LoadMap()
     {
       GeneratedSplines.Append(StreetMapActorReference->SpawnTaggedTerrainSplines());
     }
-    
-    for(UDGTImplementable* Tool : ToolInstances)
+    else
     {
-      if( Tool )
-      {
-        Tool->RunUtilityFunction(World, this);
-        Tool->RunUtilityFunctionWithSplinesParamters(World, this, GeneratedSplines);
-      }
+      UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("StreetMapActorReference is not valid") );
     }
-
-
-    RemoveFromRoot();
+    
     if (World)
     {
       FString CurrentMapName = World->GetMapName();
@@ -773,6 +781,17 @@ void UOpenDriveToMap::LoadMap()
               RenderRoadToTexture(World);
           });
     }
+
+    for(UDGTImplementable* Tool : ToolInstances)
+    {
+      if( Tool )
+      {
+        Tool->RunUtilityFunction(World, this);
+        Tool->RunUtilityFunctionWithSplinesParamters(World, this, GeneratedSplines);
+      }
+    }
+
+    RemoveFromRoot();
 #endif
     Landscapes.Empty();
   }
