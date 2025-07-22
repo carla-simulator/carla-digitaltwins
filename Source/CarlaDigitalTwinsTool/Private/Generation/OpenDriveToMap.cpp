@@ -836,11 +836,8 @@ void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& Param
   GenerateRoadMesh(ParamCarlaMap, MinLocation, MaxLocation);
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Lane Marks..... "));
   GenerateLaneMarks(ParamCarlaMap, MinLocation, MaxLocation);
-  // GenerateSpawnPoints(ParamCarlaMap, MinLocation, MaxLocation);
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Terrain..... "));
   CreateTerrain(5,5, 64);
-  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Tree positions..... "));
-  GenerateTreePositions(ParamCarlaMap, MinLocation, MaxLocation);
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Traffic Lights..... "));
   GenerateTrafficLights(ParamCarlaMap, MinLocation, MaxLocation);
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Misc stuff..... "));
@@ -898,7 +895,7 @@ void UOpenDriveToMap::GenerateRoadMesh( const boost::optional<carla::road::Map>&
         for (auto& Vertex : Vertices)
         {
           FVector FV = Vertex.ToFVector();
-          Vertex.z = GetHeight(Vertex.x * 100.0f, Vertex.y * 100.0f, DistanceToLaneBorder(ParamCarlaMap, FV) > 65.0f) / 100.0f;
+          Vertex.z += GetHeight(Vertex.x * 100.0f, Vertex.y * 100.0f, DistanceToLaneBorder(ParamCarlaMap, FV) > 65.0f) / 100.0f;
         }
 #if ENGINE_MAJOR_VERSION < 5
         carla::geom::Simplification Simplify(0.15);
@@ -1034,7 +1031,7 @@ void UOpenDriveToMap::GenerateLaneMarks(const boost::optional<carla::road::Map>&
     for (auto& Vertex : Mesh->GetVertices())
     {
       FVector VertexFVector = Vertex.ToFVector();
-      Vertex.z = GetHeight(Vertex.x * 100.0f, Vertex.y * 100.0f, DistanceToLaneBorder(ParamCarlaMap,VertexFVector) > 65.0f ) / 100.0f + 0.01f;
+      Vertex.z += GetHeight(Vertex.x * 100.0f, Vertex.y * 100.0f, DistanceToLaneBorder(ParamCarlaMap,VertexFVector) > 65.0f ) / 100.0f + 0.01f;
       MeshCentroid += Vertex.ToFVector();
     }
 
@@ -1124,27 +1121,6 @@ void UOpenDriveToMap::GenerateLaneMarks(const boost::optional<carla::road::Map>&
     UGameplayStatics::OpenLevel(World, FName(*CurrentMapName));
   }
 }
-
-/*
-void UOpenDriveToMap::GenerateSpawnPoints( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation  )
-{
-  float SpawnersHeight = 300.f;
-  const auto Waypoints = ParamCarlaMap.GenerateWaypointsOnRoadEntries();
-  TArray<AActor*> ActorsToMove;
-  for (const auto &Wp : Waypoints)
-  {
-    const FTransform Trans = ParamCarlaMap.ComputeTransform(Wp);
-    if( Trans.GetLocation().X >= MinLocation.X && Trans.GetLocation().Y >= MinLocation.Y &&
-        Trans.GetLocation().X <= MaxLocation.X && Trans.GetLocation().Y <= MaxLocation.Y)
-    {
-      AVehicleSpawnPoint *Spawner = UEditorLevelLibrary::GetEditorWorld()->SpawnActor<AVehicleSpawnPoint>();
-      Spawner->SetActorRotation(Trans.GetRotation());
-      Spawner->SetActorLocation(Trans.GetTranslation() + FVector(0.f, 0.f, SpawnersHeight));
-      ActorsToMove.Add(Spawner);
-    }
-  }
-}
-  */
 
 void UOpenDriveToMap::GenerateTreePositions( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation  )
 {
