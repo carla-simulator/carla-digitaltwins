@@ -1890,10 +1890,9 @@ void UOpenDriveToMap::MergeDrivingLanes(UWorld* World)
   MergeSettings.bPivotPointAtZero = true;
 
   // Prepare output package
-  FString PackageName = TEXT("/Game/Merged/MergedRoad");
-  FString MapPath = FPaths::ConvertRelativePathToFull(UGenerationPathsHelper::GetRawMapDirectoryPath(MapName) + MapName);
+  FString MapPath = FPaths::ConvertRelativePathToFull(UGenerationPathsHelper::GetRawMapDirectoryPath(MapName));
   FString AssetName = TEXT("MergedRoad");
-  // FString PackageName = MapPath + AssetName;
+  FString PackageName = MapPath / AssetName;
   UPackage* Package = CreatePackage(*PackageName);
 
   // Get mesh merge utilities
@@ -1925,7 +1924,6 @@ void UOpenDriveToMap::MergeDrivingLanes(UWorld* World)
       MergedMesh = Cast<UStaticMesh>(Asset);
       if (MergedMesh)
       {
-        // FString ObjPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Exported/MergedRoad.obj"));
         FString ObjPath = MapPath / TEXT("MergedRoad.obj");
         ExportStaticMeshToOBJ(MergedMesh, ObjPath);
         break;
