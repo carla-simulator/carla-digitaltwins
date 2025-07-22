@@ -62,7 +62,4 @@ struct FTLModule
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Module")
 	bool bHasVisor{false};
-
-	UPROPERTY(Transient)
-	FGuid ModuleID{FGuid::NewGuid()};
 };

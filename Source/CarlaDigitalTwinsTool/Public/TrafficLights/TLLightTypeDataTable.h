@@ -19,11 +19,11 @@ struct FTLLightTypeRow : public FTableRowBase
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|LightType")
-	FIntPoint AtlasCoords;
+	FIntPoint AtlasCoords{0, 0};
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|LightType")
-	FLinearColor Color;
+	FLinearColor Color{};
 
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|LightType")
-    float EmissiveIntensity;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|LightType")
+	float EmissiveIntensity{15.0f};
 };
