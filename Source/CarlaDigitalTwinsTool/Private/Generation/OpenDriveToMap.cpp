@@ -839,8 +839,7 @@ void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& Param
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Misc stuff..... "));
   GenerationFinished(MinLocation, MaxLocation);
 
-  UWorld* World = GetEditorWorld();
-  MergeDrivingLanes(World);
+  MitsubaMeshOptimization();
 }
 
 void UOpenDriveToMap::GenerateRoadMesh( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation )
@@ -1863,9 +1862,11 @@ void UOpenDriveToMap::ExportStaticMeshToOBJ(UStaticMesh* StaticMesh, const FStri
   }
 }
 
-void UOpenDriveToMap::MergeDrivingLanes(UWorld* World)
+void UOpenDriveToMap::MergeDrivingLanes()
 {
   UE_LOG(LogTemp, Log, TEXT("Merging roads to single mesh..."));
+
+  UWorld* World = GetEditorWorld();
 
   TArray<AActor*> FoundActors;
   UGameplayStatics::GetAllActorsOfClass(World, AStaticMeshActor::StaticClass(), FoundActors);
@@ -1931,6 +1932,47 @@ void UOpenDriveToMap::MergeDrivingLanes(UWorld* World)
         break;
       }   
   }
+}
+
+void UOpenDriveToMap::RunPythonRoadSegmentation()
+{
+  FString PluginPath = UGenerationPathsHelper::GetDigitalTwinsPluginPath();
+  FString ScriptPath = PluginPath / TEXT("Content/Python/road_segmentation.py");
+  FString MapPath = FPaths::ConvertRelativePathToFull(UGenerationPathsHelper::GetRawMapDirectoryPath(MapName));
+
+  FString Args;
+  Args += FString::Printf(TEXT("\"%s\" "), *ScriptPath);
+  Args += FString::Printf(TEXT("--lon_min=%.8f "), OriginGeoCoordinates.Y);
+  Args += FString::Printf(TEXT("--lat_min=%.8f "), OriginGeoCoordinates.X);
+  Args += FString::Printf(TEXT("--lon_max=%.8f "), FinalGeoCoordinates.Y);
+  Args += FString::Printf(TEXT("--lat_max=%.8f "), FinalGeoCoordinates.X);
+  Args += FString::Printf(TEXT("--output_path=\"%s\" "), *MapPath);
+
+  RunPythonScript(ScriptPath, Args);
+}
+
+void UOpenDriveToMap::RunPythonMitsubaOptimization()
+{
+  FString PluginPath = UGenerationPathsHelper::GetDigitalTwinsPluginPath();
+  FString ScriptPath = PluginPath / TEXT("Content/Python/mitsuba_road_refiner.py");
+  FString MapPath = FPaths::ConvertRelativePathToFull(UGenerationPathsHelper::GetRawMapDirectoryPath(MapName));
+
+  FString Args;
+  Args += FString::Printf(TEXT("\"%s\" "), *ScriptPath);
+  Args += FString::Printf(TEXT("--output_path=\"%s\" "), *MapPath);
+
+  RunPythonScript(ScriptPath, Args);
+}
+
+void UOpenDriveToMap::MitsubaMeshOptimization()
+{
+  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Running road mesh optimization with Mitsuba..."));
+
+  MergeDrivingLanes();
+
+  RunPythonRoadSegmentation();
+
+  RunPythonMitsubaOptimization();
 }
 
 #endif

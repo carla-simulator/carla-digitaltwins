@@ -246,7 +246,16 @@ protected:
   void ExportStaticMeshToOBJ(UStaticMesh *StaticMesh, const FString &OutputPath);
 
   UFUNCTION(BlueprintCallable, Category = "Mitsuba")
-  void MergeDrivingLanes(UWorld *World);
+  void MergeDrivingLanes();
+
+  UFUNCTION(BlueprintCallable, Category = "Mitsuba")
+  void RunPythonRoadSegmentation();
+
+  UFUNCTION(BlueprintCallable, Category = "Mitsuba")
+  void RunPythonMitsubaOptimization();
+
+  UFUNCTION(BlueprintCallable, Category = "Mitsuba")
+  void MitsubaMeshOptimization();
 
   UFUNCTION(BlueprintCallable)
   TArray<AActor*> GenerateMiscActors(float Offset, FVector MinLocation, FVector MaxLocation );
