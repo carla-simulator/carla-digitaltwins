@@ -838,6 +838,9 @@ void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& Param
   GenerateTrafficLights(ParamCarlaMap, MinLocation, MaxLocation);
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Misc stuff..... "));
   GenerationFinished(MinLocation, MaxLocation);
+
+  UWorld* World = GetEditorWorld();
+  MergeDrivingLanes(World);
 }
 
 void UOpenDriveToMap::GenerateRoadMesh( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation )
@@ -1790,70 +1793,75 @@ TArray<FRoadSignInfo> UOpenDriveToMap::GetAllRoadSignsInfo()
 
 void UOpenDriveToMap::ExportStaticMeshToOBJ(UStaticMesh* StaticMesh, const FString& OutputPath)
 {
-    if (!StaticMesh || !StaticMesh->GetRenderData())
-    {
-        UE_LOG(LogTemp, Warning, TEXT("StaticMesh is null or has no render data."));
-        return;
-    }
+  
+  UE_LOG(LogTemp, Log, TEXT("Exporting mesh as OBJ tp path: %s"), *OutputPath);
 
-    FString ObjData;
-    ObjData += FString::Printf(TEXT("# Exported OBJ from %s\n"), *StaticMesh->GetName());
+  if (!StaticMesh || !StaticMesh->GetRenderData())
+  {
+      UE_LOG(LogTemp, Warning, TEXT("StaticMesh is null or has no render data."));
+      return;
+  }
 
-    const FStaticMeshLODResources& LOD = StaticMesh->GetRenderData()->LODResources[0];
+  FString ObjData;
+  ObjData += FString::Printf(TEXT("# Exported OBJ from %s\n"), *StaticMesh->GetName());
 
-    // Vertices
-    const FPositionVertexBuffer& PositionVertexBuffer = LOD.VertexBuffers.PositionVertexBuffer;
-    const FStaticMeshVertexBuffer& VertexBuffer = LOD.VertexBuffers.StaticMeshVertexBuffer;
-    const int32 VertexCount = PositionVertexBuffer.GetNumVertices();
+  const FStaticMeshLODResources& LOD = StaticMesh->GetRenderData()->LODResources[0];
 
-    for (int32 i = 0; i < VertexCount; ++i)
-    {
-        FVector Pos = (FVector)PositionVertexBuffer.VertexPosition(i);
-        ObjData += FString::Printf(TEXT("v %f %f %f\n"), Pos.X, Pos.Y, Pos.Z);
-    }
+  // Vertices
+  const FPositionVertexBuffer& PositionVertexBuffer = LOD.VertexBuffers.PositionVertexBuffer;
+  const FStaticMeshVertexBuffer& VertexBuffer = LOD.VertexBuffers.StaticMeshVertexBuffer;
+  const int32 VertexCount = PositionVertexBuffer.GetNumVertices();
 
-    // Normals
-    for (int32 i = 0; i < VertexCount; ++i)
-    {
-        FVector Normal = (FVector)VertexBuffer.VertexTangentZ(i);
-        ObjData += FString::Printf(TEXT("vn %f %f %f\n"), Normal.X, Normal.Y, Normal.Z);
-    }
+  for (int32 i = 0; i < VertexCount; ++i)
+  {
+      FVector Pos = (FVector)PositionVertexBuffer.VertexPosition(i);
+      ObjData += FString::Printf(TEXT("v %f %f %f\n"), Pos.X, Pos.Y, Pos.Z);
+  }
 
-    // UVs
-    for (int32 i = 0; i < VertexCount; ++i)
-    {
-        FVector2D UV = (FVector2D)VertexBuffer.GetVertexUV(i, 0);
-        ObjData += FString::Printf(TEXT("vt %f %f\n"), UV.X, 1.0f - UV.Y);  // Flip V
-    }
+  // Normals
+  for (int32 i = 0; i < VertexCount; ++i)
+  {
+      FVector Normal = (FVector)VertexBuffer.VertexTangentZ(i);
+      ObjData += FString::Printf(TEXT("vn %f %f %f\n"), Normal.X, Normal.Y, Normal.Z);
+  }
 
-    // Faces (triangles)
-    const FIndexArrayView Indices = LOD.IndexBuffer.GetArrayView();
-    const int32 NumTriangles = Indices.Num() / 3;
+  // UVs
+  for (int32 i = 0; i < VertexCount; ++i)
+  {
+      FVector2D UV = (FVector2D)VertexBuffer.GetVertexUV(i, 0);
+      ObjData += FString::Printf(TEXT("vt %f %f\n"), UV.X, 1.0f - UV.Y);  // Flip V
+  }
 
-    for (int32 i = 0; i < NumTriangles; ++i)
-    {
-        int32 i0 = Indices[i * 3 + 0] + 1;
-        int32 i1 = Indices[i * 3 + 1] + 1;
-        int32 i2 = Indices[i * 3 + 2] + 1;
-        ObjData += FString::Printf(TEXT("f %d/%d/%d %d/%d/%d %d/%d/%d\n"),
-            i0, i0, i0,
-            i1, i1, i1,
-            i2, i2, i2);
-    }
+  // Faces (triangles)
+  const FIndexArrayView Indices = LOD.IndexBuffer.GetArrayView();
+  const int32 NumTriangles = Indices.Num() / 3;
 
-    // Save to file
-    if (FFileHelper::SaveStringToFile(ObjData, *OutputPath))
-    {
-        UE_LOG(LogTemp, Log, TEXT("Successfully exported to OBJ: %s"), *OutputPath);
-    }
-    else
-    {
-        UE_LOG(LogTemp, Error, TEXT("Failed to save OBJ file."));
-    }
+  for (int32 i = 0; i < NumTriangles; ++i)
+  {
+      int32 i0 = Indices[i * 3 + 0] + 1;
+      int32 i1 = Indices[i * 3 + 1] + 1;
+      int32 i2 = Indices[i * 3 + 2] + 1;
+      ObjData += FString::Printf(TEXT("f %d/%d/%d %d/%d/%d %d/%d/%d\n"),
+          i0, i0, i0,
+          i1, i1, i1,
+          i2, i2, i2);
+  }
+
+  // Save to file
+  if (FFileHelper::SaveStringToFile(ObjData, *OutputPath))
+  {
+      UE_LOG(LogTemp, Log, TEXT("Successfully exported to OBJ: %s"), *OutputPath);
+  }
+  else
+  {
+      UE_LOG(LogTemp, Error, TEXT("Failed to save OBJ file."));
+  }
 }
 
 void UOpenDriveToMap::MergeDrivingLanes(UWorld* World)
 {
+  UE_LOG(LogTemp, Log, TEXT("Merging roads to single mesh..."));
+
   TArray<AActor*> FoundActors;
   UGameplayStatics::GetAllActorsOfClass(World, AStaticMeshActor::StaticClass(), FoundActors);
 
@@ -1861,17 +1869,13 @@ void UOpenDriveToMap::MergeDrivingLanes(UWorld* World)
 
   for (AActor* Actor : FoundActors)
   {
-      for (const FName& Tag : Actor->Tags)
-      {
-          if (Tag.ToString().StartsWith("DrivingLane_"))
-          {
-              if (UStaticMeshComponent* SMC = Cast<UStaticMeshComponent>(Actor->GetComponentByClass(UStaticMeshComponent::StaticClass())))
-              {
-                  ComponentsToMerge.Add(SMC);
-              }
-              break;
-          }
-      }
+        if (Actor->GetActorLabel().StartsWith("SM_DrivingLane_"))
+        {
+            if (UStaticMeshComponent* SMC = Cast<UStaticMeshComponent>(Actor->GetComponentByClass(UStaticMeshComponent::StaticClass())))
+            {
+                ComponentsToMerge.Add(SMC);
+            }
+    }
   }
 
   if (ComponentsToMerge.Num() == 0)
@@ -1886,8 +1890,8 @@ void UOpenDriveToMap::MergeDrivingLanes(UWorld* World)
   MergeSettings.bPivotPointAtZero = true;
 
   // Prepare output package
-  FString PackageName = TEXT("/Game/Merged/MergedDrivingLane");
-  FString AssetName = TEXT("MergedDrivingLane");
+  FString PackageName = TEXT("/Game/Merged/MergedRoad");
+  FString AssetName = TEXT("MergedRoad");
   UPackage* Package = CreatePackage(*PackageName);
 
   // Get mesh merge utilities
@@ -1916,7 +1920,7 @@ void UOpenDriveToMap::MergeDrivingLanes(UWorld* World)
   {
       if (UStaticMesh* MergedMesh = Cast<UStaticMesh>(AssetsToSync[0]))
       {
-          FString ObjPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Exported/MergedDrivingLane.obj"));
+          FString ObjPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Exported/MergedRoad.obj"));
           ExportStaticMeshToOBJ(MergedMesh, ObjPath);
       }
   }
