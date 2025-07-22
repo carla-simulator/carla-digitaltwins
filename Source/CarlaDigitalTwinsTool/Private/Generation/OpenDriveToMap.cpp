@@ -265,7 +265,7 @@ void UOpenDriveToMap::CreateMap()
   {
     UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("URL and Local FilePath are Empty. URL: %s  Local FilePath: %s"), *Url, *LocalFilePath );
   }
-  
+
 }
 
 void UOpenDriveToMap::CreateTerrain(const int NumberOfTerrainX, const int NumberOfTerrainY, const float MeshGridResolution)
@@ -1192,39 +1192,40 @@ void UOpenDriveToMap::GenerateTrafficLights(const boost::optional<carla::road::M
             {
                 //TODO: Move this default traffic light to a factory
                 FTLPole Pole;
+                Pole.PoleHeight = 240.0f;
                 Pole.Transform = SignalTransform;
                 Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshForPole(Pole);
                 Pole.ExtendiblePoleMesh = FTLMeshFactory::GetExtendibleMeshForPole(Pole);
 
                 FTLHead Head;
-                Head.Transform = FTransform(FRotator(), FVector(0, 15, 450));
-
-                FTLModule ModuleRed;
-                ModuleRed.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head,ModuleRed).Last();
-                FTLModuleLight RedLight;
-                RedLight.LightType = ETLLightType::SolidColorRed;
-                RedLight.EmissiveColor = FLinearColor{1.0f,0.052026f,0.061974f,1.0f};
-                RedLight.EmissiveIntensity = 30.0f;
-                ModuleRed.Lights.Add(RedLight);
-                Head.Modules.Add(ModuleRed);
-
-                FTLModule ModuleAmber;
-                ModuleAmber.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head,ModuleAmber).Last();
-                FTLModuleLight AmberLight;
-                AmberLight.LightType = ETLLightType::SolidColorAmber;
-                AmberLight.EmissiveColor = FLinearColor{0.930111f, 0.3564f, 0.014444f, 1.0f};
-                AmberLight.EmissiveIntensity = 30.0f;
-                ModuleAmber.Lights.Add(AmberLight);
-                Head.Modules.Add(ModuleAmber);
+                Head.Transform = FTransform(FRotator(), FVector(0, 15, 170));
 
                 FTLModule ModuleGreen;
                 ModuleGreen.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head,ModuleGreen).Last();
                 FTLModuleLight GreenLight;
                 GreenLight.LightType = ETLLightType::SolidColorGreen;
                 GreenLight.EmissiveColor = FLinearColor{0.100902f,1.0f,0.297537f,1.0f};
-                GreenLight.EmissiveIntensity = 30.0f;
+                GreenLight.EmissiveIntensity = 10.0f;
                 ModuleGreen.Lights.Add(GreenLight);
                 Head.Modules.Add(ModuleGreen);
+
+                FTLModule ModuleAmber;
+                ModuleAmber.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head,ModuleAmber).Last();
+                FTLModuleLight AmberLight;
+                AmberLight.LightType = ETLLightType::SolidColorAmber;
+                AmberLight.EmissiveColor = FLinearColor{0.930111f, 0.3564f, 0.014444f, 1.0f};
+                AmberLight.EmissiveIntensity = 10.0f;
+                ModuleAmber.Lights.Add(AmberLight);
+                Head.Modules.Add(ModuleAmber);
+
+                FTLModule ModuleRed;
+                ModuleRed.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head,ModuleRed).Last();
+                FTLModuleLight RedLight;
+                RedLight.LightType = ETLLightType::SolidColorRed;
+                RedLight.EmissiveColor = FLinearColor{1.0f,0.052026f,0.061974f,1.0f};
+                RedLight.EmissiveIntensity = 10.0f;
+                ModuleRed.Lights.Add(RedLight);
+                Head.Modules.Add(ModuleRed);
 
                 Pole.Heads.Add(Head);
                 TL->Poles.Empty();

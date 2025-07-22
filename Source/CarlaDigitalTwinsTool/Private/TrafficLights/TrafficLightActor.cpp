@@ -119,7 +119,8 @@ UStaticMeshComponent* ATrafficLightActor::AddPoleBase(FTLPole& Pole)
 
 UStaticMeshComponent* ATrafficLightActor::AddPoleExtensible(USceneComponent* Parent, FTLPole& Pole)
 {
-	const FTransform ModuleTransform{Pole.Transform};
+	FTransform ModuleTransform{Pole.Transform};
+    ModuleTransform.SetScale3D({1.0f, 1.0f, Pole.PoleHeight / Pole.ExtendiblePoleMesh->GetBoundingBox().GetSize().Z});
 	UStaticMeshComponent* Comp{UMapGenFunctionLibrary::AddStaticMeshComponentToActor(this)};
 	Comp->SetupAttachment(Parent);
 	Comp->RegisterComponent();
@@ -195,7 +196,6 @@ void ATrafficLightActor::AddBackplate(USceneComponent* Parent, FTLPole& Pole, FT
 		SpawnBackplatePiece(CornerMesh, P.Loc, P.Rot, FVector::OneVector);
 	}
 
-	/* ───────────────────────────────── 5) Verticales ────────────────────────────────────── */
 	const double ScaleZ{(BoundsMax.Z - BoundsMin.Z) / (HorizontalMesh->GetBoundingBox().GetExtent().Z * 2.0)};
 
 	const TArray<FPlacement> Verticals = {

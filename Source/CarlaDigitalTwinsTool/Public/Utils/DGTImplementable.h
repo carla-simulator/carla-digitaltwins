@@ -16,6 +16,6 @@ public:
   void RunUtilityFunction(UWorld* World, class UOpenDriveToMap* OpenDriveToMap);
   
   UFUNCTION(BlueprintCallable, BlueprintImplementableEvent, Category = "CarlaDigitalTwinsTool")
-  void RunUtilityFunctionWithSplinesParamters(UWorld* World,  class UOpenDriveToMap* OpenDriveToMap, TArray<class USplineComponent*>& Splines);
+  void RunUtilityFunctionWithSplinesParamters(UWorld* World,  class UOpenDriveToMap* OpenDriveToMap, const TArray<class USplineComponent*>& Splines);
 
 };
