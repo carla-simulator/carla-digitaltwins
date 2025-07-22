@@ -1186,7 +1186,8 @@ void UOpenDriveToMap::GenerateTrafficLights(
 				Pole.ExtendiblePoleMesh = FTLMeshFactory::GetExtendibleMeshForPole(Pole);
 
 				FTLHead Head;
-				Head.Transform = FTransform(FRotator(), FVector(0, 10, 80));
+				Head.bHasBackplate = true;
+				Head.Transform = FTransform(FRotator(), FVector(0, 19, 150));
 
 				FTLModule ModuleGreen;
 				ModuleGreen.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head, ModuleGreen).Last();

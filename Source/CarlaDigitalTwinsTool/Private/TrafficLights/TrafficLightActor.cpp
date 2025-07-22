@@ -77,15 +77,15 @@ USceneComponent* ATrafficLightActor::AddHead(USceneComponent* Parent, FTLPole& P
 {
 	USceneComponent* HeadRoot{UMapGenFunctionLibrary::AddSceneComponentToActor(this)};
 
-	HeadRoot->AttachToComponent(Parent, FAttachmentTransformRules::KeepWorldTransform);
-	HeadRoot->SetWorldTransform(Head.Transform * Pole.Transform);
+	HeadRoot->AttachToComponent(Parent, FAttachmentTransformRules::KeepRelativeTransform);
+	HeadRoot->SetRelativeTransform(Head.Transform);
 
 	return HeadRoot;
 }
 
 UStaticMeshComponent* ATrafficLightActor::AddModule(USceneComponent* Parent, FTLPole& Pole, FTLHead& Head, FTLModule& ModuleData)
 {
-	const FTransform ModuleTransform{ModuleData.Transform * Head.Transform * Pole.Transform * ModuleData.Offset};
+	const FTransform ModuleTransform{ModuleData.Transform * ModuleData.Offset};
 
 	UStaticMeshComponent* Comp{UMapGenFunctionLibrary::AddStaticMeshComponentToActor(this)};
 	if (!Comp)
@@ -93,9 +93,9 @@ UStaticMeshComponent* ATrafficLightActor::AddModule(USceneComponent* Parent, FTL
 		UE_LOG(LogTemp, Error, TEXT("Failed to create StaticMeshComponent for module"));
 		return nullptr;
 	}
-	Comp->AttachToComponent(Parent, FAttachmentTransformRules::KeepWorldTransform);
-	Comp->SetWorldTransform(ModuleTransform);
 	Comp->SetStaticMesh(ModuleData.ModuleMesh);
+	Comp->AttachToComponent(Parent, FAttachmentTransformRules::KeepRelativeTransform);
+	Comp->SetRelativeTransform(ModuleTransform);
 
 	UMaterialInterface* BaseMat{FMaterialFactory::GetLightMaterialInstance(Comp)};
 
@@ -120,7 +120,6 @@ UStaticMeshComponent* ATrafficLightActor::AddModule(USceneComponent* Parent, FTL
 
 UStaticMeshComponent* ATrafficLightActor::AddPoleBase(USceneComponent* Parent, FTLPole& Pole)
 {
-	const FTransform ModuleTransform{Pole.Transform};
 	UStaticMeshComponent* Comp{UMapGenFunctionLibrary::AddStaticMeshComponentToActor(this)};
 	if (!Comp)
 	{
@@ -128,9 +127,9 @@ UStaticMeshComponent* ATrafficLightActor::AddPoleBase(USceneComponent* Parent, F
 		return nullptr;
 	}
 
-	Comp->AttachToComponent(Parent, FAttachmentTransformRules::KeepWorldTransform);
-	Comp->SetWorldTransform(Pole.Transform);
 	Comp->SetStaticMesh(Pole.BasePoleMesh);
+	Comp->AttachToComponent(Parent, FAttachmentTransformRules::KeepRelativeTransform);
+	Comp->SetRelativeTransform(Pole.Offset);
 	Comp->Modify();
 
 	Pole.BasePoleMeshComponent = Comp;
@@ -141,16 +140,17 @@ UStaticMeshComponent* ATrafficLightActor::AddPoleExtensible(USceneComponent* Par
 {
 	UStaticMeshComponent* Comp{UMapGenFunctionLibrary::AddStaticMeshComponentToActor(this)};
 	if (!Comp)
+	{
 		return nullptr;
+	}
 
-	Comp->AttachToComponent(Parent, FAttachmentTransformRules::KeepWorldTransform);
-
-	FTransform T{Pole.Transform};
+	FTransform PoleTransform{Pole.Offset};
 	const double PoleSizeZ{Pole.ExtendiblePoleMesh->GetBoundingBox().GetSize().Z};
 	// TODO: Change the PoleHeight property to a double
-	T.SetScale3D(FVector{1.0, 1.0, static_cast<double>(Pole.PoleHeight) / PoleSizeZ});
-	Comp->SetWorldTransform(T);
+	PoleTransform.SetScale3D(FVector{1.0, 1.0, static_cast<double>(Pole.PoleHeight) / PoleSizeZ});
 	Comp->SetStaticMesh(Pole.ExtendiblePoleMesh);
+	Comp->AttachToComponent(Parent, FAttachmentTransformRules::KeepRelativeTransform);
+	Comp->SetRelativeTransform(PoleTransform);
 	Comp->Modify();
 
 	Pole.ExtendiblePoleMeshComponent = Comp;
@@ -165,48 +165,55 @@ UStaticMeshComponent* ATrafficLightActor::AddPoleCap(USceneComponent* Parent, FT
 		return nullptr;
 	}
 
-	Comp->AttachToComponent(Parent, FAttachmentTransformRules::KeepWorldTransform);
-	Comp->SetWorldTransform(Pole.Transform);
 	Comp->SetStaticMesh(Pole.CapPoleMesh);
+	Comp->AttachToComponent(Parent, FAttachmentTransformRules::KeepRelativeTransform);
+	Comp->SetRelativeTransform(Pole.Offset);
 	Comp->Modify();
 
 	Pole.CapPoleMeshComponent = Comp;
 	return Comp;
 }
 
-void ATrafficLightActor::AddBackplate(USceneComponent* Parent, FTLPole& Pole, FTLHead& Head)
+void ATrafficLightActor::AddBackplate(USceneComponent* HeadRoot, FTLPole& Pole, FTLHead& Head)
 {
-	const FTransform HeadWorld{Head.Transform * Pole.Transform};
-	const FVector HeadCenter{HeadWorld.GetLocation()};
-	const FQuat HeadRotation{HeadWorld.GetRotation()};
-
-	UStaticMesh* CornerMesh{FTLMeshFactory::GetBackplateCornerMesh(Head)};
-	UStaticMesh* HorizontalMesh{FTLMeshFactory::GetBackplateHorizontalMesh(Head)};
-	UStaticMesh* VerticalMesh{FTLMeshFactory::GetBackplateVerticalMesh(Head)};
-	UStaticMesh* MiddleMesh{FTLMeshFactory::GetBackplateMiddleMesh(Head)};
-	if (!(CornerMesh && HorizontalMesh && VerticalMesh && MiddleMesh))
-	{
-		return;
-	}
-
-	FBox HeadBounds(ForceInit);
+	FBox LocalBounds{ForceInit};
 	for (const FTLModule& Module : Head.Modules)
 	{
-		if (Module.ModuleMeshComponent)
+		if (!Module.ModuleMeshComponent)
 		{
-			const FTransform& ModTF{Module.ModuleMeshComponent->GetComponentTransform()};
-			HeadBounds += Module.ModuleMesh->GetBoundingBox().TransformBy(ModTF);
+			continue;
 		}
-	}
-	const FVector BoundsMin{HeadBounds.Min};
-	const FVector BoundsMax{HeadBounds.Max};
 
-	auto SpawnBackplatePiece = [&](UStaticMesh* Mesh, const FVector& LocWS, const FRotator& RotWS, const FVector& ScaleWS)
+		const FBox MeshBB{Module.ModuleMeshComponent->GetStaticMesh()->GetBoundingBox()};
+		LocalBounds += MeshBB.TransformBy(Module.ModuleMeshComponent->GetRelativeTransform());
+	}
+	const FVector LMin{LocalBounds.Min};
+	const FVector LMax{LocalBounds.Max};
+
+	const double LocalHeight{LMax.Z - LMin.Z};
+	const double ZScaleVert{LocalHeight / (FTLMeshFactory::GetBackplateVerticalMesh(Head)->GetBoundingBox().GetExtent().Z * 2.0)};
+
+	const double LocalWidth{LMax.X - LMin.X};
+	const double XScaleHorz{LocalWidth / (FTLMeshFactory::GetBackplateHorizontalMesh(Head)->GetBoundingBox().GetExtent().X * 2.0)};
+
+	auto SpawnLocalPiece = [&](UStaticMesh* Mesh, const FVector& Loc, const FRotator& Rot, const FVector& Scale)
 	{
 		UStaticMeshComponent* Comp{UMapGenFunctionLibrary::AddStaticMeshComponentToActor(this)};
+		if (!IsValid(Comp))
+		{
+			return;
+		}
+
 		Comp->SetStaticMesh(Mesh);
-		Comp->AttachToComponent(Parent, FAttachmentTransformRules::KeepWorldTransform);
-		Comp->SetWorldTransform(FTransform(RotWS, LocWS, ScaleWS));
+		Comp->AttachToComponent(HeadRoot, FAttachmentTransformRules::KeepRelativeTransform);
+
+		const double HalfDepth{Mesh->GetBoundingBox().GetExtent().Y};
+		const FVector AdjustLoc{Loc.X, Loc.Y - HalfDepth, Loc.Z};
+
+		Comp->SetRelativeLocation(AdjustLoc);
+		Comp->SetRelativeRotation(Rot);
+		Comp->SetRelativeScale3D(Scale);
+		Comp->Modify();
 	};
 
 	struct FPlacement
@@ -214,38 +221,30 @@ void ATrafficLightActor::AddBackplate(USceneComponent* Parent, FTLPole& Pole, FT
 		FVector Loc;
 		FRotator Rot;
 	};
-	const TArray<FPlacement> Corners = {{{BoundsMin.X, BoundsMin.Y, BoundsMax.Z}, {0.0, 0.0, 0.0}},
-		{{BoundsMin.X, BoundsMin.Y, BoundsMin.Z}, {90.0, 0.0, 0.0}}, {{BoundsMax.X, BoundsMin.Y, BoundsMin.Z}, {180.0, 0.0, 0.0}},
-		{{BoundsMax.X, BoundsMin.Y, BoundsMax.Z}, {270.0, 0.0, 0.0}}};
-
+	const TArray<FPlacement> Corners{{{LMin.X, LMin.Y, LMax.Z}, {0.0, 0.0, 0.0}}, {{LMin.X, LMin.Y, LMin.Z}, {90.0, 0.0, 0.0}},
+		{{LMax.X, LMin.Y, LMin.Z}, {180.0, 0.0, 0.0}}, {{LMax.X, LMin.Y, LMax.Z}, {270.0, 0.0, 0.0}}};
 	for (const FPlacement& P : Corners)
 	{
-		SpawnBackplatePiece(CornerMesh, P.Loc, P.Rot, FVector::OneVector);
+		SpawnLocalPiece(FTLMeshFactory::GetBackplateCornerMesh(Head), P.Loc, P.Rot, FVector{1.0, 1.0, 1.0});
 	}
 
-	const double ScaleZ{(BoundsMax.Z - BoundsMin.Z) / (HorizontalMesh->GetBoundingBox().GetExtent().Z * 2.0)};
-
-	const TArray<FPlacement> Verticals = {
-		{{BoundsMin.X, BoundsMin.Y, BoundsMin.Z}, {0.0, 0.0, 0.0}}, {{BoundsMax.X, BoundsMin.Y, BoundsMax.Z}, {180.0, 0.0, 0.0}}};
-
+	const TArray<FPlacement> Verticals{
+		{{LMin.X, LMin.Y, LMin.Z}, {0.0, 0.0, 0.0}}, {{LMax.X, LMin.Y, LMin.Z + LocalHeight}, {180.0, 0.0, 0.0}}};
 	for (const FPlacement& P : Verticals)
 	{
-		SpawnBackplatePiece(VerticalMesh, P.Loc, P.Rot, FVector{1.0, 1.0, ScaleZ});
+		SpawnLocalPiece(FTLMeshFactory::GetBackplateVerticalMesh(Head), P.Loc, P.Rot, FVector{1.0, 1.0, ZScaleVert});
 	}
 
-	const double ScaleX{(BoundsMax.X - BoundsMin.X) / (HorizontalMesh->GetBoundingBox().GetExtent().X * 2.0)};
-
-	const TArray<FPlacement> Horizontals = {
-		{{BoundsMax.X, BoundsMin.Y, BoundsMax.Z}, {0.0, 0.0, 0.0}}, {{BoundsMin.X, BoundsMin.Y, BoundsMin.Z}, {180.0, 0.0, 0.0}}};
-
+	const TArray<FPlacement> Horizontals{
+		{{LMin.X + LocalWidth, LMin.Y, LMax.Z}, {0.0, 0.0, 0.0}}, {{LMin.X, LMin.Y, LMin.Z}, {180.0, 0.0, 0.0}}};
 	for (const FPlacement& P : Horizontals)
 	{
-		SpawnBackplatePiece(HorizontalMesh, P.Loc, P.Rot, FVector{ScaleX, 1.0, 1.0});
+		SpawnLocalPiece(FTLMeshFactory::GetBackplateHorizontalMesh(Head), P.Loc, P.Rot, FVector{XScaleHorz, 1.0, 1.0});
 	}
 
-	SpawnBackplatePiece(MiddleMesh, FVector{BoundsMax.X, BoundsMin.Y, BoundsMin.Z},
-		HeadRotation.Rotator(),	   // misma rot que el head
-		FVector{ScaleX, 1.0, ScaleZ});
+	const FVector CenterLoc{LMin.X + (LMax.X - LMin.X), LMin.Y, LMin.Z};
+	SpawnLocalPiece(
+		FTLMeshFactory::GetBackplateMiddleMesh(Head), CenterLoc, FRotator{0.0, 0.0, 0.0}, FVector{XScaleHorz, 1.0, ZScaleVert});
 }
 
 void ATrafficLightActor::RebuildModuleChain(FTLHead& Head)
@@ -263,7 +262,7 @@ void ATrafficLightActor::RebuildModuleChain(FTLHead& Head)
 		Module.Transform = FTransform::Identity;
 		if (Module.ModuleMeshComponent)
 		{
-			Module.ModuleMeshComponent->SetRelativeTransform(Module.Transform * Head.Transform * Module.Offset);
+			Module.ModuleMeshComponent->SetRelativeTransform(Module.Offset);
 		}
 	}
 
@@ -301,6 +300,6 @@ void ATrafficLightActor::RebuildModuleChain(FTLHead& Head)
 		const FTransform CurrLocal(FQuat::Identity, CurrSocket->RelativeLocation, FVector::OneVector);
 		const FTransform SnapDelta{PrevBase * PrevLocal * CurrLocal.Inverse()};
 		Curr.Transform = SnapDelta;
-		Curr.ModuleMeshComponent->SetRelativeTransform(Curr.Transform * Head.Transform * Curr.Offset);
+		Curr.ModuleMeshComponent->SetRelativeTransform(Curr.Transform * Curr.Offset);
 	}
 }
