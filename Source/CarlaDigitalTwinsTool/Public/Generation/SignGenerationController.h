@@ -6,7 +6,7 @@
 #include "GameFramework/Actor.h"
 #include "StreetMap.h"
 #include "SignDataAsset.h"
-
+#include "PoleDataAsset.h"
 #include <Carla/Road/RoadMap.h>
 #include "SignGenerationController.generated.h"
 
@@ -31,28 +31,44 @@ public:
 	virtual void Tick(float DeltaTime) override;
 
 	UFUNCTION(BlueprintCallable, Category = "EditorUtilityWidget")
-	void SignGenerationByPath(FName package_path);
+	void SignGenerationByPath(FName sign_package_path, FName pole_package_path);
 
-	UFUNCTION(BlueprintCallable, CallInEditor, Category = "EditorUtilityWidget")
+	UFUNCTION(Category= "SignGeneration", BlueprintCallable, CallInEditor)
 	void SignGenerationForCurrentMap();
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadOnly)
 	UStreetMap* StreetMapData;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	FName PackagePath;
+	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite)
+	FName SignPackagePath;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite)
+	FName PolePackagePath;
+
+	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite)
 	bool bDisplaceSignsToEdge;
 
+	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite)
+	int max_displacement_iterations;
+
+	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0", ClampMax = "2.0"))
+	float distance_from_road_percent;
+
+	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0", ClampMax = "2.0"))
+	float step_percent_of_lane_width;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	TArray<AStaticMeshActor*> GeneratedSigns;
+	TArray<AActor*> GeneratedSigns;
 	//TMap<int32, AStaticMeshActor*> GeneratedSigns;
 
 private:
+
+	UFUNCTION()
+	void GetSteetMapFile();
+
 	USignDataAsset* current_data_asset;
 
 	TArray<FVector> closest_waypoints;
 
-
+	bool has_spawned_sign;
 };

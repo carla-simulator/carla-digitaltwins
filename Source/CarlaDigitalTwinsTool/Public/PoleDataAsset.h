@@ -5,19 +5,21 @@
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
 #include "DataTables/TreeTableRow.h"
-#include "SignDataAsset.generated.h"
+#include "PoleDataAsset.generated.h"
+
+
 /**
  * 
  */
 UCLASS()
-class CARLADIGITALTWINSTOOL_API USignDataAsset : public UPrimaryDataAsset
+class CARLADIGITALTWINSTOOL_API UPoleDataAsset : public UPrimaryDataAsset
 {
 	GENERATED_BODY()
-
+	
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	UStaticMesh* SignMesh;
-	
+	UStaticMesh* PoleMesh;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	ESignStyle SignStyle;
 };
