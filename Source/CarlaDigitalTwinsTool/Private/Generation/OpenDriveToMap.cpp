@@ -1780,7 +1780,8 @@ void UOpenDriveToMap::ExportStaticMeshToOBJ(UStaticMesh* StaticMesh, const FStri
   for (int32 i = 0; i < VertexCount; ++i)
   {
       FVector Pos = (FVector)PositionVertexBuffer.VertexPosition(i);
-      ObjData += FString::Printf(TEXT("v %f %f %f\n"), Pos.X, Pos.Z, Pos.Y);
+	  Pos.Z = GetHeight(Pos.X, Pos.Y)/100.0f;
+	  ObjData += FString::Printf(TEXT("v %f %f %f\n"), Pos.X, Pos.Z, Pos.Y);
   }
 
   // Normals
@@ -1823,7 +1824,7 @@ void UOpenDriveToMap::ExportStaticMeshToOBJ(UStaticMesh* StaticMesh, const FStri
   }
 }
 
-void UOpenDriveToMap::MergeDrivingLanes()
+void UOpenDriveToMap::MergeRoads()
 {
   UE_LOG(LogTemp, Log, TEXT("Merging roads to single mesh..."));
 
@@ -1929,7 +1930,7 @@ void UOpenDriveToMap::MitsubaMeshOptimization()
 {
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Running road mesh optimization with Mitsuba..."));
 
-  MergeDrivingLanes();
+  MergeRoads();
 
   RunPythonRoadSegmentation();
 
@@ -1937,7 +1938,7 @@ void UOpenDriveToMap::MitsubaMeshOptimization()
 
   FString OutPath = UGenerationPathsHelper::GetPythonIntermediatePath(MapName);
   FString ObjPath = OutPath / TEXT("updated_road.obj");
-  UGeometryImporter::ImportObj(ObjPath, GEditor->GetEditorWorldContext().World());
+  UGeometryImporter::ImportObj(ObjPath, GEditor->GetEditorWorldContext().World(), DefaultRoadMaterial);
 }
 
 #endif

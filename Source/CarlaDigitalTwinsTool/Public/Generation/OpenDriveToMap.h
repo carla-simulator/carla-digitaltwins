@@ -246,7 +246,7 @@ protected:
   void ExportStaticMeshToOBJ(UStaticMesh *StaticMesh, const FString &OutputPath);
 
   UFUNCTION(BlueprintCallable, Category = "Mitsuba")
-  void MergeDrivingLanes();
+  void MergeRoads();
 
   UFUNCTION(BlueprintCallable, Category = "Mitsuba")
   void RunPythonRoadSegmentation();

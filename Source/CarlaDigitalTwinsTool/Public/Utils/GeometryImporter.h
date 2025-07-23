@@ -32,5 +32,5 @@ public:
         FIntPoint RTExtent);
 
     UFUNCTION(BlueprintCallable, Category = "GeometryImporter")
-    static void ImportObj(const FString& ObjFilePath, UWorld* World);
+    static void ImportObj(const FString& ObjFilePath, UWorld* World, UMaterialInterface* Material);
 };

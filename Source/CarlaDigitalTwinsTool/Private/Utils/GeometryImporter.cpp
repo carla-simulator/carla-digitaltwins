@@ -258,7 +258,7 @@ TArray<USplineComponent*> UGeometryImporter::CreateSplinesFromJson(
     return CreatedSplines;
 }
 
-void UGeometryImporter::ImportObj(const FString& ObjFilePath, UWorld* World)
+void UGeometryImporter::ImportObj(const FString& ObjFilePath, UWorld* World, UMaterialInterface* Material)
 {
     if (!FPaths::FileExists(ObjFilePath))
     {
@@ -295,7 +295,21 @@ void UGeometryImporter::ImportObj(const FString& ObjFilePath, UWorld* World)
             if (MeshActor)
             {
                 MeshActor->GetStaticMeshComponent()->SetStaticMesh(ImportedMesh);
-                MeshActor->SetActorLabel(TEXT("ImportedOBJ"));
+                MeshActor->SetActorLabel(TEXT("UpdatedRoad"));
+
+                UStaticMeshComponent* MeshComp = MeshActor->GetStaticMeshComponent();
+                MeshComp->SetStaticMesh(ImportedMesh);
+
+                // Assign material
+                if (Material)
+                {
+                    MeshComp->SetMaterial(0, Material);
+                }
+                else
+                {
+                    UE_LOG(LogTemp, Warning, TEXT("Material not found."));
+                }
+
                 UE_LOG(LogTemp, Log, TEXT("Imported and spawned mesh: %s"), *ImportedMesh->GetName());
             }
         }
