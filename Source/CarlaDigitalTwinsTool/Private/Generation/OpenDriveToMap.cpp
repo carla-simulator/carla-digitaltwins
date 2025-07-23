@@ -831,17 +831,20 @@ void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& Param
 {
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Roads..... "));
 	GenerateRoadMesh(ParamCarlaMap, MinLocation, MaxLocation);
+
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Lane Marks..... "));
 	GenerateLaneMarks(ParamCarlaMap, MinLocation, MaxLocation);
+
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Terrain..... "));
 	CreateTerrain(5, 5, 64);
+
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Traffic Lights..... "));
 	GenerateTrafficLights(ParamCarlaMap, MinLocation, MaxLocation);
 
-	MitsubaMeshOptimization();
-
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Misc stuff..... "));
 	GenerationFinished(MinLocation, MaxLocation);
+
+	MitsubaMeshOptimization();
 }
 
 void UOpenDriveToMap::GenerateRoadMesh(
@@ -1642,7 +1645,7 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
 
 void UOpenDriveToMap::RunPythonScript(FString ScriptPath, FString Args)
 {
-  FString PythonExe = PythonBinPath;
+  	FString PythonExe = PythonBinPath;
 
 	void* ReadPipe = nullptr;
 	void* WritePipe = nullptr;
