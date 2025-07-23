@@ -26,4 +26,10 @@ public:
   UFUNCTION(BlueprintCallable)
   static FString GetProjectName();
 
+  UFUNCTION(BlueprintCallable)
+  static void UnloadRegionWorldPartition(
+      UWorld* World,
+      const FBox& RegionBounds,
+      const FString& RegionName);
+
 };

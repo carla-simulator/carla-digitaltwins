@@ -23,13 +23,14 @@ class CARLADIGITALTWINSTOOL_API ATrafficLightActor : public AActor
 
 public:
 	ATrafficLightActor();
-	void BuildFromPoles();
+	void Build();
 
 	UPROPERTY(EditAnywhere, Category = "TrafficLight")
 	TArray<FTLPole> Poles;
 
 private:
-	UStaticMeshComponent* AddPoleBase(FTLPole& Pole);
+	USceneComponent* AddRootPole(USceneComponent* Parent, FTLPole& Pole);
+	UStaticMeshComponent* AddPoleBase(USceneComponent* Parent, FTLPole& Pole);
 	UStaticMeshComponent* AddPoleExtensible(USceneComponent* Parent, FTLPole& Pole);
 	UStaticMeshComponent* AddPoleCap(USceneComponent* Parent, FTLPole& Pole);
 	USceneComponent* AddHead(USceneComponent* Parent, FTLPole& Pole, FTLHead& Head);

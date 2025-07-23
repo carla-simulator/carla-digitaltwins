@@ -20,14 +20,14 @@ struct FTLModuleRow : public FTableRowBase
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|Module")
-	ETLStyle Style;
+	ETLStyle Style{ETLStyle::NorthAmerican};
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|Module")
-	ETLOrientation Orientation;
+	ETLOrientation Orientation{ETLOrientation::Vertical};
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|Module")
-	bool bHasVisor;
+	bool bHasVisor{false};
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|Module")
-	UStaticMesh* Mesh;
+	UStaticMesh* Mesh{nullptr};
 };

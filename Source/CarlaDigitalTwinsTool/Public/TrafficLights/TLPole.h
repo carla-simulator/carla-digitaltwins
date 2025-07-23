@@ -64,7 +64,4 @@ struct FTLPole
 
 	UPROPERTY(Transient)
 	UStaticMeshComponent* ConnectorPoleMeshComponent{nullptr};
-
-	UPROPERTY(Transient)
-	FGuid PoleID{FGuid::NewGuid()};
 };

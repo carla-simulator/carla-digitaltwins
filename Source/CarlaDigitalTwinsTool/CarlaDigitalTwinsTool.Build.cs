@@ -119,15 +119,15 @@ public class CarlaDigitalTwinsTool : ModuleRules
         PublicDependencyModuleNames.AddRange(
           new string[]
           {
-        "Core",
-        "ProceduralMeshComponent",
-        "MeshDescription",
-        "RawMesh",
-        "AssetTools",
-        "Projects",
-        "CoreUObject",
-        "Engine",
-        "InputCore",
+            "Core",
+            "Engine",
+            "ProceduralMeshComponent",
+            "MeshDescription",
+            "RawMesh",
+            "AssetTools",
+            "Projects",
+            "CoreUObject",
+            "InputCore",
       }
     );
 
@@ -156,17 +156,17 @@ public class CarlaDigitalTwinsTool : ModuleRules
         "HTTP",
         "RHI",
         "RenderCore",
-        "MeshUtilities",
         "CarlaMeshGeneration",
         "StreetMapImporting",
         "StreetMapRuntime",
         "InputCore",
         "AppFramework",
         "EngineSettings",
+        "MeshUtilities",
         "RenderCore",
         "Projects",
         "EditorFramework",
-          }
+			}
       );
 
         if (Target.Version.MajorVersion < 5)

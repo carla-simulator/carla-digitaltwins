@@ -19,17 +19,17 @@ struct FTLBackplateRow : public FTableRowBase
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|Backplate")
-	ETLStyle Style;
+	ETLStyle Style{ETLStyle::NorthAmerican};
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|Backplate")
-	UStaticMesh* CornerMesh;
+	UStaticMesh* CornerMesh{nullptr};
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|Backplate")
-	UStaticMesh* VerticalMesh;
+	UStaticMesh* VerticalMesh{nullptr};
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|Backplate")
-	UStaticMesh* HorizontalMesh;
+	UStaticMesh* HorizontalMesh{nullptr};
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|Backplate")
-	UStaticMesh* MiddleMesh;
+	UStaticMesh* MiddleMesh{nullptr};
 };
