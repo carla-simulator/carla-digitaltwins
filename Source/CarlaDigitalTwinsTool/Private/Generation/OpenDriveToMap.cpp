@@ -1594,8 +1594,8 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
 	PixelData->Pixels = Pixels;
 	ImageTask->PixelData = MoveTemp(PixelData);
 
-	FString MapPath = FPaths::ConvertRelativePathToFull(UGenerationPathsHelper::GetRawMapDirectoryPath(MapName));
-	FString ImagePath = MapPath / TEXT("road_render.png");
+	FString OutPath = UGenerationPathsHelper::GetPythonIntermediatePath(MapName);
+	FString ImagePath = OutPath / TEXT("road_render.png");
 
 	ImageTask->Filename = ImagePath;
 	ImageTask->Format = EImageFormat::PNG;
@@ -1615,7 +1615,7 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
 
 	RunPythonRoadEdges(FVector2D(Center.X, Center.Y), FVector2D(Extent.X, Extent.Y));
 
-	auto JsonPath = MapPath / TEXT("contours.json");
+	auto JsonPath = OutPath / TEXT("contours.json");
 
 	auto RoadSplines =
 		UGeometryImporter::CreateSplinesFromJson(World, JsonPath, FVector2D(Center.X, Center.Y), Extent, RenderTargetSize);
@@ -1688,10 +1688,11 @@ void UOpenDriveToMap::RunPythonRoadEdges(FVector2D Center, FVector2D Extent)
 
   FString PluginPath = UGenerationPathsHelper::GetDigitalTwinsPluginPath();
   FString ScriptPath = PluginPath / TEXT("Content/Python/road_edge_detection.py");
+  FString OutPath = UGenerationPathsHelper::GetPythonIntermediatePath(MapName);
 
   FString Args;
   Args += FString::Printf(TEXT("\"%s\" "), *ScriptPath);
-  Args += FString::Printf(TEXT("--folder_path=\"%s\" "), *PluginPath);
+  Args += FString::Printf(TEXT("--folder_path=\"%s\" "), *OutPath);
 
   RunPythonScript(ScriptPath, Args);
 }
@@ -1854,9 +1855,9 @@ void UOpenDriveToMap::MergeDrivingLanes()
   MergeSettings.bMergeMaterials = true;
   MergeSettings.bPivotPointAtZero = true;
 
-  FString MapPath = FPaths::ConvertRelativePathToFull(UGenerationPathsHelper::GetRawMapDirectoryPath(MapName));
+  FString OutPath = UGenerationPathsHelper::GetPythonIntermediatePath(MapName);
   FString AssetName = TEXT("MergedRoad");
-  FString PackageName = MapPath / AssetName;
+  FString PackageName = OutPath / AssetName;
   UPackage* Package = CreatePackage(*PackageName);
 
   IMeshMergeUtilities& MeshMergeUtilities =
@@ -1887,7 +1888,7 @@ void UOpenDriveToMap::MergeDrivingLanes()
       MergedMesh = Cast<UStaticMesh>(Asset);
       if (MergedMesh)
       {
-        FString ObjPath = MapPath / FString::Printf(TEXT("MergedRoad_%.4f_%.4f.obj"), WorldEndPosition.X, WorldEndPosition.Y);
+        FString ObjPath = OutPath / FString::Printf(TEXT("MergedRoad_%.4f_%.4f.obj"), WorldEndPosition.X, WorldEndPosition.Y);
         ExportStaticMeshToOBJ(MergedMesh, ObjPath);
         break;
       }   
@@ -1898,7 +1899,7 @@ void UOpenDriveToMap::RunPythonRoadSegmentation()
 {
   FString PluginPath = UGenerationPathsHelper::GetDigitalTwinsPluginPath();
   FString ScriptPath = PluginPath / TEXT("Content/Python/road_segmentation.py");
-  FString MapPath = FPaths::ConvertRelativePathToFull(UGenerationPathsHelper::GetRawMapDirectoryPath(MapName));
+  FString OutPath = UGenerationPathsHelper::GetPythonIntermediatePath(MapName);
 
   FString Args;
   Args += FString::Printf(TEXT("\"%s\" "), *ScriptPath);
@@ -1906,7 +1907,7 @@ void UOpenDriveToMap::RunPythonRoadSegmentation()
   Args += FString::Printf(TEXT("--lat_min=%.8f "), OriginGeoCoordinates.X);
   Args += FString::Printf(TEXT("--lon_max=%.8f "), FinalGeoCoordinates.Y);
   Args += FString::Printf(TEXT("--lat_max=%.8f "), FinalGeoCoordinates.X);
-  Args += FString::Printf(TEXT("--output_path=\"%s\" "), *MapPath);
+  Args += FString::Printf(TEXT("--output_path=\"%s\" "), *OutPath);
 
   RunPythonScript(ScriptPath, Args);
 }
@@ -1915,11 +1916,11 @@ void UOpenDriveToMap::RunPythonMitsubaOptimization()
 {
   FString PluginPath = UGenerationPathsHelper::GetDigitalTwinsPluginPath();
   FString ScriptPath = PluginPath / TEXT("Content/Python/mitsuba_road_refiner.py");
-  FString MapPath = FPaths::ConvertRelativePathToFull(UGenerationPathsHelper::GetRawMapDirectoryPath(MapName));
+  FString OutPath = UGenerationPathsHelper::GetPythonIntermediatePath(MapName);
 
   FString Args;
   Args += FString::Printf(TEXT("\"%s\" "), *ScriptPath);
-  Args += FString::Printf(TEXT("--folder_path=\"%s\" "), *MapPath);
+  Args += FString::Printf(TEXT("--folder_path=\"%s\" "), *OutPath);
 
   RunPythonScript(ScriptPath, Args);
 }
