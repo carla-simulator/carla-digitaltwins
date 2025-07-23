@@ -126,8 +126,8 @@ public class CarlaDigitalTwinsTool : ModuleRules
             "RawMesh",
             "AssetTools",
             "Projects",
-      }
-    );
+            }
+        );
 
 
         PrivateDependencyModuleNames.AddRange(
@@ -161,7 +161,7 @@ public class CarlaDigitalTwinsTool : ModuleRules
             "AppFramework",
             "EngineSettings",
 		    }
-      );
+        );
 
         if (Target.Version.MajorVersion < 5)
         {
@@ -186,14 +186,5 @@ public class CarlaDigitalTwinsTool : ModuleRules
             PrivateDefinitions.Add("_USE_MATH_DEFINES");
         }
 
-        if (Target.bBuildEditor)
-        {
-            PrivateDependencyModuleNames.AddRange(new string[] {
-                "UnrealEd",
-                "MeshUtilities",
-                "MeshMergeUtilities",
-                "EditorFramework"
-            });
-        }
     }
 }

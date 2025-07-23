@@ -1594,8 +1594,8 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
 	PixelData->Pixels = Pixels;
 	ImageTask->PixelData = MoveTemp(PixelData);
 
-	FString PluginPath = UGenerationPathsHelper::GetDigitalTwinsPluginPath();
-	FString ImagePath = PluginPath / TEXT("PythonIntermediate") / TEXT("road_render.png");
+	FString MapPath = FPaths::ConvertRelativePathToFull(UGenerationPathsHelper::GetRawMapDirectoryPath(MapName));
+	FString ImagePath = MapPath / TEXT("road_render.png");
 
 	ImageTask->Filename = ImagePath;
 	ImageTask->Format = EImageFormat::PNG;
@@ -1615,7 +1615,7 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
 
 	RunPythonRoadEdges(FVector2D(Center.X, Center.Y), FVector2D(Extent.X, Extent.Y));
 
-	auto JsonPath = PluginPath / TEXT("PythonIntermediate") / TEXT("contours.json");
+	auto JsonPath = MapPath / TEXT("contours.json");
 
 	auto RoadSplines =
 		UGeometryImporter::CreateSplinesFromJson(World, JsonPath, FVector2D(Center.X, Center.Y), Extent, RenderTargetSize);
@@ -1691,7 +1691,7 @@ void UOpenDriveToMap::RunPythonRoadEdges(FVector2D Center, FVector2D Extent)
 
   FString Args;
   Args += FString::Printf(TEXT("\"%s\" "), *ScriptPath);
-  Args += FString::Printf(TEXT("--plugin_path=\"%s\" "), *PluginPath);
+  Args += FString::Printf(TEXT("--folder_path=\"%s\" "), *PluginPath);
 
   RunPythonScript(ScriptPath, Args);
 }
