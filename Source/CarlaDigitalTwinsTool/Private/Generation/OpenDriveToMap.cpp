@@ -1919,7 +1919,7 @@ void UOpenDriveToMap::RunPythonMitsubaOptimization()
 
   FString Args;
   Args += FString::Printf(TEXT("\"%s\" "), *ScriptPath);
-  Args += FString::Printf(TEXT("--output_path=\"%s\" "), *MapPath);
+  Args += FString::Printf(TEXT("--folder_path=\"%s\" "), *MapPath);
 
   RunPythonScript(ScriptPath, Args);
 }

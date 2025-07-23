@@ -126,8 +126,6 @@ public class CarlaDigitalTwinsTool : ModuleRules
             "RawMesh",
             "AssetTools",
             "Projects",
-            "CoreUObject",
-            "InputCore",
       }
     );
 
@@ -162,10 +160,6 @@ public class CarlaDigitalTwinsTool : ModuleRules
             "InputCore",
             "AppFramework",
             "EngineSettings",
-            "MeshUtilities",
-            "RenderCore",
-            "Projects",
-            "EditorFramework",
 		    }
       );
 
