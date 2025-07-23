@@ -1,3 +1,5 @@
+#if WITH_EDITOR
+
 #include "Utils/GeometryImporter.h"
 #include "Misc/FileHelper.h"
 #include "Engine/Engine.h"
@@ -5,6 +7,13 @@
 #include "Misc/Paths.h"
 #include "Json.h"
 #include "JsonUtilities.h"
+#include "EditorAssetLibrary.h"
+#include "AssetToolsModule.h"
+#include "Factories/FbxFactory.h"
+#include "Engine/StaticMeshActor.h"
+#include "Kismet/GameplayStatics.h"
+#include "Modules/ModuleManager.h"
+#include "Editor.h"
 
 DEFINE_LOG_CATEGORY(LogGeometryImporter);
 
@@ -248,3 +257,57 @@ TArray<USplineComponent*> UGeometryImporter::CreateSplinesFromJson(
     }
     return CreatedSplines;
 }
+
+void UGeometryImporter::ImportObj(const FString& ObjFilePath, UWorld* World)
+{
+    if (!FPaths::FileExists(ObjFilePath))
+    {
+        UE_LOG(LogTemp, Error, TEXT("File does not exist: %s"), *ObjFilePath);
+        return;
+    }
+
+    // Get AssetTools
+    FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools");
+
+    // Setup import data
+    UFbxFactory* ObjFactory = NewObject<UFbxFactory>();
+    ObjFactory->AddToRoot(); // prevent GC
+    // ObjFactory->bShowOption = false;
+
+    UAutomatedAssetImportData* ImportData = NewObject<UAutomatedAssetImportData>();
+    ImportData->Factory = ObjFactory;
+    ImportData->Filenames.Add(ObjFilePath);
+    ImportData->DestinationPath = TEXT("/Game/ImportedMeshes");
+    ImportData->bReplaceExisting = true;
+
+    // Perform the import
+    TArray<UObject*> ImportedAssets = AssetToolsModule.Get().ImportAssetsAutomated(ImportData);
+
+    if (ImportedAssets.Num() > 0)
+    {
+        if (UStaticMesh* ImportedMesh = Cast<UStaticMesh>(ImportedAssets[0]))
+        {
+            // Spawn the mesh in the world
+            FActorSpawnParameters SpawnParams;
+            FVector SpawnLocation(0, 0, 0);
+            AStaticMeshActor* MeshActor = World->SpawnActor<AStaticMeshActor>(SpawnLocation, FRotator::ZeroRotator, SpawnParams);
+
+            if (MeshActor)
+            {
+                MeshActor->GetStaticMeshComponent()->SetStaticMesh(ImportedMesh);
+                MeshActor->SetActorLabel(TEXT("ImportedOBJ"));
+                UE_LOG(LogTemp, Log, TEXT("Imported and spawned mesh: %s"), *ImportedMesh->GetName());
+            }
+        }
+        else
+        {
+            UE_LOG(LogTemp, Error, TEXT("Imported object is not a static mesh."));
+        }
+    }
+    else
+    {
+        UE_LOG(LogTemp, Error, TEXT("No assets imported from file: %s"), *ObjFilePath);
+    }
+}
+
+#endif

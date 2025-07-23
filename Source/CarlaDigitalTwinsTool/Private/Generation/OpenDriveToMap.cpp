@@ -1934,6 +1934,10 @@ void UOpenDriveToMap::MitsubaMeshOptimization()
   RunPythonRoadSegmentation();
 
   RunPythonMitsubaOptimization();
+
+  FString OutPath = UGenerationPathsHelper::GetPythonIntermediatePath(MapName);
+  FString ObjPath = OutPath / TEXT("updated_road.obj");
+  UGeometryImporter::ImportObj(ObjPath, GEditor->GetEditorWorldContext().World());
 }
 
 #endif

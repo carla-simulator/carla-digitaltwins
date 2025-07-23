@@ -160,6 +160,7 @@ public class CarlaDigitalTwinsTool : ModuleRules
             "InputCore",
             "AppFramework",
             "EngineSettings",
+            "AssetTools",
 		    }
         );
 
