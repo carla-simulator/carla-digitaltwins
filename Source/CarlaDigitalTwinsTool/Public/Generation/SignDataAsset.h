@@ -20,4 +20,19 @@ public:
 	
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	ESignStyle SignStyle;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool Unique;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UTexture2D* Diffuse;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UTexture2D* Normal;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int Id_X;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int Id_Y;
 };

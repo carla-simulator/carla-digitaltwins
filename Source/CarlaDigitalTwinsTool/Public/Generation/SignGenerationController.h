@@ -31,7 +31,7 @@ public:
 	virtual void Tick(float DeltaTime) override;
 
 	UFUNCTION(BlueprintCallable, Category = "EditorUtilityWidget")
-	void SignGenerationByPath(FName sign_package_path, FName pole_package_path);
+	void SignGenerationByPath(FName sign_package_path, FName pole_package_path, ESignStyle sign_style);
 
 	UFUNCTION(Category= "SignGeneration", BlueprintCallable, CallInEditor)
 	void SignGenerationForCurrentMap();
@@ -44,6 +44,9 @@ public:
 
 	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite)
 	FName PolePackagePath;
+
+	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite)
+	ESignStyle SignStyle;
 
 	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite)
 	bool bDisplaceSignsToEdge;

@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "Generation/SignGenerationController.h"
@@ -61,7 +61,7 @@ void ASignGenerationController::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 }
 
-void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FName pole_package_path)
+void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FName pole_package_path, ESignStyle sign_style)
 {
 
 	GetSteetMapFile();
@@ -77,6 +77,8 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 	//UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("UOpenDriveToMap::GenerateTile() Loading File..... "));
 	current_carla_map = carla::opendrive::OpenDriveParser::Load(opendrive_xml);
 
+	//When creating actors again, destroy all the previously created and clear the arrays.
+	// 
 	//for (const TPair<int32, AStaticMeshActor*> entry : GeneratedSigns)
 	for (AActor* entry : GeneratedSigns)
 	{
@@ -86,14 +88,28 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 
 	GeneratedSigns.Empty();
 	closest_waypoints.Empty();
+	//------------------------------------------------------------------------------------
 
 	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
 	IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
-	SignPackagePath = sign_package_path;
-	PolePackagePath = pole_package_path;
 
+	FString EnumName = UEnum::GetValueAsString(sign_style);
+	// Remove the "ESignStyle::" part
+	int32 SeparatorIndex;
+	if (EnumName.FindChar(':', SeparatorIndex))
+	{
+	  EnumName = EnumName.Mid(SeparatorIndex + 2);
+	}
+	FString FullPath = sign_package_path.ToString() + TEXT("/") + EnumName;
+	FName FullPathName = FName(*FullPath);
+
+	UE_LOG(LogTemp, Warning, TEXT("SignPackagePath: %s"), *FullPathName.ToString());
+
+	PolePackagePath = pole_package_path; //temporary
+
+	//We get the sign from a path to the content folders
 	TArray<FAssetData> temp_sign;
-	AssetRegistry.GetAssetsByPath(SignPackagePath, temp_sign, true);
+	AssetRegistry.GetAssetsByPath(FullPathName, temp_sign, true);
 	TArray<FAssetData> temp_pole;
 	AssetRegistry.GetAssetsByPath(PolePackagePath, temp_pole, true);
 
@@ -146,7 +162,6 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 				if (false/*closest_waypoint*/)
 				{
 
-
 					carla::geom::Transform transform = current_carla_map->ComputeTransform(*closest_waypoint);
 					double LaneWidth = current_carla_map->GetLaneWidth(*closest_waypoint);
 
@@ -169,7 +184,7 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 				}
 				else
 				{
-					temp_actor->SetActorLocation(FVector(sign.Position.X, sign.Position.Y, 0.0f));
+					temp_actor->SetWorldLocation(FVector(sign.Position.X, sign.Position.Y, 0.0f));
 				}
 
 				temp_actor->SetActorLabel(actor_name);
@@ -271,5 +286,5 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 
 void ASignGenerationController::SignGenerationForCurrentMap()
 {
-	SignGenerationByPath(SignPackagePath, PolePackagePath);
+	SignGenerationByPath(SignPackagePath, PolePackagePath, SignStyle);
 }
