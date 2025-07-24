@@ -1,39 +1,69 @@
 #include "TrafficLights/TrafficLightActor.h"
 
+#include "CarlaDigitalTwinsTool.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Dom/JsonObject.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshSocket.h"
 #include "Generation/MapGenFunctionLibrary.h"
+#include "JsonUtilities.h"
 #include "Logging/LogMacros.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Math/MathFwd.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "Serialization/JsonReader.h"
+#include "Templates/SharedPointer.h"
 #include "TrafficLights/TLHead.h"
 #include "TrafficLights/TLMaterialFactory.h"
 #include "TrafficLights/TLMeshFactory.h"
 #include "TrafficLights/TLModule.h"
 #include "TrafficLights/TLPole.h"
 
+namespace
+{
+FTransform ParseTransform(const TSharedPtr<FJsonObject>& Json)
+{
+	const auto& Loc{Json->GetObjectField(TEXT("Location"))};
+	const auto& Rot{Json->GetObjectField(TEXT("Rotation"))};
+	const auto& Scale{Json->GetObjectField(TEXT("Scale"))};
+	const FVector Location(Loc->GetNumberField(TEXT("X")), Loc->GetNumberField(TEXT("Y")), Loc->GetNumberField(TEXT("Z")));
+	const FRotator Rotation(
+		Rot->GetNumberField(TEXT("Pitch")), Rot->GetNumberField(TEXT("Yaw")), Rot->GetNumberField(TEXT("Roll")));
+	const FVector Scale3D(Scale->GetNumberField(TEXT("X")), Scale->GetNumberField(TEXT("Y")), Scale->GetNumberField(TEXT("Z")));
+	return FTransform(Rotation, Location, Scale3D);
+}
+template <typename TEnum>
+TEnum GetEnumValueFromString(const FString& Name)
+{
+	if (UEnum* Enum = StaticEnum<TEnum>())
+	{
+		int64 Value = Enum->GetValueByNameString(Name);
+		if (Value != INDEX_NONE)
+		{
+			return static_cast<TEnum>(Value);
+		}
+		UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Invalid enum name '%s' for %s"), *Name, *Enum->GetName());
+	}
+	return TEnum(0);
+}
+}	 // namespace
+
 ATrafficLightActor::ATrafficLightActor()
 {
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 }
 
+void ATrafficLightActor::OnConstruction(const FTransform& Transform)
+{
+	Super::OnConstruction(Transform);
+	// Build();
+}
+
 void ATrafficLightActor::Build()
 {
-	{
-		TArray<UActorComponent*> Old;
-		GetComponents(Old);
-		for (UActorComponent* C : Old)
-		{
-			if (C != RootComponent)
-			{
-				C->DestroyComponent();
-				RemoveInstanceComponent(C);
-			}
-		}
-	}
-
+	Clear();
 	for (FTLPole& Pole : Poles)
 	{
 		USceneComponent* PoleRoot{AddRootPole(RootComponent, Pole)};
@@ -57,18 +87,117 @@ void ATrafficLightActor::Build()
 		}
 	}
 }
+// TODO: Los materiales no se están aplicando a los módulos, revisar
+void ATrafficLightActor::BuildFromJSON()
+{
+	if (JSONFile.FilePath.IsEmpty())
+	{
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("JSONFile was not assigned."));
+		return;
+	}
+
+	const FString FullPath{FPaths::ConvertRelativePathToFull(JSONFile.FilePath)};
+	FString JSONConfig;
+	if (!FFileHelper::LoadFileToString(JSONConfig, *FullPath))
+	{
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Failed to load JSON file: %s"), *FullPath);
+		return;
+	}
+
+	TSharedPtr<FJsonObject> Root;
+	TSharedRef<TJsonReader<TCHAR>> Reader{TJsonReaderFactory<TCHAR>::Create(JSONConfig)};
+	if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+	{
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Failed to parse JSONConfig."));
+		return;
+	}
+
+	Poles.Empty();
+	const TArray<TSharedPtr<FJsonValue>>* JsonPoles;
+	if (Root->TryGetArrayField(TEXT("Poles"), JsonPoles))
+	{
+		for (const auto& PoleValue : *JsonPoles)
+		{
+			const TSharedPtr<FJsonObject> PoleObj{PoleValue->AsObject()};
+			FTLPole Pole;
+			Pole.Transform = ParseTransform(PoleObj->GetObjectField(TEXT("Transform")));
+			Pole.Offset = ParseTransform(PoleObj->GetObjectField(TEXT("Offset")));
+			Pole.Style = GetEnumValueFromString<ETLStyle>(PoleObj->GetStringField(TEXT("Style")));
+			Pole.Orientation = GetEnumValueFromString<ETLOrientation>(PoleObj->GetStringField(TEXT("Orientation")));
+			Pole.PoleHeight = PoleObj->GetNumberField(TEXT("PoleHeight"));
+
+			Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshForPole(Pole);
+			Pole.ExtendiblePoleMesh = FTLMeshFactory::GetExtendibleMeshForPole(Pole);
+
+			const TArray<TSharedPtr<FJsonValue>>* JsonHeads;
+			if (PoleObj->TryGetArrayField(TEXT("Heads"), JsonHeads))
+			{
+				for (const auto& HeadValue : *JsonHeads)
+				{
+					const TSharedPtr<FJsonObject> HeadObj{HeadValue->AsObject()};
+					FTLHead Head;
+					Head.Transform = ParseTransform(HeadObj->GetObjectField(TEXT("Transform")));
+					Head.Offset = ParseTransform(HeadObj->GetObjectField(TEXT("Offset")));
+					Head.Style = GetEnumValueFromString<ETLStyle>(HeadObj->GetStringField(TEXT("Style")));
+					Head.Attachment = GetEnumValueFromString<ETLHeadAttachment>(HeadObj->GetStringField(TEXT("Attachment")));
+					Head.Orientation = GetEnumValueFromString<ETLOrientation>(HeadObj->GetStringField(TEXT("Orientation")));
+					Head.bHasBackplate = HeadObj->GetBoolField(TEXT("bHasBackplate"));
+
+					const TArray<TSharedPtr<FJsonValue>>* JsonModules;
+					if (HeadObj->TryGetArrayField(TEXT("Modules"), JsonModules))
+					{
+						for (const auto& ModValue : *JsonModules)
+						{
+							const TSharedPtr<FJsonObject> ModObj{ModValue->AsObject()};
+							FTLModule Module;
+							Module.Transform = ParseTransform(ModObj->GetObjectField(TEXT("Transform")));
+							Module.Offset = ParseTransform(ModObj->GetObjectField(TEXT("Offset")));
+							Module.bHasVisor = ModObj->GetBoolField(TEXT("bHasVisor"));
+							Module.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head, Module).Last();
+							const TArray<TSharedPtr<FJsonValue>>* JsonLights;
+							if (ModObj->TryGetArrayField(TEXT("Lights"), JsonLights))
+							{
+								for (const auto& LightValue : *JsonLights)
+								{
+									const TSharedPtr<FJsonObject> LightObj{LightValue->AsObject()};
+									FTLModuleLight Light;
+									Light.LightType =
+										GetEnumValueFromString<ETLLightType>(LightObj->GetStringField(TEXT("LightType")));
+									const FVector2D AtlasUV{FTLMeshFactory::GetAtlasCoordsForLightType(Light.LightType)};
+									Light.U = AtlasUV.X;
+									Light.V = AtlasUV.Y;
+									Light.EmissiveIntensity = LightObj->GetNumberField(TEXT("EmissiveIntensity"));
+									const auto& ColorObj{LightObj->GetObjectField(TEXT("EmissiveColor"))};
+									Light.EmissiveColor.R = ColorObj->GetNumberField(TEXT("R"));
+									Light.EmissiveColor.G = ColorObj->GetNumberField(TEXT("G"));
+									Light.EmissiveColor.B = ColorObj->GetNumberField(TEXT("B"));
+									Light.EmissiveColor.A = ColorObj->GetNumberField(TEXT("A"));
+									Module.Lights.Add(MoveTemp(Light));
+								}
+							}
+							Head.Modules.Add(MoveTemp(Module));
+						}
+					}
+					Pole.Heads.Add(MoveTemp(Head));
+				}
+			}
+			Poles.Add(MoveTemp(Pole));
+		}
+	}
+	Build();
+}
 
 USceneComponent* ATrafficLightActor::AddRootPole(USceneComponent* Parent, FTLPole& Pole)
 {
 	USceneComponent* PoleRoot{UMapGenFunctionLibrary::AddSceneComponentToActor(this)};
 	if (!PoleRoot)
 	{
-		UE_LOG(LogTemp, Error, TEXT("AddRootPole: no pudo crear PoleRoot"));
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("AddRootPole: no pudo crear PoleRoot"));
 		return nullptr;
 	}
 
-	PoleRoot->AttachToComponent(Parent, FAttachmentTransformRules::KeepWorldTransform);
-	PoleRoot->SetWorldTransform(Pole.Transform);
+	PoleRoot->AttachToComponent(Parent, FAttachmentTransformRules::KeepRelativeTransform);
+	PoleRoot->SetRelativeTransform(Pole.Transform);
 
 	return PoleRoot;
 }
@@ -90,7 +219,7 @@ UStaticMeshComponent* ATrafficLightActor::AddModule(USceneComponent* Parent, FTL
 	UStaticMeshComponent* Comp{UMapGenFunctionLibrary::AddStaticMeshComponentToActor(this)};
 	if (!Comp)
 	{
-		UE_LOG(LogTemp, Error, TEXT("Failed to create StaticMeshComponent for module"));
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Failed to create StaticMeshComponent for module"));
 		return nullptr;
 	}
 	Comp->SetStaticMesh(ModuleData.ModuleMesh);
@@ -102,13 +231,19 @@ UStaticMeshComponent* ATrafficLightActor::AddModule(USceneComponent* Parent, FTL
 	int32 LightIndex{0};
 	for (FTLModuleLight& Light : ModuleData.Lights)
 	{
-		const FName MaterialSlotName{FString::Printf(TEXT("led_%d"), LightIndex++)};
-		const int32 MaterialIndex{Comp->GetMaterialIndex(MaterialSlotName)};
-		Light.LightMID = Comp->CreateDynamicMaterialInstance(MaterialIndex, BaseMat);
-		Light.LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light.EmissiveIntensity);
-		Light.LightMID->SetVectorParameterValue(TEXT("Emissive Color"), Light.EmissiveColor);
-		Light.LightMID->SetScalarParameterValue(TEXT("Offset U"), static_cast<float>(Light.U));
-		Light.LightMID->SetScalarParameterValue(TEXT("Offset Y"), static_cast<float>(Light.V));
+		if (Light.LightMID == nullptr)
+		{
+			Light.LightMID = FMaterialFactory::GetLightMaterialInstance(Comp);
+		}
+		if (Light.LightMID)
+		{
+			Light.LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light.EmissiveIntensity);
+			Light.LightMID->SetVectorParameterValue(TEXT("Emissive Color"), Light.EmissiveColor);
+			Light.LightMID->SetScalarParameterValue(TEXT("Offset U"), static_cast<float>(Light.U));
+			Light.LightMID->SetScalarParameterValue(TEXT("Offset Y"), static_cast<float>(Light.V));
+			const FName MaterialSlotName{FString::Printf(TEXT("led_%d"), LightIndex++)};
+			Comp->SetMaterialByName(MaterialSlotName, Light.LightMID);
+		}
 	}
 
 	Comp->Modify();
@@ -123,7 +258,7 @@ UStaticMeshComponent* ATrafficLightActor::AddPoleBase(USceneComponent* Parent, F
 	UStaticMeshComponent* Comp{UMapGenFunctionLibrary::AddStaticMeshComponentToActor(this)};
 	if (!Comp)
 	{
-		UE_LOG(LogTemp, Error, TEXT("Failed to create StaticMeshComponent for pole base"));
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Failed to create StaticMeshComponent for pole base"));
 		return nullptr;
 	}
 
@@ -138,27 +273,47 @@ UStaticMeshComponent* ATrafficLightActor::AddPoleBase(USceneComponent* Parent, F
 
 UStaticMeshComponent* ATrafficLightActor::AddPoleExtensible(USceneComponent* Parent, FTLPole& Pole)
 {
-	UStaticMeshComponent* Comp{UMapGenFunctionLibrary::AddStaticMeshComponentToActor(this)};
-	if (!Comp)
+	UStaticMeshComponent* BaseComp{Pole.BasePoleMeshComponent};
+	if (!BaseComp)
 	{
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("AddPoleExtensible: BasePoleMeshComponent not set"));
 		return nullptr;
 	}
 
-	FTransform PoleTransform{Pole.Offset};
-	const double PoleSizeZ{Pole.ExtendiblePoleMesh->GetBoundingBox().GetSize().Z};
-	// TODO: Change the PoleHeight property to a double
-	PoleTransform.SetScale3D(FVector{1.0, 1.0, static_cast<double>(Pole.PoleHeight) / PoleSizeZ});
-	Comp->SetStaticMesh(Pole.ExtendiblePoleMesh);
-	Comp->AttachToComponent(Parent, FAttachmentTransformRules::KeepRelativeTransform);
-	Comp->SetRelativeTransform(PoleTransform);
-	Comp->Modify();
+	UStaticMeshComponent* ExtComp{UMapGenFunctionLibrary::AddStaticMeshComponentToActor(this)};
+	if (!ExtComp)
+	{
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("AddPoleExtensible: unable to create ExtComp"));
+		return nullptr;
+	}
+	ExtComp->SetStaticMesh(Pole.ExtendiblePoleMesh);
+	static const FName SocketName("extensible");
+	ExtComp->AttachToComponent(BaseComp, FAttachmentTransformRules::SnapToTargetIncludingScale, SocketName);
+	const double BaseLengthZ{BaseComp->GetStaticMesh()->GetBounds().BoxExtent.Z * 2.0};
+	const double ExtLengthZ{Pole.ExtendiblePoleMesh->GetBounds().BoxExtent.Z * 2.0};
+	if (ExtLengthZ > KINDA_SMALL_NUMBER)
+	{
+		const double DesiredExtHeight{FMath::Max(Pole.PoleHeight - BaseLengthZ, 0.0)};
+		const double ScaleZ{DesiredExtHeight / ExtLengthZ};
+		FVector Scale3D = ExtComp->GetRelativeScale3D();
+		Scale3D.Z = ScaleZ;
+		ExtComp->SetRelativeScale3D(Scale3D);
+	}
 
-	Pole.ExtendiblePoleMeshComponent = Comp;
-	return Comp;
+	ExtComp->Modify();
+	Pole.ExtendiblePoleMeshComponent = ExtComp;
+	return ExtComp;
 }
 
 UStaticMeshComponent* ATrafficLightActor::AddPoleCap(USceneComponent* Parent, FTLPole& Pole)
 {
+	UStaticMeshComponent* ExtensibleComp{Pole.BasePoleMeshComponent};
+	if (!ExtensibleComp)
+	{
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("AddPoleExtensible: BasePoleMeshComponent not set"));
+		return nullptr;
+	}
+
 	UStaticMeshComponent* Comp{UMapGenFunctionLibrary::AddStaticMeshComponentToActor(this)};
 	if (!Comp)
 	{
@@ -166,8 +321,8 @@ UStaticMeshComponent* ATrafficLightActor::AddPoleCap(USceneComponent* Parent, FT
 	}
 
 	Comp->SetStaticMesh(Pole.CapPoleMesh);
-	Comp->AttachToComponent(Parent, FAttachmentTransformRules::KeepRelativeTransform);
-	Comp->SetRelativeTransform(Pole.Offset);
+	static const FName CapSocketName(TEXT("cap"));
+	Comp->AttachToComponent(ExtensibleComp, FAttachmentTransformRules::SnapToTargetIncludingScale, CapSocketName);
 	Comp->Modify();
 
 	Pole.CapPoleMeshComponent = Comp;
@@ -176,6 +331,10 @@ UStaticMeshComponent* ATrafficLightActor::AddPoleCap(USceneComponent* Parent, FT
 
 void ATrafficLightActor::AddBackplate(USceneComponent* HeadRoot, FTLPole& Pole, FTLHead& Head)
 {
+	// TODO: hacer que las horizontes y verticales sean extensibles y que los corners siempre
+	// TODO: los corners deben estar "attachaddos" a las verticales y horizontales, de forma que si extienden las horizontales y
+	// verticales los corners se ajusten a la nueva longitud
+	// por defecto el extiensible es del tamanyo justo para  que sobrasalgan los corners
 	FBox LocalBounds{ForceInit};
 	for (const FTLModule& Module : Head.Modules)
 	{
@@ -273,12 +432,12 @@ void ATrafficLightActor::RebuildModuleChain(FTLHead& Head)
 
 		if (!IsValid(Prev.ModuleMeshComponent))
 		{
-			UE_LOG(LogTemp, Warning, TEXT("Previous module mesh component is invalid at module %d"), i);
+			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Previous module mesh component is invalid at module %d"), i);
 			continue;
 		}
 		if (!IsValid(Curr.ModuleMeshComponent))
 		{
-			UE_LOG(LogTemp, Warning, TEXT("Missing component at module %d"), i);
+			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Missing component at module %d"), i);
 			continue;
 		}
 
@@ -286,12 +445,12 @@ void ATrafficLightActor::RebuildModuleChain(FTLHead& Head)
 		const UStaticMeshSocket* CurrSocket{Curr.ModuleMesh->FindSocket(BeginSocketName)};
 		if (!IsValid(PrevSocket))
 		{
-			UE_LOG(LogTemp, Warning, TEXT("Previous socket not found at module %d"), i);
+			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Previous socket not found at module %d"), i);
 			continue;
 		}
 		if (!IsValid(CurrSocket))
 		{
-			UE_LOG(LogTemp, Warning, TEXT("Current socket not found at module %d"), i);
+			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Current socket not found at module %d"), i);
 			continue;
 		}
 
@@ -301,5 +460,19 @@ void ATrafficLightActor::RebuildModuleChain(FTLHead& Head)
 		const FTransform SnapDelta{PrevBase * PrevLocal * CurrLocal.Inverse()};
 		Curr.Transform = SnapDelta;
 		Curr.ModuleMeshComponent->SetRelativeTransform(Curr.Transform * Curr.Offset);
+	}
+}
+
+void ATrafficLightActor::Clear()
+{
+	TArray<UActorComponent*> Old;
+	GetComponents(Old);
+	for (UActorComponent* C : Old)
+	{
+		if (C != RootComponent)
+		{
+			C->DestroyComponent();
+			RemoveInstanceComponent(C);
+		}
 	}
 }

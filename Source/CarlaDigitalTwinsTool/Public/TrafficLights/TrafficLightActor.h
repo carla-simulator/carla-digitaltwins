@@ -9,21 +9,32 @@
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "CoreMinimal.h"
+#include "Misc/FileHelper.h"
 #include "TrafficLights/TLHead.h"
 #include "TrafficLights/TLLightType.h"
 #include "TrafficLights/TLModule.h"
 #include "TrafficLights/TLPole.h"
+#include "UObject/ObjectMacros.h"
 
 #include "TrafficLightActor.generated.h"
 
-UCLASS(BlueprintType)
+UCLASS(BlueprintType, Blueprintable)
 class CARLADIGITALTWINSTOOL_API ATrafficLightActor : public AActor
 {
 	GENERATED_BODY()
 
 public:
 	ATrafficLightActor();
+
+	virtual void OnConstruction(const FTransform& Transform) override;
+
 	void Build();
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "TrafficLight")
+	void BuildFromJSON();
+
+	UPROPERTY(EditAnywhere, Category = "TrafficLight")
+	FFilePath JSONFile;
 
 	UPROPERTY(EditAnywhere, Category = "TrafficLight")
 	TArray<FTLPole> Poles;
@@ -38,6 +49,7 @@ private:
 	void AddBackplate(USceneComponent* Parent, FTLPole& Pole, FTLHead& Head);
 	FVector2D GetAtlasCoordsForLightType(ETLLightType LightType) const;
 	void RebuildModuleChain(FTLHead& Head);
+	void Clear();
 
 private:
 	TArray<UStaticMeshComponent*> ModuleMeshComponents;

@@ -369,27 +369,3 @@ void STrafficLightPreviewViewport::ResetFrame(const UStaticMeshComponent* Comp)
 	ViewportClient->SetViewLocation(CamPos);
 	ViewportClient->SetViewRotation(CamRot);
 }
-
-FVector2D STrafficLightPreviewViewport::GetAtlasCoordsForLightType(ETLLightType LightType) const
-{
-	if (LightTypesTable == nullptr)
-	{
-		UE_LOG(LogTemp, Error, TEXT("LightTypesTable is not set"));
-		return FVector2D::ZeroVector;
-	}
-	const UEnum* EnumPtr = StaticEnum<ETLLightType>();
-	if (!EnumPtr)
-	{
-		return FVector2D::ZeroVector;
-	}
-
-	const FString EnumName = EnumPtr->GetNameStringByValue(static_cast<int64>(LightType));
-	const FName RowName(*EnumName);
-
-	if (const FTLLightTypeRow* Row = LightTypesTable->FindRow<FTLLightTypeRow>(RowName, TEXT("GetAtlasCoordsForLightType")))
-	{
-		return Row->AtlasCoords;
-	}
-
-	return FVector2D::ZeroVector;
-}

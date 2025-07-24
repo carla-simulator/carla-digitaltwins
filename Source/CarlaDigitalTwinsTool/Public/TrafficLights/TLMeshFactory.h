@@ -11,6 +11,7 @@
 #include "Engine/StaticMesh.h"
 #include "TrafficLights/TLBackplateDataTable.h"
 #include "TrafficLights/TLHead.h"
+#include "TrafficLights/TLLightType.h"
 #include "TrafficLights/TLModule.h"
 #include "TrafficLights/TLPole.h"
 
@@ -35,6 +36,7 @@ public:
 	static UDataTable* GetPoleMeshTable();
 	static UDataTable* GetBackplateMeshTable();
 
+	static FVector2D GetAtlasCoordsForLightType(ETLLightType LightType);
 	static int32 CountLedMaterials(UStaticMesh* Mesh);
 
 private:

@@ -9,6 +9,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/DataTable.h"
 #include "TrafficLights/TLOrientation.h"
+#include "TrafficLights/TLPoleType.h"
 #include "TrafficLights/TLStyle.h"
 #include "UObject/ObjectMacros.h"
 
@@ -26,14 +27,8 @@ struct FTLPoleRow : public FTableRowBase
 	ETLOrientation Orientation{ETLOrientation::Vertical};
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|Pole")
-	UStaticMesh* BaseMesh{nullptr};
+	ETLPoleType PoleType{ETLPoleType::Base};
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|Pole")
-	UStaticMesh* ExtendibleMesh{nullptr};
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|Pole")
-	UStaticMesh* CapMesh{nullptr};
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Light|Pole")
-	UStaticMesh* ConnectorMesh{nullptr};
+	UStaticMesh* Mesh{nullptr};
 };
