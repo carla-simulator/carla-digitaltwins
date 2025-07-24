@@ -22,7 +22,7 @@ public:
 	ESignStyle SignStyle;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	bool Unique;
+	bool Unique; //Unused for now
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	UTexture2D* Diffuse;

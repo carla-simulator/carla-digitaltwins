@@ -18,6 +18,10 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "DrawDebugHelpers.h"
 #include "Generation/MapGenFunctionLibrary.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Engine/Texture.h"
+#include "UObject/ConstructorHelpers.h"
+#include "Components/MeshComponent.h"
 
 void ASignGenerationController::GetSteetMapFile()
 {
@@ -184,7 +188,7 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 				}
 				else
 				{
-					temp_actor->SetWorldLocation(FVector(sign.Position.X, sign.Position.Y, 0.0f));
+					temp_actor->SetActorLocation(FVector(sign.Position.X, sign.Position.Y, 0.0f));
 				}
 
 				temp_actor->SetActorLabel(actor_name);
@@ -196,6 +200,27 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 
 					UStaticMeshComponent* sign_mesh_comp = UMapGenFunctionLibrary::AddStaticMeshComponentToActor(temp_actor);
 					sign_mesh_comp->SetStaticMesh(sign_asset->SignMesh);
+
+					UMaterialInterface* BaseMaterial = Cast<UMaterialInterface>(
+					  StaticLoadObject(UMaterialInterface::StaticClass(), nullptr,
+						TEXT("/CarlaDigitalTwinsTool/Carla/Static/Signs/Materials/Atlas/MI_SignTextureAtlasSelector"))
+					);
+					UMaterialInstanceDynamic* DynamicMaterial = nullptr;
+
+					if (BaseMaterial)
+					{
+					  DynamicMaterial = UMaterialInstanceDynamic::Create(BaseMaterial, this);
+					}
+					if (DynamicMaterial)
+					{
+					  //Set diffuse texture from the data asset
+					  DynamicMaterial->SetTextureParameterValue("Diffuse", sign_asset->Diffuse);
+
+					  // Set index of the atlas texture
+					  DynamicMaterial->SetScalarParameterValue("Index_X", sign_asset->Id_X);
+					  DynamicMaterial->SetScalarParameterValue("Index_Y", sign_asset->Id_Y);
+					}
+					sign_mesh_comp->SetMaterial(0, DynamicMaterial);
 					sign_mesh_comp->SetWorldTransform(pole_mesh_comp->GetSocketTransform(FName(TEXT("Sign1"))));
 				}
 				else
