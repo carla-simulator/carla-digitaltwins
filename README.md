@@ -92,12 +92,12 @@ Make sure the **Digital Twins plugin** is correctly installed and built in your 
 
 2. In the **Content Browser**, go to the bottom-right corner and click the **eye icon** to enable "Show Plugin Content".
 
-    <img width="1022" alt="ContentBrowser" src="https://github.com/user-attachments/assets/acd1f2df-dac6-43ee-a1e4-904e26b9f4ee" />
-    <img width="173" alt="ShowPluginContent" src="https://github.com/user-attachments/assets/0cdfd612-2e91-412f-abd6-5509ae2e8b8f" />
+<img width="1022" alt="ContentBrowser" src="https://github.com/user-attachments/assets/acd1f2df-dac6-43ee-a1e4-904e26b9f4ee" />
+<img width="173" alt="ShowPluginContent" src="https://github.com/user-attachments/assets/0cdfd612-2e91-412f-abd6-5509ae2e8b8f" />
 
 3. On the **left panel**, a new section will appear labeled `DigitalTwins Content`. Expand it.
 
-    <img width="239" alt="CarlaDigitalTwinsContent" src="https://github.com/user-attachments/assets/c401ed92-fac0-4c31-94d0-9212ae742e27" />
+<img width="239" alt="CarlaDigitalTwinsContent" src="https://github.com/user-attachments/assets/c401ed92-fac0-4c31-94d0-9212ae742e27" />
 
 4. Inside that folder, locate the file named:  
    **`UW_DigitalTwins`**
@@ -125,16 +125,14 @@ Make sure the **Digital Twins plugin** is correctly installed and built in your 
 8. Search and zoom into the **area** you want to replicate.
 
 9. Click the **Export** button on the top menu, the one in the upper part of the window which is between other buttons as shown in the following screenshot:
-   
-![image](https://github.com/user-attachments/assets/e6bbc00b-b30c-48f8-80ab-34a6419b3555)
 
+![image](https://github.com/user-attachments/assets/e6bbc00b-b30c-48f8-80ab-34a6419b3555)
 
 10. On the left side of the window screen, find the text:
     **“Overpass API”**  
     Right-click the link and select **“Copy link address”**.
 
     ![image](https://github.com/user-attachments/assets/a51d849a-55e3-49ca-95c8-d96c75692e9d)
-
 
 11. Go back to the Digital Twins tool in Unreal:
 

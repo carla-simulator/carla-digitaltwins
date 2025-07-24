@@ -844,7 +844,12 @@ void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& Param
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Misc stuff..... "));
 	GenerationFinished(MinLocation, MaxLocation);
 
-	MitsubaMeshOptimization();
+	#if PLATFORM_LINUX
+	if (bUseMitsuba)
+	{
+		MitsubaMeshOptimization();
+	}
+	#endif
 }
 
 void UOpenDriveToMap::GenerateRoadMesh(
