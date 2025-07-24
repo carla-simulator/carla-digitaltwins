@@ -12,6 +12,7 @@
   3. In the **Scripting** section, find **"Python Editor Script Plugin"**.
   4. Check the box to **enable** it.
   5. Restart the editor when prompted.
+
 ---
 
 ## Common Setup Steps (Linux & Windows)
@@ -56,6 +57,15 @@
    > Replace `<ProjectName>` with the actual name of your Unreal project.
 
 2. Once compiled, double click on ProjectName.uproject
+
+### Aerial images support
+
+Mitsuba mesh optimization (available for now only in Linux) require the use of aerial images, whose access is provided through the library [GDAL](https://github.com/OSGeo/gdal). To install it, run the following commands:
+
+```sh
+sudo apt install libgdal-dev
+pip3 install gdal[numpy]=="$(gdal-config --version).*"
+```
 
 ---
 
