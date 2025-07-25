@@ -1531,6 +1531,14 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
 {
 	FBox Bounds(EForceInit::ForceInitToZero);
 
+	FString RoadLabel = "DrivingLane";
+	#if PLATFORM_LINUX
+		if (bUseMitsuba)
+		{
+			RoadLabel = "UpdatedRoad";
+		}
+	#endif
+
 	TArray<AActor*> HiddenActors;
 	{
 		TArray<AActor*> Actors;
@@ -1541,7 +1549,8 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
 			auto BoundingBox = Actor->GetComponentsBoundingBox();
 			Bounds += BoundingBox;
 			auto Name = Actor->GetActorLabel();
-			if (!Name.Contains("DrivingLane", ESearchCase::CaseSensitive))
+
+			if (!Name.Contains(RoadLabel, ESearchCase::CaseSensitive))
 			{
 				Actor->SetActorHiddenInGame(true);
 				HiddenActors.Add(Actor);
