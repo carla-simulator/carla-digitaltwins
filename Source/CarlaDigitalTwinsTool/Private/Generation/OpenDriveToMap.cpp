@@ -1942,17 +1942,30 @@ void UOpenDriveToMap::RunPythonMitsubaOptimization()
 
 void UOpenDriveToMap::MitsubaMeshOptimization()
 {
-  UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Running road mesh optimization with Mitsuba..."));
+	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Running road mesh optimization with Mitsuba..."));
 
-  MergeRoads();
+	MergeRoads();
 
-  RunPythonRoadSegmentation();
+	RunPythonRoadSegmentation();
 
-  RunPythonMitsubaOptimization();
+	RunPythonMitsubaOptimization();
 
-  FString OutPath = UGenerationPathsHelper::GetPythonIntermediatePath(MapName);
-  FString ObjPath = OutPath / TEXT("updated_road.obj");
-  UGeometryImporter::ImportObj(ObjPath, GEditor->GetEditorWorldContext().World(), DefaultRoadMaterial);
+	FString OutPath = UGenerationPathsHelper::GetPythonIntermediatePath(MapName);
+	FString ObjPath = OutPath / TEXT("updated_road.obj");
+	UGeometryImporter::ImportObj(ObjPath, GEditor->GetEditorWorldContext().World(), DefaultRoadMaterial);
+
+	// Hide DrivingLane actors
+	TArray<AActor*> Actors;
+	UGameplayStatics::GetAllActorsOfClass(GetEditorWorld(), AActor::StaticClass(), Actors);
+	for (auto& Actor : Actors)
+	{
+		auto Name = Actor->GetActorLabel();
+
+		if (Name.Contains("DrivingLane", ESearchCase::CaseSensitive))
+		{
+			Actor->SetActorHiddenInGame(true);
+		}
+	}
 }
 
 #endif
