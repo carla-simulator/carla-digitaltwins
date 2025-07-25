@@ -1964,6 +1964,7 @@ void UOpenDriveToMap::MitsubaMeshOptimization()
 		if (Name.Contains("DrivingLane", ESearchCase::CaseSensitive))
 		{
 			Actor->SetActorHiddenInGame(true);
+			Actor->SetIsTemporarilyHiddenInEditor(true);
 		}
 	}
 }
