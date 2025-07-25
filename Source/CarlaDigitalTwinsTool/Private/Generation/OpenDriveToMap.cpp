@@ -10,6 +10,7 @@
 #include "Carla/Road/Road.h"
 #include "Carla/Road/RoadTypes.h"
 #include "CoreGlobals.h"
+#include "EngineUtils.h"
 #include "Logging/LogMacros.h"
 #include "Math/MathFwd.h"
 #include "TrafficLights/TLModule.h"
@@ -1183,62 +1184,80 @@ void UOpenDriveToMap::GenerateTrafficLights(
 			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Signal Transform: Location(%f, %f, %f), Pitch(%f), Yaw(%f), Roll(%f)"),
 				SignalTransform.location.x, SignalTransform.location.y, SignalTransform.location.z, SignalTransform.rotation.pitch,
 				SignalTransform.rotation.yaw, SignalTransform.rotation.roll);
-			FActorSpawnParameters SpawnParams;
-			SpawnParams.OverrideLevel = GetEditorWorld()->GetCurrentLevel();
-			ATrafficLightActor* TL{
-				GetEditorWorld()->SpawnActor<ATrafficLightActor>(TrafficLightBPClass, SignalTransform, SpawnParams)};
-			if (IsValid(TL))
+
+			const FVector DesiredLoc{SignalTransform.location};
+			const float Tolerance{1.0f};
+			bool bAlreadySpawned{false};
+
+			for (TActorIterator<ATrafficLightActor> It(GetEditorWorld()); It; ++It)
 			{
-				// TODO: Move this default traffic light to a factory
-				FTLPole Pole;
-				Pole.PoleHeight = 250.0f;
-				Pole.Transform = FTransform::Identity;
-				Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshForPole(Pole);
-				Pole.ExtendiblePoleMesh = FTLMeshFactory::GetExtendibleMeshForPole(Pole);
-				// Pole.CapPoleMesh = FTLMeshFactory::GetCapMeshForPole(Pole);
-
-				FTLHead Head;
-				Head.bHasBackplate = false;
-				Head.Transform = FTransform(FRotator(), FVector(0, 8, 250), FVector(1.5f, 1.5f, 1.5f));
-
-				FTLModule ModuleGreen;
-				ModuleGreen.bHasVisor = true;
-				ModuleGreen.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head, ModuleGreen).Last();
-				FTLModuleLight GreenLight;
-				GreenLight.LightType = ETLLightType::SolidColorGreen;
-				GreenLight.EmissiveColor = FLinearColor{0.100902f, 1.0f, 0.297537f, 1.0f};
-				GreenLight.EmissiveIntensity = 1.0f;
-				ModuleGreen.Lights.Add(GreenLight);
-				Head.Modules.Add(ModuleGreen);
-
-				FTLModule ModuleAmber;
-				ModuleAmber.bHasVisor = true;
-				ModuleAmber.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head, ModuleAmber).Last();
-				FTLModuleLight AmberLight;
-				AmberLight.LightType = ETLLightType::SolidColorAmber;
-				AmberLight.EmissiveColor = FLinearColor{0.930111f, 0.3564f, 0.014444f, 1.0f};
-				AmberLight.EmissiveIntensity = 1.0f;
-				ModuleAmber.Lights.Add(AmberLight);
-				Head.Modules.Add(ModuleAmber);
-
-				FTLModule ModuleRed;
-				ModuleRed.bHasVisor = true;
-				ModuleRed.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head, ModuleRed).Last();
-				FTLModuleLight RedLight;
-				RedLight.LightType = ETLLightType::SolidColorRed;
-				RedLight.EmissiveColor = FLinearColor{1.0f, 0.052026f, 0.061974f, 1.0f};
-				RedLight.EmissiveIntensity = 1.0f;
-				ModuleRed.Lights.Add(RedLight);
-				Head.Modules.Add(ModuleRed);
-
-				Pole.Heads.Add(Head);
-				TL->Poles.Empty();
-				TL->Poles.Add(Pole);
-				TL->Build();
+				if (It->GetActorLocation().Equals(DesiredLoc, Tolerance))
+				{
+					bAlreadySpawned = true;
+					break;
+				}
 			}
-			else
+
+			if (!bAlreadySpawned)
 			{
-				UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("TrafficLightActor is not valid"));
+				FActorSpawnParameters SpawnParams;
+				SpawnParams.OverrideLevel = GetEditorWorld()->GetCurrentLevel();
+
+				ATrafficLightActor* TL{
+					GetEditorWorld()->SpawnActor<ATrafficLightActor>(TrafficLightBPClass, SignalTransform, SpawnParams)};
+				if (IsValid(TL))
+				{
+					// TODO: Move this default traffic light to a factory
+					FTLPole Pole;
+					Pole.PoleHeight = 250.0f;
+					Pole.Transform = FTransform::Identity;
+					Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshForPole(Pole);
+					Pole.ExtendiblePoleMesh = FTLMeshFactory::GetExtendibleMeshForPole(Pole);
+					// Pole.CapPoleMesh = FTLMeshFactory::GetCapMeshForPole(Pole);
+
+					FTLHead Head;
+					Head.bHasBackplate = false;
+					Head.Transform = FTransform(FRotator(), FVector(0, 8, 250), FVector(1.25f, 1.25f, 1.25f));
+
+					FTLModule ModuleGreen;
+					ModuleGreen.bHasVisor = true;
+					ModuleGreen.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head, ModuleGreen).Last();
+					FTLModuleLight GreenLight;
+					GreenLight.LightType = ETLLightType::SolidColorGreen;
+					GreenLight.EmissiveColor = FLinearColor{0.100902f, 1.0f, 0.297537f, 1.0f};
+					GreenLight.EmissiveIntensity = 1.0f;
+					ModuleGreen.Lights.Add(GreenLight);
+					Head.Modules.Add(ModuleGreen);
+
+					FTLModule ModuleAmber;
+					ModuleAmber.bHasVisor = true;
+					ModuleAmber.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head, ModuleAmber).Last();
+					FTLModuleLight AmberLight;
+					AmberLight.LightType = ETLLightType::SolidColorAmber;
+					AmberLight.EmissiveColor = FLinearColor{0.930111f, 0.3564f, 0.014444f, 1.0f};
+					AmberLight.EmissiveIntensity = 1.0f;
+					ModuleAmber.Lights.Add(AmberLight);
+					Head.Modules.Add(ModuleAmber);
+
+					FTLModule ModuleRed;
+					ModuleRed.bHasVisor = true;
+					ModuleRed.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head, ModuleRed).Last();
+					FTLModuleLight RedLight;
+					RedLight.LightType = ETLLightType::SolidColorRed;
+					RedLight.EmissiveColor = FLinearColor{1.0f, 0.052026f, 0.061974f, 1.0f};
+					RedLight.EmissiveIntensity = 1.0f;
+					ModuleRed.Lights.Add(RedLight);
+					Head.Modules.Add(ModuleRed);
+
+					Pole.Heads.Add(Head);
+					TL->Poles.Empty();
+					TL->Poles.Add(Pole);
+					TL->Build();
+				}
+				else
+				{
+					UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("TrafficLightActor is not valid"));
+				}
 			}
 		}
 	}
