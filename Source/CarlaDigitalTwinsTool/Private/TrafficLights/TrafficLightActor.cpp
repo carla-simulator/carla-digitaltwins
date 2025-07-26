@@ -87,7 +87,7 @@ void ATrafficLightActor::Build()
 		}
 	}
 }
-// TODO: Los materiales no se están aplicando a los módulos, revisar
+
 void ATrafficLightActor::BuildFromJSON()
 {
 	if (JSONFile.FilePath.IsEmpty())
@@ -120,14 +120,97 @@ void ATrafficLightActor::BuildFromJSON()
 		{
 			const TSharedPtr<FJsonObject> PoleObj{PoleValue->AsObject()};
 			FTLPole Pole;
-			Pole.Transform = ParseTransform(PoleObj->GetObjectField(TEXT("Transform")));
-			Pole.Offset = ParseTransform(PoleObj->GetObjectField(TEXT("Offset")));
-			Pole.Style = GetEnumValueFromString<ETLStyle>(PoleObj->GetStringField(TEXT("Style")));
-			Pole.Orientation = GetEnumValueFromString<ETLOrientation>(PoleObj->GetStringField(TEXT("Orientation")));
-			Pole.PoleHeight = PoleObj->GetNumberField(TEXT("PoleHeight"));
-
-			Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshForPole(Pole);
-			Pole.ExtendiblePoleMesh = FTLMeshFactory::GetExtendibleMeshForPole(Pole);
+			if (!PoleObj.IsValid())
+			{
+				UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Invalid Pole object in JSON."));
+				continue;
+			}
+			if (PoleObj->HasTypedField<EJson::Object>(TEXT("Transform")))
+			{
+				Pole.Transform = ParseTransform(PoleObj->GetObjectField(TEXT("Transform")));
+			}
+			if (PoleObj->HasTypedField<EJson::Object>(TEXT("Offset")))
+			{
+				Pole.Offset = ParseTransform(PoleObj->GetObjectField(TEXT("Offset")));
+			}
+			if (PoleObj->HasTypedField<EJson::String>(TEXT("Style")))
+			{
+				Pole.Style = GetEnumValueFromString<ETLStyle>(PoleObj->GetStringField(TEXT("Style")));
+			}
+			if (PoleObj->HasTypedField<EJson::String>(TEXT("Orientation")))
+			{
+				Pole.Orientation = GetEnumValueFromString<ETLOrientation>(PoleObj->GetStringField(TEXT("Orientation")));
+			}
+			if (PoleObj->HasTypedField<EJson::Number>(TEXT("PoleHeight")))
+			{
+				Pole.PoleHeight = PoleObj->GetNumberField(TEXT("PoleHeight"));
+			}
+			if (PoleObj->HasTypedField<EJson::String>(TEXT("BaseMesh")))
+			{
+				const FString MeshName{PoleObj->GetStringField(TEXT("BaseMesh"))};
+				bool MeshFound{false};
+				for (UStaticMesh* Mesh : FTLMeshFactory::GetAllBaseMeshesForPole(Pole))
+				{
+					UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Checking Mesh: %s"), *Mesh->GetName());
+					if (IsValid(Mesh) && Mesh->GetName() == MeshName)
+					{
+						Pole.BasePoleMesh = Mesh;
+						MeshFound = true;
+						break;
+					}
+				}
+				if (!MeshFound)
+				{
+					UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Base mesh '%s' not found, using default."), *MeshName);
+					Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshForPole(Pole);
+				}
+			}
+			else
+			{
+				Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshForPole(Pole);
+			}
+			if (PoleObj->HasTypedField<EJson::String>(TEXT("ExtensibleMesh")))
+			{
+				const FString MeshName{PoleObj->GetStringField(TEXT("ExtensibleMesh"))};
+				bool MeshFound{false};
+				for (UStaticMesh* Mesh : FTLMeshFactory::GetAllExtendibleMeshesForPole(Pole))
+				{
+					if (IsValid(Mesh) && Mesh->GetName() == MeshName)
+					{
+						Pole.ExtendiblePoleMesh = Mesh;
+						MeshFound = true;
+						break;
+					}
+				}
+				if (!MeshFound)
+				{
+					UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Extensible mesh '%s' not found, using default."), *MeshName);
+					Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshForPole(Pole);
+				}
+			}
+			else
+			{
+				Pole.ExtendiblePoleMesh = FTLMeshFactory::GetExtendibleMeshForPole(Pole);
+			}
+			if (PoleObj->HasTypedField<EJson::String>(TEXT("CapMesh")))
+			{
+				const FString MeshName{PoleObj->GetStringField(TEXT("CapMesh"))};
+				bool MeshFound{false};
+				for (UStaticMesh* Mesh : FTLMeshFactory::GetAllCapMeshesForPole(Pole))
+				{
+					if (IsValid(Mesh) && Mesh->GetName() == MeshName)
+					{
+						Pole.CapPoleMesh = Mesh;
+						MeshFound = true;
+						break;
+					}
+				}
+				if (!MeshFound)
+				{
+					UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Cap mesh '%s' not found, using default."), *MeshName);
+					Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshForPole(Pole);
+				}
+			}
 
 			const TArray<TSharedPtr<FJsonValue>>* JsonHeads;
 			if (PoleObj->TryGetArrayField(TEXT("Heads"), JsonHeads))
@@ -136,12 +219,35 @@ void ATrafficLightActor::BuildFromJSON()
 				{
 					const TSharedPtr<FJsonObject> HeadObj{HeadValue->AsObject()};
 					FTLHead Head;
-					Head.Transform = ParseTransform(HeadObj->GetObjectField(TEXT("Transform")));
-					Head.Offset = ParseTransform(HeadObj->GetObjectField(TEXT("Offset")));
-					Head.Style = GetEnumValueFromString<ETLStyle>(HeadObj->GetStringField(TEXT("Style")));
-					Head.Attachment = GetEnumValueFromString<ETLHeadAttachment>(HeadObj->GetStringField(TEXT("Attachment")));
-					Head.Orientation = GetEnumValueFromString<ETLOrientation>(HeadObj->GetStringField(TEXT("Orientation")));
-					Head.bHasBackplate = HeadObj->GetBoolField(TEXT("bHasBackplate"));
+					if (!HeadObj.IsValid())
+					{
+						UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Invalid Head object in JSON."));
+						continue;
+					}
+					if (HeadObj->HasTypedField<EJson::Object>(TEXT("Transform")))
+					{
+						Head.Transform = ParseTransform(HeadObj->GetObjectField(TEXT("Transform")));
+					}
+					if (HeadObj->HasTypedField<EJson::Object>(TEXT("Offset")))
+					{
+						Head.Offset = ParseTransform(HeadObj->GetObjectField(TEXT("Offset")));
+					}
+					if (HeadObj->HasTypedField<EJson::String>(TEXT("Style")))
+					{
+						Head.Style = GetEnumValueFromString<ETLStyle>(HeadObj->GetStringField(TEXT("Style")));
+					}
+					if (HeadObj->HasTypedField<EJson::String>(TEXT("Attachment")))
+					{
+						Head.Attachment = GetEnumValueFromString<ETLHeadAttachment>(HeadObj->GetStringField(TEXT("Attachment")));
+					}
+					if (HeadObj->HasTypedField<EJson::String>(TEXT("Orientation")))
+					{
+						Head.Orientation = GetEnumValueFromString<ETLOrientation>(HeadObj->GetStringField(TEXT("Orientation")));
+					}
+					if (HeadObj->HasTypedField<EJson::Boolean>(TEXT("bHasBackplate")))
+					{
+						Head.bHasBackplate = HeadObj->GetBoolField(TEXT("bHasBackplate"));
+					}
 
 					const TArray<TSharedPtr<FJsonValue>>* JsonModules;
 					if (HeadObj->TryGetArrayField(TEXT("Modules"), JsonModules))
@@ -150,10 +256,48 @@ void ATrafficLightActor::BuildFromJSON()
 						{
 							const TSharedPtr<FJsonObject> ModObj{ModValue->AsObject()};
 							FTLModule Module;
-							Module.Transform = ParseTransform(ModObj->GetObjectField(TEXT("Transform")));
-							Module.Offset = ParseTransform(ModObj->GetObjectField(TEXT("Offset")));
-							Module.bHasVisor = ModObj->GetBoolField(TEXT("bHasVisor"));
-							Module.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head, Module).Last();
+							if (!ModObj.IsValid())
+							{
+								UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Invalid Module object in JSON."));
+								continue;
+							}
+							if (ModObj->HasTypedField<EJson::Object>(TEXT("Transform")))
+							{
+								Module.Transform = ParseTransform(ModObj->GetObjectField(TEXT("Transform")));
+							}
+							if (ModObj->HasTypedField<EJson::Object>(TEXT("Offset")))
+							{
+								Module.Offset = ParseTransform(ModObj->GetObjectField(TEXT("Offset")));
+							}
+							if (ModObj->HasTypedField<EJson::String>(TEXT("bHasVisor")))
+							{
+								Module.bHasVisor = ModObj->GetBoolField(TEXT("bHasVisor"));
+							}
+							if (ModObj->HasTypedField<EJson::String>(TEXT("ModuleMesh")))
+							{
+								const FString MeshName{ModObj->GetStringField(TEXT("ModuleMesh"))};
+								bool MeshFound{false};
+								for (UStaticMesh* Mesh : FTLMeshFactory::GetAllMeshesForModule(Head, Module))
+								{
+									if (Mesh->GetName() == MeshName)
+									{
+										Module.ModuleMesh = Mesh;
+										MeshFound = true;
+										break;
+									}
+								}
+								if (!MeshFound)
+								{
+									UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Module mesh '%s' not found, using default."),
+										*MeshName);
+									Module.ModuleMesh = FTLMeshFactory::GetMeshForModule(Head, Module);
+								}
+							}
+							else
+							{
+								UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Module Mesh Name not found, using default."));
+								Module.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head, Module).Last();
+							}
 							const TArray<TSharedPtr<FJsonValue>>* JsonLights;
 							if (ModObj->TryGetArrayField(TEXT("Lights"), JsonLights))
 							{
@@ -331,10 +475,6 @@ UStaticMeshComponent* ATrafficLightActor::AddPoleCap(USceneComponent* Parent, FT
 
 void ATrafficLightActor::AddBackplate(USceneComponent* HeadRoot, FTLPole& Pole, FTLHead& Head)
 {
-	// TODO: hacer que las horizontes y verticales sean extensibles y que los corners siempre
-	// TODO: los corners deben estar "attachaddos" a las verticales y horizontales, de forma que si extienden las horizontales y
-	// verticales los corners se ajusten a la nueva longitud
-	// por defecto el extiensible es del tamanyo justo para  que sobrasalgan los corners
 	FBox LocalBounds{ForceInit};
 	for (const FTLModule& Module : Head.Modules)
 	{
