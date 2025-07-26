@@ -213,7 +213,7 @@ FReply STrafficLightToolWidget::OnAddPoleClicked()
 	FEditorPole& EditorPole{EditorPoles[PoleIndex]};
 
 	Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshForPole(Pole);
-	Pole.ExtendiblePoleMesh = FTLMeshFactory::GetExtendibleMeshForPole(Pole);
+	Pole.ExtendiblePoleMesh = FTLMeshFactory::GetExtensibleMeshForPole(Pole);
 	Pole.CapPoleMesh = FTLMeshFactory::GetCapMeshForPole(Pole);
 
 	Pole.BasePoleMeshComponent = PreviewViewport->AddPoleBaseMesh(Pole);
@@ -433,7 +433,7 @@ void STrafficLightToolWidget::OnPoleOrientationChanged(ETLOrientation NewOrienta
 
 	Pole.Orientation = NewOrientation;
 	UStaticMesh* NewBaseStaticMesh{FTLMeshFactory::GetBaseMeshForPole(Pole)};
-	UStaticMesh* NewExtendibleStaticMesh{FTLMeshFactory::GetExtendibleMeshForPole(Pole)};
+	UStaticMesh* NewExtendibleStaticMesh{FTLMeshFactory::GetExtensibleMeshForPole(Pole)};
 	UStaticMesh* NewCapStaticMesh{FTLMeshFactory::GetCapMeshForPole(Pole)};
 
 	Pole.BasePoleMesh = NewBaseStaticMesh;
@@ -450,7 +450,7 @@ void STrafficLightToolWidget::OnPoleStyleChanged(ETLStyle NewStyle, int32 PoleIn
 
 	Pole.Style = NewStyle;
 	UStaticMesh* NewBaseStaticMesh{FTLMeshFactory::GetBaseMeshForPole(Pole)};
-	UStaticMesh* NewExtendibleStaticMesh{FTLMeshFactory::GetExtendibleMeshForPole(Pole)};
+	UStaticMesh* NewExtendibleStaticMesh{FTLMeshFactory::GetExtensibleMeshForPole(Pole)};
 	UStaticMesh* NewCapStaticMesh{FTLMeshFactory::GetCapMeshForPole(Pole)};
 
 	Pole.BasePoleMesh = NewBaseStaticMesh;
@@ -503,7 +503,7 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildPoleEntry(int32 PoleIndex)
 	}
 
 	TArray<TSharedPtr<FString>>& ExtendibleNames{EditorPole.ExtendibleMeshNameOptions};
-	TArray<UStaticMesh*> ExtendiblePoleMeshes{FTLMeshFactory::GetAllExtendibleMeshesForPole(Pole)};
+	TArray<UStaticMesh*> ExtendiblePoleMeshes{FTLMeshFactory::GetAllExtensibleMeshesForPole(Pole)};
 	ExtendibleNames.Empty();
 	for (const UStaticMesh* Mesh : ExtendiblePoleMeshes)
 	{
@@ -908,7 +908,7 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildPoleEntry(int32 PoleIndex)
 							return;
 						}
 						FTLPole& Pole{Poles[PoleIndex]};
-						for (UStaticMesh* Mesh : FTLMeshFactory::GetAllExtendibleMeshesForPole(Pole))
+						for (UStaticMesh* Mesh : FTLMeshFactory::GetAllExtensibleMeshesForPole(Pole))
 						{
 							if (IsValid(Mesh) && Mesh->GetName() == *NewSelection)
 							{

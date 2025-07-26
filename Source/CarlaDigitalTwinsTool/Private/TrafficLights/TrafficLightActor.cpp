@@ -173,7 +173,7 @@ void ATrafficLightActor::BuildFromJSON()
 			{
 				const FString MeshName{PoleObj->GetStringField(TEXT("ExtensibleMesh"))};
 				bool MeshFound{false};
-				for (UStaticMesh* Mesh : FTLMeshFactory::GetAllExtendibleMeshesForPole(Pole))
+				for (UStaticMesh* Mesh : FTLMeshFactory::GetAllExtensibleMeshesForPole(Pole))
 				{
 					if (IsValid(Mesh) && Mesh->GetName() == MeshName)
 					{
@@ -190,7 +190,7 @@ void ATrafficLightActor::BuildFromJSON()
 			}
 			else
 			{
-				Pole.ExtendiblePoleMesh = FTLMeshFactory::GetExtendibleMeshForPole(Pole);
+				Pole.ExtendiblePoleMesh = FTLMeshFactory::GetExtensibleMeshForPole(Pole);
 			}
 			if (PoleObj->HasTypedField<EJson::String>(TEXT("CapMesh")))
 			{
@@ -269,7 +269,7 @@ void ATrafficLightActor::BuildFromJSON()
 							{
 								Module.Offset = ParseTransform(ModObj->GetObjectField(TEXT("Offset")));
 							}
-							if (ModObj->HasTypedField<EJson::String>(TEXT("bHasVisor")))
+							if (ModObj->HasTypedField<EJson::Boolean>(TEXT("bHasVisor")))
 							{
 								Module.bHasVisor = ModObj->GetBoolField(TEXT("bHasVisor"));
 							}

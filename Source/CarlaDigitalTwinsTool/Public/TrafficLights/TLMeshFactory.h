@@ -21,10 +21,10 @@ public:
 	static UStaticMesh* GetMeshForModule(const FTLHead& Head, const FTLModule& Module);
 	static TArray<UStaticMesh*> GetAllMeshesForModule(const FTLHead& Head, const FTLModule& Module);
 	static UStaticMesh* GetBaseMeshForPole(const FTLPole& Pole);
-	static UStaticMesh* GetExtendibleMeshForPole(const FTLPole& Pole);
+	static UStaticMesh* GetExtensibleMeshForPole(const FTLPole& Pole);
 	static UStaticMesh* GetCapMeshForPole(const FTLPole& Pole);
 	static TArray<UStaticMesh*> GetAllBaseMeshesForPole(const FTLPole& Pole);
-	static TArray<UStaticMesh*> GetAllExtendibleMeshesForPole(const FTLPole& Pole);
+	static TArray<UStaticMesh*> GetAllExtensibleMeshesForPole(const FTLPole& Pole);
 	static TArray<UStaticMesh*> GetAllCapMeshesForPole(const FTLPole& Pole);
 	static UStaticMesh* GetBackplateCornerMesh(const FTLHead& Head);
 	static UStaticMesh* GetBackplateHorizontalMesh(const FTLHead& Head);

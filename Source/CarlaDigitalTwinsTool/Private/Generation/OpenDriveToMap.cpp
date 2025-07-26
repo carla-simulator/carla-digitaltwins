@@ -1212,7 +1212,7 @@ void UOpenDriveToMap::GenerateTrafficLights(
 					Pole.PoleHeight = 250.0f;
 					Pole.Transform = FTransform::Identity;
 					Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshForPole(Pole);
-					Pole.ExtendiblePoleMesh = FTLMeshFactory::GetExtendibleMeshForPole(Pole);
+					Pole.ExtendiblePoleMesh = FTLMeshFactory::GetExtensibleMeshForPole(Pole);
 					// Pole.CapPoleMesh = FTLMeshFactory::GetCapMeshForPole(Pole);
 
 					FTLHead Head;

@@ -128,9 +128,9 @@ UStaticMesh* FTLMeshFactory::GetBaseMeshForPole(const FTLPole& Pole)
 	return All.Num() ? All.Last() : nullptr;
 }
 
-UStaticMesh* FTLMeshFactory::GetExtendibleMeshForPole(const FTLPole& Pole)
+UStaticMesh* FTLMeshFactory::GetExtensibleMeshForPole(const FTLPole& Pole)
 {
-	TArray<UStaticMesh*> All{GetAllExtendibleMeshesForPole(Pole)};
+	TArray<UStaticMesh*> All{GetAllExtensibleMeshesForPole(Pole)};
 	return All.Num() ? All.Last() : nullptr;
 }
 
@@ -168,7 +168,7 @@ TArray<UStaticMesh*> FTLMeshFactory::GetAllBaseMeshesForPole(const FTLPole& Pole
 	return Meshes;
 }
 
-TArray<UStaticMesh*> FTLMeshFactory::GetAllExtendibleMeshesForPole(const FTLPole& Pole)
+TArray<UStaticMesh*> FTLMeshFactory::GetAllExtensibleMeshesForPole(const FTLPole& Pole)
 {
 	TArray<UStaticMesh*> Meshes;
 	UDataTable* Table{GetPoleMeshTable()};
@@ -180,7 +180,7 @@ TArray<UStaticMesh*> FTLMeshFactory::GetAllExtendibleMeshesForPole(const FTLPole
 
 	for (const FName& RowName : Table->GetRowNames())
 	{
-		const FTLPoleRow* Row{Table->FindRow<FTLPoleRow>(RowName, TEXT("GetAllExtendibleMeshesForPole"))};
+		const FTLPoleRow* Row{Table->FindRow<FTLPoleRow>(RowName, TEXT("GetAllExtensibleMeshesForPole"))};
 		if (!Row)
 		{
 			UE_LOG(LogTemp, Warning, TEXT("PoleMeshFactory: row '%s' not found"), *RowName.ToString());
