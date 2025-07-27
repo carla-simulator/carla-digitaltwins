@@ -1255,7 +1255,7 @@ void UOpenDriveToMap::GenerateTrafficLights(
 					TL->Poles.Add(Pole);
 					TL->Build();
 					TL->SetActorLabel(FString::Printf(TEXT("TrafficLight_%d"), TrafficLightCount++));
-					TL->Bake();
+					TL->Bake(MapName);
 					TL->Destroy();
 				}
 				else

@@ -1,8 +1,10 @@
 #include "TrafficLights/TrafficLightActor.h"
 
+#include "BlueprintUtil/BlueprintUtilFunctions.h"
 #include "CarlaDigitalTwinsTool.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Containers/UnrealString.h"
 #include "Dom/JsonObject.h"
 #include "Editor.h"
 #include "Engine/StaticMesh.h"
@@ -26,7 +28,6 @@
 #include "TrafficLights/TLModule.h"
 #include "TrafficLights/TLPole.h"
 #include "UObject/Object.h"
-
 namespace
 {
 FTransform ParseTransform(const TSharedPtr<FJsonObject>& Json)
@@ -109,7 +110,7 @@ void ATrafficLightActor::OnConstruction(const FTransform& Transform)
 #endif
 }
 
-void ATrafficLightActor::Bake()
+void ATrafficLightActor::Bake(const FString& MapName)
 {
 #if WITH_EDITOR
 	UWorld* World{GetWorld()};
@@ -156,7 +157,12 @@ void ATrafficLightActor::Bake()
 		NewActor->SetFolderPath(*FolderName);
 		NewActor->SetIsTemporarilyHiddenInEditor(false);
 	}
-	// TODO: call Antonio's copy asset function
+
+	for (UStaticMeshComponent* Comp : MeshComps)
+	{
+		UObject* DuplicatedObject{UBlueprintUtilFunctions::CopyAssetToPlugin(Comp, MapName)};
+		Comp = Cast<UStaticMeshComponent>(DuplicatedObject);
+	}
 
 #endif
 }

@@ -4,6 +4,7 @@
 #include "Containers/Array.h"
 #include "Containers/UnrealString.h"
 #include "CoreGlobals.h"
+#include "Delegates/Delegate.h"
 #include "DesktopPlatformModule.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
@@ -15,6 +16,7 @@
 #include "Math/MathFwd.h"
 #include "Misc/AssertionMacros.h"
 #include "Misc/FileHelper.h"
+#include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "Selection.h"
 #include "TrafficLights/TLHead.h"
@@ -354,7 +356,8 @@ FReply STrafficLightToolWidget::OnModifyClicked()
 	NewTL->Poles = PreviewActor->Poles;
 	NewTL->SetActorLabel(FolderName);
 	NewTL->Build();
-	NewTL->Bake();
+	const FString MapName{FPackageName::GetShortName(World->GetMapName())};
+	NewTL->Bake(MapName);
 	NewTL->Destroy();
 #endif
 
