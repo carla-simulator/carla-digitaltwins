@@ -31,9 +31,23 @@ public:
 	void Build();
 
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "TrafficLight")
+	void Bake();
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "TrafficLight|JSON")
 	void BuildFromJSON();
 
-	UPROPERTY(EditAnywhere, Category = "TrafficLight")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "TrafficLight|JSON")
+	FString ExportToJSON() const;
+
+	UFUNCTION(CallInEditor, BlueprintCallable, Category = "TrafficLight|Demo")
+	void PlayDemoSequence();
+
+	UFUNCTION(CallInEditor, BlueprintCallable, Category = "TrafficLight|Demo")
+	void StopDemoSequence();
+
+	void BuildFromJSONString(const FString& JSONConfig);
+
+	UPROPERTY(EditAnywhere, Category = "TrafficLight|JSON")
 	FFilePath JSONFile;
 
 	UPROPERTY(EditAnywhere, Category = "TrafficLight")
@@ -52,5 +66,36 @@ private:
 	void Clear();
 
 private:
+	enum class EDemoPhase : uint8
+	{
+		Red,
+		Green,
+		AmberBlink
+	};
+	bool bDemoPlaying{false};
+	FTimerHandle PhaseTimerHandle;
+	FTimerHandle AmberBlinkTimerHandle;
+
+	EDemoPhase CurrentPhase{EDemoPhase::Red};
+	bool bAmberVisible{false};
+
+	UPROPERTY(EditAnywhere, Category = "TrafficLight|Demo")
+	float RedDuration{6.0f};
+
+	UPROPERTY(EditAnywhere, Category = "TrafficLight|Demo")
+	float GreenDuration{6.0f};
+
+	UPROPERTY(EditAnywhere, Category = "TrafficLight|Demo")
+	float AmberBlinkDuration{3.0f};
+
+	UPROPERTY(EditAnywhere, Category = "TrafficLight|Demo")
+	float AmberBlinkInterval{0.25f};
+
+	void AdvanceDemoPhase();
+	void ToggleAmberBlink();
+	void EndAmberPhase();
+
+private:
 	TArray<UStaticMeshComponent*> ModuleMeshComponents;
+	TArray<FTLModuleLight*> DemoLights;
 };

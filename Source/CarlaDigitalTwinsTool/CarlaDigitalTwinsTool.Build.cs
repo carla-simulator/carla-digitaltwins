@@ -163,8 +163,9 @@ public class CarlaDigitalTwinsTool : ModuleRules
             "InputCore",
             "AppFramework",
             "EngineSettings",
+            "DesktopPlatform"
 				// ... add private dependencies that you statically link with here ...
-			    }
+          }
         );
 
         if (Target.Version.MajorVersion < 5)

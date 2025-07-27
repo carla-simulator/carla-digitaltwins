@@ -4,7 +4,9 @@
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Dom/JsonObject.h"
+#include "Editor.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/StaticMeshActor.h"
 #include "Engine/StaticMeshSocket.h"
 #include "Generation/MapGenFunctionLibrary.h"
 #include "JsonUtilities.h"
@@ -14,12 +16,16 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 #include "Templates/SharedPointer.h"
+#include "TimerManager.h"
 #include "TrafficLights/TLHead.h"
 #include "TrafficLights/TLMaterialFactory.h"
 #include "TrafficLights/TLMeshFactory.h"
 #include "TrafficLights/TLModule.h"
 #include "TrafficLights/TLPole.h"
+#include "UObject/Object.h"
 
 namespace
 {
@@ -48,6 +54,43 @@ TEnum GetEnumValueFromString(const FString& Name)
 	}
 	return TEnum(0);
 }
+TSharedPtr<FJsonObject> TransformToJson(const FTransform& T)
+{
+	TSharedPtr<FJsonObject> J = MakeShared<FJsonObject>();
+	{
+		FVector L = T.GetLocation();
+		TSharedPtr<FJsonObject> JL = MakeShared<FJsonObject>();
+		JL->SetNumberField(TEXT("X"), L.X);
+		JL->SetNumberField(TEXT("Y"), L.Y);
+		JL->SetNumberField(TEXT("Z"), L.Z);
+		J->SetObjectField(TEXT("Location"), JL);
+	}
+	{
+		FRotator R = T.Rotator();
+		TSharedPtr<FJsonObject> JR = MakeShared<FJsonObject>();
+		JR->SetNumberField(TEXT("Pitch"), R.Pitch);
+		JR->SetNumberField(TEXT("Yaw"), R.Yaw);
+		JR->SetNumberField(TEXT("Roll"), R.Roll);
+		J->SetObjectField(TEXT("Rotation"), JR);
+	}
+	{
+		FVector S = T.GetScale3D();
+		TSharedPtr<FJsonObject> JS = MakeShared<FJsonObject>();
+		JS->SetNumberField(TEXT("X"), S.X);
+		JS->SetNumberField(TEXT("Y"), S.Y);
+		JS->SetNumberField(TEXT("Z"), S.Z);
+		J->SetObjectField(TEXT("Scale"), JS);
+	}
+	return J;
+}
+
+// Convierte un enum a su nombre en string
+template <typename TEnum>
+FString EnumToString(TEnum Value)
+{
+	const UEnum* EnumPtr = StaticEnum<TEnum>();
+	return EnumPtr ? EnumPtr->GetNameStringByValue(static_cast<int64>(Value)) : FString();
+}
 }	 // namespace
 
 ATrafficLightActor::ATrafficLightActor()
@@ -58,7 +101,64 @@ ATrafficLightActor::ATrafficLightActor()
 void ATrafficLightActor::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
-	// Build();
+#if WITH_EDITOR
+	if (HasAnyFlags(RF_Transient))
+	{
+		Build();
+	}
+#endif
+}
+
+void ATrafficLightActor::Bake()
+{
+#if WITH_EDITOR
+	UWorld* World{GetWorld()};
+	if (!World || !World->IsEditorWorld())
+	{
+		UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Bake: only works in editor world"));
+		return;
+	}
+	const FString FolderName{GetActorLabel()};
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	SpawnParams.ObjectFlags |= RF_Transactional;
+
+	TArray<UStaticMeshComponent*> MeshComps;
+	GetComponents<UStaticMeshComponent>(MeshComps);
+
+	for (UStaticMeshComponent* Comp : MeshComps)
+	{
+		if (!IsValid(Comp) || !Comp->GetStaticMesh())
+		{
+			continue;
+		}
+
+		const FTransform WorldTransform{Comp->GetComponentTransform()};
+		AStaticMeshActor* NewActor{
+			World->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(), WorldTransform, SpawnParams)};
+
+		if (!IsValid(NewActor))
+		{
+			UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Bake: failed to spawn mesh for %s"), *Comp->GetName());
+			continue;
+		}
+
+		UStaticMeshComponent* NewSMC{NewActor->GetStaticMeshComponent()};
+		NewSMC->SetStaticMesh(Comp->GetStaticMesh());
+
+		const int32 NumMats{Comp->GetNumMaterials()};
+		for (int32 MatIndex{0}; MatIndex < NumMats; ++MatIndex)
+		{
+			NewSMC->SetMaterial(MatIndex, Comp->GetMaterial(MatIndex));
+		}
+
+		NewActor->SetActorLabel(Comp->GetName());
+		NewActor->SetFolderPath(*FolderName);
+		NewActor->SetIsTemporarilyHiddenInEditor(false);
+	}
+	// TODO: call Antonio's copy asset function
+
+#endif
 }
 
 void ATrafficLightActor::Build()
@@ -103,13 +203,44 @@ void ATrafficLightActor::BuildFromJSON()
 		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Failed to load JSON file: %s"), *FullPath);
 		return;
 	}
+	BuildFromJSONString(JSONConfig);
+}
 
+void ATrafficLightActor::BuildFromJSONString(const FString& JSONConfig)
+{
 	TSharedPtr<FJsonObject> Root;
 	TSharedRef<TJsonReader<TCHAR>> Reader{TJsonReaderFactory<TCHAR>::Create(JSONConfig)};
 	if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
 	{
 		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Failed to parse JSONConfig."));
 		return;
+	}
+
+	{
+		FTransform NewTx{GetActorTransform()};
+
+		const TSharedPtr<FJsonObject>* PosObj;
+		if (Root->TryGetObjectField(TEXT("WorldPosition"), PosObj))
+		{
+			const auto& JO = **PosObj;
+			NewTx.SetLocation(FVector{JO.GetNumberField(TEXT("X")), JO.GetNumberField(TEXT("Y")), JO.GetNumberField(TEXT("Z"))});
+		}
+
+		const TSharedPtr<FJsonObject>* RotObj;
+		if (Root->TryGetObjectField(TEXT("WorldRotation"), RotObj))
+		{
+			const auto& JO = **RotObj;
+			NewTx.SetRotation(
+				FQuat(FRotator{JO.GetNumberField(TEXT("X")), JO.GetNumberField(TEXT("Y")), JO.GetNumberField(TEXT("Z"))}));
+		}
+		const TSharedPtr<FJsonObject>* SclObj;
+		if (Root->TryGetObjectField(TEXT("WorldScale"), SclObj))
+		{
+			const auto& JO = **SclObj;
+			NewTx.SetScale3D(FVector{JO.GetNumberField(TEXT("X")), JO.GetNumberField(TEXT("Y")), JO.GetNumberField(TEXT("Z"))});
+		}
+
+		SetActorTransform(NewTx);
 	}
 
 	Poles.Empty();
@@ -331,6 +462,105 @@ void ATrafficLightActor::BuildFromJSON()
 	Build();
 }
 
+FString ATrafficLightActor::ExportToJSON() const
+{
+	TSharedPtr<FJsonObject> Root{MakeShared<FJsonObject>()};
+	{
+		FVector Loc = GetActorLocation();
+		TSharedPtr<FJsonObject> JLoc = MakeShared<FJsonObject>();
+		JLoc->SetNumberField(TEXT("X"), Loc.X);
+		JLoc->SetNumberField(TEXT("Y"), Loc.Y);
+		JLoc->SetNumberField(TEXT("Z"), Loc.Z);
+		Root->SetObjectField(TEXT("WorldPosition"), JLoc);
+	}
+	{
+		FRotator Rot = GetActorRotation();
+		TSharedPtr<FJsonObject> JRot = MakeShared<FJsonObject>();
+		JRot->SetNumberField(TEXT("X"), Rot.Pitch);
+		JRot->SetNumberField(TEXT("Y"), Rot.Yaw);
+		JRot->SetNumberField(TEXT("Z"), Rot.Roll);
+		Root->SetObjectField(TEXT("WorldRotation"), JRot);
+	}
+	{
+		FVector Scl = GetActorScale3D();
+		TSharedPtr<FJsonObject> JScale = MakeShared<FJsonObject>();
+		JScale->SetNumberField(TEXT("X"), Scl.X);
+		JScale->SetNumberField(TEXT("Y"), Scl.Y);
+		JScale->SetNumberField(TEXT("Z"), Scl.Z);
+		Root->SetObjectField(TEXT("WorldScale"), JScale);
+	}
+	TArray<TSharedPtr<FJsonValue>> JsonPoles;
+	for (const FTLPole& Pole : Poles)
+	{
+		TSharedPtr<FJsonObject> JP = MakeShared<FJsonObject>();
+
+		JP->SetStringField(TEXT("BaseMesh"), Pole.BasePoleMesh ? Pole.BasePoleMesh->GetName() : FString());
+		JP->SetStringField(TEXT("ExtensibleMesh"), Pole.ExtendiblePoleMesh ? Pole.ExtendiblePoleMesh->GetName() : FString());
+		JP->SetStringField(TEXT("CapMesh"), Pole.CapPoleMesh ? Pole.CapPoleMesh->GetName() : FString());
+
+		JP->SetObjectField(TEXT("Transform"), TransformToJson(Pole.Transform));
+		JP->SetObjectField(TEXT("Offset"), TransformToJson(Pole.Offset));
+		JP->SetStringField(TEXT("Style"), EnumToString<ETLStyle>(Pole.Style));
+		JP->SetStringField(TEXT("Orientation"), EnumToString<ETLOrientation>(Pole.Orientation));
+		JP->SetNumberField(TEXT("PoleHeight"), Pole.PoleHeight);
+
+		TArray<TSharedPtr<FJsonValue>> JsonHeads;
+		for (const FTLHead& Head : Pole.Heads)
+		{
+			TSharedPtr<FJsonObject> JH = MakeShared<FJsonObject>();
+			JH->SetObjectField(TEXT("Transform"), TransformToJson(Head.Transform));
+			JH->SetObjectField(TEXT("Offset"), TransformToJson(Head.Offset));
+			JH->SetStringField(TEXT("Style"), EnumToString<ETLStyle>(Head.Style));
+			JH->SetStringField(TEXT("Attachment"), EnumToString<ETLHeadAttachment>(Head.Attachment));
+			JH->SetStringField(TEXT("Orientation"), EnumToString<ETLOrientation>(Head.Orientation));
+			JH->SetBoolField(TEXT("bHasBackplate"), Head.bHasBackplate);
+
+			TArray<TSharedPtr<FJsonValue>> JsonModules;
+			for (const FTLModule& Module : Head.Modules)
+			{
+				TSharedPtr<FJsonObject> JM = MakeShared<FJsonObject>();
+				JM->SetStringField(TEXT("ModuleMesh"), Module.ModuleMesh ? Module.ModuleMesh->GetName() : FString());
+				JM->SetObjectField(TEXT("Transform"), TransformToJson(Module.Transform));
+				JM->SetObjectField(TEXT("Offset"), TransformToJson(Module.Offset));
+				JM->SetBoolField(TEXT("bHasVisor"), Module.bHasVisor);
+
+				// Lights
+				TArray<TSharedPtr<FJsonValue>> JsonLights;
+				for (const FTLModuleLight& L : Module.Lights)
+				{
+					TSharedPtr<FJsonObject> JL = MakeShared<FJsonObject>();
+					JL->SetStringField(TEXT("LightType"), EnumToString<ETLLightType>(L.LightType));
+					JL->SetNumberField(TEXT("EmissiveIntensity"), L.EmissiveIntensity);
+					TSharedPtr<FJsonObject> JC = MakeShared<FJsonObject>();
+					JC->SetNumberField(TEXT("R"), L.EmissiveColor.R);
+					JC->SetNumberField(TEXT("G"), L.EmissiveColor.G);
+					JC->SetNumberField(TEXT("B"), L.EmissiveColor.B);
+					JC->SetNumberField(TEXT("A"), L.EmissiveColor.A);
+					JL->SetObjectField(TEXT("EmissiveColor"), JC);
+
+					JsonLights.Add(MakeShared<FJsonValueObject>(JL));
+				}
+				JM->SetArrayField(TEXT("Lights"), JsonLights);
+
+				JsonModules.Add(MakeShared<FJsonValueObject>(JM));
+			}
+			JH->SetArrayField(TEXT("Modules"), JsonModules);
+
+			JsonHeads.Add(MakeShared<FJsonValueObject>(JH));
+		}
+		JP->SetArrayField(TEXT("Heads"), JsonHeads);
+
+		JsonPoles.Add(MakeShared<FJsonValueObject>(JP));
+	}
+
+	Root->SetArrayField(TEXT("Poles"), JsonPoles);
+
+	FString Output;
+	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Output);
+	FJsonSerializer::Serialize(Root.ToSharedRef(), Writer);
+	return Output;
+}
+
 USceneComponent* ATrafficLightActor::AddRootPole(USceneComponent* Parent, FTLPole& Pole)
 {
 	USceneComponent* PoleRoot{UMapGenFunctionLibrary::AddSceneComponentToActor(this)};
@@ -375,6 +605,28 @@ UStaticMeshComponent* ATrafficLightActor::AddModule(USceneComponent* Parent, FTL
 	int32 LightIndex{0};
 	for (FTLModuleLight& Light : ModuleData.Lights)
 	{
+		const FName SlotName{*FString::Printf(TEXT("led_%d"), LightIndex++)};
+		const int32 MaterialIndex{Comp->GetMaterialIndex(SlotName)};
+		if (MaterialIndex != INDEX_NONE)
+		{
+			Light.LightMID = Comp->CreateDynamicMaterialInstance(MaterialIndex, BaseMat);
+			if (Light.LightMID)
+			{
+				Light.LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light.EmissiveIntensity);
+				Light.LightMID->SetVectorParameterValue(TEXT("Emissive Color"), Light.EmissiveColor);
+				Light.LightMID->SetScalarParameterValue(TEXT("Offset U"), Light.U);
+				Light.LightMID->SetScalarParameterValue(TEXT("Offset V"), Light.V);
+				DemoLights.Add(&Light);
+			}
+			else
+			{
+				UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Failed to create MID for slot %s"), *SlotName.ToString());
+			}
+		}
+	}
+	/*
+	for (FTLModuleLight& Light : ModuleData.Lights)
+	{
 		if (Light.LightMID == nullptr)
 		{
 			Light.LightMID = FMaterialFactory::GetLightMaterialInstance(Comp);
@@ -389,6 +641,7 @@ UStaticMeshComponent* ATrafficLightActor::AddModule(USceneComponent* Parent, FTL
 			Comp->SetMaterialByName(MaterialSlotName, Light.LightMID);
 		}
 	}
+	*/
 
 	Comp->Modify();
 	ModuleMeshComponents.Add(Comp);
@@ -615,4 +868,121 @@ void ATrafficLightActor::Clear()
 			RemoveInstanceComponent(C);
 		}
 	}
+	DemoLights.Empty();
+}
+
+void ATrafficLightActor::PlayDemoSequence()
+{
+	GetWorldTimerManager().ClearTimer(PhaseTimerHandle);
+	GetWorldTimerManager().ClearTimer(AmberBlinkTimerHandle);
+	bDemoPlaying = true;
+	CurrentPhase = EDemoPhase::Red;
+	AdvanceDemoPhase();
+}
+
+void ATrafficLightActor::StopDemoSequence()
+{
+	bDemoPlaying = false;
+	GetWorldTimerManager().ClearTimer(PhaseTimerHandle);
+	GetWorldTimerManager().ClearTimer(AmberBlinkTimerHandle);
+}
+
+void ATrafficLightActor::AdvanceDemoPhase()
+{
+	if (!bDemoPlaying)
+	{
+		return;
+	}
+	for (FTLModuleLight* LightPtr : DemoLights)
+	{
+		if (LightPtr && LightPtr->LightMID)
+		{
+			LightPtr->LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), 0.0f);
+		}
+	}
+
+	switch (CurrentPhase)
+	{
+		case EDemoPhase::Red:
+		{
+			for (FTLModuleLight* Light : DemoLights)
+			{
+				if (!IsValid(Light->LightMID))
+				{
+					UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Light MID is null for light type: %s"),
+						*UEnum::GetValueAsString(Light->LightType));
+				}
+				if (Light->LightType == ETLLightType::SolidColorRed)
+				{
+					Light->LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light->EmissiveIntensity);
+				}
+			}
+			CurrentPhase = EDemoPhase::Green;
+			GetWorldTimerManager().ClearTimer(PhaseTimerHandle);
+			GetWorldTimerManager().SetTimer(PhaseTimerHandle, this, &ATrafficLightActor::AdvanceDemoPhase, RedDuration, false);
+			break;
+		}
+
+		case EDemoPhase::Green:
+		{
+			for (FTLModuleLight* Light : DemoLights)
+			{
+				if (!IsValid(Light->LightMID))
+				{
+					UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Light MID is null for light type: %s"),
+						*UEnum::GetValueAsString(Light->LightType));
+				}
+				if (Light->LightType == ETLLightType::SolidColorGreen)
+				{
+					Light->LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light->EmissiveIntensity);
+				}
+			}
+			CurrentPhase = EDemoPhase::AmberBlink;
+			bAmberVisible = false;
+			GetWorldTimerManager().ClearTimer(PhaseTimerHandle);
+			GetWorldTimerManager().SetTimer(PhaseTimerHandle, this, &ATrafficLightActor::AdvanceDemoPhase, GreenDuration, false);
+			break;
+		}
+		case EDemoPhase::AmberBlink:
+		{
+			bAmberVisible = false;
+			ToggleAmberBlink();
+
+			GetWorldTimerManager().ClearTimer(AmberBlinkTimerHandle);
+			GetWorldTimerManager().SetTimer(
+				AmberBlinkTimerHandle, this, &ATrafficLightActor::ToggleAmberBlink, AmberBlinkInterval, true);
+			GetWorldTimerManager().ClearTimer(PhaseTimerHandle);
+			GetWorldTimerManager().SetTimer(PhaseTimerHandle, this, &ATrafficLightActor::EndAmberPhase, AmberBlinkDuration, false);
+
+			break;
+		}
+	}
+}
+
+void ATrafficLightActor::ToggleAmberBlink()
+{
+	if (!bDemoPlaying)
+	{
+		return;
+	}
+	bAmberVisible = !bAmberVisible;
+	for (FTLModuleLight* Light : DemoLights)
+	{
+		if (!IsValid(Light->LightMID))
+		{
+			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Light MID is null for light type: %s"),
+				*UEnum::GetValueAsString(Light->LightType));
+		}
+		if (Light->LightType == ETLLightType::SolidColorAmber)
+		{
+			Light->LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), bAmberVisible ? Light->EmissiveIntensity : 0.0f);
+		}
+	}
+}
+
+void ATrafficLightActor::EndAmberPhase()
+{
+	GetWorldTimerManager().ClearTimer(AmberBlinkTimerHandle);
+	CurrentPhase = EDemoPhase::Red;
+	AdvanceDemoPhase();
 }
