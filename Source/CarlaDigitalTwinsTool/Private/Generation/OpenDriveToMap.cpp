@@ -1174,6 +1174,7 @@ void UOpenDriveToMap::GenerateTrafficLights(
 	}
 
 	std::vector<const carla::road::element::RoadInfoSignal*> Signals{ParamCarlaMap->GetAllSignalReferences()};
+	int32 TrafficLightCount{0};
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Signals found: %d"), Signals.size());
 	for (const carla::road::element::RoadInfoSignal* Info : Signals)
 	{
@@ -1253,6 +1254,9 @@ void UOpenDriveToMap::GenerateTrafficLights(
 					TL->Poles.Empty();
 					TL->Poles.Add(Pole);
 					TL->Build();
+					TL->SetActorLabel(FString::Printf(TEXT("TrafficLight_%d"), TrafficLightCount++));
+					TL->Bake();
+					TL->Destroy();
 				}
 				else
 				{
