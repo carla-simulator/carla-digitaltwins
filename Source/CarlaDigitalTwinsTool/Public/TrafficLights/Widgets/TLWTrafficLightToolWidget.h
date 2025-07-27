@@ -61,12 +61,16 @@ public:
 	void Construct(const FArguments& InArgs);
 
 private:
+	void UpdatePreviewActor();
 	void RefreshPoleList();
-	void RebuildModuleChain(FTLHead& Head);
 	void Rebuild();
 	void RefreshModuleMeshOptions(int32 PoleIndex, int32 HeadIndex, int32 ModuleIndex);
+	EVisibility GetModifyVisibility() const;
 
 private:
+	FReply OnExportJSONClicked();
+	FReply OnImportJSONClicked();
+	FReply OnModifyClicked();
 	FReply OnAddPoleClicked();
 	FReply OnDeletePoleClicked(int32 PoleIndex);
 	FReply OnAddHeadClicked(int32 PoleIndex);
