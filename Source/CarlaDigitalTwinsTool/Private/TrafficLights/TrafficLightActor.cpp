@@ -113,6 +113,7 @@ void ATrafficLightActor::OnConstruction(const FTransform& Transform)
 void ATrafficLightActor::Bake(const FString& MapName)
 {
 #if WITH_EDITOR
+	TArray<UStaticMeshComponent*> MeshesToUpdateWithPluginRef;
 	UWorld* World{GetWorld()};
 	if (!World || !World->IsEditorWorld())
 	{
@@ -152,6 +153,7 @@ void ATrafficLightActor::Bake(const FString& MapName)
 		{
 			NewSMC->SetMaterial(MatIndex, Comp->GetMaterial(MatIndex));
 		}
+		MeshesToUpdateWithPluginRef.Add(NewSMC);
 
 		NewActor->SetActorLabel(Comp->GetName());
 		NewActor->SetFolderPath(*FolderName);
@@ -160,8 +162,14 @@ void ATrafficLightActor::Bake(const FString& MapName)
 
 	for (UStaticMeshComponent* Comp : MeshComps)
 	{
-		UObject* DuplicatedObject{UBlueprintUtilFunctions::CopyAssetToPlugin(Comp, MapName)};
-		Comp = Cast<UStaticMeshComponent>(DuplicatedObject);
+		UStaticMesh* MeshToSet = Cast<UStaticMesh>(UBlueprintUtilFunctions::CopyAssetToPlugin(Comp->GetStaticMesh(), MapName));
+		Comp->SetStaticMesh(MeshToSet);
+	}
+
+	for (UStaticMeshComponent* Comp : MeshesToUpdateWithPluginRef)
+	{
+		UStaticMesh* MeshToSet = Cast<UStaticMesh>(UBlueprintUtilFunctions::CopyAssetToPlugin(Comp->GetStaticMesh(), MapName));
+		Comp->SetStaticMesh(MeshToSet);
 	}
 
 #endif

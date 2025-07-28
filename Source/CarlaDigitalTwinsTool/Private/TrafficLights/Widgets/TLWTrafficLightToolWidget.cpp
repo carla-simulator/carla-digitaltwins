@@ -321,10 +321,10 @@ FReply STrafficLightToolWidget::OnModifyClicked()
 	if (FolderMeshes.Num() > 0)
 	{
 		AStaticMeshActor* Lowest{FolderMeshes[0]};
-		float MinZ{Lowest->GetActorLocation().Z};
+		float MinZ = Lowest->GetActorLocation().Z;
 		for (AStaticMeshActor* SM : FolderMeshes)
 		{
-			float Z{SM->GetActorLocation().Z};
+			float Z = SM->GetActorLocation().Z;
 			if (Z < MinZ)
 			{
 				MinZ = Z;
