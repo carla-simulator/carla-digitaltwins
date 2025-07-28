@@ -1163,8 +1163,7 @@ void UOpenDriveToMap::GenerateTreePositions(
 void UOpenDriveToMap::GenerateTrafficLights(
 	const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation)
 {
-	const FString BPPath{
-		TEXT("/CarlaDigitalTwinsTool/Carla/Static/TrafficLight/TrafficLights2025/BP_TrafficLightActor.BP_TrafficLightActor_C")};
+	const FString BPPath{TEXT("/CarlaDigitalTwinsTool/Blueprints/TrafficLight/BP_TrafficLightActor.BP_TrafficLightActor_C")};
 
 	UClass* TrafficLightBPClass{LoadObject<UClass>(nullptr, *BPPath)};
 	if (!IsValid(TrafficLightBPClass))
@@ -1182,10 +1181,6 @@ void UOpenDriveToMap::GenerateTrafficLights(
 		if (carla::road::SignalType::IsTrafficLight(Signal->GetType()))
 		{
 			const carla::geom::Transform SignalTransform{Signal->GetTransform()};
-			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Signal Transform: Location(%f, %f, %f), Pitch(%f), Yaw(%f), Roll(%f)"),
-				SignalTransform.location.x, SignalTransform.location.y, SignalTransform.location.z, SignalTransform.rotation.pitch,
-				SignalTransform.rotation.yaw, SignalTransform.rotation.roll);
-
 			const FVector DesiredLoc{SignalTransform.location};
 			const float Tolerance{1.0f};
 			bool bAlreadySpawned{false};
