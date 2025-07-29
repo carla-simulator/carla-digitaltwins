@@ -998,6 +998,10 @@ void ATrafficLightActor::ToggleAmberBlink()
 		{
 			Light->LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), bAmberVisible ? Light->EmissiveIntensity : 0.0f);
 		}
+		else if (Light->LightType == ETLLightType::PedestrianStop)
+		{
+			Light->LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light->EmissiveIntensity);
+		}
 	}
 }
 
