@@ -689,11 +689,13 @@ UStaticMeshComponent* ATrafficLightActor::AddPoleExtensible(USceneComponent* Par
 		BaseLength = (Pole.Orientation == ETLOrientation::Horizontal) ? Bounds.BoxExtent.X * 2.0 : Bounds.BoxExtent.Z * 2.0;
 	}
 
-	double ExtLength{0.0};
+	const FBoxSphereBounds ExtBounds{Pole.ExtensiblePoleMesh->GetBounds()};
+	const double ExtLength{
+		(Pole.Orientation == ETLOrientation::Horizontal) ? ExtBounds.BoxExtent.X * 2.0 : ExtBounds.BoxExtent.Z * 2.0};
+	const double DesiredExtHeight{FMath::Max(Pole.PoleHeight - BaseLength, 0.0)};
 	if (ExtLength > KINDA_SMALL_NUMBER)
 	{
-		const double Desired{FMath::Max(Pole.PoleHeight - BaseLength, 0.0)};
-		const double ScaleRatio{Desired / ExtLength};
+		const double ScaleRatio{DesiredExtHeight / ExtLength};
 		FVector Scale3D{ExtComp->GetRelativeScale3D()};
 		if (Pole.Orientation == ETLOrientation::Horizontal)
 		{
@@ -704,6 +706,10 @@ UStaticMeshComponent* ATrafficLightActor::AddPoleExtensible(USceneComponent* Par
 			Scale3D.Z = ScaleRatio;
 		}
 		ExtComp->SetRelativeScale3D(Scale3D);
+	}
+	else
+	{
+		UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Extensible mesh has zero length, cannot scale properly."));
 	}
 
 	ExtComp->Modify();
