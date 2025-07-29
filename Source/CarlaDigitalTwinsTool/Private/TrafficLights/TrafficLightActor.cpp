@@ -13,6 +13,7 @@
 #include "Generation/MapGenFunctionLibrary.h"
 #include "JsonUtilities.h"
 #include "Logging/LogMacros.h"
+#include "Logging/LogVerbosity.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Math/MathFwd.h"
 #include "Misc/FileHelper.h"
@@ -28,6 +29,7 @@
 #include "TrafficLights/TLModule.h"
 #include "TrafficLights/TLPole.h"
 #include "UObject/Object.h"
+
 namespace
 {
 FTransform ParseTransform(const TSharedPtr<FJsonObject>& Json)
@@ -108,6 +110,8 @@ void ATrafficLightActor::OnConstruction(const FTransform& Transform)
 		Build();
 	}
 #endif
+
+	TArray<UMaterialInstanceDynamic*> s_DemoLightsInstances{};
 }
 
 void ATrafficLightActor::Bake(const FString& MapName)
@@ -293,67 +297,40 @@ void ATrafficLightActor::BuildFromJSONString(const FString& JSONConfig)
 			if (PoleObj->HasTypedField<EJson::String>(TEXT("BaseMesh")))
 			{
 				const FString MeshName{PoleObj->GetStringField(TEXT("BaseMesh"))};
-				bool MeshFound{false};
-				for (UStaticMesh* Mesh : FTLMeshFactory::GetAllBaseMeshesForPole(Pole))
+				UStaticMesh* Mesh{FTLMeshFactory::GetBaseMeshByName(MeshName)};
+				if (IsValid(Mesh))
 				{
-					UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Checking Mesh: %s"), *Mesh->GetName());
-					if (IsValid(Mesh) && Mesh->GetName() == MeshName)
-					{
-						Pole.BasePoleMesh = Mesh;
-						MeshFound = true;
-						break;
-					}
+					Pole.BasePoleMesh = Mesh;
 				}
-				if (!MeshFound)
+				else
 				{
 					UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Base mesh '%s' not found, using default."), *MeshName);
-					Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshForPole(Pole);
 				}
-			}
-			else
-			{
-				Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshForPole(Pole);
 			}
 			if (PoleObj->HasTypedField<EJson::String>(TEXT("ExtensibleMesh")))
 			{
 				const FString MeshName{PoleObj->GetStringField(TEXT("ExtensibleMesh"))};
-				bool MeshFound{false};
-				for (UStaticMesh* Mesh : FTLMeshFactory::GetAllExtensibleMeshesForPole(Pole))
+				UStaticMesh* Mesh{FTLMeshFactory::GetExtensibleMeshByName(MeshName)};
+				if (IsValid(Mesh))
 				{
-					if (IsValid(Mesh) && Mesh->GetName() == MeshName)
-					{
-						Pole.ExtendiblePoleMesh = Mesh;
-						MeshFound = true;
-						break;
-					}
+					Pole.ExtensiblePoleMesh = Mesh;
 				}
-				if (!MeshFound)
+				else
 				{
 					UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Extensible mesh '%s' not found, using default."), *MeshName);
-					Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshForPole(Pole);
 				}
-			}
-			else
-			{
-				Pole.ExtendiblePoleMesh = FTLMeshFactory::GetExtensibleMeshForPole(Pole);
 			}
 			if (PoleObj->HasTypedField<EJson::String>(TEXT("CapMesh")))
 			{
 				const FString MeshName{PoleObj->GetStringField(TEXT("CapMesh"))};
-				bool MeshFound{false};
-				for (UStaticMesh* Mesh : FTLMeshFactory::GetAllCapMeshesForPole(Pole))
+				UStaticMesh* Mesh{FTLMeshFactory::GetCapMeshByName(MeshName)};
+				if (IsValid(Mesh))
 				{
-					if (IsValid(Mesh) && Mesh->GetName() == MeshName)
-					{
-						Pole.CapPoleMesh = Mesh;
-						MeshFound = true;
-						break;
-					}
+					Pole.CapPoleMesh = Mesh;
 				}
-				if (!MeshFound)
+				else
 				{
 					UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Cap mesh '%s' not found, using default."), *MeshName);
-					Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshForPole(Pole);
 				}
 			}
 
@@ -476,41 +453,53 @@ void ATrafficLightActor::BuildFromJSONString(const FString& JSONConfig)
 	Build();
 }
 
-FString ATrafficLightActor::ExportToJSON() const
+FString ATrafficLightActor::ExportToJSON(bool bUseTransform) const
 {
 	TSharedPtr<FJsonObject> Root{MakeShared<FJsonObject>()};
+	if (bUseTransform)
 	{
-		FVector Loc = GetActorLocation();
-		TSharedPtr<FJsonObject> JLoc = MakeShared<FJsonObject>();
-		JLoc->SetNumberField(TEXT("X"), Loc.X);
-		JLoc->SetNumberField(TEXT("Y"), Loc.Y);
-		JLoc->SetNumberField(TEXT("Z"), Loc.Z);
-		Root->SetObjectField(TEXT("WorldPosition"), JLoc);
-	}
-	{
-		FRotator Rot = GetActorRotation();
-		TSharedPtr<FJsonObject> JRot = MakeShared<FJsonObject>();
-		JRot->SetNumberField(TEXT("X"), Rot.Pitch);
-		JRot->SetNumberField(TEXT("Y"), Rot.Yaw);
-		JRot->SetNumberField(TEXT("Z"), Rot.Roll);
-		Root->SetObjectField(TEXT("WorldRotation"), JRot);
-	}
-	{
-		FVector Scl = GetActorScale3D();
-		TSharedPtr<FJsonObject> JScale = MakeShared<FJsonObject>();
-		JScale->SetNumberField(TEXT("X"), Scl.X);
-		JScale->SetNumberField(TEXT("Y"), Scl.Y);
-		JScale->SetNumberField(TEXT("Z"), Scl.Z);
-		Root->SetObjectField(TEXT("WorldScale"), JScale);
+		{
+			FVector Loc = GetActorLocation();
+			TSharedPtr<FJsonObject> JLoc = MakeShared<FJsonObject>();
+			JLoc->SetNumberField(TEXT("X"), Loc.X);
+			JLoc->SetNumberField(TEXT("Y"), Loc.Y);
+			JLoc->SetNumberField(TEXT("Z"), Loc.Z);
+			Root->SetObjectField(TEXT("WorldPosition"), JLoc);
+		}
+		{
+			FRotator Rot = GetActorRotation();
+			TSharedPtr<FJsonObject> JRot = MakeShared<FJsonObject>();
+			JRot->SetNumberField(TEXT("X"), Rot.Pitch);
+			JRot->SetNumberField(TEXT("Y"), Rot.Yaw);
+			JRot->SetNumberField(TEXT("Z"), Rot.Roll);
+			Root->SetObjectField(TEXT("WorldRotation"), JRot);
+		}
+		{
+			FVector Scl = GetActorScale3D();
+			TSharedPtr<FJsonObject> JScale = MakeShared<FJsonObject>();
+			JScale->SetNumberField(TEXT("X"), Scl.X);
+			JScale->SetNumberField(TEXT("Y"), Scl.Y);
+			JScale->SetNumberField(TEXT("Z"), Scl.Z);
+			Root->SetObjectField(TEXT("WorldScale"), JScale);
+		}
 	}
 	TArray<TSharedPtr<FJsonValue>> JsonPoles;
 	for (const FTLPole& Pole : Poles)
 	{
 		TSharedPtr<FJsonObject> JP = MakeShared<FJsonObject>();
 
-		JP->SetStringField(TEXT("BaseMesh"), Pole.BasePoleMesh ? Pole.BasePoleMesh->GetName() : FString());
-		JP->SetStringField(TEXT("ExtensibleMesh"), Pole.ExtendiblePoleMesh ? Pole.ExtendiblePoleMesh->GetName() : FString());
-		JP->SetStringField(TEXT("CapMesh"), Pole.CapPoleMesh ? Pole.CapPoleMesh->GetName() : FString());
+		if (Pole.BasePoleMesh)
+		{
+			JP->SetStringField(TEXT("BaseMesh"), Pole.BasePoleMesh->GetName());
+		}
+		if (Pole.ExtensiblePoleMesh)
+		{
+			JP->SetStringField(TEXT("ExtensibleMesh"), Pole.ExtensiblePoleMesh->GetName());
+		}
+		if (Pole.CapPoleMesh)
+		{
+			JP->SetStringField(TEXT("CapMesh"), Pole.CapPoleMesh->GetName());
+		}
 
 		JP->SetObjectField(TEXT("Transform"), TransformToJson(Pole.Transform));
 		JP->SetObjectField(TEXT("Offset"), TransformToJson(Pole.Offset));
@@ -533,7 +522,10 @@ FString ATrafficLightActor::ExportToJSON() const
 			for (const FTLModule& Module : Head.Modules)
 			{
 				TSharedPtr<FJsonObject> JM = MakeShared<FJsonObject>();
-				JM->SetStringField(TEXT("ModuleMesh"), Module.ModuleMesh ? Module.ModuleMesh->GetName() : FString());
+				if (Module.ModuleMesh)
+				{
+					JM->SetStringField(TEXT("ModuleMesh"), Module.ModuleMesh->GetName());
+				}
 				JM->SetObjectField(TEXT("Transform"), TransformToJson(Module.Transform));
 				JM->SetObjectField(TEXT("Offset"), TransformToJson(Module.Offset));
 				JM->SetBoolField(TEXT("bHasVisor"), Module.bHasVisor);
@@ -580,7 +572,6 @@ USceneComponent* ATrafficLightActor::AddRootPole(USceneComponent* Parent, FTLPol
 	USceneComponent* PoleRoot{UMapGenFunctionLibrary::AddSceneComponentToActor(this)};
 	if (!PoleRoot)
 	{
-		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("AddRootPole: no pudo crear PoleRoot"));
 		return nullptr;
 	}
 
@@ -607,55 +598,37 @@ UStaticMeshComponent* ATrafficLightActor::AddModule(USceneComponent* Parent, FTL
 	UStaticMeshComponent* Comp{UMapGenFunctionLibrary::AddStaticMeshComponentToActor(this)};
 	if (!Comp)
 	{
-		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Failed to create StaticMeshComponent for module"));
 		return nullptr;
 	}
 	Comp->SetStaticMesh(ModuleData.ModuleMesh);
 	Comp->AttachToComponent(Parent, FAttachmentTransformRules::KeepRelativeTransform);
 	Comp->SetRelativeTransform(ModuleTransform);
 
-	UMaterialInterface* BaseMat{FMaterialFactory::GetLightMaterialInstance(Comp)};
-
 	int32 LightIndex{0};
 	for (FTLModuleLight& Light : ModuleData.Lights)
 	{
-		const FName SlotName{*FString::Printf(TEXT("led_%d"), LightIndex++)};
+		const FName SlotName{*FString::Printf(TEXT("led_%d"), LightIndex)};
 		const int32 MaterialIndex{Comp->GetMaterialIndex(SlotName)};
 		if (MaterialIndex != INDEX_NONE)
 		{
-			Light.LightMID = Comp->CreateDynamicMaterialInstance(MaterialIndex, BaseMat);
-			if (Light.LightMID)
+			UMaterialInstanceDynamic* MID{FMaterialFactory::GetLightMaterialInstance(Comp)};
+			if (IsValid(MID))
 			{
-				Light.LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light.EmissiveIntensity);
-				Light.LightMID->SetVectorParameterValue(TEXT("Emissive Color"), Light.EmissiveColor);
-				Light.LightMID->SetScalarParameterValue(TEXT("Offset U"), Light.U);
-				Light.LightMID->SetScalarParameterValue(TEXT("Offset V"), Light.V);
+				MID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light.EmissiveIntensity);
+				MID->SetVectorParameterValue(TEXT("Emissive Color"), Light.EmissiveColor);
+				MID->SetScalarParameterValue(TEXT("Offset U"), Light.U);
+				MID->SetScalarParameterValue(TEXT("Offset V"), Light.V);
+				Comp->SetMaterial(MaterialIndex, MID);
+				Light.LightMID = MID;
 				DemoLights.Add(&Light);
 			}
 			else
 			{
 				UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Failed to create MID for slot %s"), *SlotName.ToString());
 			}
+			++LightIndex;
 		}
 	}
-	/*
-	for (FTLModuleLight& Light : ModuleData.Lights)
-	{
-		if (Light.LightMID == nullptr)
-		{
-			Light.LightMID = FMaterialFactory::GetLightMaterialInstance(Comp);
-		}
-		if (Light.LightMID)
-		{
-			Light.LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light.EmissiveIntensity);
-			Light.LightMID->SetVectorParameterValue(TEXT("Emissive Color"), Light.EmissiveColor);
-			Light.LightMID->SetScalarParameterValue(TEXT("Offset U"), static_cast<float>(Light.U));
-			Light.LightMID->SetScalarParameterValue(TEXT("Offset Y"), static_cast<float>(Light.V));
-			const FName MaterialSlotName{FString::Printf(TEXT("led_%d"), LightIndex++)};
-			Comp->SetMaterialByName(MaterialSlotName, Light.LightMID);
-		}
-	}
-	*/
 
 	Comp->Modify();
 	ModuleMeshComponents.Add(Comp);
@@ -666,10 +639,14 @@ UStaticMeshComponent* ATrafficLightActor::AddModule(USceneComponent* Parent, FTL
 
 UStaticMeshComponent* ATrafficLightActor::AddPoleBase(USceneComponent* Parent, FTLPole& Pole)
 {
+	if (!IsValid(Pole.BasePoleMesh))
+	{
+		return nullptr;
+	}
+
 	UStaticMeshComponent* Comp{UMapGenFunctionLibrary::AddStaticMeshComponentToActor(this)};
 	if (!Comp)
 	{
-		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Failed to create StaticMeshComponent for pole base"));
 		return nullptr;
 	}
 
@@ -684,44 +661,65 @@ UStaticMeshComponent* ATrafficLightActor::AddPoleBase(USceneComponent* Parent, F
 
 UStaticMeshComponent* ATrafficLightActor::AddPoleExtensible(USceneComponent* Parent, FTLPole& Pole)
 {
-	UStaticMeshComponent* BaseComp{Pole.BasePoleMeshComponent};
-	if (!BaseComp)
+	if (!IsValid(Pole.ExtensiblePoleMesh))
 	{
-		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("AddPoleExtensible: BasePoleMeshComponent not set"));
 		return nullptr;
 	}
 
+	UStaticMeshComponent* BaseComp{Pole.BasePoleMeshComponent};
 	UStaticMeshComponent* ExtComp{UMapGenFunctionLibrary::AddStaticMeshComponentToActor(this)};
 	if (!ExtComp)
 	{
-		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("AddPoleExtensible: unable to create ExtComp"));
 		return nullptr;
 	}
-	ExtComp->SetStaticMesh(Pole.ExtendiblePoleMesh);
+	ExtComp->SetStaticMesh(Pole.ExtensiblePoleMesh);
 	static const FName SocketName("extensible");
-	ExtComp->AttachToComponent(BaseComp, FAttachmentTransformRules::SnapToTargetIncludingScale, SocketName);
-	const double BaseLengthZ{BaseComp->GetStaticMesh()->GetBounds().BoxExtent.Z * 2.0};
-	const double ExtLengthZ{Pole.ExtendiblePoleMesh->GetBounds().BoxExtent.Z * 2.0};
-	if (ExtLengthZ > KINDA_SMALL_NUMBER)
+	if (IsValid(BaseComp))
 	{
-		const double DesiredExtHeight{FMath::Max(Pole.PoleHeight - BaseLengthZ, 0.0)};
-		const double ScaleZ{DesiredExtHeight / ExtLengthZ};
-		FVector Scale3D = ExtComp->GetRelativeScale3D();
-		Scale3D.Z = ScaleZ;
+		ExtComp->AttachToComponent(BaseComp, FAttachmentTransformRules::SnapToTargetIncludingScale, SocketName);
+	}
+	else
+	{
+		ExtComp->AttachToComponent(Parent, FAttachmentTransformRules::KeepRelativeTransform);
+	}
+	double BaseLength{0.0};
+	if (IsValid(BaseComp))
+	{
+		const FBoxSphereBounds Bounds{BaseComp->GetStaticMesh()->GetBounds()};
+		BaseLength = (Pole.Orientation == ETLOrientation::Horizontal) ? Bounds.BoxExtent.X * 2.0 : Bounds.BoxExtent.Z * 2.0;
+	}
+
+	double ExtLength{0.0};
+	if (ExtLength > KINDA_SMALL_NUMBER)
+	{
+		const double Desired{FMath::Max(Pole.PoleHeight - BaseLength, 0.0)};
+		const double ScaleRatio{Desired / ExtLength};
+		FVector Scale3D{ExtComp->GetRelativeScale3D()};
+		if (Pole.Orientation == ETLOrientation::Horizontal)
+		{
+			Scale3D.X = ScaleRatio;
+		}
+		else
+		{
+			Scale3D.Z = ScaleRatio;
+		}
 		ExtComp->SetRelativeScale3D(Scale3D);
 	}
 
 	ExtComp->Modify();
-	Pole.ExtendiblePoleMeshComponent = ExtComp;
+	Pole.ExtensiblePoleMeshComponent = ExtComp;
 	return ExtComp;
 }
 
 UStaticMeshComponent* ATrafficLightActor::AddPoleCap(USceneComponent* Parent, FTLPole& Pole)
 {
+	if (!IsValid(Pole.CapPoleMesh))
+	{
+		return nullptr;
+	}
 	UStaticMeshComponent* ExtensibleComp{Pole.BasePoleMeshComponent};
 	if (!ExtensibleComp)
 	{
-		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("AddPoleExtensible: BasePoleMeshComponent not set"));
 		return nullptr;
 	}
 
@@ -887,15 +885,33 @@ void ATrafficLightActor::Clear()
 
 void ATrafficLightActor::PlayDemoSequence()
 {
-	GetWorldTimerManager().ClearTimer(PhaseTimerHandle);
-	GetWorldTimerManager().ClearTimer(AmberBlinkTimerHandle);
+	DemoLights.Empty();
+	for (FTLPole& Pole : Poles)
+	{
+		for (FTLHead& Head : Pole.Heads)
+		{
+			for (FTLModule& Module : Head.Modules)
+			{
+				for (FTLModuleLight& Light : Module.Lights)
+				{
+					if (Light.LightMID)
+					{
+						DemoLights.Add(&Light);
+					}
+				}
+			}
+		}
+	}
 	bDemoPlaying = true;
 	CurrentPhase = EDemoPhase::Red;
+	GetWorldTimerManager().ClearTimer(PhaseTimerHandle);
+	GetWorldTimerManager().ClearTimer(AmberBlinkTimerHandle);
 	AdvanceDemoPhase();
 }
 
 void ATrafficLightActor::StopDemoSequence()
 {
+	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("StopDemoSequence called, stopping traffic light demo sequence."));
 	bDemoPlaying = false;
 	GetWorldTimerManager().ClearTimer(PhaseTimerHandle);
 	GetWorldTimerManager().ClearTimer(AmberBlinkTimerHandle);
@@ -921,12 +937,11 @@ void ATrafficLightActor::AdvanceDemoPhase()
 		{
 			for (FTLModuleLight* Light : DemoLights)
 			{
-				if (!IsValid(Light->LightMID))
-				{
-					UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Light MID is null for light type: %s"),
-						*UEnum::GetValueAsString(Light->LightType));
-				}
 				if (Light->LightType == ETLLightType::SolidColorRed)
+				{
+					Light->LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light->EmissiveIntensity);
+				}
+				else if (Light->LightType == ETLLightType::PedestrianWalkGreen)
 				{
 					Light->LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light->EmissiveIntensity);
 				}
@@ -936,17 +951,15 @@ void ATrafficLightActor::AdvanceDemoPhase()
 			GetWorldTimerManager().SetTimer(PhaseTimerHandle, this, &ATrafficLightActor::AdvanceDemoPhase, RedDuration, false);
 			break;
 		}
-
 		case EDemoPhase::Green:
 		{
 			for (FTLModuleLight* Light : DemoLights)
 			{
-				if (!IsValid(Light->LightMID))
-				{
-					UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Light MID is null for light type: %s"),
-						*UEnum::GetValueAsString(Light->LightType));
-				}
 				if (Light->LightType == ETLLightType::SolidColorGreen)
+				{
+					Light->LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light->EmissiveIntensity);
+				}
+				else if (Light->LightType == ETLLightType::PedestrianStop)
 				{
 					Light->LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light->EmissiveIntensity);
 				}
@@ -961,7 +974,6 @@ void ATrafficLightActor::AdvanceDemoPhase()
 		{
 			bAmberVisible = false;
 			ToggleAmberBlink();
-
 			GetWorldTimerManager().ClearTimer(AmberBlinkTimerHandle);
 			GetWorldTimerManager().SetTimer(
 				AmberBlinkTimerHandle, this, &ATrafficLightActor::ToggleAmberBlink, AmberBlinkInterval, true);
@@ -982,11 +994,6 @@ void ATrafficLightActor::ToggleAmberBlink()
 	bAmberVisible = !bAmberVisible;
 	for (FTLModuleLight* Light : DemoLights)
 	{
-		if (!IsValid(Light->LightMID))
-		{
-			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Light MID is null for light type: %s"),
-				*UEnum::GetValueAsString(Light->LightType));
-		}
 		if (Light->LightType == ETLLightType::SolidColorAmber)
 		{
 			Light->LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), bAmberVisible ? Light->EmissiveIntensity : 0.0f);

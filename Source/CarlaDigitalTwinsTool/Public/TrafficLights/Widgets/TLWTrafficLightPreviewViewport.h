@@ -6,10 +6,15 @@
 
 #pragma once
 
+#include "Components/StaticMeshComponent.h"
 #include "CoreMinimal.h"
 #include "EditorViewportClient.h"
+#include "Engine/DataTable.h"
 #include "PreviewScene.h"
 #include "Slate/SceneViewport.h"
+#include "TrafficLights/TLHead.h"
+#include "TrafficLights/TLModule.h"
+#include "TrafficLights/TLPole.h"
 #include "TrafficLights/TrafficLightActor.h"
 #include "Widgets/DeclarativeSyntaxSupport.h"
 #include "Widgets/SCompoundWidget.h"

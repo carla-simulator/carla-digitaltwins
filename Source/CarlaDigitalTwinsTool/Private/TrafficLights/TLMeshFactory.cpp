@@ -67,6 +67,81 @@ UDataTable* FTLMeshFactory::GetBackplateMeshTable()
 	return s_BackplateMeshTable;
 }
 
+UStaticMesh* FTLMeshFactory::GetBaseMeshByName(const FString& Name)
+{
+	UDataTable* Table{GetPoleMeshTable()};
+	if (!Table)
+	{
+		UE_LOG(LogTemp, Error, TEXT("PoleMeshFactory: PoleMeshTable is null"));
+		return nullptr;
+	}
+
+	for (const FName& RowName : Table->GetRowNames())
+	{
+		const FTLPoleRow* Row{Table->FindRow<FTLPoleRow>(RowName, TEXT("GetBaseMeshByName"))};
+		if (!Row)
+		{
+			UE_LOG(LogTemp, Error, TEXT("PoleMeshFactory: row '%s' not found"), *RowName.ToString());
+			continue;
+		}
+		if (Row->PoleType == ETLPoleType::Base && IsValid(Row->Mesh) && Row->Mesh->GetName() == Name)
+		{
+			return Row->Mesh;
+		}
+	}
+	return nullptr;
+}
+
+UStaticMesh* FTLMeshFactory::GetExtensibleMeshByName(const FString& Name)
+{
+	UDataTable* Table{GetPoleMeshTable()};
+	if (!Table)
+	{
+		UE_LOG(LogTemp, Error, TEXT("PoleMeshFactory: PoleMeshTable is null"));
+		return nullptr;
+	}
+
+	for (const FName& RowName : Table->GetRowNames())
+	{
+		const FTLPoleRow* Row{Table->FindRow<FTLPoleRow>(RowName, TEXT("GetExtensibleMeshByName"))};
+		if (!Row)
+		{
+			UE_LOG(LogTemp, Error, TEXT("PoleMeshFactory: row '%s' not found"), *RowName.ToString());
+			continue;
+		}
+		if (Row->PoleType == ETLPoleType::Extensible && IsValid(Row->Mesh) && Row->Mesh->GetName() == Name)
+		{
+			return Row->Mesh;
+		}
+	}
+	return nullptr;
+}
+
+UStaticMesh* FTLMeshFactory::GetCapMeshByName(const FString& Name)
+{
+	UDataTable* Table{GetPoleMeshTable()};
+	if (!Table)
+	{
+		UE_LOG(LogTemp, Error, TEXT("PoleMeshFactory: PoleMeshTable is null"));
+		return nullptr;
+	}
+
+	for (const FName& RowName : Table->GetRowNames())
+	{
+		const FTLPoleRow* Row{Table->FindRow<FTLPoleRow>(RowName, TEXT("GetCapMeshByName"))};
+		if (!Row)
+		{
+			UE_LOG(LogTemp, Error, TEXT("PoleMeshFactory: row '%s' not found"), *RowName.ToString());
+			continue;
+		}
+		if (Row->PoleType == ETLPoleType::Cap && IsValid(Row->Mesh) && Row->Mesh->GetName() == Name)
+		{
+			return Row->Mesh;
+		}
+	}
+	return nullptr;
+}
+
 UStaticMesh* FTLMeshFactory::GetMeshForModule(const FTLHead& Head, const FTLModule& Module)
 {
 	UDataTable* ModuleMeshTable{GetModuleMeshTable()};
@@ -120,24 +195,6 @@ TArray<UStaticMesh*> FTLMeshFactory::GetAllMeshesForModule(const FTLHead& Head, 
 	}
 
 	return Meshes;
-}
-
-UStaticMesh* FTLMeshFactory::GetBaseMeshForPole(const FTLPole& Pole)
-{
-	TArray<UStaticMesh*> All{GetAllBaseMeshesForPole(Pole)};
-	return All.Num() ? All.Last() : nullptr;
-}
-
-UStaticMesh* FTLMeshFactory::GetExtensibleMeshForPole(const FTLPole& Pole)
-{
-	TArray<UStaticMesh*> All{GetAllExtensibleMeshesForPole(Pole)};
-	return All.Num() ? All.Last() : nullptr;
-}
-
-UStaticMesh* FTLMeshFactory::GetCapMeshForPole(const FTLPole& Pole)
-{
-	TArray<UStaticMesh*> All{GetAllCapMeshesForPole(Pole)};
-	return All.Num() ? All.Last() : nullptr;
 }
 
 TArray<UStaticMesh*> FTLMeshFactory::GetAllBaseMeshesForPole(const FTLPole& Pole)

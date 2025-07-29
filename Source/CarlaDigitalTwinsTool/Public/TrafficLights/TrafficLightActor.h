@@ -37,7 +37,7 @@ public:
 	void BuildFromJSON();
 
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "TrafficLight|JSON")
-	FString ExportToJSON() const;
+	FString ExportToJSON(bool bUseTransform = true) const;
 
 	UFUNCTION(CallInEditor, BlueprintCallable, Category = "TrafficLight|Demo")
 	void PlayDemoSequence();

@@ -69,16 +69,8 @@ void STrafficLightPreviewViewport::Reload()
 
 void STrafficLightPreviewViewport::ResetFrame()
 {
-	if (!PreviewTrafficLight)
-	{
-		UE_LOG(LogTemp, Error, TEXT("ResetFrame: Invalid TrafficLightActor"));
-		return;
-	}
-	if (!ViewportClient.IsValid())
-	{
-		UE_LOG(LogTemp, Error, TEXT("ResetFrame: Invalid ViewportClient"));
-		return;
-	}
+	check(IsValid(PreviewTrafficLight));
+	check(ViewportClient.IsValid());
 
 	const FBox Bounds{PreviewTrafficLight->GetComponentsBoundingBox(true)};
 	const FVector Center{Bounds.GetCenter()};
