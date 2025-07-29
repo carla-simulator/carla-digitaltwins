@@ -9,6 +9,7 @@
 #include "Carla/Road/Junction.h"
 #include "Carla/Road/Road.h"
 #include "Carla/Road/RoadTypes.h"
+#include "Containers/ContainersFwd.h"
 #include "CoreGlobals.h"
 #include "EngineUtils.h"
 #include "Logging/LogMacros.h"
@@ -1204,12 +1205,13 @@ void UOpenDriveToMap::GenerateTrafficLights(
 				if (IsValid(TL))
 				{
 					// TODO: Move this default traffic light to a factory
+					const FString BaseMeshName{TEXT("SM_TrafficLight_Pole01_Base")};
+					const FString ExtensibleMeshName{TEXT("SM_TrafficLight_Pole04")};
 					FTLPole Pole;
 					Pole.PoleHeight = 250.0f;
 					Pole.Transform = FTransform::Identity;
-					Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshForPole(Pole);
-					Pole.ExtendiblePoleMesh = FTLMeshFactory::GetExtensibleMeshForPole(Pole);
-					// Pole.CapPoleMesh = FTLMeshFactory::GetCapMeshForPole(Pole);
+					Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshByName(BaseMeshName);
+					Pole.ExtensiblePoleMesh = FTLMeshFactory::GetExtensibleMeshByName(ExtensibleMeshName);
 
 					FTLHead Head;
 					Head.bHasBackplate = false;
