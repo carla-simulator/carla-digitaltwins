@@ -184,7 +184,7 @@ public:
   bool bMapLoaded = false;
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Mitsuba" )
-  bool bUseMitsuba = true;
+  bool bUseMitsuba = false;
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Digital Twins Tools" )
   TArray<TSubclassOf<class UDGTImplementable>> ToolsClasses;
