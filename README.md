@@ -67,7 +67,10 @@ sudo apt install libgdal-dev
 pip3 install gdal[numpy]=="$(gdal-config --version).*"
 ```
 
-To enable the Mitsuba road optimization option, set the `bUseMitsuba` flag to true in [OpenDriveToMap.h](https://github.com/carla-simulator/carla-digitaltwins/blob/ue5-digitaltwins/Source/CarlaDigitalTwinsTool/Public/Generation/OpenDriveToMap.h):
+To enable the Mitsuba road optimization option, enable it in the OpenDriveToMap blueprint:
+
+
+Alternatively, set the `bUseMitsuba` flag to true in [OpenDriveToMap.h](https://github.com/carla-simulator/carla-digitaltwins/blob/ue5-digitaltwins/Source/CarlaDigitalTwinsTool/Public/Generation/OpenDriveToMap.h) (line 187):
 
 ```cpp
 bool bUseMitsuba = true;
@@ -133,8 +136,7 @@ Make sure the **Digital Twins plugin** is correctly installed and built in your 
 8. Search and zoom into the **area** you want to replicate.
 
 9. Click the **Export** button on the top menu, the one in the upper part of the window which is between other buttons as shown in the following screenshot:
-
-![image](https://github.com/user-attachments/assets/e6bbc00b-b30c-48f8-80ab-34a6419b3555)
+   ![image](https://github.com/user-attachments/assets/e6bbc00b-b30c-48f8-80ab-34a6419b3555)
 
 10. On the left side of the window screen, find the text:
     **“Overpass API”**  
