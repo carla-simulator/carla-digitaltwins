@@ -69,6 +69,7 @@ pip3 install gdal[numpy]=="$(gdal-config --version).*"
 
 To enable the Mitsuba road optimization option, enable it in the OpenDriveToMap blueprint:
 
+<img width="311" height="67" alt="mitsuba_flag" src="https://github.com/user-attachments/assets/2de7166c-132d-42d2-a508-3c75ab1597a6" />
 
 Alternatively, set the `bUseMitsuba` flag to true in [OpenDriveToMap.h](https://github.com/carla-simulator/carla-digitaltwins/blob/ue5-digitaltwins/Source/CarlaDigitalTwinsTool/Public/Generation/OpenDriveToMap.h) (line 187):
 
