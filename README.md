@@ -58,14 +58,22 @@
 
 2. Once compiled, double click on ProjectName.uproject
 
-### Aerial images support
+### Mitsuba support
 
-Mitsuba mesh optimization (available for now only in Linux) require the use of aerial images, whose access is provided through the library [GDAL](https://github.com/OSGeo/gdal). To install it, run the following commands:
+We provide a road mesh optimization pipeline using [Mitsuba](https://mitsuba.readthedocs.io/en/stable/), an inverse rendering library integrated in DigitalTwins for road refinement. This option is currently only available for Ubuntu. It requires the use of aerial images, whose processing is provided through the library [GDAL](https://github.com/OSGeo/gdal). To install it, run the following commands:
 
 ```sh
 sudo apt install libgdal-dev
 pip3 install gdal[numpy]=="$(gdal-config --version).*"
 ```
+
+To enable the Mitsuba road optimization option, set the `bUseMitsuba` flag to true in [OpenDriveToMap.h](https://github.com/carla-simulator/carla-digitaltwins/blob/ue5-digitaltwins/Source/CarlaDigitalTwinsTool/Public/Generation/OpenDriveToMap.h):
+
+```cpp
+bool bUseMitsuba = true;
+```
+
+and compile the project.
 
 ---
 
@@ -92,12 +100,12 @@ Make sure the **Digital Twins plugin** is correctly installed and built in your 
 
 2. In the **Content Browser**, go to the bottom-right corner and click the **eye icon** to enable "Show Plugin Content".
 
-<img width="1022" alt="ContentBrowser" src="https://github.com/user-attachments/assets/acd1f2df-dac6-43ee-a1e4-904e26b9f4ee" />
-<img width="173" alt="ShowPluginContent" src="https://github.com/user-attachments/assets/0cdfd612-2e91-412f-abd6-5509ae2e8b8f" />
+   <img width="1022" alt="ContentBrowser" src="https://github.com/user-attachments/assets/acd1f2df-dac6-43ee-a1e4-904e26b9f4ee" />
+   <img width="173" alt="ShowPluginContent" src="https://github.com/user-attachments/assets/0cdfd612-2e91-412f-abd6-5509ae2e8b8f" />
 
 3. On the **left panel**, a new section will appear labeled `DigitalTwins Content`. Expand it.
 
-<img width="239" alt="CarlaDigitalTwinsContent" src="https://github.com/user-attachments/assets/c401ed92-fac0-4c31-94d0-9212ae742e27" />
+   <img width="239" alt="CarlaDigitalTwinsContent" src="https://github.com/user-attachments/assets/c401ed92-fac0-4c31-94d0-9212ae742e27" />
 
 4. Inside that folder, locate the file named:  
    **`UW_DigitalTwins`**
@@ -108,7 +116,7 @@ Make sure the **Digital Twins plugin** is correctly installed and built in your 
    Run Editor Utility Widget
    ```
 
-    <img width="290" alt="RunUtilityWidget" src="https://github.com/user-attachments/assets/1476d92e-0287-4ca7-b8b6-6bf817fef831" />
+   <img width="290" alt="RunUtilityWidget" src="https://github.com/user-attachments/assets/1476d92e-0287-4ca7-b8b6-6bf817fef831" />
 
 ---
 
