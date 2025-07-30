@@ -112,6 +112,8 @@
 #include "Runtime/ImageWriteQueue/Public/ImageWriteTask.h"
 #include "UObject/ConstructorHelpers.h"
 #include "UObject/SoftObjectPath.h"
+#include "IMeshMergeUtilities.h"
+#include "MeshMergeModule.h"
 // #include "Utils/GoogleStreetViewManager.h"
 #include "Utils/GeometryImporter.h"
 
@@ -829,14 +831,25 @@ void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& Param
 {
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Roads..... "));
 	GenerateRoadMesh(ParamCarlaMap, MinLocation, MaxLocation);
+
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Lane Marks..... "));
 	GenerateLaneMarks(ParamCarlaMap, MinLocation, MaxLocation);
+
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Terrain..... "));
 	CreateTerrain(5, 5, 64);
+
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Traffic Lights..... "));
 	GenerateTrafficLights(ParamCarlaMap, MinLocation, MaxLocation);
+
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Misc stuff..... "));
 	GenerationFinished(MinLocation, MaxLocation);
+
+	#if PLATFORM_LINUX
+	if (bUseMitsuba)
+	{
+		MitsubaMeshOptimization();
+	}
+	#endif
 }
 
 void UOpenDriveToMap::GenerateRoadMesh(
@@ -1518,6 +1531,14 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
 {
 	FBox Bounds(EForceInit::ForceInitToZero);
 
+	FString RoadLabel = "DrivingLane";
+	#if PLATFORM_LINUX
+		if (bUseMitsuba)
+		{
+			RoadLabel = "UpdatedRoad";
+		}
+	#endif
+
 	TArray<AActor*> HiddenActors;
 	{
 		TArray<AActor*> Actors;
@@ -1528,7 +1549,8 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
 			auto BoundingBox = Actor->GetComponentsBoundingBox();
 			Bounds += BoundingBox;
 			auto Name = Actor->GetActorLabel();
-			if (!Name.Contains("DrivingLane", ESearchCase::CaseSensitive))
+
+			if (!Name.Contains(RoadLabel, ESearchCase::CaseSensitive))
 			{
 				Actor->SetActorHiddenInGame(true);
 				HiddenActors.Add(Actor);
@@ -1586,8 +1608,8 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
 	PixelData->Pixels = Pixels;
 	ImageTask->PixelData = MoveTemp(PixelData);
 
-	FString PluginPath = UGenerationPathsHelper::GetDigitalTwinsPluginPath();
-	FString ImagePath = PluginPath / TEXT("PythonIntermediate") / TEXT("road_render.png");
+	FString OutPath = UGenerationPathsHelper::GetPythonIntermediatePath(MapName);
+	FString ImagePath = OutPath / TEXT("road_render.png");
 
 	ImageTask->Filename = ImagePath;
 	ImageTask->Format = EImageFormat::PNG;
@@ -1607,7 +1629,7 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
 
 	RunPythonRoadEdges(FVector2D(Center.X, Center.Y), FVector2D(Extent.X, Extent.Y));
 
-	auto JsonPath = PluginPath / TEXT("PythonIntermediate") / TEXT("contours.json");
+	auto JsonPath = OutPath / TEXT("contours.json");
 
 	auto RoadSplines =
 		UGeometryImporter::CreateSplinesFromJson(World, JsonPath, FVector2D(Center.X, Center.Y), Extent, RenderTargetSize);
@@ -1635,17 +1657,9 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
 	GeneratedSplines.Append(RoadSplines);
 }
 
-void UOpenDriveToMap::RunPythonRoadEdges(FVector2D Center, FVector2D Extent)
+void UOpenDriveToMap::RunPythonScript(FString ScriptPath, FString Args)
 {
-	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Running Python road edges extraction script..."));
-
-	FString PythonExe = PythonBinPath;
-	FString PluginPath = UGenerationPathsHelper::GetDigitalTwinsPluginPath();
-	FString ScriptPath = PluginPath / TEXT("Content/Python/road_edge_detection.py");
-
-	FString Args;
-	Args += FString::Printf(TEXT("\"%s\" "), *ScriptPath);
-	Args += FString::Printf(TEXT("--plugin_path=\"%s\" "), *PluginPath);
+  	FString PythonExe = PythonBinPath;
 
 	void* ReadPipe = nullptr;
 	void* WritePipe = nullptr;
@@ -1680,6 +1694,21 @@ void UOpenDriveToMap::RunPythonRoadEdges(FVector2D Center, FVector2D Extent)
 	FPlatformProcess::ClosePipe(ReadPipe, WritePipe);
 
 	UE_LOG(LogCarlaDigitalTwinsTool, Display, TEXT("Python Output:\n%s"), *Output);
+}
+
+void UOpenDriveToMap::RunPythonRoadEdges(FVector2D Center, FVector2D Extent)
+{
+	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Running Python road edges extraction script..."));
+
+	FString PluginPath = UGenerationPathsHelper::GetDigitalTwinsPluginPath();
+	FString ScriptPath = PluginPath / TEXT("Content/Python/road_edge_detection.py");
+	FString OutPath = UGenerationPathsHelper::GetPythonIntermediatePath(MapName);
+
+	FString Args;
+	Args += FString::Printf(TEXT("\"%s\" "), *ScriptPath);
+	Args += FString::Printf(TEXT("--folder_path=\"%s\" "), *OutPath);
+
+	RunPythonScript(ScriptPath, Args);
 }
 
 TArray<FRoadSignInfo> UOpenDriveToMap::GetAllRoadSignsInfo()
@@ -1740,6 +1769,204 @@ TArray<FRoadSignInfo> UOpenDriveToMap::GetAllRoadSignsInfo()
 	}
 
 	return RoadSigns;
+}
+
+void UOpenDriveToMap::ExportStaticMeshToOBJ(UStaticMesh* StaticMesh, const FString& OutputPath)
+{
+	UE_LOG(LogTemp, Log, TEXT("Exporting mesh as OBJ to path: %s"), *OutputPath);
+
+	if (!StaticMesh || !StaticMesh->GetRenderData())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("StaticMesh is null or has no render data."));
+		return;
+	}
+
+	FString ObjData;
+	ObjData += FString::Printf(TEXT("Exported OBJ from %s\n"), *StaticMesh->GetName());
+
+	const FStaticMeshLODResources& LOD = StaticMesh->GetRenderData()->LODResources[0];
+
+	// Vertices
+	const FPositionVertexBuffer& PositionVertexBuffer = LOD.VertexBuffers.PositionVertexBuffer;
+	const FStaticMeshVertexBuffer& VertexBuffer = LOD.VertexBuffers.StaticMeshVertexBuffer;
+	const int32 VertexCount = PositionVertexBuffer.GetNumVertices();
+
+	for (int32 i = 0; i < VertexCount; ++i)
+	{
+		FVector Pos = (FVector)PositionVertexBuffer.VertexPosition(i);
+		Pos.Z = GetHeight(Pos.X, Pos.Y)/100.0f;
+		ObjData += FString::Printf(TEXT("v %f %f %f\n"), Pos.X, Pos.Z, Pos.Y);
+	}
+
+	// Normals
+	for (int32 i = 0; i < VertexCount; ++i)
+	{
+		FVector Normal = (FVector)VertexBuffer.VertexTangentZ(i);
+		ObjData += FString::Printf(TEXT("vn %f %f %f\n"), Normal.X, Normal.Z, Normal.Y);
+	}
+
+	// UVs
+	for (int32 i = 0; i < VertexCount; ++i)
+	{
+		FVector2D UV = (FVector2D)VertexBuffer.GetVertexUV(i, 0);
+		ObjData += FString::Printf(TEXT("vt %f %f\n"), UV.X, 1.0f - UV.Y);  // Flip V
+	}
+
+	// Faces (triangles)
+	const FIndexArrayView Indices = LOD.IndexBuffer.GetArrayView();
+	const int32 NumTriangles = Indices.Num() / 3;
+
+	for (int32 i = 0; i < NumTriangles; ++i)
+	{
+		int32 i0 = Indices[i * 3 + 0] + 1;
+		int32 i1 = Indices[i * 3 + 1] + 1;
+		int32 i2 = Indices[i * 3 + 2] + 1;
+		ObjData += FString::Printf(TEXT("f %d/%d/%d %d/%d/%d %d/%d/%d\n"),
+			i0, i0, i0,
+			i1, i1, i1,
+			i2, i2, i2);
+	}
+
+	// Save to file
+	if (FFileHelper::SaveStringToFile(ObjData, *OutputPath))
+	{
+		UE_LOG(LogTemp, Log, TEXT("Successfully exported to OBJ: %s"), *OutputPath);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("Failed to save OBJ file."));
+	}
+}
+
+void UOpenDriveToMap::MergeRoads()
+{
+	UE_LOG(LogTemp, Log, TEXT("Merging roads to single mesh..."));
+
+	UWorld* World = GetEditorWorld();
+
+	TArray<AActor*> FoundActors;
+	UGameplayStatics::GetAllActorsOfClass(World, AStaticMeshActor::StaticClass(), FoundActors);
+
+	TArray<UPrimitiveComponent*> ComponentsToMerge;
+
+	for (AActor* Actor : FoundActors)
+	{
+		if (Actor->GetActorLabel().StartsWith("SM_DrivingLane_"))
+		{
+			if (UStaticMeshComponent* SMC = Cast<UStaticMeshComponent>(Actor->GetComponentByClass(UStaticMeshComponent::StaticClass())))
+			{
+				ComponentsToMerge.Add(SMC);
+			}
+	}
+	}
+
+	if (ComponentsToMerge.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("No components to merge"));
+		return;
+	}
+
+	FMeshMergingSettings MergeSettings;
+	MergeSettings.bMergeMaterials = true;
+	MergeSettings.bPivotPointAtZero = true;
+
+	FString OutPath = UGenerationPathsHelper::GetPythonIntermediatePath(MapName);
+	FString AssetName = TEXT("MergedRoad");
+	FString PackageName = OutPath / AssetName;
+	UPackage* Package = CreatePackage(*PackageName);
+
+	IMeshMergeUtilities& MeshMergeUtilities =
+		FModuleManager::LoadModuleChecked<IMeshMergeModule>("MeshMergeUtilities").GetUtilities();
+
+	TArray<UObject*> AssetsToSync;
+	FVector MergedActorLocation = FVector::ZeroVector;
+
+	MeshMergeUtilities.MergeComponentsToStaticMesh(
+		ComponentsToMerge,
+		World,
+		MergeSettings,
+		nullptr,              // Base material (optional)
+		Package,              // Outer
+		AssetName,
+		AssetsToSync,
+		MergedActorLocation,
+		1.0f,                 // Screen size
+		false                 // bSilent
+	);
+
+	UE_LOG(LogTemp, Log, TEXT("Merged mesh saved to: %s"), *PackageName);
+
+	UStaticMesh* MergedMesh = nullptr;
+
+	for (UObject* Asset : AssetsToSync)
+	{
+		MergedMesh = Cast<UStaticMesh>(Asset);
+		if (MergedMesh)
+		{
+		FString ObjPath = OutPath / FString::Printf(TEXT("MergedRoad_%.4f_%.4f.obj"), WorldEndPosition.X, WorldEndPosition.Y);
+		ExportStaticMeshToOBJ(MergedMesh, ObjPath);
+		break;
+		}   
+	}
+}
+
+void UOpenDriveToMap::RunPythonRoadSegmentation()
+{
+	FString PluginPath = UGenerationPathsHelper::GetDigitalTwinsPluginPath();
+	FString ScriptPath = PluginPath / TEXT("Content/Python/road_segmentation.py");
+	FString OutPath = UGenerationPathsHelper::GetPythonIntermediatePath(MapName);
+
+	FString Args;
+	Args += FString::Printf(TEXT("\"%s\" "), *ScriptPath);
+	Args += FString::Printf(TEXT("--lon_min=%.8f "), OriginGeoCoordinates.Y);
+	Args += FString::Printf(TEXT("--lat_min=%.8f "), OriginGeoCoordinates.X);
+	Args += FString::Printf(TEXT("--lon_max=%.8f "), FinalGeoCoordinates.Y);
+	Args += FString::Printf(TEXT("--lat_max=%.8f "), FinalGeoCoordinates.X);
+	Args += FString::Printf(TEXT("--output_path=\"%s\" "), *OutPath);
+
+	RunPythonScript(ScriptPath, Args);
+}
+
+void UOpenDriveToMap::RunPythonMitsubaOptimization()
+{
+	FString PluginPath = UGenerationPathsHelper::GetDigitalTwinsPluginPath();
+	FString ScriptPath = PluginPath / TEXT("Content/Python/mitsuba_road_refiner.py");
+	FString OutPath = UGenerationPathsHelper::GetPythonIntermediatePath(MapName);
+
+	FString Args;
+	Args += FString::Printf(TEXT("\"%s\" "), *ScriptPath);
+	Args += FString::Printf(TEXT("--folder_path=\"%s\" "), *OutPath);
+
+	RunPythonScript(ScriptPath, Args);
+}
+
+void UOpenDriveToMap::MitsubaMeshOptimization()
+{
+	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Running road mesh optimization with Mitsuba..."));
+
+	MergeRoads();
+
+	RunPythonRoadSegmentation();
+
+	RunPythonMitsubaOptimization();
+
+	FString OutPath = UGenerationPathsHelper::GetPythonIntermediatePath(MapName);
+	FString ObjPath = OutPath / TEXT("updated_road.obj");
+	UGeometryImporter::ImportObj(ObjPath, GEditor->GetEditorWorldContext().World(), DefaultRoadMaterial);
+
+	// Hide DrivingLane actors
+	TArray<AActor*> Actors;
+	UGameplayStatics::GetAllActorsOfClass(GetEditorWorld(), AActor::StaticClass(), Actors);
+	for (auto& Actor : Actors)
+	{
+		auto Name = Actor->GetActorLabel();
+
+		if (Name.Contains("DrivingLane", ESearchCase::CaseSensitive))
+		{
+			Actor->SetActorHiddenInGame(true);
+			Actor->SetIsTemporarilyHiddenInEditor(true);
+		}
+	}
 }
 
 #endif

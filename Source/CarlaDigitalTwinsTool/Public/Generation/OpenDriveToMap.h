@@ -183,6 +183,9 @@ public:
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Stage" )
   bool bMapLoaded = false;
 
+  UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Mitsuba" )
+  bool bUseMitsuba = false;
+
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Digital Twins Tools" )
   TArray<TSubclassOf<class UDGTImplementable>> ToolsClasses;
 
@@ -230,13 +233,32 @@ public:
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Heightmap" )
   TArray<USplineComponent*> GeneratedSplines;
+
 protected:
 
   UFUNCTION(BlueprintCallable, Category = "Assets Placement")
   void RenderRoadToTexture(UWorld* World);
 
   UFUNCTION(BlueprintCallable, Category = "Assets Placement")
+  void RunPythonScript(FString ScriptPath, FString Args);
+
+  UFUNCTION(BlueprintCallable, Category = "Assets Placement")
   void RunPythonRoadEdges(FVector2D Center, FVector2D Extent);
+
+  UFUNCTION(BlueprintCallable, Category = "Mitsuba")
+  void ExportStaticMeshToOBJ(UStaticMesh *StaticMesh, const FString &OutputPath);
+
+  UFUNCTION(BlueprintCallable, Category = "Mitsuba")
+  void MergeRoads();
+
+  UFUNCTION(BlueprintCallable, Category = "Mitsuba")
+  void RunPythonRoadSegmentation();
+
+  UFUNCTION(BlueprintCallable, Category = "Mitsuba")
+  void RunPythonMitsubaOptimization();
+
+  UFUNCTION(BlueprintCallable, Category = "Mitsuba")
+  void MitsubaMeshOptimization();
 
   UFUNCTION(BlueprintCallable)
   TArray<AActor*> GenerateMiscActors(float Offset, FVector MinLocation, FVector MaxLocation );
