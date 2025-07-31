@@ -431,7 +431,7 @@ void ATrafficLightActor::BuildFromJSONString(const FString& JSONConfig)
 									const FString LightName{LightObj->GetStringField(TEXT("LightType"))};
 									FTLModuleLight Light;
 									Light.LightType = GetEnumValueFromString<ETLLightType>(LightName);
-									const FVector2D AtlasUV{FTLMeshFactory::GetAtlasCoordsForLightType(Light.LightType)};
+									const FIntPoint AtlasUV{FTLMeshFactory::GetAtlasCoordsForLightType(Light.LightType)};
 									Light.U = AtlasUV.X;
 									Light.V = AtlasUV.Y;
 									Light.EmissiveIntensity = LightObj->GetNumberField(TEXT("EmissiveIntensity"));
