@@ -17,6 +17,7 @@
 #include "GeometryScript/MeshPrimitiveFunctions.h"
 #include "GeometryScript/MeshAssetFunctions.h"
 #include "Engine/StaticMesh.h"
+#include "DynamicMesh/DynamicMesh3.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "UObject/Package.h"
 #include "Misc/PackageName.h"
@@ -35,7 +36,8 @@ UStaticMesh* UDynamicMeshGeneration::CreateMeshFromPoints(
     TArray<FVector> Points3D,
     FName MeshName,
     const FString& AssetPath,
-    bool bFlipped)
+    bool bFlipped,
+    FVector Offset)
 {
     TArray<FVector2D> Points;
     TMap<FVector2D, float> Heights;
@@ -71,6 +73,28 @@ UStaticMesh* UDynamicMeshGeneration::CreateMeshFromPoints(
         1.0f,    // Wall thickness
         true
     );
+
+
+    // Step 2: Apply height (Z) from original Points3D + Offset
+    DynamicMesh->EditMesh([&](FDynamicMesh3& Mesh)
+      {
+        for (int32 vid : Mesh.VertexIndicesItr())
+        {
+          FVector3d Pos = Mesh.GetVertex(vid);
+
+          FVector2D XY(Pos.X, Pos.Y);
+          float Z = Pos.Z;
+
+          // Try to replace Z if a height was stored for this XY
+          if (const float* FoundZ = Heights.Find(XY))
+          {
+            Z = *FoundZ;
+          }
+
+          Mesh.SetVertex(vid, FVector3d(Pos.X + Offset.X, Pos.Y + Offset.Y, Z + Offset.Z));
+        }
+      });
+
 
     // Step 2: Construct full package name (path + mesh name)
     FString CleanAssetPath = AssetPath;

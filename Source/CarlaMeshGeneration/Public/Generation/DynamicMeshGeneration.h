@@ -31,6 +31,7 @@ public:
       TArray<FVector> Points3D,
       FName MeshName,
       const FString& AssetPath,
-      bool bFlipped = true);
+      bool bFlipped = true,
+      FVector Offset = FVector::ZeroVector);
 
 };
