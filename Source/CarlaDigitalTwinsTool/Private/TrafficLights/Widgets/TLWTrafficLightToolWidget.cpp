@@ -688,7 +688,6 @@ void STrafficLightToolWidget::OnModuleVisorChanged(ECheckBoxState NewState, int3
 	if (Module.ModuleMesh != NewStaticMesh)
 	{
 		Module.ModuleMesh = NewStaticMesh;
-		Module.ModuleMeshComponent->SetStaticMesh(NewStaticMesh);
 	}
 
 	Rebuild();
@@ -1976,7 +1975,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildModuleEntry(int32 PoleIndex, i
 								if (Mesh && Mesh->GetName() == *NewSelection)
 								{
 									Module.ModuleMesh = Mesh;
-									Module.ModuleMeshComponent->SetStaticMesh(Mesh);
 									break;
 								}
 							}

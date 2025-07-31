@@ -43,6 +43,7 @@ FTransform ParseTransform(const TSharedPtr<FJsonObject>& Json)
 	const FVector Scale3D(Scale->GetNumberField(TEXT("X")), Scale->GetNumberField(TEXT("Y")), Scale->GetNumberField(TEXT("Z")));
 	return FTransform(Rotation, Location, Scale3D);
 }
+
 template <typename TEnum>
 TEnum GetEnumValueFromString(const FString& Name)
 {
@@ -57,6 +58,7 @@ TEnum GetEnumValueFromString(const FString& Name)
 	}
 	return TEnum(0);
 }
+
 TSharedPtr<FJsonObject> TransformToJson(const FTransform& T)
 {
 	TSharedPtr<FJsonObject> J = MakeShared<FJsonObject>();
@@ -426,9 +428,9 @@ void ATrafficLightActor::BuildFromJSONString(const FString& JSONConfig)
 								for (const auto& LightValue : *JsonLights)
 								{
 									const TSharedPtr<FJsonObject> LightObj{LightValue->AsObject()};
+									const FString LightName{LightObj->GetStringField(TEXT("LightType"))};
 									FTLModuleLight Light;
-									Light.LightType =
-										GetEnumValueFromString<ETLLightType>(LightObj->GetStringField(TEXT("LightType")));
+									Light.LightType = GetEnumValueFromString<ETLLightType>(LightName);
 									const FVector2D AtlasUV{FTLMeshFactory::GetAtlasCoordsForLightType(Light.LightType)};
 									Light.U = AtlasUV.X;
 									Light.V = AtlasUV.Y;

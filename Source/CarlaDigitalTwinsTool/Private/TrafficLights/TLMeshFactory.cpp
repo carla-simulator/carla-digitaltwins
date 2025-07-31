@@ -1,7 +1,9 @@
 #include "TrafficLights/TLMeshFactory.h"
 
 #include "Components/StaticMeshComponent.h"
+#include "CoreGlobals.h"
 #include "Logging/LogVerbosity.h"
+#include "Math/MathFwd.h"
 #include "Misc/AssertionMacros.h"
 #include "TrafficLights/TLBackplateDataTable.h"
 #include "TrafficLights/TLLightTypeDataTable.h"
@@ -347,7 +349,7 @@ int32 FTLMeshFactory::CountLedMaterials(UStaticMesh* Mesh)
 	return Count;
 }
 
-FVector2D FTLMeshFactory::GetAtlasCoordsForLightType(ETLLightType LightType)
+FIntPoint FTLMeshFactory::GetAtlasCoordsForLightType(ETLLightType LightType)
 {
 	if (s_LightTypeMeshTable == nullptr)
 	{
@@ -355,22 +357,20 @@ FVector2D FTLMeshFactory::GetAtlasCoordsForLightType(ETLLightType LightType)
 		if (s_LightTypeMeshTable == nullptr)
 		{
 			UE_LOG(LogTemp, Error, TEXT("LightTypesTable is not set"));
-			return FVector2D::ZeroVector;
+			return FIntPoint::ZeroValue;
 		}
 	}
-	const UEnum* EnumPtr = StaticEnum<ETLLightType>();
+	const UEnum* EnumPtr{StaticEnum<ETLLightType>()};
 	if (!EnumPtr)
 	{
-		return FVector2D::ZeroVector;
+		return FIntPoint::ZeroValue;
 	}
 
-	const FString EnumName = EnumPtr->GetNameStringByValue(static_cast<int64>(LightType));
+	const FString EnumName{EnumPtr->GetNameStringByValue(static_cast<int64>(LightType))};
 	const FName RowName(*EnumName);
-
 	if (const FTLLightTypeRow* Row = s_LightTypeMeshTable->FindRow<FTLLightTypeRow>(RowName, TEXT("GetAtlasCoordsForLightType")))
 	{
 		return Row->AtlasCoords;
 	}
-
-	return FVector2D::ZeroVector;
+	return FIntPoint::ZeroValue;
 }

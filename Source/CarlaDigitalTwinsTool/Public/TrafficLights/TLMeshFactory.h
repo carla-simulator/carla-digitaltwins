@@ -38,7 +38,7 @@ public:
 	static UDataTable* GetPoleMeshTable();
 	static UDataTable* GetBackplateMeshTable();
 
-	static FVector2D GetAtlasCoordsForLightType(ETLLightType LightType);
+	static FIntPoint GetAtlasCoordsForLightType(ETLLightType LightType);
 	static int32 CountLedMaterials(UStaticMesh* Mesh);
 
 private:
