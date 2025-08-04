@@ -83,7 +83,8 @@ public class CarlaMeshGeneration : ModuleRules
         "GeometryCore",
         "GeometryScriptingCore",
         "GeometryFramework",
-        "DynamicMesh"
+        "DynamicMesh",
+        "PCG"
 				// ... add private dependencies that you statically link with here ...	
       }
     );
