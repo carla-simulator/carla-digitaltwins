@@ -19,11 +19,6 @@
 			"Name": "CarlaDigitalTwinsTool",
 			"Type": "Editor",
 			"LoadingPhase": "Default"
-		},
-		{
-			"Name": "CarlaMeshGeneration",
-			"Type": "Editor",
-			"LoadingPhase": "Default"
 		}
 	],
 	"Plugins": [
