@@ -11,7 +11,7 @@
 #include "Materials/MaterialInstance.h"
 #include "StaticMeshAttributes.h"
 #include "RenderingThread.h"
-#include "DynamicMeshGeneration.h"
+#include "Generation/DynamicMeshGeneration.h"
 #include "DynamicMesh/DynamicMesh3.h"
 #include "DynamicMeshActor.h"
 #include "GeometryScript/MeshPrimitiveFunctions.h"
