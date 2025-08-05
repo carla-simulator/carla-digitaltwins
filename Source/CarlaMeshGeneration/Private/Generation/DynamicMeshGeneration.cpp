@@ -7,7 +7,6 @@
 #include "Generation/DynamicMeshGeneration.h"
 
 // Engine headers
-#include "AssetRegistry/AssetRegistryModule.h"
 #include "Materials/MaterialInstance.h"
 #include "StaticMeshAttributes.h"
 #include "RenderingThread.h"
@@ -17,9 +16,8 @@
 #include "GeometryScript/MeshPrimitiveFunctions.h"
 #include "GeometryScript/MeshAssetFunctions.h"
 #include "Engine/StaticMesh.h"
-#include "DynamicMesh/DynamicMesh3.h"
 #include "AssetRegistry/AssetRegistryModule.h"
-#include "UObject/Package.h"
+
 #include "Misc/PackageName.h"
 #include "UObject/SavePackage.h"
 

@@ -118,15 +118,15 @@ public class CarlaDigitalTwinsTool : ModuleRules
 
         PublicDependencyModuleNames.AddRange(
           new string[]
-          {
-        "Core",
-        "ProceduralMeshComponent",
-        "MeshDescription",
-        "RawMesh",
-        "AssetTools",
-        "Projects"
+            {
+                "Core",
+                "ProceduralMeshComponent",
+                "MeshDescription",
+                "RawMesh",
+                "AssetTools",
+                "Projects"
 				// ... add other public dependencies that you statically link with here ...
-      }
+            }
     );
 
 
@@ -160,9 +160,15 @@ public class CarlaDigitalTwinsTool : ModuleRules
         "StreetMapRuntime",
         "InputCore",
         "AppFramework",
-        "EngineSettings"
+        "EngineSettings",
+        "GeometryCore",
+        "DynamicMesh",
+        "GeometryCore",
+        "GeometryScriptingCore",
+        "GeometryFramework",
+        "DynamicMesh"
 				// ... add private dependencies that you statically link with here ...
-			}
+          }
       );
 
         if (Target.Version.MajorVersion < 5)

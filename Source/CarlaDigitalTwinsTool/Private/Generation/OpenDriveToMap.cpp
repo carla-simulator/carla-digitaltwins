@@ -71,6 +71,7 @@
 #include "Carla/Road/element/RoadInfoSignal.h"
 #include "DrawDebugHelpers.h"
 #include "Paths/GenerationPathsHelper.h"
+#include "Generation/OpenDriveToMapTerrainGenerator.h"
 #include "StreetMapActor.h"
 
 #if WITH_EDITOR
@@ -140,6 +141,8 @@ UOpenDriveToMap::UOpenDriveToMap()
 #else
   PythonBinPath = TEXT("/usr/bin/python3");
 #endif
+  ExcludedTerrainTypes.Add("tree_row");
+  ExcludedTerrainTypes.Add("rail_way");
 }
 
 UOpenDriveToMap::~UOpenDriveToMap()
@@ -770,7 +773,7 @@ void UOpenDriveToMap::LoadMap()
       UGameplayStatics::OpenLevel(World, FName(*CurrentMapName));
       AsyncTask(ENamedThreads::GameThread, [this, World]
           {
-              RenderRoadToTexture(World);
+              //RenderRoadToTexture(World);
           });
     }
 #endif
@@ -814,18 +817,19 @@ void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& Param
   FVector MaxLocation )
 {
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Roads..... "));
-  GenerateRoadMesh(ParamCarlaMap, MinLocation, MaxLocation);
+  //GenerateRoadMesh(ParamCarlaMap, MinLocation, MaxLocation);
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Lane Marks..... "));
-  GenerateLaneMarks(ParamCarlaMap, MinLocation, MaxLocation);
+  //GenerateLaneMarks(ParamCarlaMap, MinLocation, MaxLocation);
   // GenerateSpawnPoints(ParamCarlaMap, MinLocation, MaxLocation);
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Terrain..... "));
-  CreateTerrain(5,5, 64);
+  UOpenDriveToMapTerrainGenerator::GenerateTerrainsFromTypes(this, ParamCarlaMap, MinLocation, MaxLocation, ExcludedTerrainTypes);
+  //CreateTerrain(10,10, 64);
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Tree positions..... "));
-  GenerateTreePositions(ParamCarlaMap, MinLocation, MaxLocation);
+  //GenerateTreePositions(ParamCarlaMap, MinLocation, MaxLocation);
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Traffic Lights..... "));
-  GenerateTrafficLights(ParamCarlaMap, MinLocation, MaxLocation);
+  //GenerateTrafficLights(ParamCarlaMap, MinLocation, MaxLocation);
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Misc stuff..... "));
-  GenerationFinished(MinLocation, MaxLocation);
+  //GenerationFinished(MinLocation, MaxLocation);
 }
 
 void UOpenDriveToMap::GenerateRoadMesh( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation )
