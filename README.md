@@ -39,7 +39,7 @@
      ```bash
      ./Setup.sh
      ```
-   - **On Windows (double-click or terminal):**
+   - **On Windows (in a developer terminal):**
      ```cmd
      Setup.bat
      ```
