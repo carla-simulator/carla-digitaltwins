@@ -3,8 +3,6 @@
 set SCRIPT_PATH=%~f0
 set SOURCE_PATH=%SCRIPT_PATH:Setup.bat=%
 
-call "%PROGRAMFILES%/Microsoft Visual Studio/2022/Community/VC/Auxiliary/Build/vcvars64.bat"
-
 set BOOST_COMPONENTS="asio;iterator;date_time;geometry;container;variant2;gil;filesystem"
 
 cmake ^
