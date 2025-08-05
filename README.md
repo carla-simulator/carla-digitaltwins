@@ -39,7 +39,7 @@
      ```bash
      ./Setup.sh
      ```
-   - **On Windows (in a native tools command prompt):**
+   - **On Windows (on an X64 Native Tools Command Prompt for VS 2022):**
      ```cmd
      Setup.bat
      ```
