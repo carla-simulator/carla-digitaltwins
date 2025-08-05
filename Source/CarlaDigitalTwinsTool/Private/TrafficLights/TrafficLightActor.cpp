@@ -56,6 +56,7 @@ TEnum GetEnumValueFromString(const FString& Name)
 		}
 		UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Invalid enum name '%s' for %s"), *Name, *Enum->GetName());
 	}
+	UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Enum not found"));
 	return TEnum(0);
 }
 
@@ -419,7 +420,7 @@ void ATrafficLightActor::BuildFromJSONString(const FString& JSONConfig)
 							}
 							else
 							{
-								UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Module Mesh Name not found, using default."));
+								UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Module Mesh Name not found, using default."));
 								Module.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head, Module).Last();
 							}
 							const TArray<TSharedPtr<FJsonValue>>* JsonLights;
@@ -598,8 +599,10 @@ UStaticMeshComponent* ATrafficLightActor::AddModule(USceneComponent* Parent, FTL
 	const FTransform ModuleTransform{ModuleData.Transform * ModuleData.Offset};
 
 	UStaticMeshComponent* Comp{UMapGenFunctionLibrary::AddStaticMeshComponentToActor(this)};
-	if (!Comp)
+	if (!IsValid(Comp))
 	{
+		UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Failed to create StaticMeshComponent for module %s"),
+			*ModuleData.ModuleMesh->GetName());
 		return nullptr;
 	}
 	Comp->SetStaticMesh(ModuleData.ModuleMesh);
@@ -610,17 +613,17 @@ UStaticMeshComponent* ATrafficLightActor::AddModule(USceneComponent* Parent, FTL
 	for (FTLModuleLight& Light : ModuleData.Lights)
 	{
 		const FName SlotName{*FString::Printf(TEXT("led_%d"), LightIndex)};
-		const int32 MaterialIndex{Comp->GetMaterialIndex(SlotName)};
-		if (MaterialIndex != INDEX_NONE)
+		const int32 MaterialSlotIndex{Comp->GetMaterialIndex(SlotName)};
+		if (MaterialSlotIndex != INDEX_NONE)
 		{
-			UMaterialInstanceDynamic* MID{FMaterialFactory::GetLightMaterialInstance(Comp)};
+			UMaterialInstanceDynamic* MID{FMaterialFactory::CreateLightMaterialInstanceDynamic(Comp, SlotName)};
 			if (IsValid(MID))
 			{
 				MID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light.EmissiveIntensity);
 				MID->SetVectorParameterValue(TEXT("Emissive Color"), Light.EmissiveColor);
-				MID->SetScalarParameterValue(TEXT("Offset U"), Light.U);
-				MID->SetScalarParameterValue(TEXT("Offset V"), Light.V);
-				Comp->SetMaterial(MaterialIndex, MID);
+				MID->SetScalarParameterValue(TEXT("Offset U"), static_cast<float>(Light.U));
+				MID->SetScalarParameterValue(TEXT("Offset Y"), static_cast<float>(Light.V));
+				Comp->SetMaterial(MaterialSlotIndex, MID);
 				Light.LightMID = MID;
 				DemoLights.Add(&Light);
 			}
@@ -628,8 +631,13 @@ UStaticMeshComponent* ATrafficLightActor::AddModule(USceneComponent* Parent, FTL
 			{
 				UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Failed to create MID for slot %s"), *SlotName.ToString());
 			}
-			++LightIndex;
 		}
+		else
+		{
+			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Material slot %s not found in module %s"), *SlotName.ToString(),
+				*ModuleData.ModuleMesh->GetName());
+		}
+		++LightIndex;
 	}
 
 	Comp->Modify();
@@ -939,17 +947,19 @@ void ATrafficLightActor::AdvanceDemoPhase()
 		}
 	}
 
+	auto IsPhase{[&](FTLModuleLight* L, const FString& PhaseName)
+		{
+			const FString Full{UEnum::GetValueAsString(L->LightType)};
+			return Full.Contains(PhaseName, ESearchCase::IgnoreCase);
+		}};
+
 	switch (CurrentPhase)
 	{
 		case EDemoPhase::Red:
 		{
 			for (FTLModuleLight* Light : DemoLights)
 			{
-				if (Light->LightType == ETLLightType::SolidColorRed)
-				{
-					Light->LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light->EmissiveIntensity);
-				}
-				else if (Light->LightType == ETLLightType::PedestrianWalkGreen)
+				if (Light->LightMID && (IsPhase(Light, "Red") || IsPhase(Light, "PedestrianWalkGreen")))
 				{
 					Light->LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light->EmissiveIntensity);
 				}
@@ -963,13 +973,9 @@ void ATrafficLightActor::AdvanceDemoPhase()
 		{
 			for (FTLModuleLight* Light : DemoLights)
 			{
-				if (Light->LightType == ETLLightType::SolidColorGreen)
+				if (Light->LightMID && (IsPhase(Light, "Green") || IsPhase(Light, "PedestrianStop")))
 				{
-					Light->LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light->EmissiveIntensity);
-				}
-				else if (Light->LightType == ETLLightType::PedestrianStop)
-				{
-					Light->LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light->EmissiveIntensity);
+					Light->LightMID->SetScalarParameterValue("Emissive Intensity", Light->EmissiveIntensity);
 				}
 			}
 			CurrentPhase = EDemoPhase::AmberBlink;
@@ -999,16 +1005,23 @@ void ATrafficLightActor::ToggleAmberBlink()
 	{
 		return;
 	}
+	auto IsPhase{[&](FTLModuleLight* L, const FString& PhaseName)
+		{
+			const FString Full{UEnum::GetValueAsString(L->LightType)};
+			return Full.Contains(PhaseName, ESearchCase::IgnoreCase);
+		}};
+
 	bAmberVisible = !bAmberVisible;
 	for (FTLModuleLight* Light : DemoLights)
 	{
-		if (Light->LightType == ETLLightType::SolidColorAmber)
+		if (Light->LightMID && IsPhase(Light, "Amber"))
 		{
-			Light->LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), bAmberVisible ? Light->EmissiveIntensity : 0.0f);
+			Light->LightMID->SetScalarParameterValue("Emissive Intensity", bAmberVisible ? Light->EmissiveIntensity : 0.0f);
 		}
-		else if (Light->LightType == ETLLightType::PedestrianStop)
+		else if (Light->LightMID && IsPhase(Light, "PedestrianStop"))
 		{
-			Light->LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light->EmissiveIntensity);
+			// peatones siempre en rojo durante el blinking de amber de vehículos
+			Light->LightMID->SetScalarParameterValue("Emissive Intensity", Light->EmissiveIntensity);
 		}
 	}
 }
