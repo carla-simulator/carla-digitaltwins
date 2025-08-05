@@ -47,9 +47,10 @@ public class CarlaMeshGeneration : ModuleRules
         "ProceduralMeshComponent",
         "MeshDescription",
         "RawMesh",
-        "AssetTools"
+        "AssetTools",
+        "Projects"
 				// ... add other public dependencies that you statically link with here ...
-			}
+      }
     );
 
 
@@ -77,8 +78,14 @@ public class CarlaMeshGeneration : ModuleRules
         "RHI",
         "RenderCore",
         "MeshMergeUtilities",
+        "GeometryCore",
+        "DynamicMesh",
+        "GeometryCore",
+        "GeometryScriptingCore",
+        "GeometryFramework",
+        "DynamicMesh"
 				// ... add private dependencies that you statically link with here ...	
-			}
+      }
     );
 
     DynamicallyLoadedModuleNames.AddRange(

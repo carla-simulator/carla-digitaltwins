@@ -30,4 +30,7 @@ public:
         FVector2D Center,
         FVector2D Extent,
         FIntPoint RTExtent);
+
+    UFUNCTION(BlueprintCallable, Category = "GeometryImporter")
+    static void ImportObj(const FString& ObjFilePath, UWorld* World, UMaterialInterface* Material);
 };

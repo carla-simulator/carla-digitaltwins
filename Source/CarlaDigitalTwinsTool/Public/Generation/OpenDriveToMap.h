@@ -13,6 +13,7 @@
 #include "TextureResource.h"
 #include <boost/optional.hpp>
 #include "Generation/OpenDriveFileGenerationParameters.h"
+#include "Utils/DGTImplementable.h"
 #include "OpenDriveToMap.generated.h"
 
 USTRUCT(BlueprintType)
@@ -70,7 +71,7 @@ public:
   void CreateTerrainMesh(const int MeshIndex, const FVector2D Offset,  const int TileSizeX, const int TileSizeY, const float GridSectionSize);
 
   UFUNCTION(BlueprintCallable)
-  float GetHeight(float PosX, float PosY,bool bDrivingLane = false);
+  float GetHeight(float PosX, float PosY, bool bDrivingLane = false);
 
   UFUNCTION(BlueprintCallable)
   static AActor* SpawnActorWithCheckNoCollisions(UClass* ActorClassToSpawn, FTransform Transform);
@@ -113,7 +114,7 @@ public:
   static UWorld* GetGameWorld();
 
   UFUNCTION(BlueprintCallable)
-  TArray<FRoadSignInfo> GetAllRoadSignsInfo(); 
+  TArray<FRoadSignInfo> GetAllRoadSignsInfo();
 
   UFUNCTION(BlueprintCallable, Category = "Assets Placement")
   static void MoveActorsToSubLevelWithLargeMap(TArray<AActor*> Actors, ALargeMapManager* LargeMapManager);
@@ -163,7 +164,7 @@ public:
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defaults")
   UMaterialInstance* DefaultLandscapeMaterial;
-  
+
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Parameters")
   FOpenDriveFileGenerationParameters OpenDriveGenParams;
 
@@ -181,6 +182,12 @@ public:
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Stage" )
   bool bMapLoaded = false;
+
+  UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Mitsuba" )
+  bool bUseMitsuba = false;
+
+  UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Digital Twins Tools" )
+  TArray<TSubclassOf<class UDGTImplementable>> ToolsClasses;
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="TileGeneration" )
   FVector MinPosition;
@@ -221,19 +228,40 @@ public:
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Heightmap" )
   float MaxHeight;
 
+  UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Heightmap" )
+  class AStreetMapActor* StreetMapActorReference;
+
+  UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Heightmap" )
+  TArray<USplineComponent*> GeneratedSplines;
+
 protected:
 
-    UFUNCTION(BlueprintCallable, Category = "Assets Placement")
-    void RenderRoadToTexture(UWorld* World);
+  UFUNCTION(BlueprintCallable, Category = "Assets Placement")
+  void RenderRoadToTexture(UWorld* World);
 
-    UFUNCTION(BlueprintCallable, Category = "Assets Placement")
-    void RunPythonRoadEdges(FVector2D Center, FVector2D Extent);
+  UFUNCTION(BlueprintCallable, Category = "Assets Placement")
+  void RunPythonScript(FString ScriptPath, FString Args);
+
+  UFUNCTION(BlueprintCallable, Category = "Assets Placement")
+  void RunPythonRoadEdges(FVector2D Center, FVector2D Extent);
+
+  UFUNCTION(BlueprintCallable, Category = "Mitsuba")
+  void ExportStaticMeshToOBJ(UStaticMesh *StaticMesh, const FString &OutputPath);
+
+  UFUNCTION(BlueprintCallable, Category = "Mitsuba")
+  void MergeRoads();
+
+  UFUNCTION(BlueprintCallable, Category = "Mitsuba")
+  void RunPythonRoadSegmentation();
+
+  UFUNCTION(BlueprintCallable, Category = "Mitsuba")
+  void RunPythonMitsubaOptimization();
+
+  UFUNCTION(BlueprintCallable, Category = "Mitsuba")
+  void MitsubaMeshOptimization();
 
   UFUNCTION(BlueprintCallable)
   TArray<AActor*> GenerateMiscActors(float Offset, FVector MinLocation, FVector MaxLocation );
-
-  UFUNCTION(BlueprintImplementableEvent)
-  void SplineGenerationFinished(const TArray<USplineComponent*>& Splines);
 
   UFUNCTION( BlueprintImplementableEvent )
   void GenerationFinished(FVector MinLocation, FVector MaxLocation);
@@ -264,6 +292,7 @@ private:
   // void GenerateSpawnPoints(const carla::road::Map& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
   void GenerateTreePositions(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
   void GenerateLaneMarks(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
+  void GenerateTrafficLights(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
 
   FTransform GetSnappedPosition(FTransform Origin);
 
@@ -289,13 +318,15 @@ private:
 
   UPROPERTY()
   UCustomFileDownloader* FileDownloader;
-  
+
   UPROPERTY()
   TArray<AActor*> Landscapes;
 
   UPROPERTY()
   UTexture2D* Heightmap;
 
+  UPROPERTY()
+  TArray<UDGTImplementable*> ToolInstances;
 
   FSharedImageConstRef HeightmapCopy;
   TArrayView64<const uint16> HeightmapPixels;
