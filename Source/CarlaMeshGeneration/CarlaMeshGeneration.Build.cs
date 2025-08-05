@@ -78,8 +78,14 @@ public class CarlaMeshGeneration : ModuleRules
         "RHI",
         "RenderCore",
         "MeshMergeUtilities",
+        "GeometryCore",
+        "DynamicMesh",
+        "GeometryCore",
+        "GeometryScriptingCore",
+        "GeometryFramework",
+        "DynamicMesh"
 				// ... add private dependencies that you statically link with here ...	
-			}
+      }
     );
 
     DynamicallyLoadedModuleNames.AddRange(

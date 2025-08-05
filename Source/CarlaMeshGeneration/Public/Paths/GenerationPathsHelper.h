@@ -8,6 +8,7 @@
 
 #include "CoreMinimal.h"
 #include "Interfaces/IPluginManager.h"
+#include "HAL/PlatformFileManager.h"
 #include "GenerationPathsHelper.generated.h"
 
 UCLASS()
@@ -35,6 +36,28 @@ public:
   static FString GetDigitalTwinsPluginPath() {
     FString PluginPath = FPaths::ConvertRelativePathToFull(IPluginManager::Get().FindPlugin("CarlaDigitalTwinsTool")->GetBaseDir());
     return PluginPath;
+  }
+
+  UFUNCTION(BlueprintCallable)
+  static void CreateDirectory(const FString& DirectoryPath)
+  {
+      IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+
+      if (!PlatformFile.DirectoryExists(*DirectoryPath))
+      {
+          PlatformFile.CreateDirectoryTree(*DirectoryPath);
+          UE_LOG(LogTemp, Log, TEXT("Created disk folder: %s"), *DirectoryPath);
+      }
+  }
+
+  UFUNCTION(BlueprintCallable)
+  static FString GetPythonIntermediatePath(const FString& MapName)
+  {
+    FString MapPath = FPaths::ConvertRelativePathToFull(UGenerationPathsHelper::GetRawMapDirectoryPath(MapName));
+    FString OutPath = MapPath / TEXT("PythonIntermediate");
+    UGenerationPathsHelper::CreateDirectory(OutPath);
+
+    return OutPath;
   }
 
 };

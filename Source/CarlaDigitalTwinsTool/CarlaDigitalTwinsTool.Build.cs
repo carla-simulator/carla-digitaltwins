@@ -126,10 +126,8 @@ public class CarlaDigitalTwinsTool : ModuleRules
             "RawMesh",
             "AssetTools",
             "Projects",
-
-				// ... add other public dependencies that you statically link with here ...
-      }
-    );
+            }
+        );
 
 
         PrivateDependencyModuleNames.AddRange(
@@ -156,13 +154,13 @@ public class CarlaDigitalTwinsTool : ModuleRules
             "HTTP",
             "RHI",
             "RenderCore",
-            "MeshMergeUtilities",
             "CarlaMeshGeneration",
             "StreetMapImporting",
             "StreetMapRuntime",
             "InputCore",
             "AppFramework",
             "EngineSettings",
+            "AssetTools",
             "DesktopPlatform"
 				// ... add private dependencies that you statically link with here ...
           }
@@ -190,5 +188,6 @@ public class CarlaDigitalTwinsTool : ModuleRules
         {
             PrivateDefinitions.Add("_USE_MATH_DEFINES");
         }
+
     }
 }
