@@ -21,18 +21,23 @@
 			"LoadingPhase": "Default"
 		}
 	],
-	"Plugins": [
-		{
-			"Name": "EditorScriptingUtilities",
-			"Enabled": true
-		},
-		{
-			"Name": "ProceduralMeshComponent",
-			"Enabled": true
-		},
-		{
-			"Name": "StreetMap",
-			"Enabled": true
-		}
-	]
+  "Plugins":
+  [
+    {
+      "Name": "EditorScriptingUtilities",
+      "Enabled": true
+    },
+    {
+      "Name": "ProceduralMeshComponent",
+      "Enabled": true
+    },
+    {
+      "Name": "CarlaMeshGeneration",
+      "Enabled": true
+    },
+    {
+      "Name": "StreetMap",
+      "Enabled": true
+    }
+  ]
 }
