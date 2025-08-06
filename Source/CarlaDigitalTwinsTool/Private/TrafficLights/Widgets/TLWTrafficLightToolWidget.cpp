@@ -302,7 +302,6 @@ FReply STrafficLightToolWidget::OnExportJSONClicked()
 #endif
 
 	const FString JsonString{TL->ExportToJSON(bUseTransform)};
-	TArray<FString> OutFiles;
 	IDesktopPlatform* Desktop{FDesktopPlatformModule::Get()};
 	if (Desktop)
 	{
