@@ -70,7 +70,7 @@ private:
 	{
 		Red,
 		Green,
-		AmberBlink
+		Amber,
 	};
 	bool bDemoPlaying{false};
 	FTimerHandle PhaseTimerHandle;
@@ -86,7 +86,7 @@ private:
 	float GreenDuration{6.0f};
 
 	UPROPERTY(EditAnywhere, Category = "TrafficLight|Demo")
-	float AmberBlinkDuration{3.0f};
+	float AmberDuration{3.0f};
 
 	UPROPERTY(EditAnywhere, Category = "TrafficLight|Demo")
 	float AmberBlinkInterval{0.25f};
@@ -94,6 +94,7 @@ private:
 	void AdvanceDemoPhase();
 	void ToggleAmberBlink();
 	void EndAmberPhase();
+	void ResetAllLights();
 
 private:
 	TArray<UStaticMeshComponent*> ModuleMeshComponents;

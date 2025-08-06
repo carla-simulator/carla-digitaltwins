@@ -626,6 +626,8 @@ void STrafficLightToolWidget::OnHeadOrientationChanged(ETLOrientation NewOrienta
 	FTLPole& Pole{Poles[PoleIndex]};
 	check(Pole.Heads.IsValidIndex(HeadIndex));
 	FTLHead& Head{Pole.Heads[HeadIndex]};
+	Head.Modules.Empty();
+	EditorPoles[PoleIndex].Heads[HeadIndex].Modules.Empty();
 	Head.Orientation = NewOrientation;
 	for (int32 ModuleIndex{0}; ModuleIndex < Head.Modules.Num(); ++ModuleIndex)
 	{
@@ -641,6 +643,9 @@ void STrafficLightToolWidget::OnHeadStyleChanged(ETLStyle NewStyle, int32 PoleIn
 	FTLPole& Pole{Poles[PoleIndex]};
 	check(Pole.Heads.IsValidIndex(HeadIndex));
 	FTLHead& Head{Pole.Heads[HeadIndex]};
+
+	Head.Modules.Empty();
+	EditorPoles[PoleIndex].Heads[HeadIndex].Modules.Empty();
 	Head.Style = NewStyle;
 	for (int32 ModuleIndex{0}; ModuleIndex < Head.Modules.Num(); ++ModuleIndex)
 	{

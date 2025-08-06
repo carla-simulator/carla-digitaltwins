@@ -622,7 +622,7 @@ UStaticMeshComponent* ATrafficLightActor::AddModule(USceneComponent* Parent, FTL
 				MID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light.EmissiveIntensity);
 				MID->SetVectorParameterValue(TEXT("Emissive Color"), Light.EmissiveColor);
 				MID->SetScalarParameterValue(TEXT("Offset U"), static_cast<float>(Light.U));
-				MID->SetScalarParameterValue(TEXT("Offset Y"), static_cast<float>(Light.V));
+				MID->SetScalarParameterValue(TEXT("Offset V"), static_cast<float>(Light.V));
 				Comp->SetMaterial(MaterialSlotIndex, MID);
 				Light.LightMID = MID;
 				DemoLights.Add(&Light);
@@ -880,7 +880,7 @@ void ATrafficLightActor::RebuildModuleChain(FTLHead& Head)
 		const FTransform CurrLocal(FQuat::Identity, CurrSocket->RelativeLocation, FVector::OneVector);
 		const FTransform SnapDelta{PrevBase * PrevLocal * CurrLocal.Inverse()};
 		Curr.Transform = SnapDelta;
-		Curr.ModuleMeshComponent->SetRelativeTransform(Curr.Transform * Curr.Offset);
+		Curr.ModuleMeshComponent->SetRelativeTransform(Curr.Offset * Curr.Transform);
 	}
 }
 
@@ -899,6 +899,17 @@ void ATrafficLightActor::Clear()
 	DemoLights.Empty();
 }
 
+void ATrafficLightActor::ResetAllLights()
+{
+	for (FTLModuleLight* Light : DemoLights)
+	{
+		if (Light && Light->LightMID)
+		{
+			Light->LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), 0.0f);
+		}
+	}
+}
+
 void ATrafficLightActor::PlayDemoSequence()
 {
 	DemoLights.Empty();
@@ -912,6 +923,8 @@ void ATrafficLightActor::PlayDemoSequence()
 				{
 					if (Light.LightMID)
 					{
+						UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Adding light %s to demo sequence."),
+							*UEnum::GetValueAsString(Light.LightType));
 						DemoLights.Add(&Light);
 					}
 				}
@@ -939,14 +952,7 @@ void ATrafficLightActor::AdvanceDemoPhase()
 	{
 		return;
 	}
-	for (FTLModuleLight* LightPtr : DemoLights)
-	{
-		if (LightPtr && LightPtr->LightMID)
-		{
-			LightPtr->LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), 0.0f);
-		}
-	}
-
+	ResetAllLights();
 	auto IsPhase{[&](FTLModuleLight* L, const FString& PhaseName)
 		{
 			const FString Full{UEnum::GetValueAsString(L->LightType)};
@@ -959,7 +965,7 @@ void ATrafficLightActor::AdvanceDemoPhase()
 		{
 			for (FTLModuleLight* Light : DemoLights)
 			{
-				if (Light->LightMID && (IsPhase(Light, "Red") || IsPhase(Light, "PedestrianWalkGreen")))
+				if (Light->LightMID && (IsPhase(Light, "Red") || IsPhase(Light, "Stop") || IsPhase(Light, "Horizontal")))
 				{
 					Light->LightMID->SetScalarParameterValue(TEXT("Emissive Intensity"), Light->EmissiveIntensity);
 				}
@@ -973,18 +979,30 @@ void ATrafficLightActor::AdvanceDemoPhase()
 		{
 			for (FTLModuleLight* Light : DemoLights)
 			{
-				if (Light->LightMID && (IsPhase(Light, "Green") || IsPhase(Light, "PedestrianStop")))
+				if (Light->LightMID && (IsPhase(Light, "Green") || IsPhase(Light, "Walk") || IsPhase(Light, "Vertical")))
 				{
 					Light->LightMID->SetScalarParameterValue("Emissive Intensity", Light->EmissiveIntensity);
 				}
 			}
-			CurrentPhase = EDemoPhase::AmberBlink;
-			bAmberVisible = false;
-			GetWorldTimerManager().ClearTimer(PhaseTimerHandle);
-			GetWorldTimerManager().SetTimer(PhaseTimerHandle, this, &ATrafficLightActor::AdvanceDemoPhase, GreenDuration, false);
+			const float MinAmberThreshold{0.25f};
+			if (AmberDuration <= MinAmberThreshold)
+			{
+				CurrentPhase = EDemoPhase::Red;
+				GetWorldTimerManager().ClearTimer(PhaseTimerHandle);
+				GetWorldTimerManager().SetTimer(
+					PhaseTimerHandle, this, &ATrafficLightActor::AdvanceDemoPhase, GreenDuration, false);
+			}
+			else
+			{
+				CurrentPhase = EDemoPhase::Amber;
+				bAmberVisible = false;
+				GetWorldTimerManager().ClearTimer(PhaseTimerHandle);
+				GetWorldTimerManager().SetTimer(
+					PhaseTimerHandle, this, &ATrafficLightActor::AdvanceDemoPhase, GreenDuration, false);
+			}
 			break;
 		}
-		case EDemoPhase::AmberBlink:
+		case EDemoPhase::Amber:
 		{
 			bAmberVisible = false;
 			ToggleAmberBlink();
@@ -992,8 +1010,7 @@ void ATrafficLightActor::AdvanceDemoPhase()
 			GetWorldTimerManager().SetTimer(
 				AmberBlinkTimerHandle, this, &ATrafficLightActor::ToggleAmberBlink, AmberBlinkInterval, true);
 			GetWorldTimerManager().ClearTimer(PhaseTimerHandle);
-			GetWorldTimerManager().SetTimer(PhaseTimerHandle, this, &ATrafficLightActor::EndAmberPhase, AmberBlinkDuration, false);
-
+			GetWorldTimerManager().SetTimer(PhaseTimerHandle, this, &ATrafficLightActor::EndAmberPhase, AmberDuration, false);
 			break;
 		}
 	}
@@ -1005,6 +1022,7 @@ void ATrafficLightActor::ToggleAmberBlink()
 	{
 		return;
 	}
+	ResetAllLights();
 	auto IsPhase{[&](FTLModuleLight* L, const FString& PhaseName)
 		{
 			const FString Full{UEnum::GetValueAsString(L->LightType)};
@@ -1017,11 +1035,6 @@ void ATrafficLightActor::ToggleAmberBlink()
 		if (Light->LightMID && IsPhase(Light, "Amber"))
 		{
 			Light->LightMID->SetScalarParameterValue("Emissive Intensity", bAmberVisible ? Light->EmissiveIntensity : 0.0f);
-		}
-		else if (Light->LightMID && IsPhase(Light, "PedestrianStop"))
-		{
-			// peatones siempre en rojo durante el blinking de amber de vehículos
-			Light->LightMID->SetScalarParameterValue("Emissive Intensity", Light->EmissiveIntensity);
 		}
 	}
 }
