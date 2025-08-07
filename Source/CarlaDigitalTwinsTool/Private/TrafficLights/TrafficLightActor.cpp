@@ -90,7 +90,6 @@ TSharedPtr<FJsonObject> TransformToJson(const FTransform& T)
 	return J;
 }
 
-// Convierte un enum a su nombre en string
 template <typename TEnum>
 FString EnumToString(TEnum Value)
 {
@@ -454,6 +453,61 @@ void ATrafficLightActor::BuildFromJSONString(const FString& JSONConfig)
 		}
 	}
 	Build();
+}
+
+void ATrafficLightActor::PopulateDefault()
+{
+	Poles.Empty();
+	const FString BaseMeshName{TEXT("SM_TrafficLight_Base")};
+	const FString ExtensibleMeshName{TEXT("SM_TrafficLight_Pole04")};
+	FTLPole Pole;
+	Pole.Transform = FTransform::Identity;
+	Pole.Offset = FTransform::Identity;
+	Pole.Style = ETLStyle::NorthAmerican;
+	Pole.Orientation = ETLOrientation::Vertical;
+	Pole.PoleHeight = 260.0f;
+	Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshByName(BaseMeshName);
+	Pole.ExtensiblePoleMesh = FTLMeshFactory::GetExtensibleMeshByName(ExtensibleMeshName);
+
+	FTLHead Head;
+	Head.Transform = FTransform(FRotator(), FVector(0, 8, 250), FVector(1.25f, 1.25f, 1.25f));
+	Head.Offset = FTransform::Identity;
+	Head.Style = ETLStyle::NorthAmerican;
+	Head.Orientation = ETLOrientation::Vertical;
+	Head.bHasBackplate = false;
+
+	FTLModule ModuleGreen;
+	ModuleGreen.bHasVisor = true;
+	ModuleGreen.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head, ModuleGreen).Last();
+	FTLModuleLight GreenLight;
+	GreenLight.LightType = ETLLightType::SolidColorGreen;
+	GreenLight.EmissiveColor = FLinearColor{0.100902f, 1.0f, 0.297537f, 1.0f};
+	GreenLight.EmissiveIntensity = 50000.0f;
+	ModuleGreen.Lights.Add(GreenLight);
+	Head.Modules.Add(ModuleGreen);
+
+	FTLModule ModuleAmber;
+	ModuleAmber.bHasVisor = true;
+	ModuleAmber.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head, ModuleAmber).Last();
+	FTLModuleLight AmberLight;
+	AmberLight.LightType = ETLLightType::SolidColorAmber;
+	AmberLight.EmissiveColor = FLinearColor{0.930111f, 0.3564f, 0.014444f, 1.0f};
+	AmberLight.EmissiveIntensity = 50000.0f;
+	ModuleAmber.Lights.Add(AmberLight);
+	Head.Modules.Add(ModuleAmber);
+
+	FTLModule ModuleRed;
+	ModuleRed.bHasVisor = true;
+	ModuleRed.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head, ModuleRed).Last();
+	FTLModuleLight RedLight;
+	RedLight.LightType = ETLLightType::SolidColorRed;
+	RedLight.EmissiveColor = FLinearColor{1.0f, 0.052026f, 0.061974f, 1.0f};
+	RedLight.EmissiveIntensity = 50000.0f;
+	ModuleRed.Lights.Add(RedLight);
+
+	Head.Modules.Add(ModuleRed);
+	Pole.Heads.Add(Head);
+	Poles.Add(Pole);
 }
 
 FString ATrafficLightActor::ExportToJSON(bool bUseTransform) const

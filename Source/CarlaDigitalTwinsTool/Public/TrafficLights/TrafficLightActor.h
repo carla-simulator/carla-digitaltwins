@@ -53,6 +53,8 @@ public:
 	UPROPERTY(EditAnywhere, Category = "TrafficLight")
 	TArray<FTLPole> Poles;
 
+	void PopulateDefault();
+
 private:
 	USceneComponent* AddRootPole(USceneComponent* Parent, FTLPole& Pole);
 	UStaticMeshComponent* AddPoleBase(USceneComponent* Parent, FTLPole& Pole);

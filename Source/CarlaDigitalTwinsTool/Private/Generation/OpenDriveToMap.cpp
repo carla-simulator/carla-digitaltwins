@@ -13,6 +13,7 @@
 #include "CoreGlobals.h"
 #include "EngineUtils.h"
 #include "Logging/LogMacros.h"
+#include "Logging/LogVerbosity.h"
 #include "Math/MathFwd.h"
 #include "TrafficLights/TLModule.h"
 #if ENGINE_MAJOR_VERSION < 5
@@ -99,9 +100,11 @@
 #include "HighResScreenshot.h"
 #include "IImageWrapper.h"
 #include "IImageWrapperModule.h"
+#include "IMeshMergeUtilities.h"
 #include "ImageUtils.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInterface.h"
+#include "MeshMergeModule.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
@@ -114,8 +117,6 @@
 #include "Runtime/ImageWriteQueue/Public/ImageWriteTask.h"
 #include "UObject/ConstructorHelpers.h"
 #include "UObject/SoftObjectPath.h"
-#include "IMeshMergeUtilities.h"
-#include "MeshMergeModule.h"
 // #include "Utils/GoogleStreetViewManager.h"
 #include "Utils/GeometryImporter.h"
 
@@ -846,12 +847,12 @@ void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& Param
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Misc stuff..... "));
 	GenerationFinished(MinLocation, MaxLocation);
 
-	#if PLATFORM_LINUX
+#if PLATFORM_LINUX
 	if (bUseMitsuba)
 	{
 		MitsubaMeshOptimization();
 	}
-	#endif
+#endif
 }
 
 void UOpenDriveToMap::GenerateRoadMesh(
@@ -1217,52 +1218,20 @@ void UOpenDriveToMap::GenerateTrafficLights(
 					GetEditorWorld()->SpawnActor<ATrafficLightActor>(TrafficLightBPClass, SignalTransform, SpawnParams)};
 				if (IsValid(TL))
 				{
-					// TODO: Move this default traffic light to a factory
-					const FString BaseMeshName{TEXT("SM_TrafficLight_Pole01_Base")};
-					const FString ExtensibleMeshName{TEXT("SM_TrafficLight_Pole04")};
-					FTLPole Pole;
-					Pole.PoleHeight = 250.0f;
-					Pole.Transform = FTransform::Identity;
-					Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshByName(BaseMeshName);
-					Pole.ExtensiblePoleMesh = FTLMeshFactory::GetExtensibleMeshByName(ExtensibleMeshName);
-
-					FTLHead Head;
-					Head.bHasBackplate = false;
-					Head.Transform = FTransform(FRotator(), FVector(0, 8, 250), FVector(1.25f, 1.25f, 1.25f));
-
-					FTLModule ModuleGreen;
-					ModuleGreen.bHasVisor = true;
-					ModuleGreen.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head, ModuleGreen).Last();
-					FTLModuleLight GreenLight;
-					GreenLight.LightType = ETLLightType::SolidColorGreen;
-					GreenLight.EmissiveColor = FLinearColor{0.100902f, 1.0f, 0.297537f, 1.0f};
-					GreenLight.EmissiveIntensity = 1.0f;
-					ModuleGreen.Lights.Add(GreenLight);
-					Head.Modules.Add(ModuleGreen);
-
-					FTLModule ModuleAmber;
-					ModuleAmber.bHasVisor = true;
-					ModuleAmber.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head, ModuleAmber).Last();
-					FTLModuleLight AmberLight;
-					AmberLight.LightType = ETLLightType::SolidColorAmber;
-					AmberLight.EmissiveColor = FLinearColor{0.930111f, 0.3564f, 0.014444f, 1.0f};
-					AmberLight.EmissiveIntensity = 1.0f;
-					ModuleAmber.Lights.Add(AmberLight);
-					Head.Modules.Add(ModuleAmber);
-
-					FTLModule ModuleRed;
-					ModuleRed.bHasVisor = true;
-					ModuleRed.ModuleMesh = FTLMeshFactory::GetAllMeshesForModule(Head, ModuleRed).Last();
-					FTLModuleLight RedLight;
-					RedLight.LightType = ETLLightType::SolidColorRed;
-					RedLight.EmissiveColor = FLinearColor{1.0f, 0.052026f, 0.061974f, 1.0f};
-					RedLight.EmissiveIntensity = 1.0f;
-					ModuleRed.Lights.Add(RedLight);
-					Head.Modules.Add(ModuleRed);
-
-					Pole.Heads.Add(Head);
-					TL->Poles.Empty();
-					TL->Poles.Add(Pole);
+					constexpr TCHAR const* DefaultJsonFilePath{
+						TEXT("/CarlaDigitalTwinsTool/Carla/Static/TrafficLight/TrafficLights2025/Preset/Default.json")};
+					if (!FPaths::FileExists(DefaultJsonFilePath))
+					{
+						UE_LOG(LogCarlaDigitalTwinsTool, Warning,
+							TEXT("Default traffic light JSON file not found at %s. Using backup."), DefaultJsonFilePath);
+						TL->PopulateDefault();
+					}
+					else
+					{
+						FString JSONString;
+						FFileHelper::LoadFileToString(JSONString, *FilePath);
+						TL->BuildFromJSONString(JSONString);
+					}
 					TL->Build();
 					TL->SetActorLabel(FString::Printf(TEXT("TrafficLight_%d"), TrafficLightCount++));
 					TL->Bake(MapName);
@@ -1572,12 +1541,12 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
 	FBox Bounds(EForceInit::ForceInitToZero);
 
 	FString RoadLabel = "DrivingLane";
-	#if PLATFORM_LINUX
-		if (bUseMitsuba)
-		{
-			RoadLabel = "UpdatedRoad";
-		}
-	#endif
+#if PLATFORM_LINUX
+	if (bUseMitsuba)
+	{
+		RoadLabel = "UpdatedRoad";
+	}
+#endif
 
 	TArray<AActor*> HiddenActors;
 	{
@@ -1699,7 +1668,7 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
 
 void UOpenDriveToMap::RunPythonScript(FString ScriptPath, FString Args)
 {
-  	FString PythonExe = PythonBinPath;
+	FString PythonExe = PythonBinPath;
 
 	void* ReadPipe = nullptr;
 	void* WritePipe = nullptr;
@@ -1833,23 +1802,23 @@ void UOpenDriveToMap::ExportStaticMeshToOBJ(UStaticMesh* StaticMesh, const FStri
 
 	for (int32 i = 0; i < VertexCount; ++i)
 	{
-		FVector Pos = (FVector)PositionVertexBuffer.VertexPosition(i);
-		Pos.Z = GetHeight(Pos.X, Pos.Y)/100.0f;
+		FVector Pos = (FVector) PositionVertexBuffer.VertexPosition(i);
+		Pos.Z = GetHeight(Pos.X, Pos.Y) / 100.0f;
 		ObjData += FString::Printf(TEXT("v %f %f %f\n"), Pos.X, Pos.Z, Pos.Y);
 	}
 
 	// Normals
 	for (int32 i = 0; i < VertexCount; ++i)
 	{
-		FVector Normal = (FVector)VertexBuffer.VertexTangentZ(i);
+		FVector Normal = (FVector) VertexBuffer.VertexTangentZ(i);
 		ObjData += FString::Printf(TEXT("vn %f %f %f\n"), Normal.X, Normal.Z, Normal.Y);
 	}
 
 	// UVs
 	for (int32 i = 0; i < VertexCount; ++i)
 	{
-		FVector2D UV = (FVector2D)VertexBuffer.GetVertexUV(i, 0);
-		ObjData += FString::Printf(TEXT("vt %f %f\n"), UV.X, 1.0f - UV.Y);  // Flip V
+		FVector2D UV = (FVector2D) VertexBuffer.GetVertexUV(i, 0);
+		ObjData += FString::Printf(TEXT("vt %f %f\n"), UV.X, 1.0f - UV.Y);	  // Flip V
 	}
 
 	// Faces (triangles)
@@ -1861,10 +1830,7 @@ void UOpenDriveToMap::ExportStaticMeshToOBJ(UStaticMesh* StaticMesh, const FStri
 		int32 i0 = Indices[i * 3 + 0] + 1;
 		int32 i1 = Indices[i * 3 + 1] + 1;
 		int32 i2 = Indices[i * 3 + 2] + 1;
-		ObjData += FString::Printf(TEXT("f %d/%d/%d %d/%d/%d %d/%d/%d\n"),
-			i0, i0, i0,
-			i1, i1, i1,
-			i2, i2, i2);
+		ObjData += FString::Printf(TEXT("f %d/%d/%d %d/%d/%d %d/%d/%d\n"), i0, i0, i0, i1, i1, i1, i2, i2, i2);
 	}
 
 	// Save to file
@@ -1893,11 +1859,12 @@ void UOpenDriveToMap::MergeRoads()
 	{
 		if (Actor->GetActorLabel().StartsWith("SM_DrivingLane_"))
 		{
-			if (UStaticMeshComponent* SMC = Cast<UStaticMeshComponent>(Actor->GetComponentByClass(UStaticMeshComponent::StaticClass())))
+			if (UStaticMeshComponent* SMC =
+					Cast<UStaticMeshComponent>(Actor->GetComponentByClass(UStaticMeshComponent::StaticClass())))
 			{
 				ComponentsToMerge.Add(SMC);
 			}
-	}
+		}
 	}
 
 	if (ComponentsToMerge.Num() == 0)
@@ -1921,17 +1888,12 @@ void UOpenDriveToMap::MergeRoads()
 	TArray<UObject*> AssetsToSync;
 	FVector MergedActorLocation = FVector::ZeroVector;
 
-	MeshMergeUtilities.MergeComponentsToStaticMesh(
-		ComponentsToMerge,
-		World,
-		MergeSettings,
-		nullptr,              // Base material (optional)
-		Package,              // Outer
-		AssetName,
-		AssetsToSync,
-		MergedActorLocation,
-		1.0f,                 // Screen size
-		false                 // bSilent
+	MeshMergeUtilities.MergeComponentsToStaticMesh(ComponentsToMerge, World, MergeSettings,
+		nullptr,	// Base material (optional)
+		Package,	// Outer
+		AssetName, AssetsToSync, MergedActorLocation,
+		1.0f,	 // Screen size
+		false	 // bSilent
 	);
 
 	UE_LOG(LogTemp, Log, TEXT("Merged mesh saved to: %s"), *PackageName);
@@ -1943,10 +1905,10 @@ void UOpenDriveToMap::MergeRoads()
 		MergedMesh = Cast<UStaticMesh>(Asset);
 		if (MergedMesh)
 		{
-		FString ObjPath = OutPath / FString::Printf(TEXT("MergedRoad_%.4f_%.4f.obj"), WorldEndPosition.X, WorldEndPosition.Y);
-		ExportStaticMeshToOBJ(MergedMesh, ObjPath);
-		break;
-		}   
+			FString ObjPath = OutPath / FString::Printf(TEXT("MergedRoad_%.4f_%.4f.obj"), WorldEndPosition.X, WorldEndPosition.Y);
+			ExportStaticMeshToOBJ(MergedMesh, ObjPath);
+			break;
+		}
 	}
 }
 
