@@ -1,6 +1,8 @@
 #include "TrafficLights/Widgets/TLWTrafficLightToolWidget.h"
 
 #include "CarlaDigitalTwinsTool.h"
+#include "Components/ActorComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Containers/Array.h"
 #include "Containers/UnrealString.h"
 #include "CoreGlobals.h"
@@ -10,6 +12,7 @@
 #include "Engine/StaticMeshActor.h"
 #include "Engine/StaticMeshSocket.h"
 #include "EngineUtils.h"
+#include "GenericPlatform/GenericPlatformFile.h"
 #include "IDesktopPlatform.h"
 #include "Logging/LogMacros.h"
 #include "Logging/LogVerbosity.h"
@@ -144,7 +147,7 @@ void STrafficLightToolWidget::RebuildModuleChain(FTLHead& Head)
 {
 	if (Head.Modules.IsEmpty())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("RebuildModuleChain: Modules.Num()"));
+		UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("RebuildModuleChain: Modules.Num()"));
 		return;
 	}
 
@@ -167,12 +170,12 @@ void STrafficLightToolWidget::RebuildModuleChain(FTLHead& Head)
 
 		if (!IsValid(Prev.ModuleMeshComponent))
 		{
-			UE_LOG(LogTemp, Warning, TEXT("Previous module mesh component is invalid at module %d"), i);
+			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Previous module mesh component is invalid at module %d"), i);
 			continue;
 		}
 		if (!IsValid(Curr.ModuleMeshComponent))
 		{
-			UE_LOG(LogTemp, Warning, TEXT("Missing component at module %d"), i);
+			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Missing component at module %d"), i);
 			continue;
 		}
 
@@ -180,12 +183,12 @@ void STrafficLightToolWidget::RebuildModuleChain(FTLHead& Head)
 		const UStaticMeshSocket* CurrSocket{Curr.ModuleMesh->FindSocket(BeginSocketName)};
 		if (!IsValid(PrevSocket))
 		{
-			UE_LOG(LogTemp, Warning, TEXT("Previous socket not found at module %d"), i);
+			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Previous socket not found at module %d"), i);
 			continue;
 		}
 		if (!IsValid(CurrSocket))
 		{
-			UE_LOG(LogTemp, Warning, TEXT("Current socket not found at module %d"), i);
+			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Current socket not found at module %d"), i);
 			continue;
 		}
 
@@ -547,7 +550,7 @@ FReply STrafficLightToolWidget::OnAddModuleClicked(int32 PoleIndex, int32 HeadIn
 	NewModule.ModuleMesh = FTLMeshFactory::GetMeshForModule(Head, NewModule);
 	if (!IsValid(NewModule.ModuleMesh))
 	{
-		UE_LOG(LogTemp, Error, TEXT("OnAddModuleClicked: failed to load the module."));
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("OnAddModuleClicked: failed to load the module."));
 		return FReply::Handled();
 	}
 
@@ -686,7 +689,7 @@ void STrafficLightToolWidget::OnModuleVisorChanged(ECheckBoxState NewState, int3
 	UStaticMesh* NewStaticMesh{FTLMeshFactory::GetMeshForModule(Head, Module)};
 	if (!IsValid(NewStaticMesh))
 	{
-		UE_LOG(LogTemp, Error, TEXT("OnHeadStyleChanged: failed to get mesh"));
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("OnHeadStyleChanged: failed to get mesh"));
 		return;
 	}
 	if (Module.ModuleMesh != NewStaticMesh)
@@ -1179,27 +1182,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildPoleEntry(int32 PoleIndex)
 					{
 						FTLPole& Pole{Poles[PoleIndex]};
 						Pole.PoleHeight = NewValue;
-						float BaseHeight{0.0f};
-						if (Pole.BasePoleMeshComponent)
-						{
-							BaseHeight = Pole.BasePoleMeshComponent->Bounds.GetBox().GetSize().Z;
-						}
-
-						float CapHeight{0.0f};
-						if (Pole.CapPoleMeshComponent)
-						{
-							CapHeight = Pole.CapPoleMeshComponent->Bounds.GetBox().GetSize().Z;
-						}
-
-						const float Remaining{FMath::Max(0.0f, Pole.PoleHeight - BaseHeight - CapHeight)};
-						float RawExtensibleHeight {1.0f};
-						if (Pole.ExtensiblePoleMeshComponent)
-						{
-							RawExtensibleHeight = Pole.ExtensiblePoleMeshComponent->Bounds.GetBox().GetSize().Z;
-						}
-
-						const float ScaleZ {FMath::Max((Remaining / RawExtensibleHeight), 0.1f)};
-						Pole.Offset = FTransform(FQuat::Identity, FVector(0, 0, BaseHeight), FVector(1, 1, ScaleZ));
 						Rebuild();
 					})
 				]
