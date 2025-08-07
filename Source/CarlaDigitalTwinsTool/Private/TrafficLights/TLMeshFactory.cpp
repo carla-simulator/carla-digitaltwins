@@ -1,5 +1,6 @@
 #include "TrafficLights/TLMeshFactory.h"
 
+#include "CarlaDigitalTwinsTool.h"
 #include "Components/StaticMeshComponent.h"
 #include "CoreGlobals.h"
 #include "Logging/LogVerbosity.h"
@@ -74,7 +75,7 @@ UStaticMesh* FTLMeshFactory::GetBaseMeshByName(const FString& Name)
 	UDataTable* Table{GetPoleMeshTable()};
 	if (!Table)
 	{
-		UE_LOG(LogTemp, Error, TEXT("PoleMeshFactory: PoleMeshTable is null"));
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("PoleMeshFactory: PoleMeshTable is null"));
 		return nullptr;
 	}
 
@@ -83,7 +84,7 @@ UStaticMesh* FTLMeshFactory::GetBaseMeshByName(const FString& Name)
 		const FTLPoleRow* Row{Table->FindRow<FTLPoleRow>(RowName, TEXT("GetBaseMeshByName"))};
 		if (!Row)
 		{
-			UE_LOG(LogTemp, Error, TEXT("PoleMeshFactory: row '%s' not found"), *RowName.ToString());
+			UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("PoleMeshFactory: row '%s' not found"), *RowName.ToString());
 			continue;
 		}
 		if (Row->PoleType == ETLPoleType::Base && IsValid(Row->Mesh) && Row->Mesh->GetName() == Name)
@@ -99,7 +100,7 @@ UStaticMesh* FTLMeshFactory::GetExtensibleMeshByName(const FString& Name)
 	UDataTable* Table{GetPoleMeshTable()};
 	if (!Table)
 	{
-		UE_LOG(LogTemp, Error, TEXT("PoleMeshFactory: PoleMeshTable is null"));
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("PoleMeshFactory: PoleMeshTable is null"));
 		return nullptr;
 	}
 
@@ -108,7 +109,7 @@ UStaticMesh* FTLMeshFactory::GetExtensibleMeshByName(const FString& Name)
 		const FTLPoleRow* Row{Table->FindRow<FTLPoleRow>(RowName, TEXT("GetExtensibleMeshByName"))};
 		if (!Row)
 		{
-			UE_LOG(LogTemp, Error, TEXT("PoleMeshFactory: row '%s' not found"), *RowName.ToString());
+			UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("PoleMeshFactory: row '%s' not found"), *RowName.ToString());
 			continue;
 		}
 		if (Row->PoleType == ETLPoleType::Extensible && IsValid(Row->Mesh) && Row->Mesh->GetName() == Name)
@@ -124,7 +125,7 @@ UStaticMesh* FTLMeshFactory::GetCapMeshByName(const FString& Name)
 	UDataTable* Table{GetPoleMeshTable()};
 	if (!Table)
 	{
-		UE_LOG(LogTemp, Error, TEXT("PoleMeshFactory: PoleMeshTable is null"));
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("PoleMeshFactory: PoleMeshTable is null"));
 		return nullptr;
 	}
 
@@ -133,7 +134,7 @@ UStaticMesh* FTLMeshFactory::GetCapMeshByName(const FString& Name)
 		const FTLPoleRow* Row{Table->FindRow<FTLPoleRow>(RowName, TEXT("GetCapMeshByName"))};
 		if (!Row)
 		{
-			UE_LOG(LogTemp, Error, TEXT("PoleMeshFactory: row '%s' not found"), *RowName.ToString());
+			UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("PoleMeshFactory: row '%s' not found"), *RowName.ToString());
 			continue;
 		}
 		if (Row->PoleType == ETLPoleType::Cap && IsValid(Row->Mesh) && Row->Mesh->GetName() == Name)
@@ -149,7 +150,7 @@ UStaticMesh* FTLMeshFactory::GetMeshForModule(const FTLHead& Head, const FTLModu
 	UDataTable* ModuleMeshTable{GetModuleMeshTable()};
 	if (!ModuleMeshTable)
 	{
-		UE_LOG(LogTemp, Error, TEXT("ModuleMeshFactory: ModuleMeshTable is null"));
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("ModuleMeshFactory: ModuleMeshTable is null"));
 		return nullptr;
 	}
 
@@ -158,7 +159,7 @@ UStaticMesh* FTLMeshFactory::GetMeshForModule(const FTLHead& Head, const FTLModu
 		const FTLModuleRow* Row{ModuleMeshTable->FindRow<FTLModuleRow>(RowName, TEXT("GetMeshForModule"))};
 		if (!Row)
 		{
-			UE_LOG(LogTemp, Error, TEXT("ModuleMeshFactory: row '%s' not found"), *RowName.ToString());
+			UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("ModuleMeshFactory: row '%s' not found"), *RowName.ToString());
 			continue;
 		}
 		if (Row->Style == Head.Style && Row->Orientation == Head.Orientation && Row->bHasVisor == Module.bHasVisor &&
@@ -177,7 +178,7 @@ TArray<UStaticMesh*> FTLMeshFactory::GetAllMeshesForModule(const FTLHead& Head, 
 	UDataTable* ModuleMeshTable{GetModuleMeshTable()};
 	if (!ModuleMeshTable)
 	{
-		UE_LOG(LogTemp, Error, TEXT("ModuleMeshFactory: ModuleMeshTable is null"));
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("ModuleMeshFactory: ModuleMeshTable is null"));
 		return Meshes;
 	}
 
@@ -186,7 +187,7 @@ TArray<UStaticMesh*> FTLMeshFactory::GetAllMeshesForModule(const FTLHead& Head, 
 		const FTLModuleRow* Row{ModuleMeshTable->FindRow<FTLModuleRow>(RowName, TEXT("GetMeshForModule"))};
 		if (!Row)
 		{
-			UE_LOG(LogTemp, Error, TEXT("ModuleMeshFactory: row '%s' not found"), *RowName.ToString());
+			UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("ModuleMeshFactory: row '%s' not found"), *RowName.ToString());
 			continue;
 		}
 		if (Row->Style == Head.Style && Row->Orientation == Head.Orientation && Row->bHasVisor == Module.bHasVisor &&
@@ -205,7 +206,7 @@ TArray<UStaticMesh*> FTLMeshFactory::GetAllBaseMeshesForPole(const FTLPole& Pole
 	UDataTable* Table{GetPoleMeshTable()};
 	if (!Table)
 	{
-		UE_LOG(LogTemp, Error, TEXT("PoleMeshFactory: PoleMeshTable is null"));
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("PoleMeshFactory: PoleMeshTable is null"));
 		return Meshes;
 	}
 
@@ -214,7 +215,7 @@ TArray<UStaticMesh*> FTLMeshFactory::GetAllBaseMeshesForPole(const FTLPole& Pole
 		const FTLPoleRow* Row{Table->FindRow<FTLPoleRow>(RowName, TEXT("GetAllBaseMeshesForPole"))};
 		if (!Row)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("PoleMeshFactory: row '%s' not found"), *RowName.ToString());
+			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("PoleMeshFactory: row '%s' not found"), *RowName.ToString());
 			continue;
 		}
 
@@ -233,7 +234,7 @@ TArray<UStaticMesh*> FTLMeshFactory::GetAllExtensibleMeshesForPole(const FTLPole
 	UDataTable* Table{GetPoleMeshTable()};
 	if (!Table)
 	{
-		UE_LOG(LogTemp, Error, TEXT("PoleMeshFactory: PoleMeshTable is null"));
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("PoleMeshFactory: PoleMeshTable is null"));
 		return Meshes;
 	}
 
@@ -242,7 +243,7 @@ TArray<UStaticMesh*> FTLMeshFactory::GetAllExtensibleMeshesForPole(const FTLPole
 		const FTLPoleRow* Row{Table->FindRow<FTLPoleRow>(RowName, TEXT("GetAllExtensibleMeshesForPole"))};
 		if (!Row)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("PoleMeshFactory: row '%s' not found"), *RowName.ToString());
+			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("PoleMeshFactory: row '%s' not found"), *RowName.ToString());
 			continue;
 		}
 
@@ -261,7 +262,7 @@ TArray<UStaticMesh*> FTLMeshFactory::GetAllCapMeshesForPole(const FTLPole& Pole)
 	UDataTable* Table{GetPoleMeshTable()};
 	if (!Table)
 	{
-		UE_LOG(LogTemp, Error, TEXT("PoleMeshFactory: PoleMeshTable is null"));
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("PoleMeshFactory: PoleMeshTable is null"));
 		return Meshes;
 	}
 
@@ -270,7 +271,7 @@ TArray<UStaticMesh*> FTLMeshFactory::GetAllCapMeshesForPole(const FTLPole& Pole)
 		const FTLPoleRow* Row{Table->FindRow<FTLPoleRow>(RowName, TEXT("GetAllCapMeshesForPole"))};
 		if (!Row)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("PoleMeshFactory: row '%s' not found"), *RowName.ToString());
+			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("PoleMeshFactory: row '%s' not found"), *RowName.ToString());
 			continue;
 		}
 
@@ -288,7 +289,7 @@ FTLBackplateRow* FTLMeshFactory::GetBackplateRow(ETLStyle Style)
 	UDataTable* Table{GetBackplateMeshTable()};
 	if (!Table)
 	{
-		UE_LOG(LogTemp, Error, TEXT("PoleMeshFactory: BackplateMeshTable is null"));
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("PoleMeshFactory: BackplateMeshTable is null"));
 		return nullptr;
 	}
 
@@ -297,7 +298,7 @@ FTLBackplateRow* FTLMeshFactory::GetBackplateRow(ETLStyle Style)
 		FTLBackplateRow* Row{Table->FindRow<FTLBackplateRow>(RowName, TEXT("GetBackplateRow"))};
 		if (!Row)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("PoleMeshFactory: row '%s' not found"), *RowName.ToString());
+			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("PoleMeshFactory: row '%s' not found"), *RowName.ToString());
 			continue;
 		}
 
@@ -333,7 +334,7 @@ int32 FTLMeshFactory::CountLedMaterials(UStaticMesh* Mesh)
 {
 	if (!IsValid(Mesh))
 	{
-		UE_LOG(LogTemp, Error, TEXT("CountLedSockets: Invalid Mesh"));
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("CountLedSockets: Invalid Mesh"));
 		return 0;
 	}
 
@@ -356,7 +357,7 @@ FIntPoint FTLMeshFactory::GetAtlasCoordsForLightType(ETLLightType LightType)
 		GetLightTypeMeshTable();
 		if (s_LightTypeMeshTable == nullptr)
 		{
-			UE_LOG(LogTemp, Error, TEXT("LightTypesTable is not set"));
+			UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("LightTypesTable is not set"));
 			return FIntPoint::ZeroValue;
 		}
 	}

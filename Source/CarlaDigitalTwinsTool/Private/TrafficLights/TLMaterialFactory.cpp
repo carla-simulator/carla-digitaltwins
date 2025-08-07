@@ -10,7 +10,7 @@ UMaterialInterface* FMaterialFactory::GetBaseLightMaterial()
 			 "M_TrafficLights_Inst.M_TrafficLights_Inst")))};
 	if (!IsValid(BaseMat))
 	{
-		UE_LOG(LogTemp, Error, TEXT("MaterialFactory: failed to load base material at '%s'"),
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("MaterialFactory: failed to load base material at '%s'"),
 			TEXT("/CarlaDigitalTwinsTool/Carla/Static/TrafficLight/TrafficLights2025/TrafficLights/"
 				 "M_TrafficLights_Inst.M_TrafficLights_Inst"));
 		return nullptr;

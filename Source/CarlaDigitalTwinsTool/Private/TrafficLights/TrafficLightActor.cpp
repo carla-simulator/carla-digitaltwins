@@ -749,7 +749,8 @@ UStaticMeshComponent* ATrafficLightActor::AddPoleCap(USceneComponent* Parent, FT
 	static const FName CapSocketName(TEXT("cap"));
 	if (!ExtensibleComp->DoesSocketExist(CapSocketName))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Socket '%s' not found in extensible component."), *CapSocketName.ToString());
+		UE_LOG(
+			LogCarlaDigitalTwinsTool, Warning, TEXT("Socket '%s' not found in extensible component."), *CapSocketName.ToString());
 		return nullptr;
 	}
 	Comp->AttachToComponent(ExtensibleComp, FAttachmentTransformRules::SnapToTargetNotIncludingScale, CapSocketName);
