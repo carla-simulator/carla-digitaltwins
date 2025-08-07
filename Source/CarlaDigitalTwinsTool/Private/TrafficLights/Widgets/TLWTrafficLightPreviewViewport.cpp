@@ -1,16 +1,115 @@
 #include "TrafficLights/Widgets/TLWTrafficLightPreviewViewport.h"
 
+#include "Components/DirectionalLightComponent.h"
+#include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "CoreGlobals.h"
+#include "Editor.h"
+#include "EditorViewportClient.h"
+#include "Engine/DirectionalLight.h"
+#include "Engine/Light.h"
+#include "Engine/PostProcessVolume.h"
+#include "Engine/World.h"
+#include "EngineUtils.h"
 #include "Logging/LogMacros.h"
 #include "Math/MathFwd.h"
+#include "PreviewScene.h"
+#include "SEditorViewport.h"
+#include "TrafficLights/TrafficLightActor.h"
+#include "UObject/Object.h"
 #include "UObject/UObjectGlobals.h"
+#include "UObject/UObjectIterator.h"
+#include "Widgets/SViewport.h"
 
 void STrafficLightPreviewViewport::Construct(const FArguments& InArgs)
 {
 	PreviewScene = MakeUnique<FPreviewScene>(FPreviewScene::ConstructionValues());
 
+	float WorldSunIntensity{1.0f};
+	FLinearColor WorldSunColor{FLinearColor::White};
+	float WorldSkyIntensity{1.0f};
+	FLinearColor WorldSkyColor{FLinearColor::White};
+
+	UWorld* EditorWorld{GEditor->GetEditorWorldContext().World()};
+	if (IsValid(EditorWorld))
 	{
-		UWorld* PreviewWorld = PreviewScene->GetWorld();
+		APostProcessVolume* GlobalPPV{nullptr};
+		for (TActorIterator<APostProcessVolume> It(EditorWorld); It; ++It)
+		{
+			if (It->bUnbound)
+			{
+				GlobalPPV = *It;
+				break;
+			}
+		}
+		if (!GlobalPPV)
+		{
+			for (TActorIterator<APostProcessVolume> It(EditorWorld); It; ++It)
+			{
+				GlobalPPV = *It;
+				break;
+			}
+		}
+
+		if (IsValid(GlobalPPV) && IsValid(PreviewScene->GetWorld()))
+		{
+			FActorSpawnParameters SpawnParams;
+			SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			SpawnParams.ObjectFlags |= RF_Transient;
+
+			APostProcessVolume* PreviewPPV{PreviewScene->GetWorld()->SpawnActor<APostProcessVolume>(
+				APostProcessVolume::StaticClass(), FTransform::Identity, SpawnParams)};
+			PreviewPPV->bUnbound = true;
+			PreviewPPV->BlendWeight = GlobalPPV->BlendWeight;
+			PreviewPPV->Settings = GlobalPPV->Settings;
+		}
+
+		for (TObjectIterator<UDirectionalLightComponent> It; It; ++It)
+		{
+			if (It->GetWorld() == EditorWorld)
+			{
+				WorldSunIntensity = It->Intensity;
+				WorldSunColor = It->LightColor;
+				break;
+			}
+		}
+		for (TObjectIterator<USkyLightComponent> It; It; ++It)
+		{
+			if (It->GetWorld() == EditorWorld)
+			{
+				WorldSkyIntensity = It->Intensity;
+				WorldSkyColor = It->LightColor;
+				break;
+			}
+		}
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[PreviewViewport] No editor world found for preview scene"));
+	}
+
+	if (IsValid(PreviewScene->DirectionalLight))
+	{
+		PreviewScene->DirectionalLight->SetIntensity(WorldSunIntensity);
+		PreviewScene->DirectionalLight->SetLightColor(WorldSunColor);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[PreviewViewport] No directional light found in preview scene"));
+	}
+	if (IsValid(PreviewScene->SkyLight))
+	{
+		PreviewScene->SkyLight->SetIntensity(WorldSkyIntensity);
+		PreviewScene->SkyLight->SetLightColor(WorldSkyColor);
+		PreviewScene->SkyLight->RecaptureSky();
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[PreviewViewport] No sky light found in preview scene"));
+	}
+
+	{
+		UWorld* PreviewWorld{PreviewScene->GetWorld()};
 		if (PreviewWorld)
 		{
 			FActorSpawnParameters SpawnParams;
