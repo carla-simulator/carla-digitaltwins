@@ -66,6 +66,7 @@ private:
 	FVector2D GetAtlasCoordsForLightType(ETLLightType LightType) const;
 	void RebuildModuleChain(FTLHead& Head);
 	void Clear();
+	USceneComponent* EnsurePolesRoot();
 
 private:
 	enum class EDemoPhase : uint8

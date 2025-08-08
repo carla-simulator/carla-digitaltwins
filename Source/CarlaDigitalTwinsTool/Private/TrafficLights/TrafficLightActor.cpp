@@ -96,6 +96,13 @@ FString EnumToString(TEnum Value)
 	const UEnum* EnumPtr = StaticEnum<TEnum>();
 	return EnumPtr ? EnumPtr->GetNameStringByValue(static_cast<int64>(Value)) : FString();
 }
+
+FString MakeUniqueNamed(const FString& Base)
+{
+	const FGuid G{FGuid::NewGuid()};
+	return FString::Printf(TEXT("%s_%s"), *Base, *G.ToString(EGuidFormats::Short));
+}
+
 }	 // namespace
 
 ATrafficLightActor::ATrafficLightActor()
@@ -112,97 +119,262 @@ void ATrafficLightActor::OnConstruction(const FTransform& Transform)
 		Build();
 	}
 #endif
-
-	TArray<UMaterialInstanceDynamic*> s_DemoLightsInstances{};
 }
 
 void ATrafficLightActor::Bake(const FString& MapName)
 {
 #if WITH_EDITOR
-	TArray<UStaticMeshComponent*> MeshesToUpdateWithPluginRef;
-	UWorld* World{GetWorld()};
-	if (!World || !World->IsEditorWorld())
+	UWorld* const EditorWorld{GetWorld()};
+	if (!(EditorWorld && EditorWorld->IsEditorWorld()))
 	{
-		UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Bake: only works in editor world"));
 		return;
 	}
-	const FString FolderName{GetActorLabel()};
-	FActorSpawnParameters SpawnParams;
+
+	const FTransform ActorWorldTransform{GetActorTransform()};
+
+	FActorSpawnParameters SpawnParams{};
 	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	SpawnParams.ObjectFlags |= RF_Transactional;
 
-	TArray<UStaticMeshComponent*> MeshComps;
-	GetComponents<UStaticMeshComponent>(MeshComps);
-
-	for (UStaticMeshComponent* Comp : MeshComps)
+	AActor* const ContainerActor{EditorWorld->SpawnActor<AActor>(AActor::StaticClass(), ActorWorldTransform, SpawnParams)};
+	if (!IsValid(ContainerActor))
 	{
-		if (!IsValid(Comp) || !Comp->GetStaticMesh())
+		return;
+	}
+
+	const FString DesiredLabel{!GetActorLabel().IsEmpty() ? GetActorLabel() : FString::Printf(TEXT("%s_Baked"), *GetActorLabel())};
+	const FName OutlinerFolder{TEXT("TrafficLights")};
+	ContainerActor->SetActorLabel(DesiredLabel);
+	ContainerActor->SetFolderPath(OutlinerFolder);
+	ContainerActor->SetIsTemporarilyHiddenInEditor(false);
+
+	if (!ContainerActor->GetRootComponent())
+	{
+		USceneComponent* const BakedRoot{NewObject<USceneComponent>(ContainerActor, TEXT("BakedRoot"))};
+		ContainerActor->SetRootComponent(BakedRoot);
+		BakedRoot->RegisterComponent();
+	}
+
+	USceneComponent* const ContainerRoot{ContainerActor->GetRootComponent()};
+
+	TArray<UStaticMeshComponent*> SourceMeshComponents{};
+	GetComponents<UStaticMeshComponent>(SourceMeshComponents);
+
+	TArray<UStaticMeshComponent*> BakedMeshComponents{};
+	BakedMeshComponents.Reserve(SourceMeshComponents.Num());
+
+	for (UStaticMeshComponent* const SourceMeshComponent : SourceMeshComponents)
+	{
+		if (!(IsValid(SourceMeshComponent) && IsValid(SourceMeshComponent->GetStaticMesh())))
 		{
 			continue;
 		}
 
-		const FTransform WorldTransform{Comp->GetComponentTransform()};
-		AStaticMeshActor* NewActor{
-			World->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(), WorldTransform, SpawnParams)};
+		const FTransform SourceWorldTransform{SourceMeshComponent->GetComponentTransform()};
 
-		if (!IsValid(NewActor))
+		UStaticMeshComponent* const BakedMeshComponent{NewObject<UStaticMeshComponent>(ContainerActor)};
+		if (!IsValid(BakedMeshComponent))
 		{
-			UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Bake: failed to spawn mesh for %s"), *Comp->GetName());
 			continue;
 		}
 
-		UStaticMeshComponent* NewSMC{NewActor->GetStaticMeshComponent()};
-		NewSMC->SetStaticMesh(Comp->GetStaticMesh());
+		BakedMeshComponent->Rename(*SourceMeshComponent->GetName(), ContainerActor);
+		BakedMeshComponent->SetupAttachment(ContainerRoot);
+		ContainerActor->AddInstanceComponent(BakedMeshComponent);
+		BakedMeshComponent->RegisterComponent();
 
-		const int32 NumMats{Comp->GetNumMaterials()};
-		for (int32 MatIndex{0}; MatIndex < NumMats; ++MatIndex)
+		BakedMeshComponent->SetStaticMesh(SourceMeshComponent->GetStaticMesh());
+
+		const int32 MaterialCount{SourceMeshComponent->GetNumMaterials()};
+		for (int32 MaterialIndex{0}; MaterialIndex < MaterialCount; ++MaterialIndex)
 		{
-			NewSMC->SetMaterial(MatIndex, Comp->GetMaterial(MatIndex));
+			UMaterialInterface* const SourceMaterial{SourceMeshComponent->GetMaterial(MaterialIndex)};
+			if (IsValid(SourceMaterial))
+			{
+				BakedMeshComponent->SetMaterial(MaterialIndex, SourceMaterial);
+			}
 		}
-		MeshesToUpdateWithPluginRef.Add(NewSMC);
 
-		NewActor->SetActorLabel(Comp->GetName());
-		NewActor->SetFolderPath(*FolderName);
-		NewActor->SetIsTemporarilyHiddenInEditor(false);
+		BakedMeshComponent->SetWorldTransform(SourceWorldTransform);
+		BakedMeshComponents.Add(BakedMeshComponent);
 	}
 
-	for (UStaticMeshComponent* Comp : MeshComps)
+	TMap<UObject*, UObject*> CopyCache{};
+
+	auto CopyOnce = [&](UObject* const SourceObject) -> UObject*
 	{
-		UStaticMesh* MeshToSet = Cast<UStaticMesh>(UBlueprintUtilFunctions::CopyAssetToPlugin(Comp->GetStaticMesh(), MapName));
-		Comp->SetStaticMesh(MeshToSet);
-	}
+		if (!IsValid(SourceObject))
+		{
+			return nullptr;
+		}
+		if (UObject* const* Cached{CopyCache.Find(SourceObject)})
+		{
+			return *Cached;
+		}
+		UObject* const Duplicated{UBlueprintUtilFunctions::CopyAssetToPlugin(SourceObject, MapName)};
+		if (IsValid(Duplicated))
+		{
+			CopyCache.Add(SourceObject, Duplicated);
+			return Duplicated;
+		}
+		return nullptr;
+	};
 
-	for (UStaticMeshComponent* Comp : MeshesToUpdateWithPluginRef)
+	for (UStaticMeshComponent* const BakedMeshComponent : BakedMeshComponents)
 	{
-		UStaticMesh* MeshToSet = Cast<UStaticMesh>(UBlueprintUtilFunctions::CopyAssetToPlugin(Comp->GetStaticMesh(), MapName));
-		Comp->SetStaticMesh(MeshToSet);
-	}
+		const int32 MaterialCount{BakedMeshComponent->GetNumMaterials()};
+		for (int32 MaterialIndex{0}; MaterialIndex < MaterialCount; ++MaterialIndex)
+		{
+			UMaterialInterface* const AssignedMat{BakedMeshComponent->GetMaterial(MaterialIndex)};
+			if (!IsValid(AssignedMat))
+			{
+				continue;
+			}
 
+			if (UMaterialInstanceDynamic* const SrcMID{Cast<UMaterialInstanceDynamic>(AssignedMat)})
+			{
+				UMaterialInterface* const ParentMat{SrcMID->Parent};
+				UObject* const DstParentObj{CopyOnce(ParentMat)};
+				UMaterialInterface* const ParentForNewMID{
+					IsValid(DstParentObj) ? Cast<UMaterialInterface>(DstParentObj) : ParentMat};
+
+				UMaterialInstanceDynamic* const NewMID{UMaterialInstanceDynamic::Create(ParentForNewMID, ContainerActor)};
+				if (IsValid(NewMID))
+				{
+					NewMID->K2_CopyMaterialInstanceParameters(SrcMID);
+					BakedMeshComponent->SetMaterial(MaterialIndex, NewMID);
+				}
+				continue;
+			}
+
+			UObject* const DstMatObj{CopyOnce(AssignedMat)};
+			if (IsValid(DstMatObj))
+			{
+				BakedMeshComponent->SetMaterial(MaterialIndex, Cast<UMaterialInterface>(DstMatObj));
+			}
+		}
+	}
 #endif
 }
 
 void ATrafficLightActor::Build()
 {
+	USceneComponent* PolesRoot{EnsurePolesRoot()};
 	Clear();
-	for (FTLPole& Pole : Poles)
+
+	const int32 NumPoles{Poles.Num()};
+	for (int32 PoleIndex{0}; PoleIndex < NumPoles; ++PoleIndex)
 	{
-		USceneComponent* PoleRoot{AddRootPole(RootComponent, Pole)};
-		AddPoleBase(PoleRoot, Pole);
-		AddPoleExtensible(PoleRoot, Pole);
-		AddPoleCap(PoleRoot, Pole);
+		FTLPole& Pole{Poles[PoleIndex]};
 
-		for (FTLHead& Head : Pole.Heads)
+		USceneComponent* PoleRoot{AddRootPole(PolesRoot, Pole)};
+		if (IsValid(PoleRoot))
 		{
-			USceneComponent* HeadRoot{AddHead(PoleRoot, Pole, Head)};
+			const FString PoleRootName{MakeUniqueNamed(FString::Printf(TEXT("Pole_%02d"), PoleIndex))};
+			PoleRoot->Rename(*PoleRootName, this, REN_DontCreateRedirectors);
+		}
 
-			for (FTLModule& Mod : Head.Modules)
+		if (IsValid(Pole.BasePoleMesh))
+		{
+			UStaticMeshComponent* BaseMeshComponent{AddPoleBase(PoleRoot, Pole)};
+			if (IsValid(BaseMeshComponent))
 			{
-				AddModule(HeadRoot, Pole, Head, Mod);
+				const FString BaseName{MakeUniqueNamed(FString::Printf(TEXT("Pole_%02d_Base"), PoleIndex))};
+				BaseMeshComponent->Rename(*BaseName, this, REN_DontCreateRedirectors);
 			}
+		}
+
+		if (IsValid(Pole.ExtensiblePoleMesh))
+		{
+			UStaticMeshComponent* ExtensibleMeshComponent{AddPoleExtensible(PoleRoot, Pole)};
+			if (IsValid(ExtensibleMeshComponent))
+			{
+				const FString ExtensibleName{MakeUniqueNamed(FString::Printf(TEXT("Pole_%02d_Extensible"), PoleIndex))};
+				ExtensibleMeshComponent->Rename(*ExtensibleName, this, REN_DontCreateRedirectors);
+			}
+		}
+
+		if (IsValid(Pole.CapPoleMesh))
+		{
+			UStaticMeshComponent* CapMeshComponent{AddPoleCap(PoleRoot, Pole)};
+			if (IsValid(CapMeshComponent))
+			{
+				const FString CapName{MakeUniqueNamed(FString::Printf(TEXT("Pole_%02d_Cap"), PoleIndex))};
+				CapMeshComponent->Rename(*CapName, this, REN_DontCreateRedirectors);
+			}
+		}
+
+		const int32 NumHeads{Pole.Heads.Num()};
+		for (int32 HeadIndex{0}; HeadIndex < NumHeads; ++HeadIndex)
+		{
+			FTLHead& Head{Pole.Heads[HeadIndex]};
+
+			USceneComponent* HeadRoot{AddHead(PoleRoot, Pole, Head)};
+			if (IsValid(HeadRoot))
+			{
+				const FString HeadRootName{MakeUniqueNamed(FString::Printf(TEXT("Pole_%02d_Head_%02d"), PoleIndex, HeadIndex))};
+				HeadRoot->Rename(*HeadRootName, this, REN_DontCreateRedirectors);
+			}
+
+			const int32 NumModules{Head.Modules.Num()};
+			for (int32 ModuleIndex{0}; ModuleIndex < NumModules; ++ModuleIndex)
+			{
+				FTLModule& Module{Head.Modules[ModuleIndex]};
+				UStaticMeshComponent* ModuleMeshComponent{AddModule(HeadRoot, Pole, Head, Module)};
+				if (IsValid(ModuleMeshComponent))
+				{
+					const FString ModuleName{
+						MakeUniqueNamed(FString::Printf(TEXT("Pole_%02d_Head_%02d_Mod_%02d"), PoleIndex, HeadIndex, ModuleIndex))};
+					ModuleMeshComponent->Rename(*ModuleName, this, REN_DontCreateRedirectors);
+					ModuleMeshComponents.Add(ModuleMeshComponent);
+				}
+			}
+
 			RebuildModuleChain(Head);
+
 			if (Head.bHasBackplate)
 			{
+				TArray<UActorComponent*> ComponentsBefore{};
+				GetComponents(UActorComponent::StaticClass(), ComponentsBefore);
+
 				AddBackplate(HeadRoot, Pole, Head);
+
+				TArray<UActorComponent*> ComponentsAfter{};
+				GetComponents(UActorComponent::StaticClass(), ComponentsAfter);
+
+				TSet<UActorComponent*> ComponentsBeforeSet{};
+				for (UActorComponent* ActorComponent : ComponentsBefore)
+				{
+					ComponentsBeforeSet.Add(ActorComponent);
+				}
+
+				int32 BackplatePieceIndex{0};
+				for (UActorComponent* ActorComponent : ComponentsAfter)
+				{
+					if (ComponentsBeforeSet.Contains(ActorComponent))
+					{
+						continue;
+					}
+					if (!IsValid(ActorComponent))
+					{
+						continue;
+					}
+
+					USceneComponent* SceneComponentCandidate{Cast<USceneComponent>(ActorComponent)};
+					if (!IsValid(SceneComponentCandidate))
+					{
+						continue;
+					}
+					if (SceneComponentCandidate->GetAttachParent() != HeadRoot)
+					{
+						continue;
+					}
+
+					const FString BackplateName{MakeUniqueNamed(
+						FString::Printf(TEXT("Pole_%02d_Head_%02d_Backplate_%02d"), PoleIndex, HeadIndex, BackplatePieceIndex))};
+					SceneComponentCandidate->Rename(*BackplateName, this, REN_DontCreateRedirectors);
+					++BackplatePieceIndex;
+				}
 			}
 		}
 	}
@@ -517,7 +689,7 @@ FString ATrafficLightActor::ExportToJSON(bool bUseTransform) const
 	if (bUseTransform)
 	{
 		{
-			FVector Loc = GetActorLocation();
+			FVector Loc{GetActorLocation()};
 			TSharedPtr<FJsonObject> JLoc = MakeShared<FJsonObject>();
 			JLoc->SetNumberField(TEXT("X"), Loc.X);
 			JLoc->SetNumberField(TEXT("Y"), Loc.Y);
@@ -525,7 +697,7 @@ FString ATrafficLightActor::ExportToJSON(bool bUseTransform) const
 			Root->SetObjectField(TEXT("WorldPosition"), JLoc);
 		}
 		{
-			FRotator Rot = GetActorRotation();
+			FRotator Rot{GetActorRotation()};
 			TSharedPtr<FJsonObject> JRot = MakeShared<FJsonObject>();
 			JRot->SetNumberField(TEXT("X"), Rot.Pitch);
 			JRot->SetNumberField(TEXT("Y"), Rot.Yaw);
@@ -533,7 +705,7 @@ FString ATrafficLightActor::ExportToJSON(bool bUseTransform) const
 			Root->SetObjectField(TEXT("WorldRotation"), JRot);
 		}
 		{
-			FVector Scl = GetActorScale3D();
+			FVector Scl{GetActorScale3D()};
 			TSharedPtr<FJsonObject> JScale = MakeShared<FJsonObject>();
 			JScale->SetNumberField(TEXT("X"), Scl.X);
 			JScale->SetNumberField(TEXT("Y"), Scl.Y);
@@ -544,7 +716,7 @@ FString ATrafficLightActor::ExportToJSON(bool bUseTransform) const
 	TArray<TSharedPtr<FJsonValue>> JsonPoles;
 	for (const FTLPole& Pole : Poles)
 	{
-		TSharedPtr<FJsonObject> JP = MakeShared<FJsonObject>();
+		TSharedPtr<FJsonObject> JP{MakeShared<FJsonObject>()};
 
 		if (Pole.BasePoleMesh)
 		{
@@ -579,7 +751,7 @@ FString ATrafficLightActor::ExportToJSON(bool bUseTransform) const
 			TArray<TSharedPtr<FJsonValue>> JsonModules;
 			for (const FTLModule& Module : Head.Modules)
 			{
-				TSharedPtr<FJsonObject> JM = MakeShared<FJsonObject>();
+				TSharedPtr<FJsonObject> JM{MakeShared<FJsonObject>()};
 				if (Module.ModuleMesh)
 				{
 					JM->SetStringField(TEXT("ModuleMesh"), Module.ModuleMesh->GetName());
@@ -588,11 +760,10 @@ FString ATrafficLightActor::ExportToJSON(bool bUseTransform) const
 				JM->SetObjectField(TEXT("Offset"), TransformToJson(Module.Offset));
 				JM->SetBoolField(TEXT("bHasVisor"), Module.bHasVisor);
 
-				// Lights
 				TArray<TSharedPtr<FJsonValue>> JsonLights;
 				for (const FTLModuleLight& L : Module.Lights)
 				{
-					TSharedPtr<FJsonObject> JL = MakeShared<FJsonObject>();
+					TSharedPtr<FJsonObject> JL{MakeShared<FJsonObject>()};
 					JL->SetStringField(TEXT("LightType"), EnumToString<ETLLightType>(L.LightType));
 					JL->SetNumberField(TEXT("EmissiveIntensity"), L.EmissiveIntensity);
 					TSharedPtr<FJsonObject> JC = MakeShared<FJsonObject>();
@@ -620,7 +791,7 @@ FString ATrafficLightActor::ExportToJSON(bool bUseTransform) const
 	Root->SetArrayField(TEXT("Poles"), JsonPoles);
 
 	FString Output;
-	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Output);
+	TSharedRef<TJsonWriter<>> Writer{TJsonWriterFactory<>::Create(&Output)};
 	FJsonSerializer::Serialize(Root.ToSharedRef(), Writer);
 	return Output;
 }
@@ -947,17 +1118,40 @@ void ATrafficLightActor::RebuildModuleChain(FTLHead& Head)
 
 void ATrafficLightActor::Clear()
 {
-	TArray<UActorComponent*> Old;
-	GetComponents(Old);
-	for (UActorComponent* C : Old)
+	TArray<USceneComponent*> SceneComps{};
+	GetComponents<USceneComponent>(SceneComps);
+	USceneComponent* Root{GetRootComponent()};
+	for (USceneComponent* SceneComp : SceneComps)
 	{
-		if (C != RootComponent)
+		if (!IsValid(SceneComp))
 		{
-			C->DestroyComponent();
-			RemoveInstanceComponent(C);
+			continue;
 		}
+		if (SceneComp == Root)
+		{
+			continue;
+		}
+		SceneComp->DestroyComponent();
 	}
-	DemoLights.Empty();
+	ModuleMeshComponents.Reset();
+	DemoLights.Reset();
+}
+
+USceneComponent* ATrafficLightActor::EnsurePolesRoot()
+{
+	USceneComponent* Root{GetRootComponent()};
+	if (!IsValid(Root))
+	{
+		Root = UMapGenFunctionLibrary::AddSceneComponentToActor(this);
+		SetRootComponent(Root);
+	}
+	const FString CurrentName{Root->GetName()};
+	if (!CurrentName.StartsWith(TEXT("Poles")))
+	{
+		const FString Desired{MakeUniqueNamed(TEXT("Poles"))};
+		Root->Rename(*Desired, this, REN_DontCreateRedirectors);
+	}
+	return Root;
 }
 
 void ATrafficLightActor::ResetAllLights()
