@@ -45,7 +45,7 @@ public:
 	UFUNCTION(CallInEditor, BlueprintCallable, Category = "TrafficLight|Demo")
 	void StopDemoSequence();
 
-	void BuildFromJSONString(const FString& JSONConfig, bool bCalledFromEditor = false);
+	void BuildFromJSONString(const FString& JSONConfig);
 
 	UPROPERTY(EditAnywhere, Category = "TrafficLight|JSON")
 	FFilePath JSONFile;

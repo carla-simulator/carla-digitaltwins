@@ -103,6 +103,18 @@ FString MakeUniqueNamed(const FString& Base)
 	return FString::Printf(TEXT("%s_%s"), *Base, *G.ToString(EGuidFormats::Short));
 }
 
+bool ShouldUseRerun(const AActor* Actor)
+{
+	if (!Actor)
+	{
+		return false;
+	}
+	const UWorld* World{Actor->GetWorld()};
+	const bool bPlacedInEditor{World && (World->WorldType == EWorldType::Editor || World->WorldType == EWorldType::PIE)};
+	const bool bPreview{Actor->HasAnyFlags(RF_Transient) || (World && World->WorldType == EWorldType::EditorPreview)};
+	return bPlacedInEditor && !bPreview;
+}
+
 }	 // namespace
 
 ATrafficLightActor::ATrafficLightActor()
@@ -430,10 +442,10 @@ void ATrafficLightActor::BuildFromJSON()
 		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Failed to load JSON file: %s"), *FullPath);
 		return;
 	}
-	BuildFromJSONString(JSONConfig, true);
+	BuildFromJSONString(JSONConfig);
 }
 
-void ATrafficLightActor::BuildFromJSONString(const FString& JSONConfig, bool bCalledFromEditor)
+void ATrafficLightActor::BuildFromJSONString(const FString& JSONConfig)
 {
 	TSharedPtr<FJsonObject> Root;
 	TSharedRef<TJsonReader<TCHAR>> Reader{TJsonReaderFactory<TCHAR>::Create(JSONConfig)};
@@ -660,7 +672,7 @@ void ATrafficLightActor::BuildFromJSONString(const FString& JSONConfig, bool bCa
 		}
 	}
 
-	if (bCalledFromEditor)
+	if (ShouldUseRerun(this))
 	{
 		RerunConstructionScripts();
 	}
