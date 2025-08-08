@@ -107,18 +107,14 @@ FString MakeUniqueNamed(const FString& Base)
 
 ATrafficLightActor::ATrafficLightActor()
 {
-	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
+	USceneComponent* const PolesRoot{CreateDefaultSubobject<USceneComponent>(TEXT("Poles"))};
+	SetRootComponent(PolesRoot);
 }
 
 void ATrafficLightActor::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
-#if WITH_EDITOR
-	if (HasAnyFlags(RF_Transient))
-	{
-		Build();
-	}
-#endif
+	Build();
 }
 
 void ATrafficLightActor::Bake(const FString& MapName)
@@ -259,74 +255,110 @@ void ATrafficLightActor::Bake(const FString& MapName)
 
 void ATrafficLightActor::Build()
 {
-	USceneComponent* PolesRoot{EnsurePolesRoot()};
+	USceneComponent* const PolesRoot{RootComponent};
 	Clear();
 
-	const int32 NumPoles{Poles.Num()};
-	for (int32 PoleIndex{0}; PoleIndex < NumPoles; ++PoleIndex)
+#if WITH_EDITOR
+	UWorld* const World{GetWorld()};
+	const bool bIsEditorWorld{World && (World->WorldType == EWorldType::Editor || World->WorldType == EWorldType::EditorPreview ||
+										   World->WorldType == EWorldType::PIE)};
+	const bool bIsPreview{HasAnyFlags(RF_Transient)};
+
+	auto EnsureEditorInstanceComponent = [this, bIsEditorWorld, bIsPreview](UActorComponent* InComponent)
+	{
+		if (!IsValid(InComponent))
+		{
+			return;
+		}
+		if (!bIsEditorWorld)
+		{
+			return;
+		}
+		if (bIsPreview)
+		{
+			return;
+		}
+
+		InComponent->CreationMethod = EComponentCreationMethod::UserConstructionScript;
+		InComponent->SetFlags(RF_Transactional);
+		AddInstanceComponent(InComponent);
+		InComponent->OnComponentCreated();
+		InComponent->RegisterComponent();
+	};
+
+	auto UniqueRename = [this](UObject* Object, const FString& BaseName)
+	{
+		if (!IsValid(Object))
+		{
+			return;
+		}
+		const FName Unique{MakeUniqueObjectName(this, Object->GetClass(), *BaseName)};
+		Object->Rename(*Unique.ToString(), this, REN_DontCreateRedirectors);
+	};
+#endif
+
+	const int32 TotalPoles{Poles.Num()};
+	for (int32 PoleIndex{0}; PoleIndex < TotalPoles; ++PoleIndex)
 	{
 		FTLPole& Pole{Poles[PoleIndex]};
 
-		USceneComponent* PoleRoot{AddRootPole(PolesRoot, Pole)};
-		if (IsValid(PoleRoot))
-		{
-			const FString PoleRootName{MakeUniqueNamed(FString::Printf(TEXT("Pole_%02d"), PoleIndex))};
-			PoleRoot->Rename(*PoleRootName, this, REN_DontCreateRedirectors);
-		}
+		USceneComponent* const PoleRoot{AddRootPole(PolesRoot, Pole)};
+#if WITH_EDITOR
+		UniqueRename(PoleRoot, FString::Printf(TEXT("Pole_%02d"), PoleIndex));
+		EnsureEditorInstanceComponent(PoleRoot);
+#endif
 
 		if (IsValid(Pole.BasePoleMesh))
 		{
-			UStaticMeshComponent* BaseMeshComponent{AddPoleBase(PoleRoot, Pole)};
-			if (IsValid(BaseMeshComponent))
-			{
-				const FString BaseName{MakeUniqueNamed(FString::Printf(TEXT("Pole_%02d_Base"), PoleIndex))};
-				BaseMeshComponent->Rename(*BaseName, this, REN_DontCreateRedirectors);
-			}
+			UStaticMeshComponent* const BaseComp{AddPoleBase(PoleRoot, Pole)};
+#if WITH_EDITOR
+			UniqueRename(BaseComp, FString::Printf(TEXT("Pole_%02d_Base"), PoleIndex));
+			EnsureEditorInstanceComponent(BaseComp);
+#endif
 		}
 
 		if (IsValid(Pole.ExtensiblePoleMesh))
 		{
-			UStaticMeshComponent* ExtensibleMeshComponent{AddPoleExtensible(PoleRoot, Pole)};
-			if (IsValid(ExtensibleMeshComponent))
-			{
-				const FString ExtensibleName{MakeUniqueNamed(FString::Printf(TEXT("Pole_%02d_Extensible"), PoleIndex))};
-				ExtensibleMeshComponent->Rename(*ExtensibleName, this, REN_DontCreateRedirectors);
-			}
+			UStaticMeshComponent* const ExtComp{AddPoleExtensible(PoleRoot, Pole)};
+#if WITH_EDITOR
+			UniqueRename(ExtComp, FString::Printf(TEXT("Pole_%02d_Extensible"), PoleIndex));
+			EnsureEditorInstanceComponent(ExtComp);
+#endif
 		}
 
 		if (IsValid(Pole.CapPoleMesh))
 		{
-			UStaticMeshComponent* CapMeshComponent{AddPoleCap(PoleRoot, Pole)};
-			if (IsValid(CapMeshComponent))
-			{
-				const FString CapName{MakeUniqueNamed(FString::Printf(TEXT("Pole_%02d_Cap"), PoleIndex))};
-				CapMeshComponent->Rename(*CapName, this, REN_DontCreateRedirectors);
-			}
+			UStaticMeshComponent* const CapComp{AddPoleCap(PoleRoot, Pole)};
+#if WITH_EDITOR
+			UniqueRename(CapComp, FString::Printf(TEXT("Pole_%02d_Cap"), PoleIndex));
+			EnsureEditorInstanceComponent(CapComp);
+#endif
 		}
 
-		const int32 NumHeads{Pole.Heads.Num()};
-		for (int32 HeadIndex{0}; HeadIndex < NumHeads; ++HeadIndex)
+		const int32 TotalHeads{Pole.Heads.Num()};
+		for (int32 HeadIndex{0}; HeadIndex < TotalHeads; ++HeadIndex)
 		{
 			FTLHead& Head{Pole.Heads[HeadIndex]};
 
-			USceneComponent* HeadRoot{AddHead(PoleRoot, Pole, Head)};
-			if (IsValid(HeadRoot))
-			{
-				const FString HeadRootName{MakeUniqueNamed(FString::Printf(TEXT("Pole_%02d_Head_%02d"), PoleIndex, HeadIndex))};
-				HeadRoot->Rename(*HeadRootName, this, REN_DontCreateRedirectors);
-			}
+			USceneComponent* const HeadRoot{AddHead(PoleRoot, Pole, Head)};
+#if WITH_EDITOR
+			UniqueRename(HeadRoot, FString::Printf(TEXT("Pole_%02d_Head_%02d"), PoleIndex, HeadIndex));
+			EnsureEditorInstanceComponent(HeadRoot);
+#endif
 
-			const int32 NumModules{Head.Modules.Num()};
-			for (int32 ModuleIndex{0}; ModuleIndex < NumModules; ++ModuleIndex)
+			const int32 TotalModules{Head.Modules.Num()};
+			for (int32 ModuleIndex{0}; ModuleIndex < TotalModules; ++ModuleIndex)
 			{
 				FTLModule& Module{Head.Modules[ModuleIndex]};
-				UStaticMeshComponent* ModuleMeshComponent{AddModule(HeadRoot, Pole, Head, Module)};
-				if (IsValid(ModuleMeshComponent))
+				UStaticMeshComponent* const ModuleComp{AddModule(HeadRoot, Pole, Head, Module)};
+				if (IsValid(ModuleComp))
 				{
-					const FString ModuleName{
-						MakeUniqueNamed(FString::Printf(TEXT("Pole_%02d_Head_%02d_Mod_%02d"), PoleIndex, HeadIndex, ModuleIndex))};
-					ModuleMeshComponent->Rename(*ModuleName, this, REN_DontCreateRedirectors);
-					ModuleMeshComponents.Add(ModuleMeshComponent);
+					ModuleMeshComponents.Add(ModuleComp);
+#if WITH_EDITOR
+					UniqueRename(
+						ModuleComp, FString::Printf(TEXT("Pole_%02d_Head_%02d_Mod_%02d"), PoleIndex, HeadIndex, ModuleIndex));
+					EnsureEditorInstanceComponent(ModuleComp);
+#endif
 				}
 			}
 
@@ -334,50 +366,53 @@ void ATrafficLightActor::Build()
 
 			if (Head.bHasBackplate)
 			{
-				TArray<UActorComponent*> ComponentsBefore{};
-				GetComponents(UActorComponent::StaticClass(), ComponentsBefore);
+				TArray<UActorComponent*> Before{};
+				GetComponents(UActorComponent::StaticClass(), Before);
 
 				AddBackplate(HeadRoot, Pole, Head);
 
-				TArray<UActorComponent*> ComponentsAfter{};
-				GetComponents(UActorComponent::StaticClass(), ComponentsAfter);
+				TArray<UActorComponent*> After{};
+				GetComponents(UActorComponent::StaticClass(), After);
 
-				TSet<UActorComponent*> ComponentsBeforeSet{};
-				for (UActorComponent* ActorComponent : ComponentsBefore)
+				TSet<UActorComponent*> BeforeSet{};
+				for (UActorComponent* const Existing : Before)
 				{
-					ComponentsBeforeSet.Add(ActorComponent);
+					BeforeSet.Add(Existing);
 				}
 
-				int32 BackplatePieceIndex{0};
-				for (UActorComponent* ActorComponent : ComponentsAfter)
+				int32 BackplateIndex{0};
+				for (UActorComponent* const MaybeNew : After)
 				{
-					if (ComponentsBeforeSet.Contains(ActorComponent))
+					if (BeforeSet.Contains(MaybeNew))
 					{
 						continue;
 					}
-					if (!IsValid(ActorComponent))
+					USceneComponent* const SceneComp{Cast<USceneComponent>(MaybeNew)};
+					if (!IsValid(SceneComp))
 					{
 						continue;
 					}
-
-					USceneComponent* SceneComponentCandidate{Cast<USceneComponent>(ActorComponent)};
-					if (!IsValid(SceneComponentCandidate))
+					if (SceneComp->GetAttachParent() != HeadRoot)
 					{
 						continue;
 					}
-					if (SceneComponentCandidate->GetAttachParent() != HeadRoot)
-					{
-						continue;
-					}
-
-					const FString BackplateName{MakeUniqueNamed(
-						FString::Printf(TEXT("Pole_%02d_Head_%02d_Backplate_%02d"), PoleIndex, HeadIndex, BackplatePieceIndex))};
-					SceneComponentCandidate->Rename(*BackplateName, this, REN_DontCreateRedirectors);
-					++BackplatePieceIndex;
+#if WITH_EDITOR
+					UniqueRename(SceneComp,
+						FString::Printf(TEXT("Pole_%02d_Head_%02d_Backplate_%02d"), PoleIndex, HeadIndex, BackplateIndex));
+					EnsureEditorInstanceComponent(SceneComp);
+#endif
+					++BackplateIndex;
 				}
 			}
 		}
 	}
+
+#if WITH_EDITOR
+	if (GEditor && !HasAnyFlags(RF_Transient))
+	{
+		GEditor->NoteSelectionChange();
+	}
+#endif
 }
 
 void ATrafficLightActor::BuildFromJSON()
@@ -395,10 +430,10 @@ void ATrafficLightActor::BuildFromJSON()
 		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Failed to load JSON file: %s"), *FullPath);
 		return;
 	}
-	BuildFromJSONString(JSONConfig);
+	BuildFromJSONString(JSONConfig, true);
 }
 
-void ATrafficLightActor::BuildFromJSONString(const FString& JSONConfig)
+void ATrafficLightActor::BuildFromJSONString(const FString& JSONConfig, bool bCalledFromEditor)
 {
 	TSharedPtr<FJsonObject> Root;
 	TSharedRef<TJsonReader<TCHAR>> Reader{TJsonReaderFactory<TCHAR>::Create(JSONConfig)};
@@ -624,7 +659,15 @@ void ATrafficLightActor::BuildFromJSONString(const FString& JSONConfig)
 			Poles.Add(MoveTemp(Pole));
 		}
 	}
-	Build();
+
+	if (bCalledFromEditor)
+	{
+		RerunConstructionScripts();
+	}
+	else
+	{
+		Build();
+	}
 }
 
 void ATrafficLightActor::PopulateDefault()
