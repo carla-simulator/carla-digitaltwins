@@ -213,7 +213,7 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 					}
 					if (DynamicMaterial)
 					{
-					  //Set diffuse texture from the data asset
+					  //Set diffuse texture from the data asset, Normal map gets created using diffuse.
 					  DynamicMaterial->SetTextureParameterValue("Diffuse", sign_asset->Diffuse);
 
 					  // Set index of the atlas texture

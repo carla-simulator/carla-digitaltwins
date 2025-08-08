@@ -17,18 +17,12 @@ class CARLADIGITALTWINSTOOL_API USignDataAsset : public UPrimaryDataAsset
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	UStaticMesh* SignMesh;
-	
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	ESignStyle SignStyle;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool Unique; //Unused for now
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	UTexture2D* Diffuse;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	UTexture2D* Normal;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	int Id_X;
