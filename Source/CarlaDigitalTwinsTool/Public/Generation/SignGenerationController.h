@@ -36,7 +36,7 @@ public:
 	UFUNCTION(Category= "SignGeneration", BlueprintCallable, CallInEditor)
 	void SignGenerationForCurrentMap();
 
-	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadOnly)
+	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite)
 	UStreetMap* StreetMapData;
 
 	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite)
