@@ -508,6 +508,7 @@ void ATrafficLightActor::PopulateDefault()
 	Head.Modules.Add(ModuleRed);
 	Pole.Heads.Add(Head);
 	Poles.Add(Pole);
+	Build();
 }
 
 FString ATrafficLightActor::ExportToJSON(bool bUseTransform) const

@@ -293,6 +293,8 @@ private:
   void GenerateTreePositions(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
   void GenerateLaneMarks(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
   void GenerateTrafficLights(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
+  bool TryResolveContentFileAnywhere(const FString& RelativePathUnderContent, FString& OutAbsPath);
+
 
   FTransform GetSnappedPosition(FTransform Origin);
 

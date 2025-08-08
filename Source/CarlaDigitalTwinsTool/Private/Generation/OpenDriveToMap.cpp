@@ -102,6 +102,7 @@
 #include "IImageWrapperModule.h"
 #include "IMeshMergeUtilities.h"
 #include "ImageUtils.h"
+#include "Interfaces/IPluginManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInterface.h"
 #include "MeshMergeModule.h"
@@ -1218,28 +1219,33 @@ void UOpenDriveToMap::GenerateTrafficLights(
 					GetEditorWorld()->SpawnActor<ATrafficLightActor>(TrafficLightBPClass, SignalTransform, SpawnParams)};
 				if (IsValid(TL))
 				{
-					constexpr TCHAR const* DefaultJsonFilePath{
-						TEXT("/CarlaDigitalTwinsTool/Carla/Static/TrafficLight/TrafficLights2025/Preset/Default.json")};
-					if (!FPaths::FileExists(DefaultJsonFilePath))
+					const FString Rel{TEXT("Carla/Static/TrafficLight/TrafficLights2025/Presets/Default.json")};
+					FString JsonAbs;
+					if (!TryResolveContentFileAnywhere(Rel, JsonAbs))
 					{
 						UE_LOG(LogCarlaDigitalTwinsTool, Warning,
-							TEXT("Default traffic light JSON file not found at %s. Using backup."), DefaultJsonFilePath);
+							TEXT("Default traffic light JSON not found under any Content: %s. Using backup."), *Rel);
 						TL->PopulateDefault();
 					}
 					else
 					{
 						FString JSONString;
-						FFileHelper::LoadFileToString(JSONString, *FilePath);
-						TL->BuildFromJSONString(JSONString);
+						if (FFileHelper::LoadFileToString(JSONString, *JsonAbs))
+						{
+							UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Loading JSON file at %s"), *JsonAbs);
+							TL->BuildFromJSONString(JSONString);
+						}
+						else
+						{
+							UE_LOG(
+								LogCarlaDigitalTwinsTool, Warning, TEXT("Failed to read JSON file at %s. Using backup."), *JsonAbs);
+							TL->PopulateDefault();
+						}
 					}
-					TL->Build();
+
 					TL->SetActorLabel(FString::Printf(TEXT("TrafficLight_%d"), TrafficLightCount++));
 					TL->Bake(MapName);
 					TL->Destroy();
-				}
-				else
-				{
-					UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("TrafficLightActor is not valid"));
 				}
 			}
 		}
@@ -1970,5 +1976,37 @@ void UOpenDriveToMap::MitsubaMeshOptimization()
 		}
 	}
 }
+bool UOpenDriveToMap::TryResolveContentFileAnywhere(const FString& RelativePathUnderContent, FString& OutAbsPath)
+{
+	if (RelativePathUnderContent.IsEmpty())
+	{
+		return false;
+	}
 
+	IPluginManager& PM{IPluginManager::Get()};
+	const TArray<TSharedRef<IPlugin>> Plugins{PM.GetEnabledPlugins()};
+	for (const TSharedRef<IPlugin>& Plugin : Plugins)
+	{
+		if (!Plugin->CanContainContent())
+		{
+			continue;
+		}
+
+		const FString Candidate{FPaths::Combine(Plugin->GetContentDir(), RelativePathUnderContent)};
+		if (FPaths::FileExists(Candidate))
+		{
+			OutAbsPath = Candidate;
+			return true;
+		}
+	}
+
+	const FString ProjectCandidate{FPaths::Combine(FPaths::ProjectContentDir(), RelativePathUnderContent)};
+	if (FPaths::FileExists(ProjectCandidate))
+	{
+		OutAbsPath = ProjectCandidate;
+		return true;
+	}
+
+	return false;
+}
 #endif
