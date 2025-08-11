@@ -1179,7 +1179,29 @@ void UOpenDriveToMap::GenerateTreePositions(
 void UOpenDriveToMap::GenerateTrafficLights(
 	const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation)
 {
+	if (!ParamCarlaMap)
+	{
+		UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("GenerateTrafficLights: Map is not valid, skipping."));
+		return;
+	}
 	const FString BPPath{TEXT("/CarlaDigitalTwinsTool/Blueprints/TrafficLight/BP_TrafficLightActor.BP_TrafficLightActor_C")};
+	const carla::geom::Vector3D CarlaMinLocation(MinLocation.X / 100.0, MinLocation.Y / 100.0, MinLocation.Z / 100.0);
+	const carla::geom::Vector3D CarlaMaxLocation(MaxLocation.X / 100.0, MaxLocation.Y / 100.0, MaxLocation.Z / 100.0);
+	const double MinX{FMath::Min(MinLocation.X, MaxLocation.X)};
+	const double MaxX{FMath::Max(MinLocation.X, MaxLocation.X)};
+	const double MinY{FMath::Min(MinLocation.Y, MaxLocation.Y)};
+	const double MaxY{FMath::Max(MinLocation.Y, MaxLocation.Y)};
+
+	auto InChunk2D = [&](const carla::geom::Vector3D& Position) -> bool
+	{ return (Position.x >= MinX && Position.x <= MaxX && Position.y >= MinY && Position.y <= MaxY); };
+
+	auto MakeStableLabel = [&](const carla::road::Signal& S) -> FString
+	{
+		const FString Sid{UTF8_TO_TCHAR(S.GetSignalId().c_str())};
+		const FString Key{FString::Printf(TEXT("%s|%s"), *MapName, *Sid)};
+		const uint32 Hash{FCrc::StrCrc32(*Key)};
+		return FString::Printf(TEXT("TrafficLight_%08X"), Hash);
+	};
 
 	UClass* TrafficLightBPClass{LoadObject<UClass>(nullptr, *BPPath)};
 	if (!IsValid(TrafficLightBPClass))
@@ -1189,67 +1211,95 @@ void UOpenDriveToMap::GenerateTrafficLights(
 	}
 
 	std::vector<const carla::road::element::RoadInfoSignal*> Signals{ParamCarlaMap->GetAllSignalReferences()};
-	int32 TrafficLightCount{0};
-	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Signals found: %d"), Signals.size());
+
+	int32 BakedCount{0};
+	int32 SkippedOutOfChunk{0};
+	int32 SkippedNonTL{0};
+	int32 SkippedDup{0};
+	int32 SkippedNull{0};
+	int32 FailedSpawn{0};
+	TSet<const carla::road::Signal*> SeenSignals;
+
 	for (const carla::road::element::RoadInfoSignal* Info : Signals)
 	{
-		const carla::road::Signal* Signal{Info->GetSignal()};
-		if (carla::road::SignalType::IsTrafficLight(Signal->GetType()))
+		if (!Info)
 		{
-			const carla::geom::Transform SignalTransform{Signal->GetTransform()};
-			const FVector DesiredLoc{SignalTransform.location};
-			const float Tolerance{1.0f};
-			bool bAlreadySpawned{false};
+			++SkippedNull;
+			continue;
+		}
 
-			for (TActorIterator<ATrafficLightActor> It(GetEditorWorld()); It; ++It)
+		const carla::road::Signal* Signal = Info->GetSignal();
+		if (!Signal)
+		{
+			++SkippedNull;
+			continue;
+		}
+
+		if (!carla::road::SignalType::IsTrafficLight(Signal->GetType()))
+		{
+			++SkippedNonTL;
+			continue;
+		}
+
+		if (SeenSignals.Contains(Signal))
+		{
+			++SkippedDup;
+			continue;
+		}
+
+		const carla::geom::Transform SignalTransform{Signal->GetTransform()};
+		if (!InChunk2D(SignalTransform.location))
+		{
+			++SkippedOutOfChunk;
+			continue;
+		}
+
+		SeenSignals.Add(Signal);
+		const FString Label{MakeStableLabel(*Signal)};
+		ATrafficLightActor* TL{GetEditorWorld()->SpawnActorDeferred<ATrafficLightActor>(
+			TrafficLightBPClass, SignalTransform, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn)};
+
+		if (!IsValid(TL))
+		{
+			++FailedSpawn;
+			continue;
+		}
+		const FString Rel{TEXT("Carla/Static/TrafficLight/TrafficLights2025/Presets/Default.json")};
+		FString JsonAbs;
+		if (!TryResolveContentFileAnywhere(Rel, JsonAbs))
+		{
+			UE_LOG(LogCarlaDigitalTwinsTool, Warning,
+				TEXT("Default traffic light JSON not found under any Content: %s. Using backup."), *Rel);
+			TL->PopulateDefault();
+		}
+		else
+		{
+			FString JSONString;
+			if (FFileHelper::LoadFileToString(JSONString, *JsonAbs))
 			{
-				if (It->GetActorLocation().Equals(DesiredLoc, Tolerance))
-				{
-					bAlreadySpawned = true;
-					break;
-				}
+				UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Loading JSON file at %s"), *JsonAbs);
+				TL->BuildFromJSONString(JSONString);
 			}
-
-			if (!bAlreadySpawned)
+			else
 			{
-				FActorSpawnParameters SpawnParams;
-				SpawnParams.OverrideLevel = GetEditorWorld()->GetCurrentLevel();
-
-				ATrafficLightActor* TL{
-					GetEditorWorld()->SpawnActor<ATrafficLightActor>(TrafficLightBPClass, SignalTransform, SpawnParams)};
-				if (IsValid(TL))
-				{
-					const FString Rel{TEXT("Carla/Static/TrafficLight/TrafficLights2025/Presets/Default.json")};
-					FString JsonAbs;
-					if (!TryResolveContentFileAnywhere(Rel, JsonAbs))
-					{
-						UE_LOG(LogCarlaDigitalTwinsTool, Warning,
-							TEXT("Default traffic light JSON not found under any Content: %s. Using backup."), *Rel);
-						TL->PopulateDefault();
-					}
-					else
-					{
-						FString JSONString;
-						if (FFileHelper::LoadFileToString(JSONString, *JsonAbs))
-						{
-							UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Loading JSON file at %s"), *JsonAbs);
-							TL->BuildFromJSONString(JSONString);
-						}
-						else
-						{
-							UE_LOG(
-								LogCarlaDigitalTwinsTool, Warning, TEXT("Failed to read JSON file at %s. Using backup."), *JsonAbs);
-							TL->PopulateDefault();
-						}
-					}
-
-					TL->SetActorLabel(FString::Printf(TEXT("TrafficLight_%d"), TrafficLightCount++));
-					TL->Bake(MapName);
-					TL->Destroy();
-				}
+				UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Failed to read JSON file at %s. Using backup."), *JsonAbs);
+				TL->PopulateDefault();
 			}
 		}
+		TL->FinishSpawning(SignalTransform);
+		if (!IsValid(TL))
+		{
+			++FailedSpawn;
+			continue;
+		}
+		TL->Build();
+		TL->Bake(MapName, Label);
+		TL->Destroy();
+		++BakedCount;
 	}
+	UE_LOG(LogCarlaDigitalTwinsTool, Log,
+		TEXT("GenerateTrafficLights: baked=%d, skipped{outOfChunk=%d, nonTL=%d, dupRefs=%d, null=%d}, failedSpawn=%d"), BakedCount,
+		SkippedOutOfChunk, SkippedNonTL, SkippedDup, SkippedNull, FailedSpawn);
 }
 
 float UOpenDriveToMap::GetHeight(float PosX, float PosY, bool bDrivingLane)

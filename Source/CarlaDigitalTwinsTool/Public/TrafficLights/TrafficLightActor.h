@@ -31,7 +31,7 @@ public:
 	void Build();
 
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "TrafficLight")
-	void Bake(const FString& MapName);
+	void Bake(const FString& MapName, const FString& DesiredLabel);
 
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "TrafficLight|JSON")
 	void BuildFromJSON();

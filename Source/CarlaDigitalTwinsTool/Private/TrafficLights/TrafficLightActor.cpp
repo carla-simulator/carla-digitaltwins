@@ -129,7 +129,7 @@ void ATrafficLightActor::OnConstruction(const FTransform& Transform)
 	Build();
 }
 
-void ATrafficLightActor::Bake(const FString& MapName)
+void ATrafficLightActor::Bake(const FString& MapName, const FString& DesiredLabel)
 {
 #if WITH_EDITOR
 	UWorld* const EditorWorld{GetWorld()};
@@ -150,7 +150,27 @@ void ATrafficLightActor::Bake(const FString& MapName)
 		return;
 	}
 
-	const FString DesiredLabel{!GetActorLabel().IsEmpty() ? GetActorLabel() : FString::Printf(TEXT("%s_Baked"), *GetActorLabel())};
+	TMap<UObject*, UObject*> CopyCache{};
+
+	auto CopyOnce = [&](UObject* const SourceObject) -> UObject*
+	{
+		if (!IsValid(SourceObject))
+		{
+			return nullptr;
+		}
+		if (UObject* const* Cached{CopyCache.Find(SourceObject)})
+		{
+			return *Cached;
+		}
+		UObject* const Duplicated{UBlueprintUtilFunctions::CopyAssetToPlugin(SourceObject, MapName)};
+		if (IsValid(Duplicated))
+		{
+			CopyCache.Add(SourceObject, Duplicated);
+			return Duplicated;
+		}
+		return nullptr;
+	};
+
 	const FName OutlinerFolder{TEXT("TrafficLights")};
 	ContainerActor->SetActorLabel(DesiredLabel);
 	ContainerActor->SetFolderPath(OutlinerFolder);
@@ -204,29 +224,9 @@ void ATrafficLightActor::Bake(const FString& MapName)
 		}
 
 		BakedMeshComponent->SetWorldTransform(SourceWorldTransform);
+		UObject* const DstParentObj{CopyOnce(BakedMeshComponent)};
 		BakedMeshComponents.Add(BakedMeshComponent);
 	}
-
-	TMap<UObject*, UObject*> CopyCache{};
-
-	auto CopyOnce = [&](UObject* const SourceObject) -> UObject*
-	{
-		if (!IsValid(SourceObject))
-		{
-			return nullptr;
-		}
-		if (UObject* const* Cached{CopyCache.Find(SourceObject)})
-		{
-			return *Cached;
-		}
-		UObject* const Duplicated{UBlueprintUtilFunctions::CopyAssetToPlugin(SourceObject, MapName)};
-		if (IsValid(Duplicated))
-		{
-			CopyCache.Add(SourceObject, Duplicated);
-			return Duplicated;
-		}
-		return nullptr;
-	};
 
 	for (UStaticMeshComponent* const BakedMeshComponent : BakedMeshComponents)
 	{
@@ -293,9 +293,17 @@ void ATrafficLightActor::Build()
 
 		InComponent->CreationMethod = EComponentCreationMethod::UserConstructionScript;
 		InComponent->SetFlags(RF_Transactional);
-		AddInstanceComponent(InComponent);
-		InComponent->OnComponentCreated();
-		InComponent->RegisterComponent();
+
+		if (InComponent->GetOwner() != this)
+		{
+			AddInstanceComponent(InComponent);
+		}
+
+		if (!InComponent->IsRegistered())
+		{
+			InComponent->OnComponentCreated();
+			InComponent->RegisterComponent();
+		}
 	};
 
 	auto UniqueRename = [this](UObject* Object, const FString& BaseName)
@@ -443,6 +451,7 @@ void ATrafficLightActor::BuildFromJSON()
 		return;
 	}
 	BuildFromJSONString(JSONConfig);
+	RerunConstructionScripts();
 }
 
 void ATrafficLightActor::BuildFromJSONString(const FString& JSONConfig)
@@ -478,8 +487,6 @@ void ATrafficLightActor::BuildFromJSONString(const FString& JSONConfig)
 			const auto& JO = **SclObj;
 			NewTx.SetScale3D(FVector{JO.GetNumberField(TEXT("X")), JO.GetNumberField(TEXT("Y")), JO.GetNumberField(TEXT("Z"))});
 		}
-
-		SetActorTransform(NewTx);
 	}
 
 	Poles.Empty();
@@ -671,15 +678,6 @@ void ATrafficLightActor::BuildFromJSONString(const FString& JSONConfig)
 			Poles.Add(MoveTemp(Pole));
 		}
 	}
-
-	if (ShouldUseRerun(this))
-	{
-		RerunConstructionScripts();
-	}
-	else
-	{
-		Build();
-	}
 }
 
 void ATrafficLightActor::PopulateDefault()
@@ -735,7 +733,6 @@ void ATrafficLightActor::PopulateDefault()
 	Head.Modules.Add(ModuleRed);
 	Pole.Heads.Add(Head);
 	Poles.Add(Pole);
-	Build();
 }
 
 FString ATrafficLightActor::ExportToJSON(bool bUseTransform) const
@@ -1173,23 +1170,46 @@ void ATrafficLightActor::RebuildModuleChain(FTLHead& Head)
 
 void ATrafficLightActor::Clear()
 {
-	TArray<USceneComponent*> SceneComps{};
-	GetComponents<USceneComponent>(SceneComps);
-	USceneComponent* Root{GetRootComponent()};
-	for (USceneComponent* SceneComp : SceneComps)
+#if WITH_EDITOR
+	if (USceneComponent * Root{GetRootComponent()})
 	{
-		if (!IsValid(SceneComp))
+		TArray<USceneComponent*> Children;
+		Root->GetChildrenComponents(true, Children);
+		for (USceneComponent* C : Children)
 		{
-			continue;
+			if (IsValid(C))
+			{
+				C->DestroyComponent(false);
+			}
 		}
-		if (SceneComp == Root)
-		{
-			continue;
-		}
-		SceneComp->DestroyComponent();
 	}
+
+	{
+		TArray<UActorComponent*> AllComponents;
+		GetComponents(AllComponents);
+		for (UActorComponent* Comp : AllComponents)
+		{
+			if (!IsValid(Comp))
+				continue;
+
+			if (USceneComponent * SC{Cast<USceneComponent>(Comp)})
+			{
+				if (SC == GetRootComponent())
+				{
+					continue;
+				}
+			}
+
+			if (Comp->CreationMethod == EComponentCreationMethod::UserConstructionScript)
+			{
+				Comp->DestroyComponent();
+			}
+		}
+	}
+
 	ModuleMeshComponents.Reset();
 	DemoLights.Reset();
+#endif
 }
 
 USceneComponent* ATrafficLightActor::EnsurePolesRoot()

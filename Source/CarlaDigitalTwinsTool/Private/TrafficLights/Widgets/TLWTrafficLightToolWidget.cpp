@@ -465,10 +465,9 @@ FReply STrafficLightToolWidget::OnModifyClicked()
 	}
 
 	NewTL->Poles = PreviewActor->Poles;
-	NewTL->SetActorLabel(FolderName);
-	NewTL->Build();
 	const FString MapName{FPackageName::GetShortName(World->GetMapName())};
-	NewTL->Bake(MapName);
+	NewTL->Build();
+	NewTL->Bake(MapName, FolderName);
 	NewTL->Destroy();
 #endif
 
