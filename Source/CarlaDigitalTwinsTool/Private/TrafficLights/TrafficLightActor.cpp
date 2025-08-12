@@ -150,27 +150,6 @@ void ATrafficLightActor::Bake(const FString& MapName, const FString& DesiredLabe
 		return;
 	}
 
-	TMap<UObject*, UObject*> CopyCache{};
-
-	auto CopyOnce = [&](UObject* const SourceObject) -> UObject*
-	{
-		if (!IsValid(SourceObject))
-		{
-			return nullptr;
-		}
-		if (UObject* const* Cached{CopyCache.Find(SourceObject)})
-		{
-			return *Cached;
-		}
-		UObject* const Duplicated{UBlueprintUtilFunctions::CopyAssetToPlugin(SourceObject, MapName)};
-		if (IsValid(Duplicated))
-		{
-			CopyCache.Add(SourceObject, Duplicated);
-			return Duplicated;
-		}
-		return nullptr;
-	};
-
 	const FName OutlinerFolder{TEXT("TrafficLights")};
 	ContainerActor->SetActorLabel(DesiredLabel);
 	ContainerActor->SetFolderPath(OutlinerFolder);
@@ -187,9 +166,6 @@ void ATrafficLightActor::Bake(const FString& MapName, const FString& DesiredLabe
 
 	TArray<UStaticMeshComponent*> SourceMeshComponents{};
 	GetComponents<UStaticMeshComponent>(SourceMeshComponents);
-
-	TArray<UStaticMeshComponent*> BakedMeshComponents{};
-	BakedMeshComponents.Reserve(SourceMeshComponents.Num());
 
 	for (UStaticMeshComponent* const SourceMeshComponent : SourceMeshComponents)
 	{
@@ -211,56 +187,41 @@ void ATrafficLightActor::Bake(const FString& MapName, const FString& DesiredLabe
 		ContainerActor->AddInstanceComponent(BakedMeshComponent);
 		BakedMeshComponent->RegisterComponent();
 
-		BakedMeshComponent->SetStaticMesh(SourceMeshComponent->GetStaticMesh());
+		UStaticMesh* const SourceMesh{SourceMeshComponent->GetStaticMesh()};
+		UObject* const CopiedMeshObj{UBlueprintUtilFunctions::CopyAssetToPlugin(SourceMesh, MapName)};
+		UStaticMesh* const MeshToSet{IsValid(CopiedMeshObj) ? Cast<UStaticMesh>(CopiedMeshObj) : SourceMesh};
+		BakedMeshComponent->SetStaticMesh(MeshToSet);
 
 		const int32 MaterialCount{SourceMeshComponent->GetNumMaterials()};
 		for (int32 MaterialIndex{0}; MaterialIndex < MaterialCount; ++MaterialIndex)
 		{
 			UMaterialInterface* const SourceMaterial{SourceMeshComponent->GetMaterial(MaterialIndex)};
-			if (IsValid(SourceMaterial))
-			{
-				BakedMeshComponent->SetMaterial(MaterialIndex, SourceMaterial);
-			}
-		}
-
-		BakedMeshComponent->SetWorldTransform(SourceWorldTransform);
-		UObject* const DstParentObj{CopyOnce(BakedMeshComponent)};
-		BakedMeshComponents.Add(BakedMeshComponent);
-	}
-
-	for (UStaticMeshComponent* const BakedMeshComponent : BakedMeshComponents)
-	{
-		const int32 MaterialCount{BakedMeshComponent->GetNumMaterials()};
-		for (int32 MaterialIndex{0}; MaterialIndex < MaterialCount; ++MaterialIndex)
-		{
-			UMaterialInterface* const AssignedMat{BakedMeshComponent->GetMaterial(MaterialIndex)};
-			if (!IsValid(AssignedMat))
+			if (!IsValid(SourceMaterial))
 			{
 				continue;
 			}
 
-			if (UMaterialInstanceDynamic* const SrcMID{Cast<UMaterialInstanceDynamic>(AssignedMat)})
+			if (UMaterialInstanceDynamic* const SourceMID{Cast<UMaterialInstanceDynamic>(SourceMaterial)})
 			{
-				UMaterialInterface* const ParentMat{SrcMID->Parent};
-				UObject* const DstParentObj{CopyOnce(ParentMat)};
+				UMaterialInterface* const ParentMaterial{SourceMID->Parent};
+				UObject* const CopiedParentObj{UBlueprintUtilFunctions::CopyAssetToPlugin(ParentMaterial, MapName)};
 				UMaterialInterface* const ParentForNewMID{
-					IsValid(DstParentObj) ? Cast<UMaterialInterface>(DstParentObj) : ParentMat};
-
+					IsValid(CopiedParentObj) ? Cast<UMaterialInterface>(CopiedParentObj) : ParentMaterial};
 				UMaterialInstanceDynamic* const NewMID{UMaterialInstanceDynamic::Create(ParentForNewMID, ContainerActor)};
 				if (IsValid(NewMID))
 				{
-					NewMID->K2_CopyMaterialInstanceParameters(SrcMID);
+					NewMID->K2_CopyMaterialInstanceParameters(SourceMID);
 					BakedMeshComponent->SetMaterial(MaterialIndex, NewMID);
 				}
 				continue;
 			}
 
-			UObject* const DstMatObj{CopyOnce(AssignedMat)};
-			if (IsValid(DstMatObj))
-			{
-				BakedMeshComponent->SetMaterial(MaterialIndex, Cast<UMaterialInterface>(DstMatObj));
-			}
+			UObject* const CopiedMatObj{UBlueprintUtilFunctions::CopyAssetToPlugin(SourceMaterial, MapName)};
+			UMaterialInterface* const MatToSet{IsValid(CopiedMatObj) ? Cast<UMaterialInterface>(CopiedMatObj) : SourceMaterial};
+			BakedMeshComponent->SetMaterial(MaterialIndex, MatToSet);
 		}
+
+		BakedMeshComponent->SetWorldTransform(SourceWorldTransform);
 	}
 #endif
 }

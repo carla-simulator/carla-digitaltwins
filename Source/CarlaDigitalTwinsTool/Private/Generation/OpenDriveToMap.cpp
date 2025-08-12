@@ -1257,8 +1257,7 @@ void UOpenDriveToMap::GenerateTrafficLights(
 		SeenSignals.Add(Signal);
 		const FString Label{MakeStableLabel(*Signal)};
 		ATrafficLightActor* TL{GetEditorWorld()->SpawnActorDeferred<ATrafficLightActor>(
-			TrafficLightBPClass, SignalTransform, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn)};
-
+			TrafficLightBPClass, SignalTransform, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::DontSpawnIfColliding)};
 		if (!IsValid(TL))
 		{
 			++FailedSpawn;
