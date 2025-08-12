@@ -144,28 +144,31 @@ void ATrafficLightActor::Bake(const FString& MapName, const FString& DesiredLabe
 	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	SpawnParams.ObjectFlags |= RF_Transactional;
 
-	AActor* const ContainerActor{EditorWorld->SpawnActor<AActor>(AActor::StaticClass(), ActorWorldTransform, SpawnParams)};
+	AActor* const ContainerActor{EditorWorld->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity, SpawnParams)};
 	if (!IsValid(ContainerActor))
 	{
 		return;
 	}
 
-	const FName OutlinerFolder{TEXT("TrafficLights")};
 	ContainerActor->SetActorLabel(DesiredLabel);
-	ContainerActor->SetFolderPath(OutlinerFolder);
+	ContainerActor->SetFolderPath(FName(TEXT("TrafficLights")));
 	ContainerActor->SetIsTemporarilyHiddenInEditor(false);
 
-	if (!ContainerActor->GetRootComponent())
+	USceneComponent* ContainerRoot{ContainerActor->GetRootComponent()};
+	if (!IsValid(ContainerRoot))
 	{
 		USceneComponent* const BakedRoot{NewObject<USceneComponent>(ContainerActor, TEXT("BakedRoot"))};
 		ContainerActor->SetRootComponent(BakedRoot);
 		BakedRoot->RegisterComponent();
+		ContainerRoot = BakedRoot;
 	}
-
-	USceneComponent* const ContainerRoot{ContainerActor->GetRootComponent()};
+	ContainerRoot->SetWorldTransform(ActorWorldTransform);
 
 	TArray<UStaticMeshComponent*> SourceMeshComponents{};
 	GetComponents<UStaticMeshComponent>(SourceMeshComponents);
+
+	TArray<UStaticMeshComponent*> BakedMeshComponents{};
+	BakedMeshComponents.Reserve(SourceMeshComponents.Num());
 
 	for (UStaticMeshComponent* const SourceMeshComponent : SourceMeshComponents)
 	{
@@ -187,41 +190,61 @@ void ATrafficLightActor::Bake(const FString& MapName, const FString& DesiredLabe
 		ContainerActor->AddInstanceComponent(BakedMeshComponent);
 		BakedMeshComponent->RegisterComponent();
 
-		UStaticMesh* const SourceMesh{SourceMeshComponent->GetStaticMesh()};
-		UObject* const CopiedMeshObj{UBlueprintUtilFunctions::CopyAssetToPlugin(SourceMesh, MapName)};
-		UStaticMesh* const MeshToSet{IsValid(CopiedMeshObj) ? Cast<UStaticMesh>(CopiedMeshObj) : SourceMesh};
-		BakedMeshComponent->SetStaticMesh(MeshToSet);
+		BakedMeshComponent->SetStaticMesh(SourceMeshComponent->GetStaticMesh());
 
 		const int32 MaterialCount{SourceMeshComponent->GetNumMaterials()};
 		for (int32 MaterialIndex{0}; MaterialIndex < MaterialCount; ++MaterialIndex)
 		{
 			UMaterialInterface* const SourceMaterial{SourceMeshComponent->GetMaterial(MaterialIndex)};
-			if (!IsValid(SourceMaterial))
+			if (IsValid(SourceMaterial))
+			{
+				BakedMeshComponent->SetMaterial(MaterialIndex, SourceMaterial);
+			}
+		}
+
+		BakedMeshComponent->SetWorldTransform(SourceWorldTransform);
+		BakedMeshComponents.Add(BakedMeshComponent);
+	}
+
+	for (UStaticMeshComponent* const BakedMeshComponent : BakedMeshComponents)
+	{
+		UStaticMesh* const CopiedMesh{
+			Cast<UStaticMesh>(UBlueprintUtilFunctions::CopyAssetToPlugin(BakedMeshComponent->GetStaticMesh(), MapName))};
+		if (IsValid(CopiedMesh))
+		{
+			BakedMeshComponent->SetStaticMesh(CopiedMesh);
+		}
+
+		const int32 MaterialCount{BakedMeshComponent->GetNumMaterials()};
+		for (int32 MaterialIndex{0}; MaterialIndex < MaterialCount; ++MaterialIndex)
+		{
+			UMaterialInterface* const AssignedMaterial{BakedMeshComponent->GetMaterial(MaterialIndex)};
+			if (!IsValid(AssignedMaterial))
 			{
 				continue;
 			}
 
-			if (UMaterialInstanceDynamic* const SourceMID{Cast<UMaterialInstanceDynamic>(SourceMaterial)})
+			if (UMaterialInstanceDynamic* const AssignedMID{Cast<UMaterialInstanceDynamic>(AssignedMaterial)})
 			{
-				UMaterialInterface* const ParentMaterial{SourceMID->Parent};
-				UObject* const CopiedParentObj{UBlueprintUtilFunctions::CopyAssetToPlugin(ParentMaterial, MapName)};
+				UMaterialInterface* const ParentMat{AssignedMID->Parent};
+				UObject* const CopiedParentObj{UBlueprintUtilFunctions::CopyAssetToPlugin(ParentMat, MapName)};
 				UMaterialInterface* const ParentForNewMID{
-					IsValid(CopiedParentObj) ? Cast<UMaterialInterface>(CopiedParentObj) : ParentMaterial};
+					IsValid(CopiedParentObj) ? Cast<UMaterialInterface>(CopiedParentObj) : ParentMat};
 				UMaterialInstanceDynamic* const NewMID{UMaterialInstanceDynamic::Create(ParentForNewMID, ContainerActor)};
 				if (IsValid(NewMID))
 				{
-					NewMID->K2_CopyMaterialInstanceParameters(SourceMID);
+					NewMID->K2_CopyMaterialInstanceParameters(AssignedMID);
 					BakedMeshComponent->SetMaterial(MaterialIndex, NewMID);
 				}
 				continue;
 			}
 
-			UObject* const CopiedMatObj{UBlueprintUtilFunctions::CopyAssetToPlugin(SourceMaterial, MapName)};
-			UMaterialInterface* const MatToSet{IsValid(CopiedMatObj) ? Cast<UMaterialInterface>(CopiedMatObj) : SourceMaterial};
-			BakedMeshComponent->SetMaterial(MaterialIndex, MatToSet);
+			UObject* const CopiedMatObj{UBlueprintUtilFunctions::CopyAssetToPlugin(AssignedMaterial, MapName)};
+			if (UMaterialInterface* const NewMat{Cast<UMaterialInterface>(CopiedMatObj)})
+			{
+				BakedMeshComponent->SetMaterial(MaterialIndex, NewMat);
+			}
 		}
-
-		BakedMeshComponent->SetWorldTransform(SourceWorldTransform);
 	}
 #endif
 }

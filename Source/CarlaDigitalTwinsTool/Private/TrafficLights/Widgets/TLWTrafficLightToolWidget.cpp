@@ -21,6 +21,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
+#include "ScopedTransaction.h"
 #include "Selection.h"
 #include "TrafficLights/TLHead.h"
 #include "TrafficLights/TLLightTypeDataTable.h"
@@ -387,89 +388,120 @@ FReply STrafficLightToolWidget::OnImportJSONClicked()
 
 FReply STrafficLightToolWidget::OnModifyClicked()
 {
-#if WITH_EDITOR
 	if (!PreviewViewport.IsValid())
 	{
 		return FReply::Handled();
 	}
-	ATrafficLightActor* PreviewActor{PreviewViewport->GetPreviewTrafficLight()};
+
+	ATrafficLightActor* const PreviewActor{PreviewViewport->GetPreviewTrafficLight()};
 	if (!IsValid(PreviewActor))
 	{
 		return FReply::Handled();
 	}
 
+	if (!GEditor)
+	{
+		return FReply::Handled();
+	}
+
+	UWorld* const EditorWorld{GEditor->GetEditorWorldContext().World()};
+	if (!EditorWorld)
+	{
+		return FReply::Handled();
+	}
+
+	int32 SelectedCount{0};
 	AActor* SelectedActor{nullptr};
-	USelection* Sel{GEditor->GetSelectedActors()};
-	for (FSelectionIterator It(*Sel); It; ++It)
+	for (FSelectionIterator It{GEditor->GetSelectedActorIterator()}; It; ++It)
 	{
-		if (AActor * A{Cast<AActor>(*It)})
+		AActor* const Actor{Cast<AActor>(*It)};
+		if (IsValid(Actor))
 		{
-			const FString Folder{A->GetFolderPath().ToString()};
-			if (Folder.StartsWith(TEXT("BP_TrafficLightActor")))
-			{
-				SelectedActor = A;
-				break;
-			}
+			SelectedActor = Actor;
+			++SelectedCount;
 		}
 	}
-	if (!SelectedActor)
+
+	if (SelectedCount != 1)
 	{
 		return FReply::Handled();
 	}
 
-	UWorld* World{GEditor->GetEditorWorldContext().World()};
-	const FString FolderName{SelectedActor->GetFolderPath().ToString()};
-	FTransform BakeTransform{SelectedActor->GetActorTransform()};
-	TArray<AStaticMeshActor*> FolderMeshes;
-	for (TActorIterator<AStaticMeshActor> It(World); It; ++It)
+	USceneComponent* const SelectedRoot{SelectedActor->GetRootComponent()};
+	if (!(IsValid(SelectedRoot) && SelectedRoot->GetName() == TEXT("BakedRoot")))
 	{
-		if (It->GetFolderPath().ToString() == FolderName)
-		{
-			FolderMeshes.Add(*It);
-		}
-	}
-
-	if (FolderMeshes.Num() > 0)
-	{
-		AStaticMeshActor* Lowest{FolderMeshes[0]};
-		float MinZ = Lowest->GetActorLocation().Z;
-		for (AStaticMeshActor* SM : FolderMeshes)
-		{
-			float Z = SM->GetActorLocation().Z;
-			if (Z < MinZ)
-			{
-				MinZ = Z;
-				Lowest = SM;
-			}
-		}
-		BakeTransform = Lowest->GetActorTransform();
-	}
-
-	FActorSpawnParameters Params;
-	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	Params.ObjectFlags |= RF_Transactional;
-	ATrafficLightActor* NewTL{World->SpawnActor<ATrafficLightActor>(ATrafficLightActor::StaticClass(), BakeTransform, Params)};
-
-	if (!IsValid(NewTL))
-	{
-		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Modify: Failed to spawn new TrafficLightActor"));
 		return FReply::Handled();
 	}
 
-	for (TActorIterator<AStaticMeshActor> It(World); It; ++It)
+	const FTransform SelectedTransform{SelectedActor->GetActorTransform()};
+	const FString DesiredLabel{SelectedActor->GetActorLabel()};
+
+	FString MapName{};
 	{
-		if (It->GetFolderPath().ToString() == FolderName)
-		{
-			It->Destroy();
-		}
+		FString CurrentMapName{};
+		CurrentMapName = EditorWorld->GetMapName();
+		CurrentMapName.RemoveFromStart(EditorWorld->StreamingLevelsPrefix);
+		MapName = CurrentMapName;
 	}
 
-	NewTL->Poles = PreviewActor->Poles;
-	const FString MapName{FPackageName::GetShortName(World->GetMapName())};
-	NewTL->Build();
-	NewTL->Bake(MapName, FolderName);
-	NewTL->Destroy();
-#endif
+	const FString BpPath{TEXT("/CarlaDigitalTwinsTool/Blueprints/TrafficLight/BP_TrafficLightActor.BP_TrafficLightActor_C")};
+	UClass* const TrafficLightBpClass{LoadObject<UClass>(nullptr, *BpPath)};
+	if (!IsValid(TrafficLightBpClass))
+	{
+		return FReply::Handled();
+	}
+
+	const FScopedTransaction Transaction{NSLOCTEXT("TLW", "ModifyTrafficLight", "Modify Traffic Light")};
+
+	AActor* const ActorToDestroy{SelectedActor};
+	SelectedActor = nullptr;
+	if (IsValid(ActorToDestroy))
+	{
+		ActorToDestroy->Modify();
+		ActorToDestroy->Destroy();
+	}
+
+	ATrafficLightActor* const NewTrafficLightActor{EditorWorld->SpawnActorDeferred<ATrafficLightActor>(
+		TrafficLightBpClass, SelectedTransform, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn)};
+	if (!IsValid(NewTrafficLightActor))
+	{
+		return FReply::Handled();
+	}
+
+	NewTrafficLightActor->Poles = PreviewActor->Poles;
+	NewTrafficLightActor->FinishSpawning(SelectedTransform);
+	NewTrafficLightActor->SetActorTransform(SelectedTransform, false, nullptr, ETeleportType::TeleportPhysics);
+	NewTrafficLightActor->Build();
+	NewTrafficLightActor->Bake(MapName, DesiredLabel);
+	NewTrafficLightActor->Destroy();
+
+	AActor* BakedActorFound{nullptr};
+	for (TActorIterator<AActor> It{EditorWorld}; It; ++It)
+	{
+		AActor* const Actor{*It};
+		if (!IsValid(Actor))
+		{
+			continue;
+		}
+		if (Actor->GetActorLabel() != DesiredLabel)
+		{
+			continue;
+		}
+		USceneComponent* const Root{Actor->GetRootComponent()};
+		if (!(IsValid(Root) && Root->GetName() == TEXT("BakedRoot")))
+		{
+			continue;
+		}
+		BakedActorFound = Actor;
+		break;
+	}
+
+	GEditor->SelectNone(false, true);
+	if (IsValid(BakedActorFound))
+	{
+		GEditor->SelectActor(BakedActorFound, true, true);
+	}
+	GEditor->NoteSelectionChange();
 
 	return FReply::Handled();
 }
@@ -2436,23 +2468,39 @@ FString STrafficLightToolWidget::GetLightTypeText(ETLLightType Type)
 
 EVisibility STrafficLightToolWidget::GetModifyVisibility() const
 {
-#if WITH_EDITOR
 	if (!GEditor)
 	{
 		return EVisibility::Collapsed;
 	}
-	USelection* Sel{GEditor->GetSelectedActors()};
-	for (FSelectionIterator It(*Sel); It; ++It)
+
+	UWorld* const EditorWorld{GEditor->GetEditorWorldContext().World()};
+	if (!EditorWorld)
 	{
-		if (AActor * A{Cast<AActor>(*It)})
+		return EVisibility::Collapsed;
+	}
+
+	int32 SelectedCount{0};
+	AActor* SelectedActor{nullptr};
+	for (FSelectionIterator It{GEditor->GetSelectedActorIterator()}; It; ++It)
+	{
+		AActor* const Actor{Cast<AActor>(*It)};
+		if (IsValid(Actor))
 		{
-			const FString Folder{A->GetFolderPath().ToString()};
-			if (Folder.StartsWith(TEXT("BP_TrafficLightActor")))
-			{
-				return EVisibility::Visible;
-			}
+			SelectedActor = Actor;
+			++SelectedCount;
 		}
 	}
-#endif
-	return EVisibility::Collapsed;
+
+	if (SelectedCount != 1)
+	{
+		return EVisibility::Collapsed;
+	}
+
+	USceneComponent* const Root{SelectedActor->GetRootComponent()};
+	if (!(IsValid(Root) && Root->GetName() == TEXT("BakedRoot")))
+	{
+		return EVisibility::Collapsed;
+	}
+
+	return EVisibility::Visible;
 }
