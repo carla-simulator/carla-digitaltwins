@@ -1157,13 +1157,13 @@ void ATrafficLightActor::Clear()
 #if WITH_EDITOR
 	if (USceneComponent * Root{GetRootComponent()})
 	{
-		TArray<USceneComponent*> Children;
-		Root->GetChildrenComponents(true, Children);
-		for (USceneComponent* C : Children)
+		TArray<USceneComponent*> AllComponents;
+		Root->GetChildrenComponents(true, AllComponents);
+		for (USceneComponent* Comp : AllComponents)
 		{
 			if (IsValid(C))
 			{
-				C->DestroyComponent(false);
+				Comp->DestroyComponent(false);
 			}
 		}
 	}
