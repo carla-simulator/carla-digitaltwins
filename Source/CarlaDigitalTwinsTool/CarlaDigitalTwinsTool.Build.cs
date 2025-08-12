@@ -134,7 +134,6 @@ public class CarlaDigitalTwinsTool : ModuleRules
           new string[]
           {
             "CoreUObject",
-            "Engine",
             "Slate",
             "SlateCore",
             "UnrealEd",
@@ -154,16 +153,15 @@ public class CarlaDigitalTwinsTool : ModuleRules
             "HTTP",
             "RHI",
             "RenderCore",
-            "CarlaMeshGeneration",
-            "StreetMapImporting",
-            "StreetMapRuntime",
             "InputCore",
             "AppFramework",
             "EngineSettings",
             "AssetTools",
+            "CarlaMeshGeneration",
+            "StreetMapImporting",
+            "StreetMapRuntime",
             "DesktopPlatform"
-				// ... add private dependencies that you statically link with here ...
-          }
+        }
         );
 
         if (Target.Version.MajorVersion < 5)
