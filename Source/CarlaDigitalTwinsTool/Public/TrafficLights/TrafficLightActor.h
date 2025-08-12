@@ -9,24 +9,51 @@
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "CoreMinimal.h"
+#include "Misc/FileHelper.h"
 #include "TrafficLights/TLHead.h"
 #include "TrafficLights/TLLightType.h"
 #include "TrafficLights/TLModule.h"
 #include "TrafficLights/TLPole.h"
+#include "UObject/ObjectMacros.h"
 
 #include "TrafficLightActor.generated.h"
 
-UCLASS(BlueprintType)
+UCLASS(BlueprintType, Blueprintable)
 class CARLADIGITALTWINSTOOL_API ATrafficLightActor : public AActor
 {
 	GENERATED_BODY()
 
 public:
 	ATrafficLightActor();
+
+	virtual void OnConstruction(const FTransform& Transform) override;
+
 	void Build();
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "TrafficLight")
+	void Bake(const FString& MapName, const FString& DesiredLabel);
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "TrafficLight|JSON")
+	void BuildFromJSON();
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "TrafficLight|JSON")
+	FString ExportToJSON(bool bUseTransform = true) const;
+
+	UFUNCTION(CallInEditor, BlueprintCallable, Category = "TrafficLight|Demo")
+	void PlayDemoSequence();
+
+	UFUNCTION(CallInEditor, BlueprintCallable, Category = "TrafficLight|Demo")
+	void StopDemoSequence();
+
+	void BuildFromJSONString(const FString& JSONConfig);
+
+	UPROPERTY(EditAnywhere, Category = "TrafficLight|JSON")
+	FFilePath JSONFile;
 
 	UPROPERTY(EditAnywhere, Category = "TrafficLight")
 	TArray<FTLPole> Poles;
+
+	void PopulateDefault();
 
 private:
 	USceneComponent* AddRootPole(USceneComponent* Parent, FTLPole& Pole);
@@ -38,7 +65,41 @@ private:
 	void AddBackplate(USceneComponent* Parent, FTLPole& Pole, FTLHead& Head);
 	FVector2D GetAtlasCoordsForLightType(ETLLightType LightType) const;
 	void RebuildModuleChain(FTLHead& Head);
+	void Clear();
+	USceneComponent* EnsurePolesRoot();
+
+private:
+	enum class EDemoPhase : uint8
+	{
+		Red,
+		Green,
+		Amber,
+	};
+	bool bDemoPlaying{false};
+	FTimerHandle PhaseTimerHandle;
+	FTimerHandle AmberBlinkTimerHandle;
+
+	EDemoPhase CurrentPhase{EDemoPhase::Red};
+	bool bAmberVisible{false};
+
+	UPROPERTY(EditAnywhere, Category = "TrafficLight|Demo")
+	float RedDuration{6.0f};
+
+	UPROPERTY(EditAnywhere, Category = "TrafficLight|Demo")
+	float GreenDuration{6.0f};
+
+	UPROPERTY(EditAnywhere, Category = "TrafficLight|Demo")
+	float AmberDuration{3.0f};
+
+	UPROPERTY(EditAnywhere, Category = "TrafficLight|Demo")
+	float AmberBlinkInterval{0.25f};
+
+	void AdvanceDemoPhase();
+	void ToggleAmberBlink();
+	void EndAmberPhase();
+	void ResetAllLights();
 
 private:
 	TArray<UStaticMeshComponent*> ModuleMeshComponents;
+	TArray<FTLModuleLight*> DemoLights;
 };

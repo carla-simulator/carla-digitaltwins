@@ -1,13 +1,28 @@
 #include "TrafficLights/Widgets/TLWTrafficLightToolWidget.h"
 
+#include "CarlaDigitalTwinsTool.h"
+#include "Components/ActorComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Containers/Array.h"
 #include "Containers/UnrealString.h"
 #include "CoreGlobals.h"
+#include "Delegates/Delegate.h"
+#include "DesktopPlatformModule.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/StaticMeshActor.h"
 #include "Engine/StaticMeshSocket.h"
+#include "EngineUtils.h"
+#include "GenericPlatform/GenericPlatformFile.h"
+#include "IDesktopPlatform.h"
 #include "Logging/LogMacros.h"
 #include "Logging/LogVerbosity.h"
+#include "Math/MathFwd.h"
 #include "Misc/AssertionMacros.h"
+#include "Misc/FileHelper.h"
+#include "Misc/PackageName.h"
+#include "Misc/Paths.h"
+#include "ScopedTransaction.h"
+#include "Selection.h"
 #include "TrafficLights/TLHead.h"
 #include "TrafficLights/TLLightTypeDataTable.h"
 #include "TrafficLights/TLMeshFactory.h"
@@ -69,6 +84,25 @@ void STrafficLightToolWidget::Construct(const FArguments& InArgs)
 		}
 	}
 
+#if WITH_EDITOR
+	if (GEditor)
+	{
+		USelection* Sel{GEditor->GetSelectedActors()};
+		for (FSelectionIterator It(*Sel); It; ++It)
+		{
+			if (AActor * Actor{Cast<AActor>(*It)})
+			{
+				const FString Folder{Actor->GetFolderPath().ToString()};
+				if (Folder.StartsWith(TEXT("TrafficLightActor")))
+				{
+					UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Traffic Light bake folder detected: %s"), *Folder);
+					break;
+				}
+			}
+		}
+	}
+#endif
+
 	ChildSlot[SNew(SSplitter)
 
 			  + SSplitter::Slot().Value(0.4f)[BuildPoleSection()]
@@ -79,6 +113,15 @@ void STrafficLightToolWidget::Construct(const FArguments& InArgs)
 // ----------------------------------------------------------------------------------------------------------------
 // ******************************   REBUILD
 // ----------------------------------------------------------------------------------------------------------------
+void STrafficLightToolWidget::UpdatePreviewActor()
+{
+	check(PreviewViewport.IsValid());
+	ATrafficLightActor* TL{PreviewViewport->GetPreviewTrafficLight()};
+	check(IsValid(TL));
+	TL->Poles = Poles;
+	TL->RerunConstructionScripts();
+}
+
 void STrafficLightToolWidget::Rebuild()
 {
 	check(PreviewViewport.IsValid());
@@ -95,17 +138,8 @@ void STrafficLightToolWidget::Rebuild()
 		}
 	}
 
-	for (FTLPole& Pole : Poles)
-	{
-		for (FTLHead& Head : Pole.Heads)
-		{
-			RebuildModuleChain(Head);
-		}
-	}
-
-	PreviewViewport->ClearModuleMeshes();
-	PreviewViewport->ClearPoleMeshes();
-	PreviewViewport->Rebuild(Poles);
+	UpdatePreviewActor();
+	PreviewViewport->Reload();
 
 	RefreshPoleList();
 }
@@ -114,7 +148,7 @@ void STrafficLightToolWidget::RebuildModuleChain(FTLHead& Head)
 {
 	if (Head.Modules.IsEmpty())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("RebuildModuleChain: Modules.Num()"));
+		UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("RebuildModuleChain: Modules.Num()"));
 		return;
 	}
 
@@ -137,12 +171,12 @@ void STrafficLightToolWidget::RebuildModuleChain(FTLHead& Head)
 
 		if (!IsValid(Prev.ModuleMeshComponent))
 		{
-			UE_LOG(LogTemp, Warning, TEXT("Previous module mesh component is invalid at module %d"), i);
+			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Previous module mesh component is invalid at module %d"), i);
 			continue;
 		}
 		if (!IsValid(Curr.ModuleMeshComponent))
 		{
-			UE_LOG(LogTemp, Warning, TEXT("Missing component at module %d"), i);
+			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Missing component at module %d"), i);
 			continue;
 		}
 
@@ -150,12 +184,12 @@ void STrafficLightToolWidget::RebuildModuleChain(FTLHead& Head)
 		const UStaticMeshSocket* CurrSocket{Curr.ModuleMesh->FindSocket(BeginSocketName)};
 		if (!IsValid(PrevSocket))
 		{
-			UE_LOG(LogTemp, Warning, TEXT("Previous socket not found at module %d"), i);
+			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Previous socket not found at module %d"), i);
 			continue;
 		}
 		if (!IsValid(CurrSocket))
 		{
-			UE_LOG(LogTemp, Warning, TEXT("Current socket not found at module %d"), i);
+			UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Current socket not found at module %d"), i);
 			continue;
 		}
 
@@ -183,27 +217,295 @@ void STrafficLightToolWidget::RefreshModuleMeshOptions(int32 PoleIndex, int32 He
 {
 	check(EditorPoles.IsValidIndex(PoleIndex));
 	FEditorPole& EditorPole{EditorPoles[PoleIndex]};
-	const FTLPole& Pole{Poles[PoleIndex]};
+	FTLPole& Pole{Poles[PoleIndex]};
 
 	check(EditorPole.Heads.IsValidIndex(HeadIndex));
 	FEditorHead& EditorHead{EditorPole.Heads[HeadIndex]};
-	const FTLHead& Head{Pole.Heads[HeadIndex]};
+	FTLHead& Head{Pole.Heads[HeadIndex]};
 
 	check(EditorHead.Modules.IsValidIndex(ModuleIndex));
 	FEditorModule& EditorModule{EditorHead.Modules[ModuleIndex]};
-	const FTLModule& Module{Head.Modules[ModuleIndex]};
+	FTLModule& Module{Head.Modules[ModuleIndex]};
 
 	TArray<UStaticMesh*> Meshes{FTLMeshFactory::GetAllMeshesForModule(Head, Module)};
+
 	EditorModule.MeshNameOptions.Empty();
-	for (UStaticMesh* Mesh : Meshes)
+	if (IsValid(Module.ModuleMesh))
 	{
-		EditorModule.MeshNameOptions.Add(MakeShared<FString>(Mesh->GetName()));
+		if (!Meshes.Contains(Module.ModuleMesh))
+		{
+			Module.ModuleMesh = nullptr;
+		}
+	}
+}
+
+void STrafficLightToolWidget::RefreshPoleMeshes(int32 PoleIndex)
+{
+	check(EditorPoles.IsValidIndex(PoleIndex));
+	FTLPole& Pole{Poles[PoleIndex]};
+	TArray<UStaticMesh*> BaseMeshes{FTLMeshFactory::GetAllBaseMeshesForPole(Pole)};
+	TArray<UStaticMesh*> ExtensibleMeshes{FTLMeshFactory::GetAllExtensibleMeshesForPole(Pole)};
+	TArray<UStaticMesh*> CapMeshes{FTLMeshFactory::GetAllCapMeshesForPole(Pole)};
+
+	if (IsValid(Pole.BasePoleMesh))
+	{
+		if (!BaseMeshes.Contains(Pole.BasePoleMesh))
+		{
+			Pole.BasePoleMesh = nullptr;
+		}
+	}
+	if (IsValid(Pole.ExtensiblePoleMesh))
+	{
+		if (!BaseMeshes.Contains(Pole.ExtensiblePoleMesh))
+		{
+			Pole.ExtensiblePoleMesh = nullptr;
+		}
+	}
+	if (IsValid(Pole.CapPoleMesh))
+	{
+		if (!BaseMeshes.Contains(Pole.CapPoleMesh))
+		{
+			Pole.CapPoleMesh = nullptr;
+		}
 	}
 }
 
 // ----------------------------------------------------------------------------------------------------------------
 // ******************************   EVENTS
 // ----------------------------------------------------------------------------------------------------------------
+FReply STrafficLightToolWidget::OnExportJSONClicked()
+{
+	if (!PreviewViewport.IsValid())
+	{
+		return FReply::Unhandled();
+	}
+	ATrafficLightActor* TL{PreviewViewport->GetPreviewTrafficLight()};
+	if (!IsValid(TL))
+	{
+		return FReply::Handled();
+	}
+	bool bUseTransform{false};
+#if WITH_EDITOR
+	if (GEditor)
+	{
+		USelection* Sel{GEditor->GetSelectedActors()};
+		for (FSelectionIterator It(*Sel); It; ++It)
+		{
+			if (AActor * Actor{Cast<AActor>(*It)})
+			{
+				const FString Folder{Actor->GetFolderPath().ToString()};
+				if (Folder.StartsWith(TEXT("TrafficLightActor")))
+				{
+					UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Traffic Light bake folder detected: %s"), *Folder);
+					bUseTransform = true;
+					break;
+				}
+			}
+		}
+	}
+#endif
+
+	const FString JsonString{TL->ExportToJSON(bUseTransform)};
+	IDesktopPlatform* Desktop{FDesktopPlatformModule::Get()};
+	if (Desktop)
+	{
+		const void* ParentWindowHandle{FSlateApplication::Get().FindBestParentWindowHandleForDialogs(nullptr)};
+		TArray<FString> OutFiles;
+		const bool bSaved = Desktop->SaveFileDialog(ParentWindowHandle, TEXT("Save Traffic Light JSON"), FPaths::ProjectDir(),
+			TEXT("TrafficLight.json"), TEXT("JSON files (*.json)|*.json"), EFileDialogFlags::None, OutFiles);
+		if (bSaved && OutFiles.Num() > 0)
+		{
+			FFileHelper::SaveStringToFile(JsonString, *OutFiles[0]);
+		}
+	}
+	return FReply::Handled();
+}
+
+FReply STrafficLightToolWidget::OnImportJSONClicked()
+{
+	IDesktopPlatform* Desktop{FDesktopPlatformModule::Get()};
+	if (!Desktop)
+	{
+		return FReply::Handled();
+	}
+	const void* ParentWindowHandle{FSlateApplication::Get().FindBestParentWindowHandleForDialogs(nullptr)};
+	TArray<FString> Filenames;
+	const bool bFileChosen{Desktop->OpenFileDialog(ParentWindowHandle, TEXT("Import Traffic Light JSON"),
+		FPaths::ProjectContentDir(), TEXT(""), TEXT("JSON files (*.json)|*.json"), EFileDialogFlags::None, Filenames)};
+	if (!bFileChosen || Filenames.Num() == 0)
+	{
+		return FReply::Handled();
+	}
+
+	const FString& FilePath{Filenames[0]};
+	FString JSONString;
+	if (!FFileHelper::LoadFileToString(JSONString, *FilePath))
+	{
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Failed to load JSON: %s"), *FilePath);
+		return FReply::Handled();
+	}
+
+	if (PreviewViewport.IsValid())
+	{
+		ATrafficLightActor* TL{PreviewViewport->GetPreviewTrafficLight()};
+		if (IsValid(TL))
+		{
+			TL->BuildFromJSONString(JSONString);
+		}
+		else
+		{
+			UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("No preview actor available"));
+		}
+	}
+
+	if (ATrafficLightActor * TL{PreviewViewport->GetPreviewTrafficLight()})
+	{
+		Poles = TL->Poles;
+		EditorPoles.Reset();
+		for (const FTLPole& P : Poles)
+		{
+			FEditorPole EPol;
+			EPol.Heads.SetNum(P.Heads.Num());
+			for (int32 h = 0; h < P.Heads.Num(); ++h)
+			{
+				const FTLHead& H{P.Heads[h]};
+				EPol.Heads[h].Modules.SetNum(H.Modules.Num());
+				for (int32 m{0}; m < H.Modules.Num(); ++m)
+				{
+					const FTLModule& M{H.Modules[m]};
+					EPol.Heads[h].Modules[m].Lights.SetNum(M.Lights.Num());
+				}
+			}
+			EditorPoles.Add(MoveTemp(EPol));
+		}
+	}
+
+	Rebuild();
+	RefreshPoleList();
+
+	return FReply::Handled();
+}
+
+FReply STrafficLightToolWidget::OnModifyClicked()
+{
+	if (!PreviewViewport.IsValid())
+	{
+		return FReply::Handled();
+	}
+
+	ATrafficLightActor* const PreviewActor{PreviewViewport->GetPreviewTrafficLight()};
+	if (!IsValid(PreviewActor))
+	{
+		return FReply::Handled();
+	}
+
+	if (!GEditor)
+	{
+		return FReply::Handled();
+	}
+
+	UWorld* const EditorWorld{GEditor->GetEditorWorldContext().World()};
+	if (!EditorWorld)
+	{
+		return FReply::Handled();
+	}
+
+	int32 SelectedCount{0};
+	AActor* SelectedActor{nullptr};
+	for (FSelectionIterator It{GEditor->GetSelectedActorIterator()}; It; ++It)
+	{
+		AActor* const Actor{Cast<AActor>(*It)};
+		if (IsValid(Actor))
+		{
+			SelectedActor = Actor;
+			++SelectedCount;
+		}
+	}
+
+	if (SelectedCount != 1)
+	{
+		return FReply::Handled();
+	}
+
+	USceneComponent* const SelectedRoot{SelectedActor->GetRootComponent()};
+	if (!(IsValid(SelectedRoot) && SelectedRoot->GetName() == TEXT("BakedRoot")))
+	{
+		return FReply::Handled();
+	}
+
+	const FTransform SelectedTransform{SelectedActor->GetActorTransform()};
+	const FString DesiredLabel{SelectedActor->GetActorLabel()};
+
+	FString MapName{};
+	{
+		FString CurrentMapName{};
+		CurrentMapName = EditorWorld->GetMapName();
+		CurrentMapName.RemoveFromStart(EditorWorld->StreamingLevelsPrefix);
+		MapName = CurrentMapName;
+	}
+
+	const FString BpPath{TEXT("/CarlaDigitalTwinsTool/Blueprints/TrafficLight/BP_TrafficLightActor.BP_TrafficLightActor_C")};
+	UClass* const TrafficLightBpClass{LoadObject<UClass>(nullptr, *BpPath)};
+	if (!IsValid(TrafficLightBpClass))
+	{
+		return FReply::Handled();
+	}
+
+	const FScopedTransaction Transaction{NSLOCTEXT("TLW", "ModifyTrafficLight", "Modify Traffic Light")};
+
+	AActor* const ActorToDestroy{SelectedActor};
+	SelectedActor = nullptr;
+	if (IsValid(ActorToDestroy))
+	{
+		ActorToDestroy->Modify();
+		ActorToDestroy->Destroy();
+	}
+
+	ATrafficLightActor* const NewTrafficLightActor{EditorWorld->SpawnActorDeferred<ATrafficLightActor>(
+		TrafficLightBpClass, SelectedTransform, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn)};
+	if (!IsValid(NewTrafficLightActor))
+	{
+		return FReply::Handled();
+	}
+
+	NewTrafficLightActor->Poles = PreviewActor->Poles;
+	NewTrafficLightActor->FinishSpawning(SelectedTransform);
+	NewTrafficLightActor->SetActorTransform(SelectedTransform, false, nullptr, ETeleportType::TeleportPhysics);
+	NewTrafficLightActor->Build();
+	NewTrafficLightActor->Bake(MapName, DesiredLabel);
+	NewTrafficLightActor->Destroy();
+
+	AActor* BakedActorFound{nullptr};
+	for (TActorIterator<AActor> It{EditorWorld}; It; ++It)
+	{
+		AActor* const Actor{*It};
+		if (!IsValid(Actor))
+		{
+			continue;
+		}
+		if (Actor->GetActorLabel() != DesiredLabel)
+		{
+			continue;
+		}
+		USceneComponent* const Root{Actor->GetRootComponent()};
+		if (!(IsValid(Root) && Root->GetName() == TEXT("BakedRoot")))
+		{
+			continue;
+		}
+		BakedActorFound = Actor;
+		break;
+	}
+
+	GEditor->SelectNone(false, true);
+	if (IsValid(BakedActorFound))
+	{
+		GEditor->SelectActor(BakedActorFound, true, true);
+	}
+	GEditor->NoteSelectionChange();
+
+	return FReply::Handled();
+}
+
 FReply STrafficLightToolWidget::OnAddPoleClicked()
 {
 	const int32 PoleIndex{EditorPoles.Emplace()};
@@ -212,17 +514,9 @@ FReply STrafficLightToolWidget::OnAddPoleClicked()
 	FTLPole& Pole{Poles[PoleIndex]};
 	FEditorPole& EditorPole{EditorPoles[PoleIndex]};
 
-	Pole.BasePoleMesh = FTLMeshFactory::GetBaseMeshForPole(Pole);
-	Pole.ExtendiblePoleMesh = FTLMeshFactory::GetExtendibleMeshForPole(Pole);
-	Pole.CapPoleMesh = FTLMeshFactory::GetCapMeshForPole(Pole);
-
-	Pole.BasePoleMeshComponent = PreviewViewport->AddPoleBaseMesh(Pole);
-	Pole.ExtendiblePoleMeshComponent = PreviewViewport->AddPoleExtensibleMesh(Pole);
-	Pole.CapPoleMeshComponent = PreviewViewport->AddPoleCapMesh(Pole);
-
-	if (PoleIndex == 0 && IsValid(Pole.BasePoleMeshComponent))
+	if (PoleIndex == 0)
 	{
-		PreviewViewport->ResetFrame(Pole.BasePoleMeshComponent);
+		PreviewViewport->ResetFrame();
 	}
 
 	Rebuild();
@@ -253,10 +547,6 @@ FReply STrafficLightToolWidget::OnAddHeadClicked(int32 PoleIndex)
 
 	OnAddModuleClicked(PoleIndex, HeadIndex);
 	Rebuild();
-	if (NewEditorHead.Modules.Num() > 0 && IsValid(NewHead.Modules[0].ModuleMeshComponent))
-	{
-		PreviewViewport->ResetFrame(NewHead.Modules[0].ModuleMeshComponent);
-	}
 
 	return FReply::Handled();
 }
@@ -291,7 +581,7 @@ FReply STrafficLightToolWidget::OnAddModuleClicked(int32 PoleIndex, int32 HeadIn
 	NewModule.ModuleMesh = FTLMeshFactory::GetMeshForModule(Head, NewModule);
 	if (!IsValid(NewModule.ModuleMesh))
 	{
-		UE_LOG(LogTemp, Error, TEXT("OnAddModuleClicked: failed to load the module."));
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("OnAddModuleClicked: failed to load the module."));
 		return FReply::Handled();
 	}
 
@@ -299,16 +589,8 @@ FReply STrafficLightToolWidget::OnAddModuleClicked(int32 PoleIndex, int32 HeadIn
 	NewEditorModule.Lights.SetNum(NumLights);
 	NewModule.Lights.SetNum(NumLights);
 
-	UStaticMeshComponent* NewMeshComponent{PreviewViewport->AddModuleMesh(Pole, Head, NewModule)};
-	NewModule.ModuleMeshComponent = NewMeshComponent;
-
 	Head.Modules.Add(NewModule);
 	EditorHead.Modules.Add(NewEditorModule);
-
-	if (PoleIndex == 0 && HeadIndex == 0 && EditorHead.Modules.Num() == 1)
-	{
-		PreviewViewport->ResetFrame(NewMeshComponent);
-	}
 	Rebuild();
 
 	return FReply::Handled();
@@ -376,53 +658,34 @@ void STrafficLightToolWidget::OnHeadOrientationChanged(ETLOrientation NewOrienta
 {
 	check(EditorPoles.IsValidIndex(PoleIndex));
 	FTLPole& Pole{Poles[PoleIndex]};
-
 	check(Pole.Heads.IsValidIndex(HeadIndex));
 	FTLHead& Head{Pole.Heads[HeadIndex]};
-
+	Head.Modules.Empty();
+	EditorPoles[PoleIndex].Heads[HeadIndex].Modules.Empty();
 	Head.Orientation = NewOrientation;
-
-	for (FTLModule& Module : Head.Modules)
+	for (int32 ModuleIndex{0}; ModuleIndex < Head.Modules.Num(); ++ModuleIndex)
 	{
-		UStaticMesh* NewStaticMesh{FTLMeshFactory::GetMeshForModule(Head, Module)};
-		if (!IsValid(NewStaticMesh))
-		{
-			UE_LOG(LogTemp, Error, TEXT("OnHeadStyleChanged: failed to get mesh"));
-			return;
-		}
-		if (Module.ModuleMesh != NewStaticMesh)
-		{
-			Module.ModuleMesh = NewStaticMesh;
-			Module.ModuleMeshComponent->SetStaticMesh(NewStaticMesh);
-		}
+		FTLModule& Module{Head.Modules[ModuleIndex]};
+		RefreshModuleMeshOptions(PoleIndex, HeadIndex, ModuleIndex);
 	}
-
 	Rebuild();
 }
 
 void STrafficLightToolWidget::OnHeadStyleChanged(ETLStyle NewStyle, int32 PoleIndex, int32 HeadIndex)
 {
-	check(Poles.IsValidIndex(PoleIndex));
+	check(EditorPoles.IsValidIndex(PoleIndex));
 	FTLPole& Pole{Poles[PoleIndex]};
 	check(Pole.Heads.IsValidIndex(HeadIndex));
 	FTLHead& Head{Pole.Heads[HeadIndex]};
 
+	Head.Modules.Empty();
+	EditorPoles[PoleIndex].Heads[HeadIndex].Modules.Empty();
 	Head.Style = NewStyle;
-	for (FTLModule& Module : Head.Modules)
+	for (int32 ModuleIndex{0}; ModuleIndex < Head.Modules.Num(); ++ModuleIndex)
 	{
-		UStaticMesh* NewStaticMesh{FTLMeshFactory::GetMeshForModule(Head, Module)};
-		if (!IsValid(NewStaticMesh))
-		{
-			UE_LOG(LogTemp, Error, TEXT("OnHeadStyleChanged: failed to get mesh"));
-			return;
-		}
-		if (Module.ModuleMesh != NewStaticMesh)
-		{
-			Module.ModuleMesh = NewStaticMesh;
-			Module.ModuleMeshComponent->SetStaticMesh(NewStaticMesh);
-		}
+		FTLModule& Module{Head.Modules[ModuleIndex]};
+		RefreshModuleMeshOptions(PoleIndex, HeadIndex, ModuleIndex);
 	}
-
 	Rebuild();
 }
 
@@ -430,16 +693,8 @@ void STrafficLightToolWidget::OnPoleOrientationChanged(ETLOrientation NewOrienta
 {
 	check(EditorPoles.IsValidIndex(PoleIndex));
 	FTLPole& Pole{Poles[PoleIndex]};
-
 	Pole.Orientation = NewOrientation;
-	UStaticMesh* NewBaseStaticMesh{FTLMeshFactory::GetBaseMeshForPole(Pole)};
-	UStaticMesh* NewExtendibleStaticMesh{FTLMeshFactory::GetExtendibleMeshForPole(Pole)};
-	UStaticMesh* NewCapStaticMesh{FTLMeshFactory::GetCapMeshForPole(Pole)};
-
-	Pole.BasePoleMesh = NewBaseStaticMesh;
-	Pole.ExtendiblePoleMesh = NewExtendibleStaticMesh;
-	Pole.CapPoleMesh = NewCapStaticMesh;
-
+	RefreshPoleMeshes(PoleIndex);
 	Rebuild();
 }
 
@@ -447,16 +702,8 @@ void STrafficLightToolWidget::OnPoleStyleChanged(ETLStyle NewStyle, int32 PoleIn
 {
 	check(Poles.IsValidIndex(PoleIndex));
 	FTLPole& Pole{Poles[PoleIndex]};
-
 	Pole.Style = NewStyle;
-	UStaticMesh* NewBaseStaticMesh{FTLMeshFactory::GetBaseMeshForPole(Pole)};
-	UStaticMesh* NewExtendibleStaticMesh{FTLMeshFactory::GetExtendibleMeshForPole(Pole)};
-	UStaticMesh* NewCapStaticMesh{FTLMeshFactory::GetCapMeshForPole(Pole)};
-
-	Pole.BasePoleMesh = NewBaseStaticMesh;
-	Pole.ExtendiblePoleMesh = NewExtendibleStaticMesh;
-	Pole.CapPoleMesh = NewCapStaticMesh;
-
+	RefreshPoleMeshes(PoleIndex);
 	Rebuild();
 }
 
@@ -473,13 +720,12 @@ void STrafficLightToolWidget::OnModuleVisorChanged(ECheckBoxState NewState, int3
 	UStaticMesh* NewStaticMesh{FTLMeshFactory::GetMeshForModule(Head, Module)};
 	if (!IsValid(NewStaticMesh))
 	{
-		UE_LOG(LogTemp, Error, TEXT("OnHeadStyleChanged: failed to get mesh"));
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("OnHeadStyleChanged: failed to get mesh"));
 		return;
 	}
 	if (Module.ModuleMesh != NewStaticMesh)
 	{
 		Module.ModuleMesh = NewStaticMesh;
-		Module.ModuleMeshComponent->SetStaticMesh(NewStaticMesh);
 	}
 
 	Rebuild();
@@ -502,12 +748,12 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildPoleEntry(int32 PoleIndex)
 		BaseNames.Add(MakeShared<FString>(Mesh->GetName()));
 	}
 
-	TArray<TSharedPtr<FString>>& ExtendibleNames{EditorPole.ExtendibleMeshNameOptions};
-	TArray<UStaticMesh*> ExtendiblePoleMeshes{FTLMeshFactory::GetAllExtendibleMeshesForPole(Pole)};
-	ExtendibleNames.Empty();
-	for (const UStaticMesh* Mesh : ExtendiblePoleMeshes)
+	TArray<TSharedPtr<FString>>& ExtensibleNames{EditorPole.ExtensibleMeshNameOptions};
+	TArray<UStaticMesh*> ExtensiblePoleMeshes{FTLMeshFactory::GetAllExtensibleMeshesForPole(Pole)};
+	ExtensibleNames.Empty();
+	for (const UStaticMesh* Mesh : ExtensiblePoleMeshes)
 	{
-		ExtendibleNames.Add(MakeShared<FString>(Mesh->GetName()));
+		ExtensibleNames.Add(MakeShared<FString>(Mesh->GetName()));
 	}
 
 	TArray<TSharedPtr<FString>>& CapNames{EditorPole.CapMeshNameOptions};
@@ -516,42 +762,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildPoleEntry(int32 PoleIndex)
 	for (const UStaticMesh* Mesh : CapPoleMeshes)
 	{
 		CapNames.Add(MakeShared<FString>(Mesh->GetName()));
-	}
-
-	TSharedPtr<FString> InitialBasePtr{nullptr};
-	if (Pole.BasePoleMesh)
-	{
-		const FString Curr{Pole.BasePoleMesh->GetName()};
-		for (auto& name : BaseNames)
-			if (*name == Curr)
-			{
-				InitialBasePtr = name;
-				break;
-			}
-	}
-
-	TSharedPtr<FString> InitialExtendiblePtr{nullptr};
-	if (Pole.ExtendiblePoleMesh)
-	{
-		const FString Curr{Pole.ExtendiblePoleMesh->GetName()};
-		for (auto& name : ExtendibleNames)
-			if (*name == Curr)
-			{
-				InitialExtendiblePtr = name;
-				break;
-			}
-	}
-
-	TSharedPtr<FString> InitialCapPtr{nullptr};
-	if (Pole.CapPoleMesh)
-	{
-		const FString Curr{Pole.CapPoleMesh->GetName()};
-		for (auto& name : CapNames)
-			if (*name == Curr)
-			{
-				InitialCapPtr = name;
-				break;
-			}
 	}
 
 	// clang-format off
@@ -844,7 +1054,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildPoleEntry(int32 PoleIndex)
 				.Padding(8, 0)
 				[SNew(SComboBox<TSharedPtr<FString>>)
 					.OptionsSource(&EditorPole.BaseMeshNameOptions)
-					.InitiallySelectedItem(InitialBasePtr)
 					.OnGenerateWidget_Lambda([](TSharedPtr<FString> InPtr)
 					{
 						return SNew(STextBlock).Text(FText::FromString(*InPtr));
@@ -880,7 +1089,7 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildPoleEntry(int32 PoleIndex)
 				]
 			]
 
-			// — Extendible Mesh Combo —
+			// — Extensible Mesh Combo —
 			+ SVerticalBox::Slot()
 			.AutoHeight()
 			.Padding(2, 4)
@@ -889,14 +1098,13 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildPoleEntry(int32 PoleIndex)
 				.AutoWidth()
 				.VAlign(VAlign_Center)
 				[SNew(STextBlock)
-					.Text(FText::FromString("Extendible Mesh:"))
+					.Text(FText::FromString("Extensible Mesh:"))
 				] +
 				SHorizontalBox::Slot()
 				.AutoWidth()
 				.Padding(8, 0)
 				[SNew(SComboBox<TSharedPtr<FString>>)
-					.OptionsSource(&EditorPole.ExtendibleMeshNameOptions)
-					.InitiallySelectedItem(InitialExtendiblePtr)
+					.OptionsSource(&EditorPole.ExtensibleMeshNameOptions)
 					.OnGenerateWidget_Lambda([](TSharedPtr<FString> InPtr)
 					{
 						return SNew(STextBlock).Text(FText::FromString(*InPtr));
@@ -908,14 +1116,14 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildPoleEntry(int32 PoleIndex)
 							return;
 						}
 						FTLPole& Pole{Poles[PoleIndex]};
-						for (UStaticMesh* Mesh : FTLMeshFactory::GetAllExtendibleMeshesForPole(Pole))
+						for (UStaticMesh* Mesh : FTLMeshFactory::GetAllExtensibleMeshesForPole(Pole))
 						{
 							if (IsValid(Mesh) && Mesh->GetName() == *NewSelection)
 							{
-								Pole.ExtendiblePoleMesh = Mesh;
-								if (Pole.ExtendiblePoleMeshComponent)
+								Pole.ExtensiblePoleMesh = Mesh;
+								if (Pole.ExtensiblePoleMeshComponent)
 								{
-									Pole.ExtendiblePoleMeshComponent->SetStaticMesh(Mesh);
+									Pole.ExtensiblePoleMeshComponent->SetStaticMesh(Mesh);
 								}
 								break;
 							}
@@ -926,7 +1134,7 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildPoleEntry(int32 PoleIndex)
 						.Text_Lambda([this, PoleIndex]()
 						{
 							FTLPole& Pole{Poles[PoleIndex]};
-							return FText::FromString(Pole.ExtendiblePoleMesh ? Pole.ExtendiblePoleMesh->GetName() : TEXT("Select..."));
+							return FText::FromString(Pole.ExtensiblePoleMesh ? Pole.ExtensiblePoleMesh->GetName() : TEXT("Select..."));
 						})
 					]
 				]
@@ -947,7 +1155,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildPoleEntry(int32 PoleIndex)
 				.Padding(8, 0)
 				[SNew(SComboBox<TSharedPtr<FString>>)
 					.OptionsSource(&EditorPole.CapMeshNameOptions)
-					.InitiallySelectedItem(InitialCapPtr)
 					.OnGenerateWidget_Lambda([](TSharedPtr<FString> InPtr)
 					{
 						return SNew(STextBlock).Text(FText::FromString(*InPtr));
@@ -1006,27 +1213,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildPoleEntry(int32 PoleIndex)
 					{
 						FTLPole& Pole{Poles[PoleIndex]};
 						Pole.PoleHeight = NewValue;
-						float BaseHeight{0.0f};
-						if (Pole.BasePoleMeshComponent)
-						{
-							BaseHeight = Pole.BasePoleMeshComponent->Bounds.GetBox().GetSize().Z;
-						}
-
-						float CapHeight{0.0f};
-						if (Pole.CapPoleMeshComponent)
-						{
-							CapHeight = Pole.CapPoleMeshComponent->Bounds.GetBox().GetSize().Z;
-						}
-
-						const float Remaining{FMath::Max(0.0f, Pole.PoleHeight - BaseHeight - CapHeight)};
-						float RawExtensibleHeight {1.0f};
-						if (Pole.ExtendiblePoleMeshComponent)
-						{
-							RawExtensibleHeight = Pole.ExtendiblePoleMeshComponent->Bounds.GetBox().GetSize().Z;
-						}
-
-						const float ScaleZ {FMath::Max((Remaining / RawExtensibleHeight), 0.1f)};
-						Pole.Offset = FTransform(FQuat::Identity, FVector(0, 0, BaseHeight), FVector(1, 1, ScaleZ));
 						Rebuild();
 					})
 				]
@@ -1060,8 +1246,36 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildPoleSection()
 	SAssignNew(RootContainer, SVerticalBox);
 
 	// clang-format off
-	return SNew(SVerticalBox) +
-		SVerticalBox::Slot()
+	return SNew(SVerticalBox)
+    // Load JSON Button
+    + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(10)
+        [
+            SNew(SButton)
+            .Text(FText::FromString("Import JSON…"))
+            .OnClicked(this, &STrafficLightToolWidget::OnImportJSONClicked)
+        ]
+    // Export JSON Button
+	+ SVerticalBox::Slot()
+	.AutoHeight()
+	.Padding(10)
+	[
+		SNew(SButton)
+		.Text(FText::FromString("Export JSON…"))
+		.OnClicked(this, &STrafficLightToolWidget::OnExportJSONClicked)
+	]
+    // — Modify Button — (only visible when actor is selected)
+    + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(10)
+        [
+            SNew(SButton)
+            .Visibility(this, &STrafficLightToolWidget::GetModifyVisibility)
+            .Text(FText::FromString("Modify"))
+            .OnClicked(this, &STrafficLightToolWidget::OnModifyClicked)
+        ]
+	+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(10)
 		[SNew(SButton)
@@ -1265,6 +1479,132 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildHeadEntry(int32 PoleIndex, int
 							FVector L{Head.Transform.GetLocation()};
 							L.Z = V;
 							Head.Transform.SetLocation(L);
+							Rebuild();
+						})
+					]
+				]
+                // Relative Rotation
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(2)
+				[SNew(STextBlock)
+					.Text(FText::FromString("Relative Rotation"))
+				] +
+				SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(2)
+				[SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot()
+					.FillWidth(1)
+					[SNew(SNumericEntryBox<double>)
+						.Value_Lambda([this, PoleIndex, HeadIndex]()
+						{
+							const FTLHead& Head{Poles[PoleIndex].Heads[HeadIndex]};
+							return Head.Transform.GetRotation().Rotator().Pitch;
+						})
+						.OnValueCommitted_Lambda([this, PoleIndex, HeadIndex](double V, ETextCommit::Type)
+						{
+							FTLHead& Head{Poles[PoleIndex].Heads[HeadIndex]};
+							FRotator3d R{Head.Transform.GetRotation().Rotator()};
+							R.Pitch = V;
+							Head.Transform.SetRotation(R.Quaternion());
+							Rebuild();
+						})
+					] +
+					SHorizontalBox::Slot()
+					.FillWidth(1)
+					[SNew(SNumericEntryBox<double>)
+						.Value_Lambda([this, PoleIndex, HeadIndex]()
+						{
+							const FTLHead& Head{Poles[PoleIndex].Heads[HeadIndex]};
+							return Head.Transform.GetRotation().Rotator().Yaw;
+						})
+						.OnValueCommitted_Lambda([this, PoleIndex, HeadIndex](double V, ETextCommit::Type)
+						{
+							FTLHead& Head{Poles[PoleIndex].Heads[HeadIndex]};
+							FRotator3d R{Head.Transform.GetRotation().Rotator()};
+							R.Yaw = V;
+							Head.Transform.SetRotation(R.Quaternion());
+							Rebuild();
+						})
+					] +
+					SHorizontalBox::Slot()
+					.FillWidth(1)
+					[SNew(SNumericEntryBox<double>)
+						.Value_Lambda([this, PoleIndex, HeadIndex]()
+						{
+							const FTLHead& Head{Poles[PoleIndex].Heads[HeadIndex]};
+							return Head.Transform.GetRotation().Rotator().Roll;
+						})
+						.OnValueCommitted_Lambda([this, PoleIndex, HeadIndex](double V, ETextCommit::Type)
+						{
+							FTLHead& Head{Poles[PoleIndex].Heads[HeadIndex]};
+							FRotator3d R{Head.Transform.GetRotation().Rotator()};
+							R.Roll = V;
+							Head.Transform.SetRotation(R.Quaternion());
+							Rebuild();
+						})
+					]
+				]
+                // Relative Scale
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(2)
+				[SNew(STextBlock)
+					.Text(FText::FromString("Relative Scale"))
+				] +
+				SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(2)
+				[SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot()
+					.FillWidth(1)
+					[SNew(SNumericEntryBox<double>)
+						.Value_Lambda([this, PoleIndex, HeadIndex]()
+						{
+							const FTLHead& Head{Poles[PoleIndex].Heads[HeadIndex]};
+							return Head.Transform.GetScale3D().X;
+						})
+						.OnValueCommitted_Lambda([this, PoleIndex, HeadIndex](double V, ETextCommit::Type)
+						{
+							FTLHead& Head{Poles[PoleIndex].Heads[HeadIndex]};
+							FVector L{Head.Transform.GetScale3D()};
+							L.X = V;
+							Head.Transform.SetScale3D(L);
+							Rebuild();
+						})
+					] +
+					SHorizontalBox::Slot()
+					.FillWidth(1)
+					[SNew(SNumericEntryBox<double>)
+						.Value_Lambda([this, PoleIndex, HeadIndex]()
+						{
+							const FTLHead& Head{Poles[PoleIndex].Heads[HeadIndex]};
+							return Head.Transform.GetScale3D().Y;
+						})
+						.OnValueCommitted_Lambda([this, PoleIndex, HeadIndex](double V, ETextCommit::Type)
+						{
+							FTLHead& Head{Poles[PoleIndex].Heads[HeadIndex]};
+							FVector L{Head.Transform.GetScale3D()};
+							L.Y = V;
+							Head.Transform.SetScale3D(L);
+							Rebuild();
+						})
+					] +
+					SHorizontalBox::Slot()
+					.FillWidth(1)
+					[SNew(SNumericEntryBox<double>)
+						.Value_Lambda([this, PoleIndex, HeadIndex]()
+						{
+							const FTLHead& Head{Poles[PoleIndex].Heads[HeadIndex]};
+							return Head.Transform.GetScale3D().Z;
+						})
+						.OnValueCommitted_Lambda([this, PoleIndex, HeadIndex](double V, ETextCommit::Type)
+						{
+							FTLHead& Head{Poles[PoleIndex].Heads[HeadIndex]};
+							FVector L{Head.Transform.GetScale3D()};
+							L.Z = V;
+							Head.Transform.SetScale3D(L);
 							Rebuild();
 						})
 					]
@@ -1556,20 +1896,12 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildModuleEntry(int32 PoleIndex, i
 	FEditorModule& EditorModule{EditorHead.Modules[ModuleIndex]};
 	FTLModule& Module{Head.Modules[ModuleIndex]};
 
-	const TArray<TSharedPtr<FString>>& ModuleMeshNames{EditorModule.MeshNameOptions};
-	const TArray<UStaticMesh*> ModuleMeshOptions{FTLMeshFactory::GetAllMeshesForModule(Head, Module)};
-	TSharedPtr<FString> InitialMeshPtr{nullptr};
-	if (IsValid(Module.ModuleMesh))
+	TArray<TSharedPtr<FString>>& ModuleMeshNames{EditorModule.MeshNameOptions};
+	const TArray<UStaticMesh*> ModuleMeshes{FTLMeshFactory::GetAllMeshesForModule(Head, Module)};
+	ModuleMeshNames.Empty();
+	for (const UStaticMesh* Mesh : ModuleMeshes)
 	{
-		const FString CurrName{Module.ModuleMesh->GetName()};
-		for (const auto& OptionPtr : ModuleMeshNames)
-		{
-			if (*OptionPtr == CurrName)
-			{
-				InitialMeshPtr = OptionPtr;
-				break;
-			}
-		}
+		ModuleMeshNames.Add(MakeShared<FString>(Mesh->GetName()));
 	}
 
 	// clang-format off
@@ -1642,7 +1974,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildModuleEntry(int32 PoleIndex, i
 						.Padding(8,0)
 					[SNew(SComboBox<TSharedPtr<FString>>)
 						.OptionsSource(&ModuleMeshNames)
-						.InitiallySelectedItem(InitialMeshPtr)
 						.OnGenerateWidget_Lambda([](TSharedPtr<FString> InPtr){return SNew(STextBlock).Text(FText::FromString(*InPtr));})
 						.OnSelectionChanged_Lambda([this, PoleIndex, HeadIndex, ModuleIndex](TSharedPtr<FString> NewSelection, ESelectInfo::Type)
 						{
@@ -1661,7 +1992,6 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildModuleEntry(int32 PoleIndex, i
 								if (Mesh && Mesh->GetName() == *NewSelection)
 								{
 									Module.ModuleMesh = Mesh;
-									Module.ModuleMeshComponent->SetStaticMesh(Mesh);
 									break;
 								}
 							}
@@ -1994,19 +2324,23 @@ TSharedRef<SWidget> STrafficLightToolWidget::BuildModuleLightEntry(
 						return;
 					}
 					FTLModuleLight& ModuleLight {Poles[PoleIndex].Heads[HeadIndex].Modules[ModuleIndex].Lights[LightIndex]};
-					int32 Choice = LightTypeOptions.IndexOfByPredicate(
-					[&](auto& Ptr){ return *Ptr == *NewSelection; });
+					const int32 Choice {LightTypeOptions.IndexOfByPredicate(
+					[&](auto& Ptr){ return *Ptr == *NewSelection; })};
 					ModuleLight.LightType = static_cast<ETLLightType>(Choice);
 
-					if (PreviewViewport->LightTypesTable)
+					FVector2D AtlasUV {FTLMeshFactory::GetAtlasCoordsForLightType(ModuleLight.LightType)};
+                    ModuleLight.U = AtlasUV.X;
+                    ModuleLight.V = AtlasUV.Y;
+
+                    if (UDataTable* DT {FTLMeshFactory::GetLightTypeMeshTable()})
 					{
-					static const UEnum* EnumPtr = StaticEnum<ETLLightType>();
-					FString Key = EnumPtr->GetNameStringByValue((int64)ModuleLight.LightType);
-					if (auto* Row = PreviewViewport->LightTypesTable->FindRow<FTLLightTypeRow>(FName(*Key), TEXT("Lookup")))
-					{
-						ModuleLight.U				= Row->AtlasCoords.X;
-						ModuleLight.V				= Row->AtlasCoords.Y;
-						ModuleLight.EmissiveColor	= Row->Color;
+                        const UEnum* EnumPtr {StaticEnum<ETLLightType>()};
+                        const FString Key {EnumPtr->GetNameStringByValue((int64)ModuleLight.LightType)};
+                        if (const FTLLightTypeRow* Row {DT->FindRow<FTLLightTypeRow>(
+                            FName(*Key), TEXT("BuildModuleLightEntry"))})
+                        {
+                            ModuleLight.EmissiveColor     = Row->Color;
+                            ModuleLight.EmissiveIntensity = Row->EmissiveIntensity;
 					}
 					}
 
@@ -2130,4 +2464,43 @@ FString STrafficLightToolWidget::GetLightTypeText(ETLLightType Type)
 		return FString(TEXT("Unknown"));
 	}
 	return EnumPtr->GetDisplayNameTextByValue((int64) Type).ToString();
+}
+
+EVisibility STrafficLightToolWidget::GetModifyVisibility() const
+{
+	if (!GEditor)
+	{
+		return EVisibility::Collapsed;
+	}
+
+	UWorld* const EditorWorld{GEditor->GetEditorWorldContext().World()};
+	if (!EditorWorld)
+	{
+		return EVisibility::Collapsed;
+	}
+
+	int32 SelectedCount{0};
+	AActor* SelectedActor{nullptr};
+	for (FSelectionIterator It{GEditor->GetSelectedActorIterator()}; It; ++It)
+	{
+		AActor* const Actor{Cast<AActor>(*It)};
+		if (IsValid(Actor))
+		{
+			SelectedActor = Actor;
+			++SelectedCount;
+		}
+	}
+
+	if (SelectedCount != 1)
+	{
+		return EVisibility::Collapsed;
+	}
+
+	USceneComponent* const Root{SelectedActor->GetRootComponent()};
+	if (!(IsValid(Root) && Root->GetName() == TEXT("BakedRoot")))
+	{
+		return EVisibility::Collapsed;
+	}
+
+	return EVisibility::Visible;
 }

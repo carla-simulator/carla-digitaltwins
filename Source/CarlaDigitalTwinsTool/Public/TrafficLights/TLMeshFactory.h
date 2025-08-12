@@ -11,20 +11,23 @@
 #include "Engine/StaticMesh.h"
 #include "TrafficLights/TLBackplateDataTable.h"
 #include "TrafficLights/TLHead.h"
+#include "TrafficLights/TLLightType.h"
 #include "TrafficLights/TLModule.h"
 #include "TrafficLights/TLPole.h"
 
 class FTLMeshFactory
 {
 public:
+	static UStaticMesh* GetBaseMeshByName(const FString& Name);
+	static UStaticMesh* GetExtensibleMeshByName(const FString& Name);
+	static UStaticMesh* GetCapMeshByName(const FString& Name);
+	static TArray<UStaticMesh*> GetAllBaseMeshesForPole(const FTLPole& Pole);
+	static TArray<UStaticMesh*> GetAllExtensibleMeshesForPole(const FTLPole& Pole);
+	static TArray<UStaticMesh*> GetAllCapMeshesForPole(const FTLPole& Pole);
+
 	static UStaticMesh* GetMeshForModule(const FTLHead& Head, const FTLModule& Module);
 	static TArray<UStaticMesh*> GetAllMeshesForModule(const FTLHead& Head, const FTLModule& Module);
-	static UStaticMesh* GetBaseMeshForPole(const FTLPole& Pole);
-	static UStaticMesh* GetExtendibleMeshForPole(const FTLPole& Pole);
-	static UStaticMesh* GetCapMeshForPole(const FTLPole& Pole);
-	static TArray<UStaticMesh*> GetAllBaseMeshesForPole(const FTLPole& Pole);
-	static TArray<UStaticMesh*> GetAllExtendibleMeshesForPole(const FTLPole& Pole);
-	static TArray<UStaticMesh*> GetAllCapMeshesForPole(const FTLPole& Pole);
+
 	static UStaticMesh* GetBackplateCornerMesh(const FTLHead& Head);
 	static UStaticMesh* GetBackplateHorizontalMesh(const FTLHead& Head);
 	static UStaticMesh* GetBackplateVerticalMesh(const FTLHead& Head);
@@ -35,6 +38,7 @@ public:
 	static UDataTable* GetPoleMeshTable();
 	static UDataTable* GetBackplateMeshTable();
 
+	static FIntPoint GetAtlasCoordsForLightType(ETLLightType LightType);
 	static int32 CountLedMaterials(UStaticMesh* Mesh);
 
 private:

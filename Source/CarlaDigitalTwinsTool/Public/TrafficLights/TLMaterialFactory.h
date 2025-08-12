@@ -6,11 +6,13 @@
 
 #pragma once
 
+#include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
-#include "UObject/Object.h"
+#include "Materials/MaterialInterface.h"
 
 class FMaterialFactory
 {
 public:
-	static UMaterialInstanceDynamic* GetLightMaterialInstance(UObject* Outer);
+	static UMaterialInterface* GetBaseLightMaterial();
+	static UMaterialInstanceDynamic* CreateLightMaterialInstanceDynamic(UStaticMeshComponent* Comp, const FName& SlotName);
 };

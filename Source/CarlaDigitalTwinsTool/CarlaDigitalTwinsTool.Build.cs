@@ -160,6 +160,7 @@ public class CarlaDigitalTwinsTool : ModuleRules
             "CarlaMeshGeneration",
             "StreetMapImporting",
             "StreetMapRuntime",
+            "DesktopPlatform"
         }
         );
 
