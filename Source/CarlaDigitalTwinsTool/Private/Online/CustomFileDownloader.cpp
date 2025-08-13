@@ -104,6 +104,7 @@ void FHttpDownloader::Run(void)
   float Timeout = CVarCFDTimeout.GetValueOnAnyThread();
   if (Timeout > 0.0F)
     Request->SetTimeout(Timeout);
+  Request->SetActivityTimeout(Timeout);
   Request->SetVerb(Verb);
   Request->ProcessRequest();
 }
