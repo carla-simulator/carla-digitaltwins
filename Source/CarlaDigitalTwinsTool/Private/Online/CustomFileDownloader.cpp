@@ -89,6 +89,11 @@ FHttpDownloader::FHttpDownloader()
 
 }
 
+static TAutoConsoleVariable<float> CVarCFDTimeout(
+	TEXT("CarlaDT.CustomFileDownloader.Timeout"),
+	-1.0F,
+	TEXT("Sets the timeout for OSM downloads."));
+
 void FHttpDownloader::Run(void)
 {
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Starting download [%s] Url=[%s]"), *Verb, *Url);
@@ -96,6 +101,9 @@ void FHttpDownloader::Run(void)
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Map Name Is %s"), *Filename );
   Request->OnProcessRequestComplete().BindRaw(this, &FHttpDownloader::RequestComplete);
   Request->SetURL(Url);
+  float Timeout = CVarCFDTimeout.GetValueOnAnyThread();
+  if (Timeout > 0.0F)
+    Request->SetTimeout(Timeout);
   Request->SetVerb(Verb);
   Request->ProcessRequest();
 }

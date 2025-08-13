@@ -14,7 +14,7 @@ if (NOT IS_DIRECTORY "${CONTENT_DIR}")
             CONTENT_RESULT
     )
     if (CONTENT_RESULT)
-        message (FATAL_ERROR "Could not clone UE Content (exit code ${STREETMAP_RESULT}).")
+        message (WARNING "Could not clone UE Content (exit code ${STREETMAP_RESULT}).")
     endif ()
 else ()
     execute_process (
@@ -24,6 +24,6 @@ else ()
             CONTENT_RESULT
     )
     if (CONTENT_RESULT)
-        message (FATAL_ERROR "Could not pull UE Content (exit code ${STREETMAP_RESULT}).")
+        message (WARNING "Could not pull UE Content (exit code ${STREETMAP_RESULT}).")
     endif ()
 endif ()
