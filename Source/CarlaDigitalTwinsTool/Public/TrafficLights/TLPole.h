@@ -9,7 +9,6 @@
 #include "Components/StaticMeshComponent.h"
 #include "CoreMinimal.h"
 #include "Engine/StaticMesh.h"
-#include "Misc/Guid.h"
 #include "TrafficLights/TLHead.h"
 #include "TrafficLights/TLOrientation.h"
 #include "TrafficLights/TLStyle.h"
@@ -48,10 +47,10 @@ struct FTLPole
 	UStaticMeshComponent* BasePoleMeshComponent{nullptr};
 
 	UPROPERTY(Transient)
-	UStaticMesh* ExtendiblePoleMesh{nullptr};
+	UStaticMesh* ExtensiblePoleMesh{nullptr};
 
 	UPROPERTY(Transient)
-	UStaticMeshComponent* ExtendiblePoleMeshComponent{nullptr};
+	UStaticMeshComponent* ExtensiblePoleMeshComponent{nullptr};
 
 	UPROPERTY(Transient)
 	UStaticMesh* CapPoleMesh{nullptr};

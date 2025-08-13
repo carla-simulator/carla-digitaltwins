@@ -45,7 +45,7 @@ struct FEditorPole
 	bool bHeadsExpanded{true};
 	TSharedPtr<SVerticalBox> Container;
 	TArray<TSharedPtr<FString>> BaseMeshNameOptions;
-	TArray<TSharedPtr<FString>> ExtendibleMeshNameOptions;
+	TArray<TSharedPtr<FString>> ExtensibleMeshNameOptions;
 	TArray<TSharedPtr<FString>> CapMeshNameOptions;
 	TArray<FEditorHead> Heads;
 };
@@ -63,10 +63,16 @@ public:
 private:
 	void RefreshPoleList();
 	void RebuildModuleChain(FTLHead& Head);
+	void UpdatePreviewActor();
 	void Rebuild();
+	void RefreshPoleMeshes(int32 PoleIndex);
 	void RefreshModuleMeshOptions(int32 PoleIndex, int32 HeadIndex, int32 ModuleIndex);
+	EVisibility GetModifyVisibility() const;
 
 private:
+	FReply OnExportJSONClicked();
+	FReply OnImportJSONClicked();
+	FReply OnModifyClicked();
 	FReply OnAddPoleClicked();
 	FReply OnDeletePoleClicked(int32 PoleIndex);
 	FReply OnAddHeadClicked(int32 PoleIndex);
