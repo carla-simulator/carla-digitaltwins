@@ -9,7 +9,7 @@ cmake \
     -G Ninja \
     --toolchain "${SOURCE_DIR}/CMake/ToolchainUE5.cmake" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_MESSAGE=LAZY \
+    -DCMAKE_INSTALL_MESSAGE=NEVER \
     -DBUILD_SHARED_LIBS=OFF
 
 python3 -m pip install -r Content/Python/requirements.txt
