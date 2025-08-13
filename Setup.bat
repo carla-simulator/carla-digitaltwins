@@ -3,15 +3,13 @@
 set SCRIPT_PATH=%~f0
 set SOURCE_PATH=%SCRIPT_PATH:Setup.bat=%
 
-set BOOST_COMPONENTS="asio;iterator;date_time;geometry;container;variant2;gil;filesystem"
-
 cmake ^
     -S %SOURCE_PATH% ^
     -B %SOURCE_PATH%/Build ^
     -G Ninja ^
     --toolchain %SOURCE_PATH%/CMake/ToolchainUE5.cmake ^
     -DCMAKE_BUILD_TYPE=Release ^
-    -DBUILD_SHARED_LIBS=OFF ^
-    -DBOOST_COMPONENTS=%BOOST_COMPONENTS%
+    -DCMAKE_INSTALL_MESSAGE=LAZY ^
+    -DBUILD_SHARED_LIBS=OFF
 
 python -m pip install -r Content\Python\requirements.txt
