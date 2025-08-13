@@ -14,7 +14,7 @@ if (NOT IS_DIRECTORY "${CMG_DIR}")
             CMG_RESULT
     )
     if (CMG_RESULT)
-        message (FATAL_ERROR "Could not clone carla-mesh-generation (exit code ${CMG_RESULT}).")
+        message (WARNING "Could not clone carla-mesh-generation (exit code ${CMG_RESULT}).")
     endif ()
 else ()
     execute_process (
@@ -24,6 +24,6 @@ else ()
             CMG_RESULT
     )
     if (CMG_RESULT)
-        message (FATAL_ERROR "Could not pull carla-mesh-generation (exit code ${CMG_RESULT}).")
+        message (WARNING "Could not pull carla-mesh-generation (exit code ${CMG_RESULT}).")
     endif ()
 endif ()

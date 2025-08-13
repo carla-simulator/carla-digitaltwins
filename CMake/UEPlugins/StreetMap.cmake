@@ -14,7 +14,7 @@ if (NOT IS_DIRECTORY "${STREETMAP_DIR}")
             STREETMAP_RESULT
     )
     if (STREETMAP_RESULT)
-        message (FATAL_ERROR "Could not clone StreetMap (exit code ${STREETMAP_RESULT}).")
+        message (WARNING "Could not clone StreetMap (exit code ${STREETMAP_RESULT}).")
     endif ()
 else ()
     execute_process (
@@ -24,6 +24,6 @@ else ()
             STREETMAP_RESULT
     )
     if (STREETMAP_RESULT)
-        message (FATAL_ERROR "Could not pull StreetMap (exit code ${STREETMAP_RESULT}).")
+        message (WARNING "Could not pull StreetMap (exit code ${STREETMAP_RESULT}).")
     endif ()
 endif ()
