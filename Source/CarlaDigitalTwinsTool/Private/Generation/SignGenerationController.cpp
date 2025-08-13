@@ -43,7 +43,7 @@ void ASignGenerationController::GetSteetMapFile()
 ASignGenerationController::ASignGenerationController(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
- 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
+	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
 	bDisplaceSignsToEdge = true;
 	max_displacement_iterations = 30;
@@ -56,7 +56,7 @@ ASignGenerationController::ASignGenerationController(const FObjectInitializer& O
 void ASignGenerationController::BeginPlay()
 {
 	Super::BeginPlay();
-	
+
 }
 
 // Called every frame
@@ -102,7 +102,7 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 	int32 SeparatorIndex;
 	if (EnumName.FindChar(':', SeparatorIndex))
 	{
-	  EnumName = EnumName.Mid(SeparatorIndex + 2);
+		EnumName = EnumName.Mid(SeparatorIndex + 2);
 	}
 	FString FullPath = sign_package_path.ToString() + TEXT("/") + EnumName;
 	FName FullPathName = FName(*FullPath);
@@ -202,23 +202,23 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 					sign_mesh_comp->SetStaticMesh(sign_asset->SignMesh);
 
 					UMaterialInterface* BaseMaterial = Cast<UMaterialInterface>(
-					  StaticLoadObject(UMaterialInterface::StaticClass(), nullptr,
-						TEXT("/CarlaDigitalTwinsTool/Carla/Static/Signs/Materials/Atlas/MI_SignTextureAtlasSelector"))
+						StaticLoadObject(UMaterialInterface::StaticClass(), nullptr,
+							TEXT("/CarlaDigitalTwinsTool/Carla/Static/Signs/Materials/Atlas/MI_SignTextureAtlasSelector"))
 					);
 					UMaterialInstanceDynamic* DynamicMaterial = nullptr;
 
 					if (BaseMaterial)
 					{
-					  DynamicMaterial = UMaterialInstanceDynamic::Create(BaseMaterial, this);
+						DynamicMaterial = UMaterialInstanceDynamic::Create(BaseMaterial, this);
 					}
 					if (DynamicMaterial)
 					{
-					  //Set diffuse texture from the data asset, Normal map gets created using diffuse.
-					  DynamicMaterial->SetTextureParameterValue("Diffuse", sign_asset->Diffuse);
+						//Set diffuse texture from the data asset, Normal map gets created using diffuse.
+						DynamicMaterial->SetTextureParameterValue("Diffuse", sign_asset->Diffuse);
 
-					  // Set index of the atlas texture
-					  DynamicMaterial->SetScalarParameterValue("Index_X", sign_asset->Id_X);
-					  DynamicMaterial->SetScalarParameterValue("Index_Y", sign_asset->Id_Y);
+						// Set index of the atlas texture
+						DynamicMaterial->SetScalarParameterValue("Index_X", sign_asset->Id_X);
+						DynamicMaterial->SetScalarParameterValue("Index_Y", sign_asset->Id_Y);
 					}
 					sign_mesh_comp->SetMaterial(0, DynamicMaterial);
 					sign_mesh_comp->SetWorldTransform(pole_mesh_comp->GetSocketTransform(FName(TEXT("Sign1"))));
@@ -236,7 +236,7 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 	}
 
 	//Moving Signals to Sidewalk
-	if(bDisplaceSignsToEdge)
+	if (bDisplaceSignsToEdge)
 	{
 		for (AActor* sign : GeneratedSigns)
 		{
@@ -302,7 +302,7 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 			}
 		}
 	}
-	
+
 	for (FVector waypoint_pos : closest_waypoints)
 	{
 		DrawDebugSphere(GetWorld(), waypoint_pos, 20.0f, 3, FColor::Red, false, 5.0f, 0.0f, 50.0f);
