@@ -77,6 +77,18 @@ macro (GenerateFinalDumpFiles)
   )
 endmacro ()
 
+set (
+  BOOST_COMPONENTS
+  asio
+  iterator
+  date_time
+  geometry
+  container
+  variant2
+  gil
+  filesystem
+)
+
 message (STATUS "Requesting boost components:")
 foreach (COMPONENT ${BOOST_COMPONENTS})
   message (STATUS " - ${COMPONENT}")

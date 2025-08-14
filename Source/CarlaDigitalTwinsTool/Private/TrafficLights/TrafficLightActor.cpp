@@ -1161,7 +1161,7 @@ void ATrafficLightActor::Clear()
 		Root->GetChildrenComponents(true, AllComponents);
 		for (USceneComponent* Comp : AllComponents)
 		{
-			if (IsValid(C))
+			if (IsValid(Comp))
 			{
 				Comp->DestroyComponent(false);
 			}
