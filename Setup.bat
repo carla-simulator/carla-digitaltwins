@@ -10,6 +10,7 @@ cmake ^
     --toolchain %SOURCE_PATH%/CMake/ToolchainUE5.cmake ^
     -DCMAKE_BUILD_TYPE=Release ^
     -DCMAKE_INSTALL_MESSAGE=NEVER ^
-    -DBUILD_SHARED_LIBS=OFF
+    -DBUILD_SHARED_LIBS=OFF ^
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 
 python -m pip install -r Content\Python\requirements.txt

@@ -77,6 +77,32 @@ macro (GenerateFinalDumpFiles)
   )
 endmacro ()
 
+find_package (
+  Python3
+  REQUIRED
+)
+
+# -- Temporary check for numpy 2 presence, which breaks our current version of Boost.Python.
+execute_process (
+  COMMAND
+    ${Python3_EXECUTABLE}
+      -c
+      "import numpy; print(numpy.__version__)"
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  OUTPUT_VARIABLE
+    NUMPY_VERSION_STRING
+  RESULT_VARIABLE
+    NUMPY_VERSION_QUERY_RESULT
+)
+if (NUMPY_VERSION_QUERY_RESULT)
+  message (FATAL_ERROR "Failed to query numpy version.")
+endif ()
+message (STATUS "Found Numpy ${NUMPY_VERSION_STRING} for Python ${Python3_VERSION} (${Python3_EXECUTABLE}).")
+if ("${NUMPY_VERSION_STRING}" VERSION_GREATER "2.0.0")
+  message (FATAL_ERROR "Unsupported Numpy version, please downgrade to a version prior to numpy 2.")
+endif ()
+# --
+
 set (
   BOOST_COMPONENTS
   asio
