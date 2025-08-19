@@ -138,8 +138,10 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 		//TODO: Adjust for signs not tagged under highway
 		FString* current_sign_value = sign.Properties.Find("highway");
 		if (current_sign_value == nullptr) current_sign_value = sign.Properties.Find("crossing");
-		if (current_sign_value == nullptr) current_sign_value = sign.Properties.Find("max_speed");
+		if (current_sign_value == nullptr) current_sign_value = sign.Properties.Find("maxspeed");
 		if (current_sign_value == nullptr) continue;
+
+		UE_LOG(LogTemp, Log, TEXT("SignValue detected is:"), **current_sign_value);
 
 		for (USignDataAsset* sign_asset : sign_data)
 		{
