@@ -95,7 +95,7 @@ execute_process (
     NUMPY_VERSION_QUERY_RESULT
 )
 if (NUMPY_VERSION_QUERY_RESULT)
-  message (FATAL_ERROR "Failed to query numpy version.")
+  message (WARNING "Failed to query numpy version.")
 endif ()
 message (STATUS "Found Numpy ${NUMPY_VERSION_STRING} for Python ${Python3_VERSION} (${Python3_EXECUTABLE}).")
 if ("${NUMPY_VERSION_STRING}" VERSION_GREATER "2.0.0")
