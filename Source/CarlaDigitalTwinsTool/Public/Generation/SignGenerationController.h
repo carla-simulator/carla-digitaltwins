@@ -69,6 +69,9 @@ private:
 	UFUNCTION()
 	void GetSteetMapFile();
 
+	UFUNCTION()
+	void GetSignPropertyValue(FStreetMapMisc Sign, FString KeyToFind, FString& Out_KeyName, FString& Out_Value);
+
 	USignDataAsset* current_data_asset;
 
 	TArray<FVector> closest_waypoints;
