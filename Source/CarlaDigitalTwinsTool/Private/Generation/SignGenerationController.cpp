@@ -135,23 +135,29 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 	for (FStreetMapMisc sign : StreetMapData->GetSigns())
 	{
 		has_spawned_sign = false;
-		//TODO: Adjust for signs not tagged under highway
-		FString* current_sign_value = sign.Properties.Find("highway");
-		if (current_sign_value == nullptr) current_sign_value = sign.Properties.Find("crossing");
-		if (current_sign_value == nullptr) current_sign_value = sign.Properties.Find("maxspeed");
-		if (current_sign_value == nullptr) continue;
 
-		UE_LOG(LogTemp, Log, TEXT("SignValue detected is:"), **current_sign_value);
+		FString keyname;
+		FString signValue;
+
+		GetSignPropertyValue(sign, "highway", keyname, signValue);
+		if (signValue.IsEmpty()) GetSignPropertyValue(sign, "crossing", keyname, signValue);
+		if (signValue.IsEmpty()) GetSignPropertyValue(sign, "maxspeed", keyname, signValue);
+		if (signValue.IsEmpty()) continue;
+
+		if (!keyname.IsEmpty())
+		{
+			UE_LOG(LogTemp, Log, TEXT("SignValue detected is: %s"), *signValue);
+		}
 
 		for (USignDataAsset* sign_asset : sign_data)
 		{
 			if (has_spawned_sign) break;
-			if (UKismetSystemLibrary::GetDisplayName(sign_asset).Contains(*current_sign_value))
+			if (UKismetSystemLibrary::GetDisplayName(sign_asset).Contains(signValue))
 			{
-				int& counter = spawn_name_counters.FindOrAdd(*current_sign_value);
+				int& counter = spawn_name_counters.FindOrAdd(signValue);
 				counter++;
 
-				FString actor_name = *current_sign_value;
+				FString actor_name = "TrafficSign_" + keyname + "_" + signValue + "_";
 				actor_name.AppendInt(counter);
 
 				AStaticMeshActor* temp_actor = GetWorld()->SpawnActor<AStaticMeshActor>();
@@ -199,6 +205,7 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 				{
 					UStaticMeshComponent* pole_mesh_comp = UMapGenFunctionLibrary::AddStaticMeshComponentToActor(temp_actor);
 					pole_mesh_comp->SetStaticMesh(pole_data[0]->PoleMesh);
+					pole_mesh_comp->ComponentTags.Add(FName("pole"));
 
 					UStaticMeshComponent* sign_mesh_comp = UMapGenFunctionLibrary::AddStaticMeshComponentToActor(temp_actor);
 					sign_mesh_comp->SetStaticMesh(sign_asset->SignMesh);
@@ -224,6 +231,7 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 					}
 					sign_mesh_comp->SetMaterial(0, DynamicMaterial);
 					sign_mesh_comp->SetWorldTransform(pole_mesh_comp->GetSocketTransform(FName(TEXT("Sign1"))));
+					sign_mesh_comp->ComponentTags.Add(FName("sign"));
 				}
 				else
 				{
@@ -305,6 +313,60 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 		}
 	}
 
+	// We get a map of the generated signs actors with the location as the key
+	TMap<FVector, TArray<AActor*>> LocationMap;
+
+	for (AActor* Actor : GeneratedSigns)
+	{
+		if (!Actor) continue;
+
+		FVector Location = Actor->GetActorLocation();
+
+		// Use Add to group actors by location
+		TArray<AActor*>& ActorList = LocationMap.FindOrAdd(Location);
+		ActorList.Add(Actor);
+	}
+
+	// Get the component of the signs that share location and put it in the first sign with an offset, then destroy the duplicated sign
+	for (const auto& Elem : LocationMap)
+	{
+		const FVector& Location = Elem.Key;
+		const TArray<AActor*>& ActorsAtLocation = Elem.Value;
+		AActor* FirstSignActor = ActorsAtLocation[0];
+
+		UActorComponent* PoleComp = FirstSignActor->FindComponentByTag(UStaticMeshComponent::StaticClass(), FName("pole"));
+		UStaticMeshComponent* PoleMesh = Cast<UStaticMeshComponent>(PoleComp);
+		FTransform SignTransform = PoleMesh->GetSocketTransform(FName(TEXT("Sign1")));
+
+		if (ActorsAtLocation.Num() > 1)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Found %d actors at location %s"),
+				ActorsAtLocation.Num(), *Location.ToString());
+
+			for (int i = 0 ; i < ActorsAtLocation.Num(); i++)
+			{
+				if (i == 0) continue;
+
+				AActor* CurrentActor = ActorsAtLocation[i];
+				UActorComponent* SignComp = CurrentActor->FindComponentByTag(UStaticMeshComponent::StaticClass(), FName("sign"));
+				UStaticMeshComponent* SignMeshComp = Cast<UStaticMeshComponent>(SignComp);
+
+				UStaticMeshComponent* SignComponent = UMapGenFunctionLibrary::AddStaticMeshComponentToActor(FirstSignActor);
+
+				SignComponent->SetWorldTransform(FTransform(
+					SignTransform.GetRotation(), 
+					FVector(SignTransform.GetLocation().X, SignTransform.GetLocation().Y, SignTransform.GetLocation().Z * i - 90),
+					SignTransform.GetScale3D()));
+
+				SignComponent->SetStaticMesh(SignMeshComp->GetStaticMesh());
+				SignComponent->SetMaterial(0, SignMeshComp->GetMaterial(0));
+
+				CurrentActor->Destroy();
+
+			}
+		}
+	}
+
 	for (FVector waypoint_pos : closest_waypoints)
 	{
 		DrawDebugSphere(GetWorld(), waypoint_pos, 20.0f, 3, FColor::Red, false, 5.0f, 0.0f, 50.0f);
@@ -314,4 +376,19 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 void ASignGenerationController::SignGenerationForCurrentMap()
 {
 	SignGenerationByPath(SignPackagePath, PolePackagePath, SignStyle);
+}
+
+void ASignGenerationController::GetSignPropertyValue(FStreetMapMisc Sign, FString KeyToFind, FString& Out_KeyName, FString& Out_Value)
+{
+	FString* FoundValue = Sign.Properties.Find(KeyToFind);
+
+	if (FoundValue == nullptr)
+	{
+		Out_Value = "";
+		Out_KeyName = "";
+		return;
+	}
+
+	Out_Value = *FoundValue;
+	Out_KeyName = KeyToFind;
 }
