@@ -237,7 +237,7 @@ public:
 protected:
 
   UFUNCTION(BlueprintCallable, Category = "Assets Placement")
-  void RenderRoadToTexture(UWorld* World);
+  void RenderRoadToTexture(FVector MinLocation, FVector MaxLocation);
 
   UFUNCTION(BlueprintCallable, Category = "Assets Placement")
   void RunPythonScript(FString ScriptPath, FString Args);

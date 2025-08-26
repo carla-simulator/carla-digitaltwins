@@ -782,7 +782,6 @@ void UOpenDriveToMap::LoadMap()
 			FString CurrentMapName = World->GetMapName();
 			CurrentMapName.RemoveFromStart(World->StreamingLevelsPrefix);
 			UGameplayStatics::OpenLevel(World, FName(*CurrentMapName));
-			RenderRoadToTexture(World);
 		}
 
 		for (UDGTImplementable* Tool : ToolInstances)
@@ -847,6 +846,9 @@ void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& Param
 
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Misc stuff..... "));
 	GenerationFinished(MinLocation, MaxLocation);
+
+	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating road render..... "));
+	RenderRoadToTexture(MinLocation, MaxLocation);
 
 #if PLATFORM_LINUX
 	if (bUseMitsuba)
@@ -1591,9 +1593,15 @@ void UOpenDriveToMap::UnloadWorldPartitionRegion(const FBox& RegionBox)
 	}
 }
 
-void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
+void UOpenDriveToMap::RenderRoadToTexture(FVector MinLocation, FVector MaxLocation)
 {
+	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Render road for curb generation"));
+
+	UWorld* World = GetEditorWorld();
+
 	FBox Bounds(EForceInit::ForceInitToZero);
+	Bounds += MinLocation;
+	Bounds += MaxLocation;
 
 	FString RoadLabel = "DrivingLane";
 #if PLATFORM_LINUX
@@ -1610,8 +1618,6 @@ void UOpenDriveToMap::RenderRoadToTexture(UWorld* World)
 		HiddenActors.Reserve(Actors.Num());
 		for (auto& Actor : Actors)
 		{
-			auto BoundingBox = Actor->GetComponentsBoundingBox();
-			Bounds += BoundingBox;
 			auto Name = Actor->GetActorLabel();
 
 			if (!Name.Contains(RoadLabel, ESearchCase::CaseSensitive))
