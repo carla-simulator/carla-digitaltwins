@@ -1648,7 +1648,7 @@ void UOpenDriveToMap::RenderRoadToTexture(FVector MinLocation, FVector MaxLocati
 
 	FActorSpawnParameters ActorSpawnParameters;
 	ActorSpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	ActorSpawnParameters.Name = TEXT("camera");
+	ActorSpawnParameters.Name = FName(*(TEXT("Camera") + GetStringForCurrentTile()));
 
 	auto Camera = World->SpawnActor<ASceneCapture2D>(ASceneCapture2D::StaticClass(), ActorSpawnParameters);
 
