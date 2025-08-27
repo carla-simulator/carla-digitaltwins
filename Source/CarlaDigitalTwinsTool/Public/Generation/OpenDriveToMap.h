@@ -243,7 +243,13 @@ protected:
   void RunPythonScript(FString ScriptPath, FString Args);
 
   UFUNCTION(BlueprintCallable, Category = "Assets Placement")
-  void RunPythonRoadEdges(FVector2D Center, FVector2D Extent);
+  void RunPythonMergeTiles();
+
+  UFUNCTION(BlueprintCallable, Category = "Assets Placement")
+  void RunPythonRoadEdges();
+
+  UFUNCTION(BlueprintCallable, Category = "Assets Placement")
+  void GenerateCurbSplines();
 
   UFUNCTION(BlueprintCallable, Category = "Mitsuba")
   void ExportStaticMeshToOBJ(UStaticMesh *StaticMesh, const FString &OutputPath);

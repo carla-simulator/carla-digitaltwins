@@ -784,6 +784,8 @@ void UOpenDriveToMap::LoadMap()
 			UGameplayStatics::OpenLevel(World, FName(*CurrentMapName));
 		}
 
+		GenerateCurbSplines();
+
 		for (UDGTImplementable* Tool : ToolInstances)
 		{
 			if (Tool)
@@ -1595,7 +1597,7 @@ void UOpenDriveToMap::UnloadWorldPartitionRegion(const FBox& RegionBox)
 
 void UOpenDriveToMap::RenderRoadToTexture(FVector MinLocation, FVector MaxLocation)
 {
-	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Render road for curb generation"));
+	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Render road for curbs generation"));
 
 	UWorld* World = GetEditorWorld();
 
@@ -1632,10 +1634,11 @@ void UOpenDriveToMap::RenderRoadToTexture(FVector MinLocation, FVector MaxLocati
 
 	auto Center = Bounds.GetCenter();
 	auto Extent = FVector2D(Bounds.Max) - FVector2D(Bounds.Min);
-
 	auto RenderTargetScale = UE_CM_TO_M * 8;
 	auto RenderTargetExtent = Extent * RenderTargetScale;
 	auto RenderTargetSize = FIntPoint((int32) std::round(RenderTargetExtent.X), (int32) std::round(RenderTargetExtent.Y));
+
+	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("RenderTargetSize: %i, %i"), RenderTargetSize.X, RenderTargetSize.Y);
 
 	auto RenderTarget = NewObject<UTextureRenderTarget2D>();
 	RenderTarget->AddToRoot();
@@ -1679,7 +1682,7 @@ void UOpenDriveToMap::RenderRoadToTexture(FVector MinLocation, FVector MaxLocati
 	ImageTask->PixelData = MoveTemp(PixelData);
 
 	FString OutPath = UGenerationPathsHelper::GetPythonIntermediatePath(MapName);
-	FString ImagePath = OutPath / TEXT("road_render.png");
+	FString ImagePath = OutPath / TEXT("road_render") + GetStringForCurrentTile() + TEXT(".png");
 
 	ImageTask->Filename = ImagePath;
 	ImageTask->Format = EImageFormat::PNG;
@@ -1696,10 +1699,34 @@ void UOpenDriveToMap::RenderRoadToTexture(FVector MinLocation, FVector MaxLocati
 	// Camera->Destroy();
 
 	Task.Wait();
+}
 
-	RunPythonRoadEdges(FVector2D(Center.X, Center.Y), FVector2D(Extent.X, Extent.Y));
+void UOpenDriveToMap::GenerateCurbSplines()
+{
+	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Create splines for curbs generation"));
+
+	UWorld* World = GetEditorWorld();
+
+	FString OutPath = UGenerationPathsHelper::GetPythonIntermediatePath(MapName);
+
+	RunPythonMergeTiles();
+
+	RunPythonRoadEdges();
 
 	auto JsonPath = OutPath / TEXT("contours.json");
+
+	MinPosition = FVector(0.0f, 0.0f, 0.0f);
+	MaxPosition = FVector(NumTilesInXY.X * TileSize, NumTilesInXY.Y * -TileSize, 0.0f);
+
+	FBox Bounds(EForceInit::ForceInitToZero);
+	Bounds += MinPosition;
+	Bounds += MaxPosition;
+
+	auto Center = Bounds.GetCenter();
+	auto Extent = FVector2D(Bounds.Max) - FVector2D(Bounds.Min);
+	auto RenderTargetScale = UE_CM_TO_M * 8;
+	auto RenderTargetExtent = Extent * RenderTargetScale;
+	auto RenderTargetSize = FIntPoint((int32) std::round(RenderTargetExtent.X), (int32) std::round(RenderTargetExtent.Y));
 
 	auto RoadSplines =
 		UGeometryImporter::CreateSplinesFromJson(World, JsonPath, FVector2D(Center.X, Center.Y), Extent, RenderTargetSize);
@@ -1766,7 +1793,22 @@ void UOpenDriveToMap::RunPythonScript(FString ScriptPath, FString Args)
 	UE_LOG(LogCarlaDigitalTwinsTool, Display, TEXT("Python Output:\n%s"), *Output);
 }
 
-void UOpenDriveToMap::RunPythonRoadEdges(FVector2D Center, FVector2D Extent)
+void UOpenDriveToMap::RunPythonMergeTiles()
+{
+	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Running Python merge rendered tiles script..."));
+
+	FString PluginPath = UGenerationPathsHelper::GetDigitalTwinsPluginPath();
+	FString ScriptPath = PluginPath / TEXT("Content/Python/merge_images.py");
+	FString OutPath = UGenerationPathsHelper::GetPythonIntermediatePath(MapName);
+
+	FString Args;
+	Args += FString::Printf(TEXT("\"%s\" "), *ScriptPath);
+	Args += FString::Printf(TEXT("--folder_path=\"%s\" "), *OutPath);
+
+	RunPythonScript(ScriptPath, Args);
+}
+
+void UOpenDriveToMap::RunPythonRoadEdges()
 {
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Running Python road edges extraction script..."));
 
