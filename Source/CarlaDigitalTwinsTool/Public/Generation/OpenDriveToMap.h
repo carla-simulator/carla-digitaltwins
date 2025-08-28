@@ -237,13 +237,19 @@ public:
 protected:
 
   UFUNCTION(BlueprintCallable, Category = "Assets Placement")
-  void RenderRoadToTexture(UWorld* World);
+  void RenderRoadToTexture(FVector MinLocation, FVector MaxLocation);
 
   UFUNCTION(BlueprintCallable, Category = "Assets Placement")
   void RunPythonScript(FString ScriptPath, FString Args);
 
   UFUNCTION(BlueprintCallable, Category = "Assets Placement")
-  void RunPythonRoadEdges(FVector2D Center, FVector2D Extent);
+  void RunPythonMergeTiles();
+
+  UFUNCTION(BlueprintCallable, Category = "Assets Placement")
+  void RunPythonRoadEdges();
+
+  UFUNCTION(BlueprintCallable, Category = "Assets Placement")
+  void GenerateCurbSplines();
 
   UFUNCTION(BlueprintCallable, Category = "Mitsuba")
   void ExportStaticMeshToOBJ(UStaticMesh *StaticMesh, const FString &OutputPath);
