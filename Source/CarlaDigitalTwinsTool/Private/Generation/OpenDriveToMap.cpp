@@ -1663,6 +1663,17 @@ void UOpenDriveToMap::RenderRoadToTexture(FVector MinLocation, FVector MaxLocati
 	CaptureComponent->bCaptureOnMovement = false;
 	CaptureComponent->TextureTarget = RenderTarget;
 
+	CaptureComponent->ShowFlags.SetLumenGlobalIllumination(false);
+	CaptureComponent->ShowFlags.SetLumenReflections(false);
+	CaptureComponent->ShowFlags.SetGlobalIllumination(false);
+	CaptureComponent->ShowFlags.SetScreenSpaceReflections(false);
+	CaptureComponent->ShowFlags.SetDistanceFieldAO(false);
+	CaptureComponent->ShowFlags.SetTemporalAA(false);
+	CaptureComponent->ShowFlags.SetMotionBlur(false);
+	CaptureComponent->ShowFlags.SetBloom(false);
+	CaptureComponent->ShowFlags.SetVolumetricFog(false);
+	CaptureComponent->ShowFlags.SetDynamicShadows(false);
+
 	auto CameraZ = std::max(Bounds.Max.X, std::max(Bounds.Max.Y, Bounds.Max.Z));
 	auto Location = FVector(Center.X, Center.Y, CameraZ);
 
@@ -1696,7 +1707,8 @@ void UOpenDriveToMap::RenderRoadToTexture(FVector MinLocation, FVector MaxLocati
 	for (auto& HiddenActor : HiddenActors)
 		HiddenActor->SetActorHiddenInGame(false);
 
-	// Camera->Destroy();
+	RenderTarget->RemoveFromRoot();
+	Camera->Destroy();
 
 	Task.Wait();
 }
