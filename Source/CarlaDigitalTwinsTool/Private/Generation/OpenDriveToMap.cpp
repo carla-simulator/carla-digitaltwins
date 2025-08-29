@@ -784,7 +784,7 @@ void UOpenDriveToMap::LoadMap()
 			UGameplayStatics::OpenLevel(World, FName(*CurrentMapName));
 		}
 
-		GenerateCurbSplines();
+		GenerateCurbSplinesFromRoadRenders();
 
 		for (UDGTImplementable* Tool : ToolInstances)
 		{
@@ -799,6 +799,25 @@ void UOpenDriveToMap::LoadMap()
 #endif
 		Landscapes.Empty();
 	}
+}
+
+void UOpenDriveToMap::GenerateCurbSplinesFromRoadRenders()
+{
+	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Generating road renders and splines for curbs"));
+
+	CurrentTilesInXY.X = 0;
+	CurrentTilesInXY.Y = 0;
+	
+	do
+	{
+		MinPosition = FVector(CurrentTilesInXY.X * TileSize, CurrentTilesInXY.Y * -TileSize, 0.0f);
+		MaxPosition = FVector((CurrentTilesInXY.X + 1.0f) * TileSize, (CurrentTilesInXY.Y + 1.0f) * -TileSize, 0.0f);
+		
+		RenderRoadToTexture(MinPosition, MaxPosition);
+
+	} while (GoNextTile());
+
+	GenerateCurbSplines();
 }
 
 TArray<AActor*> UOpenDriveToMap::GenerateMiscActors(float Offset, FVector MinLocation, FVector MaxLocation)
@@ -848,9 +867,6 @@ void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& Param
 
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Misc stuff..... "));
 	GenerationFinished(MinLocation, MaxLocation);
-
-	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating road render..... "));
-	RenderRoadToTexture(MinLocation, MaxLocation);
 
 #if PLATFORM_LINUX
 	if (bUseMitsuba)
@@ -1663,6 +1679,17 @@ void UOpenDriveToMap::RenderRoadToTexture(FVector MinLocation, FVector MaxLocati
 	CaptureComponent->bCaptureOnMovement = false;
 	CaptureComponent->TextureTarget = RenderTarget;
 
+	CaptureComponent->ShowFlags.SetLumenGlobalIllumination(false);
+	CaptureComponent->ShowFlags.SetLumenReflections(false);
+	CaptureComponent->ShowFlags.SetGlobalIllumination(false);
+	CaptureComponent->ShowFlags.SetScreenSpaceReflections(false);
+	CaptureComponent->ShowFlags.SetDistanceFieldAO(false);
+	CaptureComponent->ShowFlags.SetTemporalAA(false);
+	CaptureComponent->ShowFlags.SetMotionBlur(false);
+	CaptureComponent->ShowFlags.SetBloom(false);
+	CaptureComponent->ShowFlags.SetVolumetricFog(false);
+	CaptureComponent->ShowFlags.SetDynamicShadows(false);
+
 	auto CameraZ = std::max(Bounds.Max.X, std::max(Bounds.Max.Y, Bounds.Max.Z));
 	auto Location = FVector(Center.X, Center.Y, CameraZ);
 
@@ -1696,7 +1723,8 @@ void UOpenDriveToMap::RenderRoadToTexture(FVector MinLocation, FVector MaxLocati
 	for (auto& HiddenActor : HiddenActors)
 		HiddenActor->SetActorHiddenInGame(false);
 
-	// Camera->Destroy();
+	RenderTarget->RemoveFromRoot();
+	Camera->Destroy();
 
 	Task.Wait();
 }
