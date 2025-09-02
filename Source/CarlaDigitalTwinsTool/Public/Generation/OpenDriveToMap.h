@@ -251,6 +251,9 @@ protected:
   UFUNCTION(BlueprintCallable, Category = "Assets Placement")
   void GenerateCurbSplines();
 
+  UFUNCTION(BlueprintCallable, Category = "Assets Placement")
+  void GenerateCurbSplinesFromRoadRenders();
+
   UFUNCTION(BlueprintCallable, Category = "Mitsuba")
   void ExportStaticMeshToOBJ(UStaticMesh *StaticMesh, const FString &OutputPath);
 
