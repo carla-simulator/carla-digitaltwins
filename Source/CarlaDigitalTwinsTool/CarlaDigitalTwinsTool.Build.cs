@@ -123,9 +123,11 @@ public class CarlaDigitalTwinsTool : ModuleRules
             "Engine",
             "ProceduralMeshComponent",
             "MeshDescription",
+            "StaticMeshDescription",
             "RawMesh",
             "AssetTools",
             "Projects",
+            "AssetRegistry",
             }
         );
 
@@ -134,6 +136,7 @@ public class CarlaDigitalTwinsTool : ModuleRules
           new string[]
           {
             "CoreUObject",
+            "GeometryCore",
             "Slate",
             "SlateCore",
             "UnrealEd",

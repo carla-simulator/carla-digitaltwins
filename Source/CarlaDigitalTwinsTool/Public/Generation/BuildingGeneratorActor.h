@@ -7,7 +7,7 @@
 #include "BuildingGeneratorActor.generated.h"
 
 class UStreetMapComponent;
-
+class UProceduralMeshComponent;
 UCLASS()
 class CARLADIGITALTWINSTOOL_API ABuildingGeneratorActor : public AActor
 {
@@ -15,8 +15,37 @@ class CARLADIGITALTWINSTOOL_API ABuildingGeneratorActor : public AActor
 
 public:	
 
-	UFUNCTION(BlueprintCallable)
+	UFUNCTION(BlueprintCallable, Category = "Mesh Generation")
 	UStaticMesh* GenerateTopOfBuilding(int Index, FString MapName, UMaterialInstance* MaterialInstance);
+
+	UFUNCTION(BlueprintCallable, Category = "Mesh Generation")
+	void CreatePlaneFrom2DPointsUE5(UProceduralMeshComponent* ProcMesh, UObject* Outer, const TArray<FVector2D>& Points, const FString Name, float height,UStaticMesh*& OutMesh);
+
+	UFUNCTION(BlueprintCallable, Category = "Mesh Generation")
+	void PlaceMeshesGridBetweenPoints(
+		TArray<UStaticMesh*> ModuleMeshes,
+		TArray<UStaticMesh*> ModuleMeshesCorner,
+		int NumRows,
+		float WallHeight,
+		float BottomRowHeight,
+		float RegularRowHeight,
+		FVector StartPoint,
+		FVector EndPoint,
+		AActor* CurrentActor,
+		TMap<UStaticMesh*, UInstancedStaticMeshComponent*> InstancedMeshes,
+		UStaticMesh* CoverPlane,
+		float& LengthWall
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "Mesh Generation")
+
+	void PlaceJustifiedModules(
+		const FVector StartPoint,
+		const FVector EndPoint,
+		const TArray<UStaticMesh*>& ModulePool,
+		UStaticMesh* CoverMesh,
+		AActor* CurrentActor,
+		TMap<UStaticMesh*, UInstancedStaticMeshComponent*> InstancedMeshes);
 
 	UFUNCTION(BlueprintCallable)
 	static UStaticMeshComponent* SpawnMeshInsidePolygonWithRotation(
