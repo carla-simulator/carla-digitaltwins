@@ -813,11 +813,13 @@ void UOpenDriveToMap::GenerateCurbSplinesFromRoadRenders()
 		MinPosition = FVector(CurrentTilesInXY.X * TileSize, CurrentTilesInXY.Y * -TileSize, 0.0f);
 		MaxPosition = FVector((CurrentTilesInXY.X + 1.0f) * TileSize, (CurrentTilesInXY.Y + 1.0f) * -TileSize, 0.0f);
 		
-		RenderRoadToTexture(MinPosition, MaxPosition);
+		// RenderRoadToTexture(MinPosition, MaxPosition, "Layer0");
+		RenderRoadToTexture(MinPosition, MaxPosition, "Layer1");
 
 	} while (GoNextTile());
 
-	GenerateCurbSplines();
+	// GenerateCurbSplines("Layer0");
+	GenerateCurbSplines("Layer1");
 }
 
 TArray<AActor*> UOpenDriveToMap::GenerateMiscActors(float Offset, FVector MinLocation, FVector MaxLocation)
@@ -907,6 +909,7 @@ void UOpenDriveToMap::GenerateRoadMesh(
 		FVector MeshCentroid;
 		carla::road::Lane::LaneType LaneType;
 		int32 Index;
+		FString MeshLayer;
 	};
 
 	TArray<FPreparedMeshData> PreparedMeshes;
@@ -927,14 +930,18 @@ void UOpenDriveToMap::GenerateRoadMesh(
 
 				auto& Vertices = Mesh->GetVertices();
 
+				FString MeshLayer = "Layer0";
+
 				if (LaneType == carla::road::Lane::LaneType::Driving)
 				{
 					for (auto& Vertex : Vertices)
 					{
 						FVector FV = Vertex.ToFVector();
-						Vertex.z +=
-							GetHeight(Vertex.x * 100.0f, Vertex.y * 100.0f, DistanceToLaneBorder(ParamCarlaMap, FV) > 65.0f) /
-							100.0f;
+						if (Vertex.z > 0.0f){
+							MeshLayer = "Layer1";
+						}
+
+						Vertex.z += GetHeight(Vertex.x * 100.0f, Vertex.y * 100.0f, DistanceToLaneBorder(ParamCarlaMap, FV) > 65.0f) / 100.0f;
 					}
 #if ENGINE_MAJOR_VERSION < 5
 					carla::geom::Simplification Simplify(0.15);
@@ -965,6 +972,7 @@ void UOpenDriveToMap::GenerateRoadMesh(
 				Data.MeshData = *Mesh;
 				Data.MeshCentroid = Centroid;
 				Data.LaneType = LaneType;
+				Data.MeshLayer = MeshLayer;
 
 				int32 AssignedIndex;
 				{
@@ -982,6 +990,7 @@ void UOpenDriveToMap::GenerateRoadMesh(
 		const FVector& Centroid = Entry.MeshCentroid;
 		const int32 Index = Entry.Index;
 		const carla::road::Lane::LaneType LaneType = Entry.LaneType;
+		const FString& MeshLayer = Entry.MeshLayer;
 
 		TArray<FProcMeshTangent> Tangents;
 		UKismetProceduralMeshLibrary::CalculateTangentsForMesh(
@@ -1006,7 +1015,7 @@ void UOpenDriveToMap::GenerateRoadMesh(
 
 			StaticMeshComponent->SetMaterial(0, DuplicatedRoadMaterial);
 			StaticMeshComponent->CastShadow = false;
-			TempActor->SetActorLabel(FString("SM_DrivingLane_") + FString::FromInt(Index));
+			TempActor->SetActorLabel(FString("SM_DrivingLane_") + MeshLayer + "_" + FString::FromInt(Index));
 		}
 
 		UStaticMesh* FinalMesh = nullptr;
@@ -1611,7 +1620,7 @@ void UOpenDriveToMap::UnloadWorldPartitionRegion(const FBox& RegionBox)
 	}
 }
 
-void UOpenDriveToMap::RenderRoadToTexture(FVector MinLocation, FVector MaxLocation)
+void UOpenDriveToMap::RenderRoadToTexture(FVector MinLocation, FVector MaxLocation, FString MeshLayer)
 {
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Render road for curbs generation"));
 
@@ -1628,6 +1637,8 @@ void UOpenDriveToMap::RenderRoadToTexture(FVector MinLocation, FVector MaxLocati
 		RoadLabel = "UpdatedRoad";
 	}
 #endif
+
+	RoadLabel += "_" + MeshLayer;
 
 	TArray<AActor*> HiddenActors;
 	{
@@ -1709,7 +1720,7 @@ void UOpenDriveToMap::RenderRoadToTexture(FVector MinLocation, FVector MaxLocati
 	ImageTask->PixelData = MoveTemp(PixelData);
 
 	FString OutPath = UGenerationPathsHelper::GetPythonIntermediatePath(MapName);
-	FString ImagePath = OutPath / TEXT("road_render") + GetStringForCurrentTile() + TEXT(".png");
+	FString ImagePath = OutPath / TEXT("road_render") + "_" + MeshLayer + GetStringForCurrentTile() + TEXT(".png");
 
 	ImageTask->Filename = ImagePath;
 	ImageTask->Format = EImageFormat::PNG;
@@ -1729,7 +1740,7 @@ void UOpenDriveToMap::RenderRoadToTexture(FVector MinLocation, FVector MaxLocati
 	Task.Wait();
 }
 
-void UOpenDriveToMap::GenerateCurbSplines()
+void UOpenDriveToMap::GenerateCurbSplines(FString MeshLayer)
 {
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Create splines for curbs generation"));
 
@@ -1741,7 +1752,7 @@ void UOpenDriveToMap::GenerateCurbSplines()
 
 	RunPythonRoadEdges();
 
-	auto JsonPath = OutPath / TEXT("contours.json");
+	auto JsonPath = OutPath / TEXT("contours_"+MeshLayer+".json");
 
 	MinPosition = FVector(0.0f, 0.0f, 0.0f);
 	MaxPosition = FVector(NumTilesInXY.X * TileSize, NumTilesInXY.Y * -TileSize, 0.0f);
