@@ -522,6 +522,8 @@ void UOpenDriveToMap::GenerateTile()
 	FFileHelper::LoadFileToString(FileContent, *FilePath);
 	std::string opendrive_xml = carla::rpc::FromLongFString(FileContent);
 	UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("UOpenDriveToMap::GenerateTile() Loading File..... "));
+	UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("Current tile: %i, %i"),CurrentTilesInXY.X, CurrentTilesInXY.Y );
+	
 	CarlaMap = carla::opendrive::OpenDriveParser::Load(opendrive_xml);
 
 	if (!CarlaMap.has_value())
@@ -813,12 +815,12 @@ void UOpenDriveToMap::GenerateCurbSplinesFromRoadRenders()
 		MinPosition = FVector(CurrentTilesInXY.X * TileSize, CurrentTilesInXY.Y * -TileSize, 0.0f);
 		MaxPosition = FVector((CurrentTilesInXY.X + 1.0f) * TileSize, (CurrentTilesInXY.Y + 1.0f) * -TileSize, 0.0f);
 		
-		// RenderRoadToTexture(MinPosition, MaxPosition, "Layer0");
+		RenderRoadToTexture(MinPosition, MaxPosition, "Layer0");
 		RenderRoadToTexture(MinPosition, MaxPosition, "Layer1");
 
 	} while (GoNextTile());
 
-	// GenerateCurbSplines("Layer0");
+	GenerateCurbSplines("Layer0");
 	GenerateCurbSplines("Layer1");
 }
 
@@ -1678,7 +1680,7 @@ void UOpenDriveToMap::RenderRoadToTexture(FVector MinLocation, FVector MaxLocati
 
 	FActorSpawnParameters ActorSpawnParameters;
 	ActorSpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	ActorSpawnParameters.Name = FName(*(TEXT("Camera") + GetStringForCurrentTile()));
+	ActorSpawnParameters.Name = FName(*(TEXT("Camera_" + MeshLayer) + GetStringForCurrentTile()));
 
 	auto Camera = World->SpawnActor<ASceneCapture2D>(ASceneCapture2D::StaticClass(), ActorSpawnParameters);
 
