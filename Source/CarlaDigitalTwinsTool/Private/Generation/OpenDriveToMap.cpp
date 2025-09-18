@@ -743,23 +743,10 @@ TArray<AActor*> UOpenDriveToMap::GenerateMiscActors(float Offset, FVector MinLoc
 
     NewTransform = GetSnappedPosition(NewTransform);
 
-    AActor* Spawner = GetEditorWorld()->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(),
-      NewTransform.GetLocation(), NewTransform.Rotator());
-    Spawner->Tags.Add(FName("MiscSpawnPosition"));
-    Spawner->Tags.Add(FName(cl.second.c_str()));
-    Spawner->SetActorLabel("MiscSpawnPosition" + FString::FromInt(i));
-#if ENGINE_MAJOR_VERSION > 4
-    Spawner->SetIsSpatiallyLoaded(true);
-#endif
-    ++i;
-    Returning.Add(Spawner);
-  }
-  return Returning;
+	GenerateCurbSplines();
 }
 
-void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& ParamCarlaMap,
-  FVector MinLocation,
-  FVector MaxLocation )
+void UOpenDriveToMap::GenerateAll(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation)
 {
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("UOpenDriveToMap::GenerateAll() Generating Roads..... "));
   GenerateRoadMesh(ParamCarlaMap, MinLocation, MaxLocation);
@@ -1068,60 +1055,21 @@ void UOpenDriveToMap::GenerateLaneMarks(const boost::optional<carla::road::Map>&
   }
 }
 
-/*
-void UOpenDriveToMap::GenerateSpawnPoints( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation  )
+void UOpenDriveToMap::GenerateTrafficLights(
+	const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation)
 {
-  float SpawnersHeight = 300.f;
-  const auto Waypoints = ParamCarlaMap.GenerateWaypointsOnRoadEntries();
-  TArray<AActor*> ActorsToMove;
-  for (const auto &Wp : Waypoints)
-  {
-    const FTransform Trans = ParamCarlaMap.ComputeTransform(Wp);
-    if( Trans.GetLocation().X >= MinLocation.X && Trans.GetLocation().Y >= MinLocation.Y &&
-        Trans.GetLocation().X <= MaxLocation.X && Trans.GetLocation().Y <= MaxLocation.Y)
-    {
-      AVehicleSpawnPoint *Spawner = UEditorLevelLibrary::GetEditorWorld()->SpawnActor<AVehicleSpawnPoint>();
-      Spawner->SetActorRotation(Trans.GetRotation());
-      Spawner->SetActorLocation(Trans.GetTranslation() + FVector(0.f, 0.f, SpawnersHeight));
-      ActorsToMove.Add(Spawner);
-    }
-  }
-}
-  */
-
-void UOpenDriveToMap::GenerateTreePositions( const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation  )
-{
-  carla::geom::Vector3D CarlaMinLocation(MinLocation.X / 100, MinLocation.Y / 100, MinLocation.Z /100);
-  carla::geom::Vector3D CarlaMaxLocation(MaxLocation.X / 100, MaxLocation.Y / 100, MaxLocation.Z /100);
-
-  std::vector<std::pair<carla::geom::Transform, std::string>> Locations =
-    ParamCarlaMap->GetTreesTransform(CarlaMinLocation, CarlaMaxLocation,DistanceBetweenTrees, DistanceFromRoadEdge );
-  int i = 0;
-  for (auto &cl : Locations)
-  {
-    const FVector scale{ 1.0f, 1.0f, 1.0f };
-    cl.first.location.z  = GetHeight(cl.first.location.x, cl.first.location.y) / 100.0f;
-    FTransform NewTransform ( FRotator(cl.first.rotation), FVector(cl.first.location), scale );
-    NewTransform = GetSnappedPosition(NewTransform);
-
-    AActor* Spawner = GetEditorWorld()->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(),
-      NewTransform.GetLocation(), NewTransform.Rotator());
-
-    Spawner->Tags.Add(FName("TreeSpawnPosition"));
-    Spawner->Tags.Add(FName(cl.second.c_str()));
-    Spawner->SetActorLabel("TreeSpawnPosition" + FString::FromInt(i) + GetStringForCurrentTile() );
-#if ENGINE_MAJOR_VERSION > 4
-    Spawner->SetIsSpatiallyLoaded(true);
-#endif
-    ++i;
-  }
-}
-
-float UOpenDriveToMap::GetHeight(float PosX, float PosY, bool bDrivingLane){
-  if (DefaultHeightmap && HeightmapPixels.Num() > 0)
-  {
-    int32 TextureSizeX = HeightmapCopy->GetWidth();
-    int32 TextureSizeY = HeightmapCopy->GetHeight();
+	if (!ParamCarlaMap)
+	{
+		UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("GenerateTrafficLights: Map is not valid, skipping."));
+		return;
+	}
+	const FString BPPath{TEXT("/CarlaDigitalTwinsTool/Blueprints/TrafficLight/BP_TrafficLightActor.BP_TrafficLightActor_C")};
+	const carla::geom::Vector3D CarlaMinLocation(MinLocation.X / 100.0, MinLocation.Y / 100.0, MinLocation.Z / 100.0);
+	const carla::geom::Vector3D CarlaMaxLocation(MaxLocation.X / 100.0, MaxLocation.Y / 100.0, MaxLocation.Z / 100.0);
+	const double MinX{FMath::Min(MinLocation.X, MaxLocation.X)};
+	const double MaxX{FMath::Max(MinLocation.X, MaxLocation.X)};
+	const double MinY{FMath::Min(MinLocation.Y, MaxLocation.Y)};
+	const double MaxY{FMath::Max(MinLocation.Y, MaxLocation.Y)};
 
     // Normalize world coordinates to [0, 1]
     float NormalizedX = (PosX - WorldOriginPosition.X) / (WorldEndPosition.X - WorldOriginPosition.X);
@@ -1677,3 +1625,76 @@ TArray<FRoadSignInfo> UOpenDriveToMap::GetAllRoadSignsInfo()
 }
 
 #endif
+
+
+FVector UOpenDriveToMap::DisplaceLocationOutsideNeighboringRoads(const UObject* WorldContextObject, FVector InLocation, float SteppingPercentage, float RoadLimitPadding)
+{
+	FString FileContent;
+	UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull);
+	FString LevelName = FPackageName::GetShortName(World->GetMapName());
+	FString file_path = UGenerationPathsHelper::GetRawMapDirectoryPath(LevelName) + "OpenDrive/" + LevelName + ".xodr";
+	FFileHelper::LoadFileToString(FileContent, *file_path);
+	std::string opendrive_xml = carla::rpc::FromLongFString(FileContent);
+
+	boost::optional<carla::road::Map> current_carla_map;
+	current_carla_map = carla::opendrive::OpenDriveParser::Load(opendrive_xml);
+
+	int32 check_shoulder_or_driving =
+		static_cast<int32_t>(carla::road::Lane::LaneType::Shoulder) |
+		static_cast<int32_t>(carla::road::Lane::LaneType::Driving);
+
+	boost::optional<carla::road::element::Waypoint> closest_waypoint =
+		current_carla_map->GetClosestWaypointOnRoad(InLocation, check_shoulder_or_driving);
+
+	FVector out_location = InLocation;
+
+	if (closest_waypoint)
+	{
+		carla::geom::Transform road_transform = current_carla_map->ComputeTransform(closest_waypoint.get());
+
+		float distance_to_road = FVector(road_transform.location.ToFVector() * 100.0f - out_location).Length();
+		float lane_width = current_carla_map->GetLaneWidth(closest_waypoint.get());
+		
+		float displacement_direction = 1.0f;
+		int max_displacement_iterations = 10;
+
+		for (int counter = 0; counter < max_displacement_iterations; counter++)
+		{
+			if (displacement_direction == 0.0f) break;
+			if (distance_to_road > (lane_width * 100.0f + RoadLimitPadding)) break;
+
+			boost::optional<carla::road::element::Waypoint> right_waypoint = current_carla_map->GetRight(closest_waypoint.get());
+			carla::road::Lane::LaneType right_lane_type = (right_waypoint) ?
+				current_carla_map->GetLaneType(right_waypoint.get()) :
+				carla::road::Lane::LaneType::None;
+
+			boost::optional<carla::road::element::Waypoint> left_waypoint = current_carla_map->GetLeft(closest_waypoint.get());
+			carla::road::Lane::LaneType left_lane_type = (left_waypoint) ?
+				current_carla_map->GetLaneType(left_waypoint.get()) :
+				carla::road::Lane::LaneType::None;
+
+			if (right_lane_type != carla::road::Lane::LaneType::Driving)
+			{
+				displacement_direction = 1.0f;
+			}
+			else if (left_lane_type != carla::road::Lane::LaneType::Driving)
+			{
+				displacement_direction = -1.0f;
+			}
+			else {
+				displacement_direction = 0.0f;
+			}
+
+			FVector displacement_diff = road_transform.GetRightVector().ToFVector() * static_cast<float>(abs(lane_width)) * 100.0f * SteppingPercentage;
+			out_location += displacement_diff * displacement_direction;
+
+			closest_waypoint = current_carla_map->GetClosestWaypointOnRoad(out_location, check_shoulder_or_driving);
+			road_transform = current_carla_map->ComputeTransform(closest_waypoint.get());
+			distance_to_road = FVector(road_transform.location.ToFVector() * 100.0f - out_location).Length();
+			lane_width = current_carla_map->GetLaneWidth(closest_waypoint.get());
+		}
+		
+	}
+
+	return out_location;
+}

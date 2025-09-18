@@ -125,6 +125,10 @@ public:
   static void UpdateInstancedMeshCoordinates(
       UHierarchicalInstancedStaticMeshComponent* Component, FVector TileOrigin);
 
+  UFUNCTION(BlueprintCallable, Category = "Assets Placement")
+  static FVector DisplaceLocationOutsideNeighboringRoads(const UObject* WorldContextObject, FVector InLocation, float SteppingPercentage = 0.66f, float RoadLimitPadding = 10.0f);
+
+
   UFUNCTION(BlueprintCallable)
   void UnloadWorldPartitionRegion(const FBox& RegionBox);
 
@@ -229,12 +233,6 @@ protected:
     UFUNCTION(BlueprintCallable, Category = "Assets Placement")
     void RunPythonRoadEdges(FVector2D Center, FVector2D Extent);
 
-  UFUNCTION(BlueprintCallable)
-  TArray<AActor*> GenerateMiscActors(float Offset, FVector MinLocation, FVector MaxLocation );
-
-  UFUNCTION(BlueprintImplementableEvent)
-  void SplineGenerationFinished(const TArray<USplineComponent*>& Splines);
-
   UFUNCTION( BlueprintImplementableEvent )
   void GenerationFinished(FVector MinLocation, FVector MaxLocation);
 
@@ -250,7 +248,6 @@ protected:
   UFUNCTION( BlueprintCallable )
   void MoveActorsToSubLevels(TArray<AActor*> ActorsToMove);
 
-
 private:
 
   UFUNCTION()
@@ -262,7 +259,6 @@ private:
   void GenerateAll(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
   void GenerateRoadMesh(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
   // void GenerateSpawnPoints(const carla::road::Map& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
-  void GenerateTreePositions(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
   void GenerateLaneMarks(const boost::optional<carla::road::Map>& ParamCarlaMap, FVector MinLocation, FVector MaxLocation);
 
   FTransform GetSnappedPosition(FTransform Origin);

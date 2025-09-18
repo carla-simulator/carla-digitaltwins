@@ -18,6 +18,11 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "DrawDebugHelpers.h"
 #include "Generation/MapGenFunctionLibrary.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Engine/Texture.h"
+#include "UObject/ConstructorHelpers.h"
+#include "Components/MeshComponent.h"
+#include "Generation/OpenDriveToMap.h"
 
 void ASignGenerationController::GetSteetMapFile()
 {
@@ -41,10 +46,10 @@ ASignGenerationController::ASignGenerationController(const FObjectInitializer& O
 {
  	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
-	bDisplaceSignsToEdge = true;
-	max_displacement_iterations = 30;
-	distance_from_road_percent = 0.7f;
-	step_percent_of_lane_width = 0.1f;
+	MaxDisplacementIterations = true;
+	MaxDisplacementIterations = 30;
+	RoadBorderPadding = 10.0f;
+	StepPercentOfLaneWidth = 0.33f;
 	has_spawned_sign = false;
 }
 
@@ -198,10 +203,15 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 	//Moving Signals to Sidewalk
 	if(bDisplaceSignsToEdge)
 	{
+
 		for (AActor* sign : GeneratedSigns)
 		{
 			FVector sign_location = sign->GetActorLocation();
 			FRotator sign_rotation = sign->GetActorRotation();
+			
+			sign_location = UOpenDriveToMap::DisplaceLocationOutsideNeighboringRoads(Cast<UObject>(this), sign_location, StepPercentOfLaneWidth, RoadBorderPadding);
+			sign->SetActorLocation(sign_location);
+
 			int32 check_shoulder_or_driving =
 				static_cast<int32_t>(carla::road::Lane::LaneType::Shoulder) |
 				static_cast<int32_t>(carla::road::Lane::LaneType::Driving);
@@ -209,64 +219,141 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 			boost::optional<carla::road::element::Waypoint> closest_waypoint =
 				current_carla_map->GetClosestWaypointOnRoad(sign_location, check_shoulder_or_driving);
 
-			//Check if we should move the sign
+			carla::geom::Transform road_transform = current_carla_map->ComputeTransform(closest_waypoint.get());
+			sign->SetActorRotation(road_transform.rotation);
+			
+			FHitResult hit_result;
 
-			if (closest_waypoint)
+			UKismetSystemLibrary::LineTraceSingle(Cast<UObject>(this),
+				FVector(sign_location.X, sign_location.Y, 50000.0f),
+				FVector(sign_location.X, sign_location.Y, -100000.0f),
+				ETraceTypeQuery::TraceTypeQuery1,
+				true,
+				GeneratedSigns,
+				EDrawDebugTrace::ForDuration,
+				hit_result,
+				true,
+				FLinearColor::Yellow, FLinearColor::Green, 3.0f);
+
+			if (!hit_result.bBlockingHit) sign->Destroy();
+
+			//if(hit_result.GetActor()->Tags.Contains("LandscapeToMove"))
+
+			//sign_location = hit_result.ImpactPoint;
+			//sign->SetActorLocation(sign_location);
+
+			////Check if we should move the sign
+
+			//if (closest_waypoint)
+			//{
+			//	carla::geom::Transform road_transform = current_carla_map->ComputeTransform(closest_waypoint.get());
+			//	sign_rotation = road_transform.rotation;
+
+			//	float distance_to_road = FVector(road_transform.location.ToFVector() * 100.0f - sign_location).Length();
+			//	float lane_width = current_carla_map->GetLaneWidth(closest_waypoint.get());
+			//	float displacement_direction = 1.0f;
+
+			//	for (int counter = 0; counter < max_displacement_iterations; counter++)
+			//	{
+			//		if (displacement_direction == 0.0f) break;
+			//		if (distance_to_road > (lane_width * distance_from_road_percent * 100.0f)) break;
+
+			//		boost::optional<carla::road::element::Waypoint> right_waypoint = current_carla_map->GetRight(closest_waypoint.get());
+			//		carla::road::Lane::LaneType right_lane_type = (right_waypoint) ?
+			//			current_carla_map->GetLaneType(right_waypoint.get()) :
+			//			carla::road::Lane::LaneType::None;
+
+			//		boost::optional<carla::road::element::Waypoint> left_waypoint = current_carla_map->GetLeft(closest_waypoint.get());
+			//		carla::road::Lane::LaneType left_lane_type = (left_waypoint) ?
+			//			current_carla_map->GetLaneType(left_waypoint.get()) :
+			//			carla::road::Lane::LaneType::None;
+
+			//		if (right_lane_type != carla::road::Lane::LaneType::Driving)
+			//		{
+			//			displacement_direction = 1.0f;
+			//		}
+			//		else if (left_lane_type != carla::road::Lane::LaneType::Driving)
+			//		{
+			//			displacement_direction = -1.0f;
+			//		}
+			//		else {
+			//			displacement_direction = 0.0f;
+			//		}
+
+			//		FVector displacement_diff = road_transform.GetRightVector().ToFVector() * static_cast<float>(abs(lane_width)) * 100.0f * step_percent_of_lane_width;
+			//		sign_location += displacement_diff * displacement_direction;
+
+			//		closest_waypoint = current_carla_map->GetClosestWaypointOnRoad(sign_location, check_shoulder_or_driving);
+			//		road_transform = current_carla_map->ComputeTransform(closest_waypoint.get());
+			//		distance_to_road = FVector(road_transform.location.ToFVector() * 100.0f - sign_location).Length();
+			//		lane_width = current_carla_map->GetLaneWidth(closest_waypoint.get());
+			//	}
+
+			//	sign->SetActorLocation(sign_location);
+			//	sign->SetActorRotation(sign_rotation);
+			//	closest_waypoints.Add(road_transform.location.ToFVector());
+			//}
+		}
+	}
+
+	// We get a map of the generated signs actors with the location as the key
+	TMap<FVector, TArray<AActor*>> LocationMap;
+
+	for (AActor* Actor : GeneratedSigns)
+	{
+		if (!Actor) continue;
+
+		FVector Location = Actor->GetActorLocation();
+
+		// Use Add to group actors by location
+		TArray<AActor*>& ActorList = LocationMap.FindOrAdd(Location);
+		ActorList.Add(Actor);
+	}
+
+	// Get the component of the signs that share location and put it in the first sign with an offset, then destroy the duplicated sign
+	for (const auto& Elem : LocationMap)
+	{
+		const FVector& Location = Elem.Key;
+		const TArray<AActor*>& ActorsAtLocation = Elem.Value;
+		AActor* FirstSignActor = ActorsAtLocation[0];
+
+		UActorComponent* PoleComp = FirstSignActor->FindComponentByTag(UStaticMeshComponent::StaticClass(), FName("pole"));
+		UStaticMeshComponent* PoleMesh = Cast<UStaticMeshComponent>(PoleComp);
+		FTransform SignTransform = PoleMesh->GetSocketTransform(FName(TEXT("Sign1")));
+
+		if (ActorsAtLocation.Num() > 1)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Found %d actors at location %s"),
+				ActorsAtLocation.Num(), *Location.ToString());
+
+			for (int i = 0 ; i < ActorsAtLocation.Num(); i++)
 			{
-				carla::geom::Transform road_transform = current_carla_map->ComputeTransform(closest_waypoint.get());
-				sign_rotation = road_transform.rotation;
+				if (i == 0) continue;
 
-				float distance_to_road = FVector(road_transform.location.ToFVector() * 100.0f - sign_location).Length();
-				float lane_width = current_carla_map->GetLaneWidth(closest_waypoint.get());
-				float displacement_direction = 1.0f;
+				AActor* CurrentActor = ActorsAtLocation[i];
+				UActorComponent* SignComp = CurrentActor->FindComponentByTag(UStaticMeshComponent::StaticClass(), FName("sign"));
+				UStaticMeshComponent* SignMeshComp = Cast<UStaticMeshComponent>(SignComp);
 
-				for (int counter = 0; counter < max_displacement_iterations; counter++)
-				{
-					if (displacement_direction == 0.0f) break;
-					if (distance_to_road > (lane_width * distance_from_road_percent * 100.0f)) break;
+				UStaticMeshComponent* SignComponent = UMapGenFunctionLibrary::AddStaticMeshComponentToActor(FirstSignActor);
 
-					boost::optional<carla::road::element::Waypoint> right_waypoint = current_carla_map->GetRight(closest_waypoint.get());
-					carla::road::Lane::LaneType right_lane_type = (right_waypoint) ?
-						current_carla_map->GetLaneType(right_waypoint.get()) :
-						carla::road::Lane::LaneType::None;
+				SignComponent->SetWorldTransform(FTransform(
+					SignTransform.GetRotation(), 
+					FVector(SignTransform.GetLocation().X, SignTransform.GetLocation().Y, SignTransform.GetLocation().Z * i - 90),
+					SignTransform.GetScale3D()));
 
-					boost::optional<carla::road::element::Waypoint> left_waypoint = current_carla_map->GetLeft(closest_waypoint.get());
-					carla::road::Lane::LaneType left_lane_type = (left_waypoint) ?
-						current_carla_map->GetLaneType(left_waypoint.get()) :
-						carla::road::Lane::LaneType::None;
+				SignComponent->SetStaticMesh(SignMeshComp->GetStaticMesh());
+				SignComponent->SetMaterial(0, SignMeshComp->GetMaterial(0));
 
-					if (right_lane_type != carla::road::Lane::LaneType::Driving)
-					{
-						displacement_direction = 1.0f;
-					}
-					else if (left_lane_type != carla::road::Lane::LaneType::Driving)
-					{
-						displacement_direction = -1.0f;
-					}
-					else {
-						displacement_direction = 0.0f;
-					}
+				CurrentActor->Destroy();
 
-					FVector displacement_diff = road_transform.GetRightVector().ToFVector() * static_cast<float>(abs(lane_width)) * 100.0f * step_percent_of_lane_width;
-					sign_location += displacement_diff * displacement_direction;
-
-					closest_waypoint = current_carla_map->GetClosestWaypointOnRoad(sign_location, check_shoulder_or_driving);
-					road_transform = current_carla_map->ComputeTransform(closest_waypoint.get());
-					distance_to_road = FVector(road_transform.location.ToFVector() * 100.0f - sign_location).Length();
-					lane_width = current_carla_map->GetLaneWidth(closest_waypoint.get());
-				}
-
-				sign->SetActorLocation(sign_location);
-				sign->SetActorRotation(sign_rotation);
-				closest_waypoints.Add(road_transform.location.ToFVector());
 			}
 		}
 	}
-	
-	for (FVector waypoint_pos : closest_waypoints)
-	{
-		DrawDebugSphere(GetWorld(), waypoint_pos, 20.0f, 3, FColor::Red, false, 5.0f, 0.0f, 50.0f);
-	}
+
+	//for (FVector waypoint_pos : closest_waypoints)
+	//{
+	//	DrawDebugSphere(GetWorld(), waypoint_pos, 20.0f, 3, FColor::Red, false, 5.0f, 0.0f, 50.0f);
+	//}
 }
 
 void ASignGenerationController::SignGenerationForCurrentMap()
