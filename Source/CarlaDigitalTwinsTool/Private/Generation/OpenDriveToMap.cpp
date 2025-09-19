@@ -1774,25 +1774,61 @@ void UOpenDriveToMap::GenerateCurbSplines(FString MeshLayer)
 
 	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Number of road splines: %i"), RoadSplines.Num());
 
-	// Project spline points to the floor
+	
 	for (auto Spline : RoadSplines)
 	{
 		int32 NumPoints = Spline->GetNumberOfSplinePoints();
 		for (int32 i = 0; i < NumPoints; ++i)
 		{
+			// Firstly project level 0 spline points to the floor and level 1 to a higher height
 			FVector Pos = Spline->GetLocationAtSplinePoint(i, ESplineCoordinateSpace::Local);
 
 			Pos.Z = GetHeight(Pos.X, Pos.Y, false);
 
+			if (MeshLayer=="Layer1"){
+				Pos.Z += OpenDriveGenParams.DefaultOSMLayerHeight;
+			}
+
 			Spline->SetLocationAtSplinePoint(i, Pos, ESplineCoordinateSpace::Local, false);
 
 			Spline->UpdateSpline();
+
+			// Improve spline placement with ray cast
+			UOpenDriveToMap::AlignSplineToRoadMesh(Spline, World);
 
 			UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Spline updated"));
 		}
 	}
 
 	GeneratedSplines.Append(RoadSplines);
+}
+
+void UOpenDriveToMap::AlignSplineToRoadMesh(USplineComponent* Spline, UWorld* World)
+{
+    if (!Spline || !World) return;
+
+    FCollisionQueryParams QueryParams;
+    QueryParams.bTraceComplex = true;
+    QueryParams.AddIgnoredActor(Spline->GetOwner());
+
+    for (int32 i = 0; i < Spline->GetNumberOfSplinePoints(); i++)
+    {
+        FVector PointLocation = Spline->GetLocationAtSplinePoint(i, ESplineCoordinateSpace::World);
+
+        FVector Start = FVector(PointLocation.X, PointLocation.Y, PointLocation.Z + 10000.0f);
+        FVector End   = FVector(PointLocation.X, PointLocation.Y, PointLocation.Z - 10000.0f);
+
+        FHitResult Hit;
+        if (World->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, QueryParams))
+        {
+            FVector NewLocation = PointLocation;
+            NewLocation.Z = Hit.Location.Z;
+
+            Spline->SetLocationAtSplinePoint(i, NewLocation, ESplineCoordinateSpace::World, true);
+        }
+    }
+
+    Spline->UpdateSpline();
 }
 
 void UOpenDriveToMap::RunPythonScript(FString ScriptPath, FString Args)
