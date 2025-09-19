@@ -126,6 +126,10 @@ public:
   static void UpdateInstancedMeshCoordinates(
       UHierarchicalInstancedStaticMeshComponent* Component, FVector TileOrigin);
 
+  UFUNCTION(BlueprintCallable, Category = "Assets Placement")
+  static FVector DisplaceLocationOutsideNeighboringRoads(const UObject* WorldContextObject, FVector InLocation, float SteppingPercentage = 0.66f, float RoadLimitPadding = 10.0f);
+
+
   UFUNCTION(BlueprintCallable)
   void UnloadWorldPartitionRegion(const FBox& RegionBox);
 

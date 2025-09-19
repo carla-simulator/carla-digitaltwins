@@ -52,13 +52,13 @@ public:
 	bool bDisplaceSignsToEdge;
 
 	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite)
-	int max_displacement_iterations;
+	int MaxDisplacementIterations;
+
+	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite)
+	float RoadBorderPadding;
 
 	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0", ClampMax = "2.0"))
-	float distance_from_road_percent;
-
-	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0", ClampMax = "2.0"))
-	float step_percent_of_lane_width;
+	float StepPercentOfLaneWidth;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	TArray<AActor*> GeneratedSigns;
