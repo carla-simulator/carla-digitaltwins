@@ -1368,6 +1368,8 @@ float UOpenDriveToMap::GetHeight(float PosX, float PosY, bool bDrivingLane)
 	}
 }
 
+
+
 FTransform UOpenDriveToMap::GetSnappedPosition(FTransform Origin)
 {
 	FTransform ToReturn = Origin;
@@ -2135,3 +2137,75 @@ bool UOpenDriveToMap::TryResolveContentFileAnywhere(const FString& RelativePathU
 	return false;
 }
 #endif
+
+FVector UOpenDriveToMap::DisplaceLocationOutsideNeighboringRoads(const UObject* WorldContextObject, FVector InLocation, float SteppingPercentage, float RoadLimitPadding)
+{
+	FString FileContent;
+	UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull);
+	FString LevelName = FPackageName::GetShortName(World->GetMapName());
+	FString file_path = UGenerationPathsHelper::GetRawMapDirectoryPath(LevelName) + "OpenDrive/" + LevelName + ".xodr";
+	FFileHelper::LoadFileToString(FileContent, *file_path);
+	std::string opendrive_xml = carla::rpc::FromLongFString(FileContent);
+
+	boost::optional<carla::road::Map> current_carla_map;
+	current_carla_map = carla::opendrive::OpenDriveParser::Load(opendrive_xml);
+
+	int32 check_shoulder_or_driving =
+		static_cast<int32_t>(carla::road::Lane::LaneType::Shoulder) |
+		static_cast<int32_t>(carla::road::Lane::LaneType::Driving);
+
+	boost::optional<carla::road::element::Waypoint> closest_waypoint =
+		current_carla_map->GetClosestWaypointOnRoad(InLocation, check_shoulder_or_driving);
+
+	FVector out_location = InLocation;
+
+	if (closest_waypoint)
+	{
+		carla::geom::Transform road_transform = current_carla_map->ComputeTransform(closest_waypoint.get());
+
+		float distance_to_road = FVector(road_transform.location.ToFVector() * 100.0f - out_location).Length();
+		float lane_width = current_carla_map->GetLaneWidth(closest_waypoint.get());
+		
+		float displacement_direction = 1.0f;
+		int max_displacement_iterations = 10;
+
+		for (int counter = 0; counter < max_displacement_iterations; counter++)
+		{
+			if (displacement_direction == 0.0f) break;
+			if (distance_to_road > (lane_width * 100.0f + RoadLimitPadding)) break;
+
+			boost::optional<carla::road::element::Waypoint> right_waypoint = current_carla_map->GetRight(closest_waypoint.get());
+			carla::road::Lane::LaneType right_lane_type = (right_waypoint) ?
+				current_carla_map->GetLaneType(right_waypoint.get()) :
+				carla::road::Lane::LaneType::None;
+
+			boost::optional<carla::road::element::Waypoint> left_waypoint = current_carla_map->GetLeft(closest_waypoint.get());
+			carla::road::Lane::LaneType left_lane_type = (left_waypoint) ?
+				current_carla_map->GetLaneType(left_waypoint.get()) :
+				carla::road::Lane::LaneType::None;
+
+			if (right_lane_type != carla::road::Lane::LaneType::Driving)
+			{
+				displacement_direction = 1.0f;
+			}
+			else if (left_lane_type != carla::road::Lane::LaneType::Driving)
+			{
+				displacement_direction = -1.0f;
+			}
+			else {
+				displacement_direction = 0.0f;
+			}
+
+			FVector displacement_diff = road_transform.GetRightVector().ToFVector() * static_cast<float>(abs(lane_width)) * 100.0f * SteppingPercentage;
+			out_location += displacement_diff * displacement_direction;
+
+			closest_waypoint = current_carla_map->GetClosestWaypointOnRoad(out_location, check_shoulder_or_driving);
+			road_transform = current_carla_map->ComputeTransform(closest_waypoint.get());
+			distance_to_road = FVector(road_transform.location.ToFVector() * 100.0f - out_location).Length();
+			lane_width = current_carla_map->GetLaneWidth(closest_waypoint.get());
+		}
+		
+	}
+
+	return out_location;
+}

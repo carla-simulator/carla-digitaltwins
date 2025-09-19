@@ -52,13 +52,13 @@ public:
 	bool bDisplaceSignsToEdge;
 
 	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite)
-	int max_displacement_iterations;
+	int MaxDisplacementIterations;
+
+	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite)
+	float RoadBorderPadding;
 
 	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0", ClampMax = "2.0"))
-	float distance_from_road_percent;
-
-	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0", ClampMax = "2.0"))
-	float step_percent_of_lane_width;
+	float StepPercentOfLaneWidth;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	TArray<AActor*> GeneratedSigns;
@@ -73,8 +73,6 @@ private:
 	void GetSignPropertyValue(FStreetMapMisc Sign, FString KeyToFind, FString& Out_KeyName, FString& Out_Value);
 
 	USignDataAsset* current_data_asset;
-
-	TArray<FVector> closest_waypoints;
 
 	bool has_spawned_sign;
 };
