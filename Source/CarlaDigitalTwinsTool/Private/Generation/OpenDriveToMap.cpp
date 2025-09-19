@@ -1780,7 +1780,7 @@ void UOpenDriveToMap::GenerateCurbSplines(FString MeshLayer)
 		int32 NumPoints = Spline->GetNumberOfSplinePoints();
 		for (int32 i = 0; i < NumPoints; ++i)
 		{
-			// Firstly project level 0 spline points to the floor and level 1 to a higher height
+			// Firstly project level 0 spline points to the floor and level 1 to a higher height (maybe this is not required and can be cleaned up)
 			FVector Pos = Spline->GetLocationAtSplinePoint(i, ESplineCoordinateSpace::Local);
 
 			Pos.Z = GetHeight(Pos.X, Pos.Y, false);
@@ -1794,7 +1794,7 @@ void UOpenDriveToMap::GenerateCurbSplines(FString MeshLayer)
 			Spline->UpdateSpline();
 
 			// Improve spline placement with ray cast
-			UOpenDriveToMap::AlignSplineToRoadMesh(Spline, World);
+			UOpenDriveToMap::AlignSplineToRoadMesh(Spline, World, MeshLayer);
 
 			UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Spline updated"));
 		}
@@ -1803,7 +1803,7 @@ void UOpenDriveToMap::GenerateCurbSplines(FString MeshLayer)
 	GeneratedSplines.Append(RoadSplines);
 }
 
-void UOpenDriveToMap::AlignSplineToRoadMesh(USplineComponent* Spline, UWorld* World)
+void UOpenDriveToMap::AlignSplineToRoadMesh(USplineComponent* Spline, UWorld* World, const FString& NamePrefix)
 {
     if (!Spline || !World) return;
 
@@ -1821,10 +1821,18 @@ void UOpenDriveToMap::AlignSplineToRoadMesh(USplineComponent* Spline, UWorld* Wo
         FHitResult Hit;
         if (World->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, QueryParams))
         {
-            FVector NewLocation = PointLocation;
-            NewLocation.Z = Hit.Location.Z;
+            UPrimitiveComponent* HitComp = Hit.GetComponent();
+            if (HitComp)
+            {
+                FString CompName = HitComp->GetName();
+                if (CompName.StartsWith(NamePrefix))
+                {
+                    FVector NewLocation = PointLocation;
+                    NewLocation.Z = Hit.Location.Z;
 
-            Spline->SetLocationAtSplinePoint(i, NewLocation, ESplineCoordinateSpace::World, true);
+                    Spline->SetLocationAtSplinePoint(i, NewLocation, ESplineCoordinateSpace::World, true);
+                }
+            }
         }
     }
 
