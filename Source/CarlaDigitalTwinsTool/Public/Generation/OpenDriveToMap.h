@@ -241,7 +241,7 @@ public:
 protected:
 
   UFUNCTION(BlueprintCallable, Category = "Assets Placement")
-  void RenderRoadToTexture(FVector MinLocation, FVector MaxLocation);
+  void RenderRoadToTexture(FVector MinLocation, FVector MaxLocation, FString MeshLayer);
 
   UFUNCTION(BlueprintCallable, Category = "Assets Placement")
   void RunPythonScript(FString ScriptPath, FString Args);
@@ -253,10 +253,13 @@ protected:
   void RunPythonRoadEdges();
 
   UFUNCTION(BlueprintCallable, Category = "Assets Placement")
-  void GenerateCurbSplines();
+  void GenerateCurbSplines(FString MeshLayer);
 
   UFUNCTION(BlueprintCallable, Category = "Assets Placement")
   void GenerateCurbSplinesFromRoadRenders();
+
+  UFUNCTION(BlueprintCallable, Category = "Assets Placement")
+  void AlignSplineToRoadMesh(USplineComponent* Spline, UWorld* World, const FString& NamePrefix);
 
   UFUNCTION(BlueprintCallable, Category = "Mitsuba")
   void ExportStaticMeshToOBJ(UStaticMesh *StaticMesh, const FString &OutputPath);
