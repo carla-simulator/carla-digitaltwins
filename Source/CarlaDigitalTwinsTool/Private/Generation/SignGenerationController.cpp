@@ -93,7 +93,6 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 	}
 
 	GeneratedSigns.Empty();
-	closest_waypoints.Empty();
 	//------------------------------------------------------------------------------------
 
 	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
@@ -245,7 +244,6 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 			{
 				std::vector<carla::road::element::Waypoint> succesor_waypoints = 
 					current_carla_map->GetSuccessors(closest_waypoint.get());
-					//current_carla_map->GetWaypoint(closest_waypoint->road_id, closest_waypoint->lane_id, closest_waypoint->s + 0.5f);
 
 				if (succesor_waypoints.size() > 0) 
 				{
@@ -273,11 +271,6 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 				FLinearColor::Yellow, FLinearColor::Green, 3.0f);
 
 			if (!hit_result.bBlockingHit) sign->Destroy();
-
-			//if(hit_result.GetActor()->Tags.Contains("LandscapeToMove"))
-
-			//sign_location = hit_result.ImpactPoint;
-			//sign->SetActorLocation(sign_location);
 		}
 	}
 
@@ -337,11 +330,6 @@ void ASignGenerationController::SignGenerationByPath(FName sign_package_path, FN
 			}
 		}
 	}
-
-	//for (FVector waypoint_pos : closest_waypoints)
-	//{
-	//	DrawDebugSphere(GetWorld(), waypoint_pos, 20.0f, 3, FColor::Red, false, 5.0f, 0.0f, 50.0f);
-	//}
 }
 
 void ASignGenerationController::SignGenerationForCurrentMap()

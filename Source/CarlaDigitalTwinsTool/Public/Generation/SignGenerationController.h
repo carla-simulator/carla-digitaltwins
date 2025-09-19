@@ -74,7 +74,5 @@ private:
 
 	USignDataAsset* current_data_asset;
 
-	TArray<FVector> closest_waypoints;
-
 	bool has_spawned_sign;
 };
