@@ -46,4 +46,5 @@ struct FTLHead
 	/** Modules (one or more) visible on this head */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Head")
 	TArray<FTLModule> Modules{};
+
 };

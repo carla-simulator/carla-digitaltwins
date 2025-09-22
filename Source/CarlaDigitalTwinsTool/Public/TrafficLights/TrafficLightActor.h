@@ -15,6 +15,7 @@
 #include "TrafficLights/TLModule.h"
 #include "TrafficLights/TLPole.h"
 #include "UObject/ObjectMacros.h"
+#include "Math/NumericLimits.h"
 
 #include "TrafficLightActor.generated.h"
 
@@ -39,6 +40,12 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "TrafficLight|JSON")
 	FString ExportToJSON(bool bUseTransform = true) const;
 
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "TrafficLight|Logic")
+	FString ExportLogicToJSON() const;
+
+	// Internal version that uses custom actor name for baking
+	FString ExportLogicToJSON(const FString& ActorName) const;
+
 	UFUNCTION(CallInEditor, BlueprintCallable, Category = "TrafficLight|Demo")
 	void PlayDemoSequence();
 
@@ -50,10 +57,33 @@ public:
 	UPROPERTY(EditAnywhere, Category = "TrafficLight|JSON")
 	FFilePath JSONFile;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Logic")
+    int32 JunctionID {MIN_int32};
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Logic")
+    FString TrafficLightGroupID;
+
 	UPROPERTY(EditAnywhere, Category = "TrafficLight")
 	TArray<FTLPole> Poles;
 
 	void PopulateDefault();
+
+	// Traffic light timing values for this traffic light
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Logic",
+		meta = (ToolTip = "Red phase duration in seconds"))
+	float RedDuration{2.0f};
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Logic",
+		meta = (ToolTip = "Green phase duration in seconds"))
+	float GreenDuration{10.0f};
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Logic",
+		meta = (ToolTip = "Amber phase duration in seconds"))
+	float AmberDuration{3.0f};
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Logic",
+		meta = (ToolTip = "Amber blink interval in seconds"))
+	float AmberBlinkInterval{0.25f};
 
 private:
 	USceneComponent* AddRootPole(USceneComponent* Parent, FTLPole& Pole);
@@ -82,22 +112,16 @@ private:
 	EDemoPhase CurrentPhase{EDemoPhase::Red};
 	bool bAmberVisible{false};
 
-	UPROPERTY(EditAnywhere, Category = "TrafficLight|Demo")
-	float RedDuration{6.0f};
-
-	UPROPERTY(EditAnywhere, Category = "TrafficLight|Demo")
-	float GreenDuration{6.0f};
-
-	UPROPERTY(EditAnywhere, Category = "TrafficLight|Demo")
-	float AmberDuration{3.0f};
-
-	UPROPERTY(EditAnywhere, Category = "TrafficLight|Demo")
-	float AmberBlinkInterval{0.25f};
-
 	void AdvanceDemoPhase();
 	void ToggleAmberBlink();
 	void EndAmberPhase();
 	void ResetAllLights();
+
+	// Helper functions to get timing from first head
+	float GetRedDuration() const;
+	float GetGreenDuration() const;
+	float GetAmberDuration() const;
+	float GetAmberBlinkInterval() const;
 
 private:
 	TArray<UStaticMeshComponent*> ModuleMeshComponents;

@@ -43,16 +43,10 @@ struct FTLModule
 {
 	GENERATED_BODY()
 
-	UPROPERTY(Transient)
-	UStaticMesh* ModuleMesh{nullptr};
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Module")
+	TArray<int32> LaneIds{};
 
-	UPROPERTY(Transient)
-	UStaticMeshComponent* ModuleMeshComponent{nullptr};
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Module")
-	TArray<FTLModuleLight> Lights{};
-
-	/** Local transform relative to parent head */
+    /** Local transform relative to parent head */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Module")
 	FTransform Transform{FTransform::Identity};
 
@@ -60,6 +54,15 @@ struct FTLModule
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Module")
 	FTransform Offset{FTransform::Identity};
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Module")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Module")
 	bool bHasVisor{false};
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Module")
+	TArray<FTLModuleLight> Lights{};
+
+	UPROPERTY(Transient)
+	UStaticMesh* ModuleMesh{nullptr};
+
+	UPROPERTY(Transient)
+	UStaticMeshComponent* ModuleMeshComponent{nullptr};
 };

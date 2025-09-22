@@ -196,6 +196,10 @@ namespace road {
       return _data.GetControllers();
     }
 
+    const std::unordered_map<TrafficGroupId, std::unique_ptr<TrafficGroup>>& GetTrafficGroups() const {
+      return _data.GetTrafficGroups();
+    }
+
     std::vector<carla::geom::BoundingBox> GetJunctionsBoundingBoxes() const;
 
 #ifdef LIBCARLA_WITH_GTEST
