@@ -753,7 +753,13 @@ std::map<road::Lane::LaneType , std::vector<std::unique_ptr<Mesh>>> MeshFactory:
     std::vector<std::string>& outinfo ) const
   {
     for (auto&& lane_section : road.GetLaneSections()) {
+
+      //bool isBidirectional = false;
+      //if(lane_section.GetLanes().size() > 0) isBidirectional = lane_section.GetLanes().begin()->first > 0;
+
       for (auto&& lane : lane_section.GetLanes()) {
+
+
         if (lane.first != 0) {
           switch(lane.second.GetType())
           {
@@ -767,9 +773,9 @@ std::map<road::Lane::LaneType , std::vector<std::unique_ptr<Mesh>>> MeshFactory:
             }
           }
         } else {
-          if(lane.second.GetType() == road::Lane::LaneType::None ){
+          if(lane.second.GetType() == road::Lane::LaneType::None){
             GenerateLaneMarksForCenterLine(road, lane_section, lane.second, inout, outinfo);
-            outinfo.push_back("yellow");
+            outinfo.push_back("yellow"); //TODO: Color depends on road style (white for VC)
           }
         }
       }

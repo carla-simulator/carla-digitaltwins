@@ -158,7 +158,7 @@ namespace road {
     /// Buids a mesh based on the OpenDRIVE
     geom::Mesh GenerateMesh(
         const double distance,
-        const float extra_width = 0.6f,
+        const float extra_width = 0.0f,
         const  bool smooth_junctions = true) const;
 
     std::vector<std::unique_ptr<geom::Mesh>> GenerateChunkedMesh(
@@ -237,7 +237,7 @@ public:
         const size_t index,
         const size_t number_of_roads_per_thread) const;
 
-    void GenerateJunctions(const carla::geom::MeshFactory& mesh_factory,
+    void GenerateJunctions(carla::geom::MeshFactory& mesh_factory,
       const rpc::OpendriveGenerationParameters& params,
       const geom::Vector3D& minpos,
       const geom::Vector3D& maxpos,

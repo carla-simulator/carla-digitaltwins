@@ -34,7 +34,7 @@ namespace carla {
             double vertex_distance = 2.0;
             double max_road_length = 50.0;
             double wall_height = 1.0;
-            double additional_width = 0.6;
+            double additional_width = 0.0;
             double vertex_width_resolution = 4.0f;
             float simplification_percentage = 20.0f;
             bool smooth_junctions = true;

@@ -12,6 +12,7 @@
 #include "Carla/Road/RoadTypes.h"
 
 #include <Carla/pugixml/pugixml.hpp>
+#include "CarlaDigitalTwinsTool.h"
 
 namespace carla {
 namespace opendrive {
@@ -294,6 +295,9 @@ namespace parser {
           r.junction_id,
           r.predecessor,
           r.successor);
+
+      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Adding Road With Id: %d"),
+        r.id);
 
       // type speed
       for (const auto& s : r.speed) {

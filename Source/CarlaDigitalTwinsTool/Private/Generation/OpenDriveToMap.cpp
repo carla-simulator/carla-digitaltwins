@@ -1733,7 +1733,9 @@ void UOpenDriveToMap::RenderRoadToTexture(FVector MinLocation, FVector MaxLocati
 
 void UOpenDriveToMap::GenerateCurbSplines()
 {
-	UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Create splines for curbs generation"));
+
+	return;
+	/*UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Create splines for curbs generation"));
 
 	UWorld* World = GetEditorWorld();
 
@@ -1781,7 +1783,7 @@ void UOpenDriveToMap::GenerateCurbSplines()
 		}
 	}
 
-	GeneratedSplines.Append(RoadSplines);
+	GeneratedSplines.Append(RoadSplines);*/
 }
 
 void UOpenDriveToMap::RunPythonScript(FString ScriptPath, FString Args)
