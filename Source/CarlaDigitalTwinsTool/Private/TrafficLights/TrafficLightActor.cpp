@@ -208,8 +208,14 @@ void ATrafficLightActor::Bake(const FString& MapName, const FString& DesiredLabe
 
 	for (UStaticMeshComponent* const BakedMeshComponent : BakedMeshComponents)
 	{
+		UStaticMesh* const OriginalMesh{BakedMeshComponent->GetStaticMesh()};
+		if (!IsValid(OriginalMesh))
+		{
+			continue;
+		}
+
 		UStaticMesh* const CopiedMesh{
-			Cast<UStaticMesh>(UBlueprintUtilFunctions::CopyAssetToPlugin(BakedMeshComponent->GetStaticMesh(), MapName))};
+			Cast<UStaticMesh>(UBlueprintUtilFunctions::CopyAssetToPlugin(OriginalMesh, MapName))};
 		if (IsValid(CopiedMesh))
 		{
 			BakedMeshComponent->SetStaticMesh(CopiedMesh);
@@ -749,6 +755,12 @@ void ATrafficLightActor::BuildFromJSONString(const FString& JSONConfig)
 		TrafficLightGroupID = GroupID;
 	}
 
+	FString JsonSignalID;
+	if (Root->TryGetStringField(TEXT("SignalID"), JsonSignalID))
+	{
+		SignalID = JsonSignalID;
+	}
+
 	int32 JsonJunctionID;
 	if (Root->TryGetNumberField(TEXT("JunctionID"), JsonJunctionID))
 	{
@@ -948,6 +960,7 @@ FString ATrafficLightActor::ExportToJSON(bool bUseTransform) const
 	// Add new traffic light properties
 	Root->SetStringField(TEXT("TrafficLightGroupID"), TrafficLightGroupID);
 	Root->SetNumberField(TEXT("JunctionID"), JunctionID);
+	Root->SetStringField(TEXT("SignalID"), SignalID);
 
 	// Add timing information
 	Root->SetNumberField(TEXT("RedDuration"), RedDuration);
@@ -972,6 +985,7 @@ FString ATrafficLightActor::ExportLogicToJSON(const FString& ActorName) const
 
 	// Basic actor information
 	Root->SetStringField(TEXT("ActorName"), ActorName);
+	Root->SetStringField(TEXT("SignalID"), SignalID);
 	Root->SetNumberField(TEXT("JunctionID"), JunctionID);
 	Root->SetStringField(TEXT("TrafficLightGroupID"), TrafficLightGroupID);
 

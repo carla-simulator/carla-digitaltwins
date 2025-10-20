@@ -63,6 +63,10 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Logic")
     FString TrafficLightGroupID;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Logic",
+        meta = (ToolTip = "Unique Signal ID from OpenDRIVE file"))
+    FString SignalID;
+
 	UPROPERTY(EditAnywhere, Category = "TrafficLight")
 	TArray<FTLPole> Poles;
 
