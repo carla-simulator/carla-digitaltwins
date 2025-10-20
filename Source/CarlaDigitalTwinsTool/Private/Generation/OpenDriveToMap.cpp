@@ -1209,10 +1209,10 @@ void UOpenDriveToMap::GenerateTrafficLights(
 	const FString BPPath{TEXT("/CarlaDigitalTwinsTool/Blueprints/TrafficLight/BP_TrafficLightActor.BP_TrafficLightActor_C")};
 	const carla::geom::Vector3D CarlaMinLocation(MinLocation.X / 100.0, MinLocation.Y / 100.0, MinLocation.Z / 100.0);
 	const carla::geom::Vector3D CarlaMaxLocation(MaxLocation.X / 100.0, MaxLocation.Y / 100.0, MaxLocation.Z / 100.0);
-	const double MinX{FMath::Min(MinLocation.X, MaxLocation.X)};
-	const double MaxX{FMath::Max(MinLocation.X, MaxLocation.X)};
-	const double MinY{FMath::Min(MinLocation.Y, MaxLocation.Y)};
-	const double MaxY{FMath::Max(MinLocation.Y, MaxLocation.Y)};
+	const double MinX{FMath::Min(CarlaMinLocation.x, CarlaMaxLocation.x)};
+	const double MaxX{FMath::Max(CarlaMinLocation.x, CarlaMaxLocation.x)};
+	const double MinY{FMath::Min(CarlaMinLocation.y, CarlaMaxLocation.y)};
+	const double MaxY{FMath::Max(CarlaMinLocation.y, CarlaMaxLocation.y)};
 
 	auto InChunk2D = [&](const carla::geom::Vector3D& Position) -> bool
 	{ return (Position.x >= MinX && Position.x <= MaxX && Position.y >= MinY && Position.y <= MaxY); };
@@ -1234,45 +1234,46 @@ void UOpenDriveToMap::GenerateTrafficLights(
 
 	std::vector<const carla::road::element::RoadInfoSignal*> Signals{ParamCarlaMap->GetAllSignalReferences()};
 
-	int32 BakedCount{0};
-	int32 SkippedOutOfChunk{0};
-	int32 SkippedNonTL{0};
-	int32 SkippedDup{0};
-	int32 SkippedNull{0};
-	int32 FailedSpawn{0};
 	TSet<const carla::road::Signal*> SeenSignals;
 
 	for (const carla::road::element::RoadInfoSignal* Info : Signals)
 	{
 		if (!Info)
 		{
-			++SkippedNull;
 			continue;
 		}
 
 		const carla::road::Signal* Signal = Info->GetSignal();
 		if (!Signal)
 		{
-			++SkippedNull;
 			continue;
 		}
 
 		if (!carla::road::SignalType::IsTrafficLight(Signal->GetType()))
 		{
-			++SkippedNonTL;
 			continue;
 		}
 
 		if (SeenSignals.Contains(Signal))
 		{
-			++SkippedDup;
 			continue;
 		}
 
-		const carla::geom::Transform SignalTransform{Signal->GetTransform()};
+		const carla::road::RoadId SignalRoadId = Signal->GetRoadId();
+		double SignalS = Signal->GetS();
+		const double SignalT = Signal->GetT();
+		const double OriginalS = SignalS;
+
+		carla::geom::Transform SignalTransform = Signal->GetTransform();
+		SignalTransform.rotation.yaw += 90.0f;
+
+		if (carla::road::SignalType::IsTrafficLight(Signal->GetType())) {
+			SignalTransform.location = SignalTransform.location +
+				carla::geom::Location(SignalTransform.GetForwardVector() * 0.25f);
+		}
+
 		if (!InChunk2D(SignalTransform.location))
 		{
-			++SkippedOutOfChunk;
 			continue;
 		}
 
@@ -1282,7 +1283,6 @@ void UOpenDriveToMap::GenerateTrafficLights(
 			TrafficLightBPClass, SignalTransform, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::DontSpawnIfColliding)};
 		if (!IsValid(TL))
 		{
-			++FailedSpawn;
 			continue;
 		}
 		const FString Rel{TEXT("Carla/Static/TrafficLight/TrafficLights2025/Presets/Default.json")};
@@ -1310,23 +1310,21 @@ void UOpenDriveToMap::GenerateTrafficLights(
 		TL->FinishSpawning(SignalTransform);
 		if (!IsValid(TL))
 		{
-			++FailedSpawn;
 			continue;
 		}
 		// Assign JunctionID and LaneIDs to traffic light poles and modules
-		const carla::road::RoadId SignalRoadId = Signal->GetRoadId();
 		const carla::road::JuncId JunctionId = ParamCarlaMap->GetJunctionId(SignalRoadId);
 
         TL->JunctionID = JunctionId;
+
+        // Assign SignalID from OpenDRIVE (unique identifier)
+        TL->SignalID = FString(UTF8_TO_TCHAR(Signal->GetSignalId().c_str()));
 
         // Assign TrafficLightGroupID based on Signal Controllers
         const auto& Controllers = Signal->GetControllers();
         if (!Controllers.empty()) {
             const std::string& ControllerId = *Controllers.begin();
             TL->TrafficLightGroupID = FString(UTF8_TO_TCHAR(ControllerId.c_str()));
-
-            UE_LOG(LogCarlaDigitalTwinsTool, Log,
-                TEXT("Assigned ControllerID '%s' as TrafficLightGroupID"), *TL->TrafficLightGroupID);
         }
 
 		UE_LOG(LogCarlaDigitalTwinsTool, Log,
@@ -1421,12 +1419,15 @@ void UOpenDriveToMap::GenerateTrafficLights(
 
 		TL->Build();
 		TL->Bake(MapName, Label);
+
+		UE_LOG(LogCarlaDigitalTwinsTool, Verbose,
+			TEXT("Baked traffic light: Signal %s -> Actor '%s'"),
+			UTF8_TO_TCHAR(Signal->GetSignalId().c_str()),
+			*Label);
+
 		TL->Destroy();
-		++BakedCount;
 	}
-	UE_LOG(LogCarlaDigitalTwinsTool, Log,
-		TEXT("GenerateTrafficLights: baked=%d, skipped{outOfChunk=%d, nonTL=%d, dupRefs=%d, null=%d}, failedSpawn=%d"), BakedCount,
-		SkippedOutOfChunk, SkippedNonTL, SkippedDup, SkippedNull, FailedSpawn);
+
 }
 
 float UOpenDriveToMap::GetHeight(float PosX, float PosY, bool bDrivingLane)
