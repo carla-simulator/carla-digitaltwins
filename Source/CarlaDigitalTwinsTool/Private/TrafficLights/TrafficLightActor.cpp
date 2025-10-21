@@ -208,8 +208,14 @@ void ATrafficLightActor::Bake(const FString& MapName, const FString& DesiredLabe
 
 	for (UStaticMeshComponent* const BakedMeshComponent : BakedMeshComponents)
 	{
+		UStaticMesh* const OriginalMesh{BakedMeshComponent->GetStaticMesh()};
+		if (!IsValid(OriginalMesh))
+		{
+			continue;
+		}
+
 		UStaticMesh* const CopiedMesh{
-			Cast<UStaticMesh>(UBlueprintUtilFunctions::CopyAssetToPlugin(BakedMeshComponent->GetStaticMesh(), MapName))};
+			Cast<UStaticMesh>(UBlueprintUtilFunctions::CopyAssetToPlugin(OriginalMesh, MapName))};
 		if (IsValid(CopiedMesh))
 		{
 			BakedMeshComponent->SetStaticMesh(CopiedMesh);
@@ -246,6 +252,85 @@ void ATrafficLightActor::Bake(const FString& MapName, const FString& DesiredLabe
 			}
 		}
 	}
+
+	// Export traffic light logic to map_logic.json in the generated plugin's OpenDrive folder
+	FString PluginContentDir = FPaths::ProjectPluginsDir() / MapName / TEXT("Content/Maps/OpenDrive");
+	FString MapLogicFilePath = PluginContentDir / TEXT("map_logic.json");
+
+	// Ensure directory exists
+	if (!FPlatformFileManager::Get().GetPlatformFile().DirectoryExists(*PluginContentDir))
+	{
+		FPlatformFileManager::Get().GetPlatformFile().CreateDirectoryTree(*PluginContentDir);
+	}
+
+	// Load existing map_logic.json or create new structure
+	TSharedPtr<FJsonObject> MapLogicRoot;
+	TArray<TSharedPtr<FJsonValue>> TrafficLightsArray;
+
+	// Try to load existing file
+	FString ExistingContent;
+	if (FFileHelper::LoadFileToString(ExistingContent, *MapLogicFilePath))
+	{
+		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ExistingContent);
+		if (FJsonSerializer::Deserialize(Reader, MapLogicRoot) && MapLogicRoot.IsValid())
+		{
+			// Get existing traffic lights array
+			const TArray<TSharedPtr<FJsonValue>>* ExistingTrafficLights;
+			if (MapLogicRoot->TryGetArrayField(TEXT("TrafficLights"), ExistingTrafficLights))
+			{
+				TrafficLightsArray = *ExistingTrafficLights;
+			}
+		}
+	}
+
+	// Create root object if doesn't exist
+	if (!MapLogicRoot.IsValid())
+	{
+		MapLogicRoot = MakeShareable(new FJsonObject);
+	}
+
+	// Get current traffic light logic using DesiredLabel as ActorName
+	FString CurrentTrafficLightJSON = ExportLogicToJSON(DesiredLabel);
+	TSharedPtr<FJsonObject> CurrentTrafficLightObj;
+	TSharedRef<TJsonReader<>> TrafficLightReader = TJsonReaderFactory<>::Create(CurrentTrafficLightJSON);
+	if (FJsonSerializer::Deserialize(TrafficLightReader, CurrentTrafficLightObj))
+	{
+		// Remove any existing entry with the same ActorName (DesiredLabel)
+		TrafficLightsArray.RemoveAll([&DesiredLabel](const TSharedPtr<FJsonValue>& Value) {
+			if (Value->Type == EJson::Object)
+			{
+				TSharedPtr<FJsonObject> Obj = Value->AsObject();
+				FString ActorName;
+				if (Obj->TryGetStringField(TEXT("ActorName"), ActorName))
+				{
+					return ActorName == DesiredLabel;
+				}
+			}
+			return false;
+		});
+
+		// Add current traffic light
+		TrafficLightsArray.Add(MakeShareable(new FJsonValueObject(CurrentTrafficLightObj)));
+	}
+
+	// Update map logic structure
+	MapLogicRoot->SetArrayField(TEXT("TrafficLights"), TrafficLightsArray);
+
+	// Save updated map_logic.json
+	FString MapLogicOutput;
+	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&MapLogicOutput);
+	if (FJsonSerializer::Serialize(MapLogicRoot.ToSharedRef(), Writer))
+	{
+		if (FFileHelper::SaveStringToFile(MapLogicOutput, *MapLogicFilePath))
+		{
+			UE_LOG(LogTemp, Log, TEXT("Traffic light logic added to map_logic.json: %s"), *MapLogicFilePath);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Failed to save map_logic.json: %s"), *MapLogicFilePath);
+		}
+	}
+
 #endif
 }
 
@@ -662,6 +747,52 @@ void ATrafficLightActor::BuildFromJSONString(const FString& JSONConfig)
 			Poles.Add(MoveTemp(Pole));
 		}
 	}
+
+	// Read new traffic light properties
+	FString GroupID;
+	if (Root->TryGetStringField(TEXT("TrafficLightGroupID"), GroupID))
+	{
+		TrafficLightGroupID = GroupID;
+	}
+
+	FString JsonSignalID;
+	if (Root->TryGetStringField(TEXT("SignalID"), JsonSignalID))
+	{
+		SignalID = JsonSignalID;
+	}
+
+	int32 JsonJunctionID;
+	if (Root->TryGetNumberField(TEXT("JunctionID"), JsonJunctionID))
+	{
+		JunctionID = JsonJunctionID;
+	}
+
+	// Read timing information
+	double JsonRedDuration;
+	if (Root->TryGetNumberField(TEXT("RedDuration"), JsonRedDuration))
+	{
+		RedDuration = static_cast<float>(JsonRedDuration);
+	}
+
+	double JsonGreenDuration;
+	if (Root->TryGetNumberField(TEXT("GreenDuration"), JsonGreenDuration))
+	{
+		GreenDuration = static_cast<float>(JsonGreenDuration);
+	}
+
+	double JsonAmberDuration;
+	if (Root->TryGetNumberField(TEXT("AmberDuration"), JsonAmberDuration))
+	{
+		AmberDuration = static_cast<float>(JsonAmberDuration);
+	}
+
+	double JsonAmberBlinkInterval;
+	if (Root->TryGetNumberField(TEXT("AmberBlinkInterval"), JsonAmberBlinkInterval))
+	{
+		AmberBlinkInterval = static_cast<float>(JsonAmberBlinkInterval);
+	}
+
+	// Timing information loaded from JSON
 }
 
 void ATrafficLightActor::PopulateDefault()
@@ -825,6 +956,80 @@ FString ATrafficLightActor::ExportToJSON(bool bUseTransform) const
 	}
 
 	Root->SetArrayField(TEXT("Poles"), JsonPoles);
+
+	// Add new traffic light properties
+	Root->SetStringField(TEXT("TrafficLightGroupID"), TrafficLightGroupID);
+	Root->SetNumberField(TEXT("JunctionID"), JunctionID);
+	Root->SetStringField(TEXT("SignalID"), SignalID);
+
+	// Add timing information
+	Root->SetNumberField(TEXT("RedDuration"), RedDuration);
+	Root->SetNumberField(TEXT("GreenDuration"), GreenDuration);
+	Root->SetNumberField(TEXT("AmberDuration"), AmberDuration);
+	Root->SetNumberField(TEXT("AmberBlinkInterval"), AmberBlinkInterval);
+
+	FString Output;
+	TSharedRef<TJsonWriter<>> Writer{TJsonWriterFactory<>::Create(&Output)};
+	FJsonSerializer::Serialize(Root.ToSharedRef(), Writer);
+	return Output;
+}
+
+FString ATrafficLightActor::ExportLogicToJSON() const
+{
+	return ExportLogicToJSON(GetName());
+}
+
+FString ATrafficLightActor::ExportLogicToJSON(const FString& ActorName) const
+{
+	TSharedPtr<FJsonObject> Root = MakeShareable(new FJsonObject);
+
+	// Basic actor information
+	Root->SetStringField(TEXT("ActorName"), ActorName);
+	Root->SetStringField(TEXT("SignalID"), SignalID);
+	Root->SetNumberField(TEXT("JunctionID"), JunctionID);
+	Root->SetStringField(TEXT("TrafficLightGroupID"), TrafficLightGroupID);
+
+	// Timing information
+	TSharedPtr<FJsonObject> Timing = MakeShareable(new FJsonObject);
+	Timing->SetNumberField(TEXT("RedDuration"), RedDuration);
+	Timing->SetNumberField(TEXT("GreenDuration"), GreenDuration);
+	Timing->SetNumberField(TEXT("AmberDuration"), AmberDuration);
+	Timing->SetNumberField(TEXT("AmberBlinkInterval"), AmberBlinkInterval);
+	Root->SetObjectField(TEXT("Timing"), Timing);
+
+	// Collect all unique lane IDs from all modules (since all modules control the same lanes)
+	TSet<int32> UniqueLaneIds;
+	for (const FTLPole& Pole : Poles)
+	{
+		for (const FTLHead& Head : Pole.Heads)
+		{
+			for (const FTLModule& Module : Head.Modules)
+			{
+				for (int32 LaneId : Module.LaneIds)
+				{
+					UniqueLaneIds.Add(LaneId);
+				}
+			}
+		}
+	}
+
+	// Create single module entry with all unique lane IDs
+	TArray<TSharedPtr<FJsonValue>> ModulesArray;
+	if (UniqueLaneIds.Num() > 0)
+	{
+		TSharedPtr<FJsonObject> ModuleObj = MakeShareable(new FJsonObject);
+
+		// Convert unique lane IDs to JSON array
+		TArray<TSharedPtr<FJsonValue>> LaneIdsArray;
+		for (int32 LaneId : UniqueLaneIds)
+		{
+			LaneIdsArray.Add(MakeShareable(new FJsonValueNumber(LaneId)));
+		}
+		ModuleObj->SetArrayField(TEXT("LaneIds"), LaneIdsArray);
+
+		ModulesArray.Add(MakeShareable(new FJsonValueObject(ModuleObj)));
+	}
+	Root->SetArrayField(TEXT("Modules"), ModulesArray);
 
 	FString Output;
 	TSharedRef<TJsonWriter<>> Writer{TJsonWriterFactory<>::Create(&Output)};
@@ -1286,7 +1491,7 @@ void ATrafficLightActor::AdvanceDemoPhase()
 			}
 			CurrentPhase = EDemoPhase::Green;
 			GetWorldTimerManager().ClearTimer(PhaseTimerHandle);
-			GetWorldTimerManager().SetTimer(PhaseTimerHandle, this, &ATrafficLightActor::AdvanceDemoPhase, RedDuration, false);
+			GetWorldTimerManager().SetTimer(PhaseTimerHandle, this, &ATrafficLightActor::AdvanceDemoPhase, GetRedDuration(), false);
 			break;
 		}
 		case EDemoPhase::Green:
@@ -1299,12 +1504,12 @@ void ATrafficLightActor::AdvanceDemoPhase()
 				}
 			}
 			const float MinAmberThreshold{0.25f};
-			if (AmberDuration <= MinAmberThreshold)
+			if (GetAmberDuration() <= MinAmberThreshold)
 			{
 				CurrentPhase = EDemoPhase::Red;
 				GetWorldTimerManager().ClearTimer(PhaseTimerHandle);
 				GetWorldTimerManager().SetTimer(
-					PhaseTimerHandle, this, &ATrafficLightActor::AdvanceDemoPhase, GreenDuration, false);
+					PhaseTimerHandle, this, &ATrafficLightActor::AdvanceDemoPhase, GetGreenDuration(), false);
 			}
 			else
 			{
@@ -1312,7 +1517,7 @@ void ATrafficLightActor::AdvanceDemoPhase()
 				bAmberVisible = false;
 				GetWorldTimerManager().ClearTimer(PhaseTimerHandle);
 				GetWorldTimerManager().SetTimer(
-					PhaseTimerHandle, this, &ATrafficLightActor::AdvanceDemoPhase, GreenDuration, false);
+					PhaseTimerHandle, this, &ATrafficLightActor::AdvanceDemoPhase, GetGreenDuration(), false);
 			}
 			break;
 		}
@@ -1322,9 +1527,9 @@ void ATrafficLightActor::AdvanceDemoPhase()
 			ToggleAmberBlink();
 			GetWorldTimerManager().ClearTimer(AmberBlinkTimerHandle);
 			GetWorldTimerManager().SetTimer(
-				AmberBlinkTimerHandle, this, &ATrafficLightActor::ToggleAmberBlink, AmberBlinkInterval, true);
+				AmberBlinkTimerHandle, this, &ATrafficLightActor::ToggleAmberBlink, GetAmberBlinkInterval(), true);
 			GetWorldTimerManager().ClearTimer(PhaseTimerHandle);
-			GetWorldTimerManager().SetTimer(PhaseTimerHandle, this, &ATrafficLightActor::EndAmberPhase, AmberDuration, false);
+			GetWorldTimerManager().SetTimer(PhaseTimerHandle, this, &ATrafficLightActor::EndAmberPhase, GetAmberDuration(), false);
 			break;
 		}
 	}
@@ -1359,3 +1564,24 @@ void ATrafficLightActor::EndAmberPhase()
 	CurrentPhase = EDemoPhase::Red;
 	AdvanceDemoPhase();
 }
+
+float ATrafficLightActor::GetRedDuration() const
+{
+	return RedDuration;
+}
+
+float ATrafficLightActor::GetGreenDuration() const
+{
+	return GreenDuration;
+}
+
+float ATrafficLightActor::GetAmberDuration() const
+{
+	return AmberDuration;
+}
+
+float ATrafficLightActor::GetAmberBlinkInterval() const
+{
+	return AmberBlinkInterval;
+}
+

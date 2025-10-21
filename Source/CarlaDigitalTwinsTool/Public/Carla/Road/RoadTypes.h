@@ -28,5 +28,7 @@ namespace road {
 
   using ContId = std::string;
 
+  using TrafficGroupId = std::string;
+
 } // road
 } // carla

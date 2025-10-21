@@ -26,6 +26,7 @@
 #include "Carla/Road/InformationSet.h"
 #include "Carla/Road/Signal.h"
 #include "Carla/Road/SignalType.h"
+#include "Carla/Road/TrafficGroup.h"
 
 #include <iterator>
 #include <memory>
@@ -937,7 +938,18 @@ void MapBuilder::CreateController(
     }
 }
 
-  void MapBuilder::ComputeJunctionRoadConflicts(Map &map) {
+void MapBuilder::AddTrafficGroup(
+    const TrafficGroupId& id,
+    const uint16_t red_time,
+    const uint16_t yellow_time,
+    const uint16_t green_time) {
+  // Add the TrafficGroup to MapData
+  _map_data._traffic_groups.emplace(
+      id,
+      std::make_unique<TrafficGroup>(id, red_time, yellow_time, green_time));
+}
+
+void MapBuilder::ComputeJunctionRoadConflicts(Map &map) {
     for (auto &junctionpair : map._data.GetJunctions()) {
       auto& junction = junctionpair.second;
       junction._road_conflicts = (map.ComputeJunctionConflicts(junction.GetId()));

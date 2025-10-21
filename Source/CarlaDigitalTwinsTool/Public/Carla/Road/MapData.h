@@ -16,6 +16,7 @@
 #include "Carla/Road/Road.h"
 #include "Carla/Road/RoadTypes.h"
 #include "Carla/Road/Signal.h"
+#include "Carla/Road/TrafficGroup.h"
 
 #include "Carla/disable-ue4-macros.h"
 #include <boost/iterator/transform_iterator.hpp>
@@ -85,6 +86,10 @@ namespace road {
       return _controllers;
     }
 
+    const std::unordered_map<TrafficGroupId, std::unique_ptr<TrafficGroup>>& GetTrafficGroups() const {
+      return _traffic_groups;
+    }
+
   private:
 
     friend class MapBuilder;
@@ -100,6 +105,8 @@ namespace road {
     std::unordered_map<SignId, std::unique_ptr<Signal>> _signals;
 
     std::unordered_map<ContId, std::unique_ptr<Controller>> _controllers;
+
+    std::unordered_map<TrafficGroupId, std::unique_ptr<TrafficGroup>> _traffic_groups;
   };
 
 } // namespace road

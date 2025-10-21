@@ -358,6 +358,12 @@ namespace road {
         const std::set<road::SignId>&& signals
         );
 
+    void AddTrafficGroup(
+        const TrafficGroupId& id,
+        const uint16_t red_time,
+        const uint16_t yellow_time,
+        const uint16_t green_time);
+
 
 
     void SetGeoReference(const geom::GeoLocation &geo_reference) {

@@ -9,6 +9,7 @@
 #include "Carla/Road/Junction.h"
 #include "Carla/Road/Road.h"
 #include "Carla/Road/RoadTypes.h"
+#include "Carla/Road/element/RoadWaypoint.h"
 #include "Containers/ContainersFwd.h"
 #include "CoreGlobals.h"
 #include "EngineUtils.h"
@@ -49,6 +50,7 @@
 #include "EditorLevelLibrary.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "MeshDescription.h"
 #include "ProceduralMeshConversion.h"
 #if ENGINE_MAJOR_VERSION > 4
@@ -807,12 +809,12 @@ void UOpenDriveToMap::GenerateCurbSplinesFromRoadRenders()
 
 	CurrentTilesInXY.X = 0;
 	CurrentTilesInXY.Y = 0;
-	
+
 	do
 	{
 		MinPosition = FVector(CurrentTilesInXY.X * TileSize, CurrentTilesInXY.Y * -TileSize, 0.0f);
 		MaxPosition = FVector((CurrentTilesInXY.X + 1.0f) * TileSize, (CurrentTilesInXY.Y + 1.0f) * -TileSize, 0.0f);
-		
+
 		RenderRoadToTexture(MinPosition, MaxPosition);
 
 	} while (GoNextTile());
@@ -1207,10 +1209,10 @@ void UOpenDriveToMap::GenerateTrafficLights(
 	const FString BPPath{TEXT("/CarlaDigitalTwinsTool/Blueprints/TrafficLight/BP_TrafficLightActor.BP_TrafficLightActor_C")};
 	const carla::geom::Vector3D CarlaMinLocation(MinLocation.X / 100.0, MinLocation.Y / 100.0, MinLocation.Z / 100.0);
 	const carla::geom::Vector3D CarlaMaxLocation(MaxLocation.X / 100.0, MaxLocation.Y / 100.0, MaxLocation.Z / 100.0);
-	const double MinX{FMath::Min(MinLocation.X, MaxLocation.X)};
-	const double MaxX{FMath::Max(MinLocation.X, MaxLocation.X)};
-	const double MinY{FMath::Min(MinLocation.Y, MaxLocation.Y)};
-	const double MaxY{FMath::Max(MinLocation.Y, MaxLocation.Y)};
+	const double MinX{FMath::Min(CarlaMinLocation.x, CarlaMaxLocation.x)};
+	const double MaxX{FMath::Max(CarlaMinLocation.x, CarlaMaxLocation.x)};
+	const double MinY{FMath::Min(CarlaMinLocation.y, CarlaMaxLocation.y)};
+	const double MaxY{FMath::Max(CarlaMinLocation.y, CarlaMaxLocation.y)};
 
 	auto InChunk2D = [&](const carla::geom::Vector3D& Position) -> bool
 	{ return (Position.x >= MinX && Position.x <= MaxX && Position.y >= MinY && Position.y <= MaxY); };
@@ -1232,45 +1234,46 @@ void UOpenDriveToMap::GenerateTrafficLights(
 
 	std::vector<const carla::road::element::RoadInfoSignal*> Signals{ParamCarlaMap->GetAllSignalReferences()};
 
-	int32 BakedCount{0};
-	int32 SkippedOutOfChunk{0};
-	int32 SkippedNonTL{0};
-	int32 SkippedDup{0};
-	int32 SkippedNull{0};
-	int32 FailedSpawn{0};
 	TSet<const carla::road::Signal*> SeenSignals;
 
 	for (const carla::road::element::RoadInfoSignal* Info : Signals)
 	{
 		if (!Info)
 		{
-			++SkippedNull;
 			continue;
 		}
 
 		const carla::road::Signal* Signal = Info->GetSignal();
 		if (!Signal)
 		{
-			++SkippedNull;
 			continue;
 		}
 
 		if (!carla::road::SignalType::IsTrafficLight(Signal->GetType()))
 		{
-			++SkippedNonTL;
 			continue;
 		}
 
 		if (SeenSignals.Contains(Signal))
 		{
-			++SkippedDup;
 			continue;
 		}
 
-		const carla::geom::Transform SignalTransform{Signal->GetTransform()};
+		const carla::road::RoadId SignalRoadId = Signal->GetRoadId();
+		double SignalS = Signal->GetS();
+		const double SignalT = Signal->GetT();
+		const double OriginalS = SignalS;
+
+		carla::geom::Transform SignalTransform = Signal->GetTransform();
+		SignalTransform.rotation.yaw += 90.0f;
+
+		if (carla::road::SignalType::IsTrafficLight(Signal->GetType())) {
+			SignalTransform.location = SignalTransform.location +
+				carla::geom::Location(SignalTransform.GetForwardVector() * 0.25f);
+		}
+
 		if (!InChunk2D(SignalTransform.location))
 		{
-			++SkippedOutOfChunk;
 			continue;
 		}
 
@@ -1280,7 +1283,6 @@ void UOpenDriveToMap::GenerateTrafficLights(
 			TrafficLightBPClass, SignalTransform, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::DontSpawnIfColliding)};
 		if (!IsValid(TL))
 		{
-			++FailedSpawn;
 			continue;
 		}
 		const FString Rel{TEXT("Carla/Static/TrafficLight/TrafficLights2025/Presets/Default.json")};
@@ -1308,17 +1310,124 @@ void UOpenDriveToMap::GenerateTrafficLights(
 		TL->FinishSpawning(SignalTransform);
 		if (!IsValid(TL))
 		{
-			++FailedSpawn;
 			continue;
 		}
+		// Assign JunctionID and LaneIDs to traffic light poles and modules
+		const carla::road::JuncId JunctionId = ParamCarlaMap->GetJunctionId(SignalRoadId);
+
+        TL->JunctionID = JunctionId;
+
+        // Assign SignalID from OpenDRIVE (unique identifier)
+        TL->SignalID = FString(UTF8_TO_TCHAR(Signal->GetSignalId().c_str()));
+
+        // Assign TrafficLightGroupID based on Signal Controllers
+        const auto& Controllers = Signal->GetControllers();
+        if (!Controllers.empty()) {
+            const std::string& ControllerId = *Controllers.begin();
+            TL->TrafficLightGroupID = FString(UTF8_TO_TCHAR(ControllerId.c_str()));
+        }
+
+		UE_LOG(LogCarlaDigitalTwinsTool, Log,
+			TEXT("Processing Signal %s: RoadId=%d, JunctionId=%d, Position=(%f,%f,%f)"),
+			UTF8_TO_TCHAR(Signal->GetSignalId().c_str()),
+			SignalRoadId,
+			JunctionId,
+			SignalTransform.location.x,
+			SignalTransform.location.y,
+			SignalTransform.location.z);
+
+		// Get lane validities for this signal
+		const std::vector<carla::road::LaneValidity>& Validities = Info->GetValidities();
+		const carla::road::SignalOrientation SignalOrientation = Signal->GetOrientation();
+
+		UE_LOG(LogCarlaDigitalTwinsTool, Log,
+			TEXT("Signal has %d lane validities, orientation: %d"),
+			static_cast<int32>(Validities.size()),
+			static_cast<int32>(SignalOrientation));
+
+		// Log road information
+		UE_LOG(LogCarlaDigitalTwinsTool, Log,
+			TEXT("Processing road %d for signal analysis"), SignalRoadId);
+
+		// Assign JunctionID and LaneIDs to all poles and modules
+		for (FTLPole& Pole : TL->Poles)
+		{
+
+			UE_LOG(LogCarlaDigitalTwinsTool, Log,
+				TEXT("Assigned JunctionID %d to pole"), JunctionId);
+
+			// Process each head in the pole
+			for (FTLHead& Head : Pole.Heads)
+			{
+				// Process each module in the head
+				for (FTLModule& Module : Head.Modules)
+				{
+					// Clear existing lane IDs
+					Module.LaneIds.Empty();
+
+					// Add affected lane IDs based on signal validities and orientation
+					for (const auto& Validity : Validities)
+					{
+						UE_LOG(LogCarlaDigitalTwinsTool, Log,
+							TEXT("Processing validity: from_lane=%d, to_lane=%d"),
+							Validity._from_lane, Validity._to_lane);
+
+						// Add all lanes in the validity range
+						for (carla::road::LaneId LaneId = Validity._from_lane; LaneId <= Validity._to_lane; ++LaneId)
+						{
+							if (LaneId != 0) // Skip center lane (lane 0)
+							{
+								// Filter lanes based on signal orientation
+								bool bShouldAddLane = false;
+
+								switch (SignalOrientation)
+								{
+									case carla::road::SignalOrientation::Positive:
+										// Positive orientation affects negative lane IDs (lanes going in positive s direction)
+										bShouldAddLane = (LaneId < 0);
+										break;
+									case carla::road::SignalOrientation::Negative:
+										// Negative orientation affects positive lane IDs (lanes going in negative s direction)
+										bShouldAddLane = (LaneId > 0);
+										break;
+									case carla::road::SignalOrientation::Both:
+										// Both orientations affect all lanes
+										bShouldAddLane = true;
+										break;
+								}
+
+								if (bShouldAddLane)
+								{
+									Module.LaneIds.Add(LaneId);
+									UE_LOG(LogCarlaDigitalTwinsTool, Log,
+										TEXT("Added lane %d to module (orientation filter passed)"), LaneId);
+								}
+								else
+								{
+									UE_LOG(LogCarlaDigitalTwinsTool, Log,
+										TEXT("Skipped lane %d (orientation filter failed)"), LaneId);
+								}
+							}
+						}
+					}
+
+					UE_LOG(LogCarlaDigitalTwinsTool, Log,
+						TEXT("Final: Assigned %d lane IDs to module"), Module.LaneIds.Num());
+				}
+			}
+		}
+
 		TL->Build();
 		TL->Bake(MapName, Label);
+
+		UE_LOG(LogCarlaDigitalTwinsTool, Verbose,
+			TEXT("Baked traffic light: Signal %s -> Actor '%s'"),
+			UTF8_TO_TCHAR(Signal->GetSignalId().c_str()),
+			*Label);
+
 		TL->Destroy();
-		++BakedCount;
 	}
-	UE_LOG(LogCarlaDigitalTwinsTool, Log,
-		TEXT("GenerateTrafficLights: baked=%d, skipped{outOfChunk=%d, nonTL=%d, dupRefs=%d, null=%d}, failedSpawn=%d"), BakedCount,
-		SkippedOutOfChunk, SkippedNonTL, SkippedDup, SkippedNull, FailedSpawn);
+
 }
 
 float UOpenDriveToMap::GetHeight(float PosX, float PosY, bool bDrivingLane)
@@ -2165,7 +2274,7 @@ FVector UOpenDriveToMap::DisplaceLocationOutsideNeighboringRoads(const UObject* 
 
 		float distance_to_road = FVector(road_transform.location.ToFVector() * 100.0f - out_location).Length();
 		float lane_width = current_carla_map->GetLaneWidth(closest_waypoint.get());
-		
+
 		float displacement_direction = 1.0f;
 		int max_displacement_iterations = 10;
 
@@ -2204,7 +2313,7 @@ FVector UOpenDriveToMap::DisplaceLocationOutsideNeighboringRoads(const UObject* 
 			distance_to_road = FVector(road_transform.location.ToFVector() * 100.0f - out_location).Length();
 			lane_width = current_carla_map->GetLaneWidth(closest_waypoint.get());
 		}
-		
+
 	}
 
 	return out_location;
