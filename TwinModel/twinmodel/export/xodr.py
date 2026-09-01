@@ -543,8 +543,13 @@ def _signal_attrs(sig: Signal) -> dict[str, str]:
         unit = "km/h"
     name = sig.tags.get("name") or {"traffic_light": "Signal_3Light_Post01", "stop": "Sign_Stop",
                                     "yield": "Sign_Yield", "speed_limit": f"Speed_{subtype}"}[sig.kind]
+    # Stamp the build profile's primary ISO country instead of the stock "OpenDRIVE"
+    # sentinel: the type/subtype vocabulary stays SignalType.h (StVO codes) either way, but
+    # the country attribute is the geo-style hint a prop selector can key on (CARLA parses it
+    # into Signal::GetCountry() / carla.Landmark.country and currently ignores it).
+    country = profiles.get().signal_country
     attrs = dict(id=sig.id, s=sig.s, t=sig.t, name=name, dynamic=dynamic, orientation=sig.orientation,
-                 zOffset=0, country="OpenDRIVE", type=stype, subtype=subtype, hOffset=0, pitch=0, roll=0)
+                 zOffset=0, country=country, type=stype, subtype=subtype, hOffset=0, pitch=0, roll=0)
     if value is not None:
         attrs.update(value=value, unit=unit)
     return attrs

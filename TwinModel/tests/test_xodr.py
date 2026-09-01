@@ -288,3 +288,15 @@ def test_export_on_worker_outputs_if_present():
         ran += 1
     if not ran:
         pytest.skip("no zero-arg TwinModel builders found in tests/synthetic.py")
+
+
+# ------------------------------------------------------------------ signal country stamp
+
+def test_signal_country_follows_profile():
+    """The exported <signal> country attribute is the profile's geo-style hint."""
+    from twinmodel import profiles
+    m = straight_road()
+    with profiles.use(profiles.EU_DENSE):
+        assert 'country="ES"' in export_xodr(m)
+    with profiles.use(profiles.US_SUBURBAN):
+        assert 'country="US"' in export_xodr(m)

@@ -343,6 +343,11 @@ class StreetProfile:
     sources: DataSources
     drives_on: Literal["right", "left"] = "right"
     building: BuildingRules = BuildingRules()
+    # ISO 3166-1 alpha-2 stamped as the ``country`` attribute of every exported xodr
+    # <signal> — the geo-style hint for sign/light prop selection (CARLA parses it into
+    # Signal::GetCountry() but stock TrafficLightManager ignores it today). "OpenDRIVE"
+    # is the stock-CARLA sentinel used when a profile has no meaningful geography.
+    signal_country: str = "OpenDRIVE"
 
     def with_(self, **overrides) -> "StreetProfile":
         """Copy with top-level fields replaced (``profile.with_(name="x", lane=...)``)."""
@@ -380,6 +385,7 @@ _DRIVABLE = frozenset({"motorway", "motorway_link", "trunk", "trunk_link", "prim
 
 EU_DENSE = StreetProfile(
     name="eu_dense",
+    signal_country="ES",
     description="Dense European city (Barcelona Eixample calibration): buildings at the curb, "
                 "3.25–3.75 m lanes, white centre lines, 4 m zebra crossings.",
     countries=frozenset({"ES", "PT", "FR", "IT", "DE", "AT", "CH", "NL", "BE", "LU", "DK", "SE",
@@ -465,6 +471,7 @@ _US_URBAN_CLASSES = {
 
 US_URBAN = StreetProfile(
     name="us_urban",
+    signal_country="US",
     description="US downtown / streetcar-suburb grid: 10–11 ft lanes, yellow centre lines, "
                 "parking both sides, 5–8 ft sidewalks with planting strips on residential streets.",
     countries=frozenset(),  # chosen for US by density, see choose_for_country
