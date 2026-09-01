@@ -37,7 +37,7 @@ from shapely.geometry import LineString
 from shapely.strtree import STRtree
 
 from . import profiles
-from .model import Elevation, Road, TwinModel
+from .model import Elevation, Road, TwinModel, road_osm_layer
 
 log = logging.getLogger("twinmodel.datum")
 
@@ -84,6 +84,7 @@ class RoadDatum:
         self.cross_slope_cap = float(cross_slope_cap)
         lines, covers, s_arrays, z_arrays, wl, wr = [], [], [], [], [], []
         pts, zs, rid = [], [], []
+        road_layers: list[int] = []
         for r in roads:
             c = np.asarray(r.reference_line.coords, dtype=np.float64)
             if len(c) < 2:
@@ -104,11 +105,13 @@ class RoadDatum:
             z_arrays.append(c[:, 2])
             wl.append(l + self.reach_pad)
             wr.append(rr + self.reach_pad)
+            road_layers.append(road_osm_layer(r))
             dense = _densify(c[:, :3], segment)
             pts.append(dense[:, :2])
             zs.append(dense[:, 2])
             rid.append(np.full(len(dense), i, dtype=np.int64))
         self.n_roads = len(lines)
+        self.layers = np.asarray(road_layers, dtype=np.int64)
         if not lines:
             self.tree = None
             self.cover_tree = None
@@ -152,13 +155,17 @@ class RoadDatum:
             best_z = np.where(better, z, best_z)
         return best_z, best_d
 
-    def nearest(self, x, y) -> tuple[np.ndarray, np.ndarray]:
+    def nearest(self, x, y, layer: Optional[int] = None) -> tuple[np.ndarray, np.ndarray]:
         """(road z at the covering reference-line point, distance to it) for each xy.
 
         Candidates are the roads whose coverage polygon contains the point; they are ranked
         by lateral distance over the road's reach on that side (own road wins inside its own
         cross-section) and z is interpolated along the winning road's reference line. Points
-        outside every coverage polygon take the nearest 1 m sample of any road."""
+        outside every coverage polygon take the nearest 1 m sample of any road.
+
+        ``layer``: restrict the candidates to roads on that OSM layer (grade separation — the
+        deck of an overpass and the road under it cover the same xy). Points that no road of
+        that layer covers fall back to the nearest sample of *any* road, as before."""
         x = np.atleast_1d(np.asarray(x, dtype=np.float64))
         y = np.atleast_1d(np.asarray(y, dtype=np.float64))
         n = len(x)
@@ -169,6 +176,9 @@ class RoadDatum:
         z_out = np.full(n, np.nan)
         d_out = np.full(n, np.inf)
         pi, ri = self.cover_tree.query(pts, predicate="within")
+        if layer is not None and len(pi):
+            keep = self.layers[ri] == int(layer)
+            pi, ri = pi[keep], ri[keep]
         if len(pi):
             lines = self.lines[ri]
             p_sel = pts[pi]
@@ -195,14 +205,18 @@ class RoadDatum:
             d_out[pi[win]] = dist[win]
         miss = np.isnan(z_out)
         if miss.any():
+            # nothing on ``layer`` covers these points: fall back to the nearest sample of any
+            # road, as without a layer. Restricting the fallback too would drag a point beside
+            # a ground road onto a deck 30 m away just because the deck is the only layer-1 road.
             _, i0 = self.tree.query(q[miss], k=1)
             z0, d0 = self._project(q[miss], np.atleast_1d(i0))
             z_out[miss] = z0
             d_out[miss] = d0
         return z_out, d_out
 
-    def z(self, x, y):
-        """Datum z at xy (scalar in -> float, array in -> array)."""
+    def z(self, x, y, layer: Optional[int] = None):
+        """Datum z at xy (scalar in -> float, array in -> array). ``layer``: see
+        :meth:`nearest` — only roads on that OSM layer are considered."""
         scalar = np.ndim(x) == 0
         xa = np.atleast_1d(np.asarray(x, dtype=np.float64))
         ya = np.atleast_1d(np.asarray(y, dtype=np.float64))
@@ -210,7 +224,7 @@ class RoadDatum:
             z = (np.asarray(self.elevation.sample(xa, ya), dtype=np.float64)
                  if self.elevation is not None else np.zeros(xa.shape))
             return float(z[0]) if scalar else z
-        z, dist = self.nearest(xa, ya)
+        z, dist = self.nearest(xa, ya, layer=layer)
         if self.cross_slope:
             z = z - self.cross_slope * np.minimum(dist, self.cross_slope_cap)
         if self.elevation is not None:

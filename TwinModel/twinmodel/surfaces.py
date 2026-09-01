@@ -28,7 +28,8 @@ from shapely.geometry.base import BaseGeometry
 from shapely.ops import linemerge, nearest_points, substring, unary_union
 
 from . import profiles, streetspace
-from .model import CurbLine, Junction, Lane, Marking, Road, Signal, Surface, TwinModel
+from .model import (CurbLine, Junction, Lane, Marking, Road, Signal, Surface, TwinModel,
+                    road_osm_layer)
 
 log = logging.getLogger("twinmodel.surfaces")
 
@@ -928,6 +929,13 @@ def build_surfaces(model: TwinModel,
     for j in model.junctions:
         connecting_ids |= {c.connecting_road for c in j.connections}
 
+    # vertical stacking (OSM ``layer``): a road and the junctions it belongs to sit on one level
+    road_layer = {r.id: road_osm_layer(r) for r in model.roads}
+    junction_layer: dict[str, int] = {}
+    for j in model.junctions:
+        ls = [road_layer.get(c.incoming_road, 0) for c in j.connections]
+        junction_layer[j.id] = max(set(ls), key=ls.count) if ls else 0
+
     # 1. carriageways -------------------------------------------------------------------------
     carriageways: dict[str, Polygon | MultiPolygon] = {}
     for r in model.roads:
@@ -951,12 +959,16 @@ def build_surfaces(model: TwinModel,
         if j.tags.get("polygon_source") == "surfaces":
             j.polygon = None  # our own previous result is not an input (idempotent rebuilds)
         j.tags.pop("plaza_capped", None)
-        base = junction_cover_polygon(model, j, carriageways, cover=cover,
-                                      buildings=buildings if cover == "bounded" else None)
+        # a ramp gore (freeway merge/diverge, lanegraph 7h-bis) is not an intersection: no
+        # plaza, no chamfer, no corner apron — just the arms and the connecting carriageways
+        gore = j.tags.get("kind") == "gore"
+        j_cover = P.junction.gore_cover if gore else cover
+        base = junction_cover_polygon(model, j, carriageways, cover=j_cover,
+                                      buildings=buildings if j_cover == "bounded" else None)
         _, incoming = _junction_roads(model, j)
         plaza_drv = None
-        source = cover
-        if base is not None and not buildings.is_empty and incoming:
+        source = j_cover
+        if not gore and base is not None and not buildings.is_empty and incoming:
             widths = [w for r, _ in incoming for w in _sidewalk_widths(r) if w > 0]
             sw = round(max(widths) if widths else P.junction.plaza_sidewalk_m, 3)
             tag = j.tags.get("plaza_wkt")
@@ -990,7 +1002,7 @@ def build_surfaces(model: TwinModel,
                 if (plaza_cap is not None and env is not None
                         and plaza_drv.area > plaza_cap * env.wmax ** 2):
                     log.info("junction %s: plaza %.0f m2 exceeds %.1f x (%.1f m)^2 = %.0f m2 -> %s cover only",
-                             j.id, plaza_drv.area, plaza_cap, env.wmax, plaza_cap * env.wmax ** 2, cover)
+                             j.id, plaza_drv.area, plaza_cap, env.wmax, plaza_cap * env.wmax ** 2, j_cover)
                     j.tags["plaza_capped"] = round(float(plaza_drv.area), 1)
                     n_capped += 1
                     plaza = plaza_drv = None
@@ -1006,7 +1018,7 @@ def build_surfaces(model: TwinModel,
                 plaza_drv = opened
                 if not plaza_sw.is_empty:
                     plaza_sidewalks.append((plaza_sw, f"junction:{j.id}"))
-                poly = junction_polygon(model, j, carriageways, cover=cover,
+                poly = junction_polygon(model, j, carriageways, cover=j_cover,
                                         plaza=plaza_drv, keep_out=keep_out, buildings=buildings)
                 n_plaza += 1
             else:
@@ -1036,32 +1048,68 @@ def build_surfaces(model: TwinModel,
 
     # holes: tiny ones are filled; small building-free ones become traffic islands; the rest
     # (city blocks enclosed by a ring of roads) stay plain holes
+    def _fill_holes(geom: BaseGeometry, islands_out: list[Polygon]) -> Polygon | MultiPolygon:
+        filled: list[Polygon] = []
+        for part in _parts(geom):
+            keep_holes = []
+            for ring in part.interiors:
+                hole = Polygon(ring)
+                if hole.area < MIN_ISLAND_AREA:
+                    continue
+                keep_holes.append(ring)
+                if hole.area <= MAX_ISLAND_AREA and not hole.intersects(buildings):
+                    islands_out.append(hole)
+            filled.append(Polygon(part.exterior, keep_holes))
+        return _clean(unary_union(filled)) if filled else Polygon()
+
     islands: list[Polygon] = []
-    filled_parts: list[Polygon] = []
-    for part in _parts(drivable):
-        keep_holes = []
-        for ring in part.interiors:
-            hole = Polygon(ring)
-            if hole.area < MIN_ISLAND_AREA:
-                continue
-            keep_holes.append(ring)
-            if hole.area <= MAX_ISLAND_AREA and not hole.intersects(buildings):
-                islands.append(hole)
-        filled_parts.append(Polygon(part.exterior, keep_holes))
-    drivable = _clean(unary_union(filled_parts)) if filled_parts else Polygon()
+    drivable = _fill_holes(drivable, islands)
 
     def touching_roads(geom: BaseGeometry, candidates: Iterable[str]) -> list[str]:
         return [rid for rid in candidates if carriageways[rid].intersects(geom)]
 
+    # grade separation: an overpass and the road under it overlap in 2D but are different
+    # surfaces at different z. Emit one drivable surface per OSM ``layer`` (tagged with it) so
+    # the mesh and the road datum can keep them apart; with a single layer (the usual case)
+    # nothing changes and the surfaces carry no layer tag.
+    layer_groups: list[tuple[Optional[int], Polygon | MultiPolygon]] = [(None, drivable)]
+    layers = sorted({road_layer[rid] for rid in carriageways} | set(junction_layer.values()))
+    if len(layers) > 1 and source != "imagery":
+        layer_groups = []
+        for lay in layers:
+            geoms = [g for rid, g in carriageways.items() if road_layer[rid] == lay]
+            geoms += [g for jid, g in junction_polys.items() if junction_layer.get(jid, 0) == lay]
+            if not geoms:
+                continue
+            g = _clean(unary_union(geoms))
+            g = _clean(g.simplify(SIMPLIFY_TOL, preserve_topology=True))
+            layer_groups.append((lay, _fill_holes(g, [])))
+        stats["drivable_layers"] = layers
+    multi_layer = len(layer_groups) > 1
+    drivable_by_layer = {lay: g for lay, g in layer_groups}
+
+    def part_layer(rids, jids) -> Optional[int]:
+        """The OSM layer a raised/crossing surface belongs to (None in a single-layer model)."""
+        if not multi_layer:
+            return None
+        ls = [road_layer[r] for r in rids if r in road_layer]
+        ls += [junction_layer[j] for j in jids if j in junction_layer]
+        return max(set(ls), key=ls.count) if ls else min(layers)
+
     n = 0
-    for part in _parts(drivable):
-        rids = touching_roads(part, carriageways.keys())
-        jids = [jid for jid, jp in junction_polys.items() if jp.intersects(part)]
-        model.surfaces.append(Surface(
-            id=f"drivable_{n}", kind="drivable", geometry=part, z_offset=0.0, source=source,
-            road_ids=rids, junction_id=jids[0] if len(jids) == 1 else None,
-            tags={"junction_ids": jids} if len(jids) > 1 else {}))
-        n += 1
+    for lay, geom in layer_groups:
+        for part in _parts(geom):
+            rids = touching_roads(part, [rid for rid in carriageways
+                                         if lay is None or road_layer[rid] == lay])
+            jids = [jid for jid, jp in junction_polys.items()
+                    if (lay is None or junction_layer.get(jid, 0) == lay) and jp.intersects(part)]
+            tags: dict = {"junction_ids": jids} if len(jids) > 1 else {}
+            if lay is not None:
+                tags["layer"] = lay
+            model.surfaces.append(Surface(
+                id=f"drivable_{n}", kind="drivable", geometry=part, z_offset=0.0, source=source,
+                road_ids=rids, junction_id=jids[0] if len(jids) == 1 else None, tags=tags))
+            n += 1
     # 3. sidewalks / medians / verges --------------------------------------------------------
     # a sidewalk lane is a band of its own width; in a street canyon (cross-section from the
     # buildings, or >= streetspace.canyon_min_fraction of the side faces a building) it runs
@@ -1116,37 +1164,56 @@ def build_surfaces(model: TwinModel,
         raised_parts["sidewalk"].append((wrap, f"junction:{j.id}"))
 
     raised_union_parts: list[BaseGeometry] = []
-    walk_parts: list[BaseGeometry] = []   # sidewalk + median
-    verge_parts: list[BaseGeometry] = []
+    walk_parts: list[tuple[BaseGeometry, Optional[int]]] = []   # (geometry, OSM layer): sidewalk + median
+    verge_parts: list[tuple[BaseGeometry, Optional[int]]] = []
     sidewalk_so_far: BaseGeometry = Polygon()
     z_of = {"sidewalk": sidewalk_z, "median": sidewalk_z, "verge": verge_z}
+    def _owner_layer(rid: str) -> Optional[int]:
+        if rid.startswith("junction:"):
+            return part_layer([], [rid.split(":", 1)[1]])
+        return part_layer([rid], [])
+
     for kind in ("sidewalk", "median", "verge"):
         items = raised_parts[kind]
         if not items:
             continue
-        geom = _clean(unary_union([g for g, _ in items]))
-        geom = _clean(geom.difference(drivable))
-        if not buildings.is_empty:
-            geom = _clean(geom.difference(buildings))
-        # close hairline gaps between neighbouring bands, then re-snap to the drivable boundary
-        geom = _clean(geom.buffer(0.1, join_style="mitre").buffer(-0.1, join_style="mitre"))
-        geom = _clean(geom.difference(drivable), min_area=MIN_SURFACE_AREA)
-        if not buildings.is_empty:
-            geom = _clean(geom.difference(buildings), min_area=MIN_SURFACE_AREA)
-        if kind == "verge" and not sidewalk_so_far.is_empty:
-            # sidewalk wins where the two meet (corner aprons): sidewalk ∩ verge = 0
-            geom = _clean(geom.difference(sidewalk_so_far), min_area=MIN_SURFACE_AREA)
-        for k, part in enumerate(_parts(geom)):
-            rids = [rid for g, rid in items if not rid.startswith("junction:") and g.intersects(part)]
-            jids = [rid.split(":", 1)[1] for g, rid in items if rid.startswith("junction:") and g.intersects(part)]
-            model.surfaces.append(Surface(
-                id=f"{kind}_{k}", kind=kind, geometry=part, z_offset=z_of[kind], source="osm_tags",
-                road_ids=rids, junction_id=jids[0] if len(jids) == 1 else None,
-                tags={"junction_ids": jids} if len(jids) > 1 else {}))
-            raised_union_parts.append(part)
-            (verge_parts if kind == "verge" else walk_parts).append(part)
+        # one union per OSM layer: the footway of a bridge deck must not merge with the band of
+        # the street below it, and must be cut only by the drivable surface of its own layer
+        groups: dict[Optional[int], list[tuple[BaseGeometry, str]]] = {}
+        for g, rid in items:
+            groups.setdefault(_owner_layer(rid), []).append((g, rid))
+        k = 0
+        kept: list[BaseGeometry] = []
+        for lay, group in sorted(groups.items(), key=lambda kv: (kv[0] is not None, kv[0])):
+            low = drivable_by_layer.get(lay, drivable) if multi_layer else drivable
+            geom = _clean(unary_union([g for g, _ in group]))
+            geom = _clean(geom.difference(low))
+            if not buildings.is_empty:
+                geom = _clean(geom.difference(buildings))
+            # close hairline gaps between neighbouring bands, then re-snap to the drivable boundary
+            geom = _clean(geom.buffer(0.1, join_style="mitre").buffer(-0.1, join_style="mitre"))
+            geom = _clean(geom.difference(low), min_area=MIN_SURFACE_AREA)
+            if not buildings.is_empty:
+                geom = _clean(geom.difference(buildings), min_area=MIN_SURFACE_AREA)
+            if kind == "verge" and not sidewalk_so_far.is_empty:
+                # sidewalk wins where the two meet (corner aprons): sidewalk ∩ verge = 0
+                geom = _clean(geom.difference(sidewalk_so_far), min_area=MIN_SURFACE_AREA)
+            for part in _parts(geom):
+                rids = [rid for g, rid in group if not rid.startswith("junction:") and g.intersects(part)]
+                jids = [rid.split(":", 1)[1] for g, rid in group
+                        if rid.startswith("junction:") and g.intersects(part)]
+                tags: dict = {"junction_ids": jids} if len(jids) > 1 else {}
+                if lay is not None:
+                    tags["layer"] = lay
+                model.surfaces.append(Surface(
+                    id=f"{kind}_{k}", kind=kind, geometry=part, z_offset=z_of[kind], source="osm_tags",
+                    road_ids=rids, junction_id=jids[0] if len(jids) == 1 else None, tags=tags))
+                k += 1
+                raised_union_parts.append(part)
+                (verge_parts if kind == "verge" else walk_parts).append((part, lay))
+            kept.append(geom)
         if kind == "sidewalk":
-            sidewalk_so_far = geom
+            sidewalk_so_far = _clean(unary_union(kept)) if kept else Polygon()
 
     # islands: whatever part of a small hole is not already sidewalk
     sidewalk_union = _clean(unary_union(raised_union_parts)) if raised_union_parts else Polygon()
@@ -1158,7 +1225,8 @@ def build_surfaces(model: TwinModel,
         island_geoms.extend(_parts(g))
     for k, g in enumerate(island_geoms):
         model.surfaces.append(Surface(id=f"island_{k}", kind="island", geometry=g,
-                                      z_offset=sidewalk_z, source=source))
+                                      z_offset=sidewalk_z, source=source,
+                                      tags={"layer": min(layers)} if multi_layer else {}))
     islands = island_geoms
 
     # 4. crossings ---------------------------------------------------------------------------
@@ -1172,9 +1240,13 @@ def build_surfaces(model: TwinModel,
         geom = _clean(rect.intersection(drivable))
         if geom.is_empty:
             continue
+        c_tags = {"signal_id": sig.id}
+        c_lay = part_layer([sig.road_id], [])
+        if c_lay is not None:
+            c_tags["layer"] = c_lay
         model.surfaces.append(Surface(id=f"crossing_{k}", kind="crossing", geometry=geom,
                                       z_offset=P.crossing.z, source="osm_tags",
-                                      road_ids=[sig.road_id], tags={"signal_id": sig.id}))
+                                      road_ids=[sig.road_id], tags=c_tags))
         k += 1
 
     # 4b. parking lots (OSM amenity=parking, handed over by the lane graph as WKT): at road
@@ -1192,7 +1264,8 @@ def build_surfaces(model: TwinModel,
             parking = _clean(parking.difference(buildings), min_area=MIN_SURFACE_AREA)
         for k, part in enumerate(_parts(parking)):
             model.surfaces.append(Surface(id=f"parking_{k}", kind="parking", geometry=part,
-                                          z_offset=0.0, source="osm_tags"))
+                                          z_offset=0.0, source="osm_tags",
+                                          tags={"layer": min(layers)} if multi_layer else {}))
 
     # 5. ground: the street void near the surfaces that is neither drivable nor raised nor
     #    parking lot nor building (open lots, courtyard mouths, the strip beyond a short
@@ -1213,24 +1286,36 @@ def build_surfaces(model: TwinModel,
         ground = _keep_touching(ground, covered)
         for k, part in enumerate(_parts(ground)):
             model.surfaces.append(Surface(id=f"ground_{k}", kind="ground", geometry=part,
-                                          z_offset=ground_z, source="osm_tags", confidence=0.5))
+                                          z_offset=ground_z, source="osm_tags", confidence=0.5,
+                                          tags={"layer": min(layers)} if multi_layer else {}))
             ground_area += part.area
 
     # 6. curbs (drivable <-> sidewalk/island/verge only), one pass per raised kind so a curb
     #    line is labelled by the surface it actually borders (an arm's verge curb and the
     #    sidewalk apron at the corner are separate lines)
     k = 0
-    for high_kind, parts in (("sidewalk", walk_parts), ("island", islands), ("verge", verge_parts)):
+    ground_layer = min(layers) if multi_layer else None
+    islands_l = [(g, ground_layer) for g in islands]
+    for high_kind, parts in (("sidewalk", walk_parts), ("island", islands_l), ("verge", verge_parts)):
         if not parts:
             continue
-        raised_kind = _clean(unary_union(parts))
-        for low_kind, low in (("drivable", drivable), ("parking", parking)):
-            if low.is_empty:
-                continue
-            for line in curb_lines(low, raised_kind):
-                model.curbs.append(CurbLine(id=f"curb_{k}", geometry=line, height=curb_height,
-                                            low_side_kind=low_kind, high_side_kind=high_kind))
-                k += 1
+        # one pass per OSM layer: a curb of the bridge deck must not be drawn down to the
+        # carriageway under it (a 6 m wall instead of a 15 cm step)
+        by_layer: dict[Optional[int], list[BaseGeometry]] = {}
+        for g, lay in parts:
+            by_layer.setdefault(lay, []).append(g)
+        for lay, geoms in by_layer.items():
+            raised_kind = _clean(unary_union(geoms))
+            lows = (("drivable", drivable_by_layer.get(lay, drivable) if multi_layer else drivable),
+                    ("parking", parking if (not multi_layer or lay == ground_layer) else Polygon()))
+            for low_kind, low in lows:
+                if low.is_empty:
+                    continue
+                for line in curb_lines(low, raised_kind):
+                    model.curbs.append(CurbLine(id=f"curb_{k}", geometry=line, height=curb_height,
+                                                low_side_kind=low_kind, high_side_kind=high_kind,
+                                                layer=lay))
+                    k += 1
 
     # 7. markings (never inside junctions) ---------------------------------------------------
     clip_out = junction_union.buffer(0.05) if not junction_union.is_empty else None
@@ -1246,7 +1331,7 @@ def build_surfaces(model: TwinModel,
             for line in _lines(g):
                 if line.length > 0.3:
                     model.markings.append(Marking(kind=mk.kind, color=mk.color, width=mk.width,
-                                                  geometry=line))
+                                                  geometry=line, layer=part_layer([r.id], [])))
 
     stats.update({
         "profile": P.name,
