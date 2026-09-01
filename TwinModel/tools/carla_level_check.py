@@ -88,15 +88,21 @@ def main() -> int:
     client.set_timeout(300.0)
     log(f"server {client.get_server_version()} client {client.get_client_version()}")
 
-    avail = client.get_available_maps()
-    result["available_maps"] = sorted(m.split("/")[-1] for m in avail)
-    match = [m for m in avail if m.split("/")[-1].lower() == args.level.lower()]
-    if not match:
-        log(f"level {args.level} not in get_available_maps(): {result['available_maps']}")
-        (out / "carla_report.json").write_text(json.dumps(result, indent=2))
-        return 2
+    try:
+        avail = client.get_available_maps()
+        result["available_maps"] = sorted(m.split("/")[-1] for m in avail)
+        match = [m for m in avail if m.split("/")[-1].lower() == args.level.lower()]
+        if not match:
+            log(f"level {args.level} not in get_available_maps(): {result['available_maps']}")
+            (out / "carla_report.json").write_text(json.dumps(result, indent=2))
+            return 2
+        target = match[0]
+    except RuntimeError as exc:  # get_available_maps has crashed servers from the rpc thread
+        log(f"get_available_maps failed ({exc}); loading by name")
+        result["notes"].append(f"get_available_maps failed: {exc}")
+        target = args.level
     t0 = time.perf_counter()
-    world = client.load_world(match[0])
+    world = client.load_world(target)
     result["load_seconds"] = round(time.perf_counter() - t0, 1)
     result["map_name"] = world.get_map().name
     log(f"load_world({match[0]}) done in {result['load_seconds']} s, map {world.get_map().name}")

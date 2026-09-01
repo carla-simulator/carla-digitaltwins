@@ -318,15 +318,27 @@ def place(world, manifest, mesh_paths, name):
     n_sp = 0
     for sp in manifest["spawn_points"]:
         actor = spawn(world, unreal.VehicleSpawnPoint, unreal.Vector(sp["x"], sp["y"], sp["z"]),
-                      unreal.Rotator(0.0, sp["yaw"], 0.0), "SP_%s_%d" % (sp["road"], sp["lane"]),
+                      unreal.Rotator(roll=0.0, pitch=0.0, yaw=sp["yaw"]), "SP_%s_%d" % (sp["road"], sp["lane"]),
                       "Twin/SpawnPoints")
         if actor is not None:
+            # always loaded: ACarlaGameModeBase::StoreSpawnPoints iterates the world at
+            # InitGame, before any WP streaming - a spatially loaded spawn point is invisible
+            # and CARLA would fall back to xodr-topology spawn points
+            try:
+                actor.set_editor_property("is_spatially_loaded", False)
+            except Exception:
+                pass
             n_sp += 1
     # player start at the first spawn point (the spectator starts here)
     if manifest["spawn_points"]:
         sp = manifest["spawn_points"][0]
-        spawn(world, unreal.PlayerStart, unreal.Vector(sp["x"], sp["y"], sp["z"] + 200.0),
-              unreal.Rotator(0.0, sp["yaw"], 0.0), "PlayerStart", "Twin")
+        ps = spawn(world, unreal.PlayerStart, unreal.Vector(sp["x"], sp["y"], sp["z"] + 200.0),
+                   unreal.Rotator(roll=0.0, pitch=0.0, yaw=sp["yaw"]), "PlayerStart", "Twin")
+        if ps is not None:
+            try:
+                ps.set_editor_property("is_spatially_loaded", False)
+            except Exception:
+                pass
     # sky (sun, atmosphere, fog, skylight): CarlaGameModeBase would spawn it on a WP map without
     # an ASkyBase, but placing it makes the level self-contained (and lit in the editor too)
     sky_cls = unreal.load_class(None, SKY_BP)

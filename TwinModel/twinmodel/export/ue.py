@@ -34,7 +34,8 @@ from shapely.geometry.base import BaseGeometry
 
 from .. import profiles
 from ..model import Building, CurbLine, Road, TwinModel, road_osm_layer
-from .mesh import MATERIALS, _add_marking, _add_surface, _polygons, _z, triangulate_polygon
+from .mesh import (MATERIALS, _add_marking, _add_surface, _grid_split, _polygons, _z,
+                   triangulate_polygon)
 
 log = logging.getLogger("twinmodel.export.ue")
 
@@ -56,18 +57,22 @@ KIND_MATERIAL: dict[str, tuple[str, str]] = {
     "marking_white": ("marking_white", "RoadLine"),
     "marking_yellow": ("marking_yellow", "RoadLine"),
     "building": ("building", "Building"),
+    "groundplane": ("ground", "Terrain"),
 }
 # glTF base colours (preview only; the baker swaps in CARLA materials)
 _BASE_COLORS = dict(MATERIALS)
 _BASE_COLORS["building"] = (0.72, 0.66, 0.58)
+_BASE_COLORS["groundplane"] = (0.45, 0.50, 0.40)
 
 ZEBRA_STRIPE = 0.5   # m, stripe width along the crossing
 ZEBRA_GAP = 0.5      # m
 ZEBRA_MIN_LEN = 2.0  # m, crossings shorter than this get no stripes
 BUILDING_SINK = 0.3  # m, walls start this far below the lowest datum sample so no gap shows
+GROUND_PLANE_DROP = 0.35  # m below the datum: closes the block courtyards without z-fighting
+GROUND_PLANE_GRID = 20.0  # m subdivision so the slab follows the datum
 SPAWN_SPACING = 30.0  # m between spawn points along a lane
 SPAWN_MARGIN = 10.0   # m kept free at both road ends
-SPAWN_Z = 0.3         # m above the datum
+SPAWN_Z = 0.5         # m above the datum (CARLA vehicles need ~0.5 m clearance to spawn)
 
 
 # --------------------------------------------------------------------------- mesh builder
@@ -492,6 +497,27 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
         kind = "marking_yellow" if mk.color == "yellow" else "marking_white"
         cen = mk.geometry.centroid
         _add_marking(mb(mk.layer, kind, _tile_index(cen.x, cen.y, tile_m)), model, mk, subdivide)
+    # a datum-following slab under everything: block courtyards and map borders would
+    # otherwise be holes straight to the sky
+    minx, miny, maxx, maxy = None, None, None, None
+    for srf in model.surfaces:
+        b0 = srf.geometry.bounds
+        if minx is None:
+            minx, miny, maxx, maxy = b0
+        else:
+            minx, miny = min(minx, b0[0]), min(miny, b0[1])
+            maxx, maxy = max(maxx, b0[2]), max(maxy, b0[3])
+    if minx is not None:
+        slab = box(minx - 5.0, miny - 5.0, maxx + 5.0, maxy + 5.0)
+        for tile, piece in _tiles_of(slab, tile_m):
+            b = mb(0, "groundplane", tile)
+            for poly in _grid_split(piece, GROUND_PLANE_GRID):
+                verts, faces = triangulate_polygon(poly)
+                if len(faces) == 0:
+                    continue
+                zz = np.asarray(model.sample_z(verts[:, 0], verts[:, 1]), dtype=np.float64)
+                base0 = b.add_vertices(np.column_stack([verts, zz - GROUND_PLANE_DROP]))
+                b.add_faces("groundplane", faces, base0)
     if buildings:
         for b in model.buildings:
             cen = b.footprint.centroid
