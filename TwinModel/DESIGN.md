@@ -419,6 +419,19 @@ divided-carriageway and sliver models disabled, for before/after comparisons on 
   their normal (±2.5 m max) to the mask edge, smooth, record `source="imagery"` and IoU before/
   after in the metadata. Never move a boundary further than 2.5 m and never make a driving lane
   narrower than 2.5 m — the lane graph is the authority on topology, imagery only on shape.
+- Refinement is **per layer** (`refine.refine_layers`, what `build` calls): the ortho only shows
+  the topmost surface, so only the ground layer (`refine.ground_layer`: layer 0, or the single
+  untagged layer) is refined. The footprint of the elevated structures (every surface on
+  layer > 0, grown by `refine.DECK_MASK_MARGIN_M` = 1.5 m for parapets and shadow) is cut out
+  of the ground mask: its pixels train neither class of the classifier
+  (`classical_road_mask(ignore=)`), the mask inside it *is* the ground prior
+  (`mask_out_decks`) and the ground boundary vertices under it are frozen
+  (`refine_drivable(freeze=)`) — a street keeps its OSM geometry under a viaduct and is refined
+  everywhere else. Decks (layer > 0 / `bridge=*`) and tunnels (layer < 0) keep their lane-graph
+  surfaces; the ground above a tunnel is refined as usual (nothing is masked there).
+  `build_surfaces(refined_drivable={layer: polygon})` replaces only the listed layers and never
+  fuses layers (a bare polygon is taken as the ground layer's). Stats: `refine.layers`
+  (refined / kept / masked m²), `surfaces.drivable_area_by_layer`, `refined_iou_by_layer`.
 
 ## Integration (after A–D) — `twinmodel build` end-to-end on the default bbox
 

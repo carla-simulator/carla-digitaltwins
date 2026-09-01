@@ -20,8 +20,9 @@
             interpolated between their incoming/outgoing road ends, signal z set.
 3. Imagery  ``fetch_ortho`` (kept for the preview and for refinement).
 4. Surfaces ``build_surfaces``; then (unless ``--no-refine``) ``road_mask`` ->
-            ``refine_drivable`` -> ``build_surfaces(refined_drivable=...)``; refinement is
-            rejected (unrefined surfaces kept) when it drops ``lane_in_drivable`` < 0.98.
+            ``refine_layers`` (ground layer only, decks masked out and kept, see refine.py)
+            -> ``build_surfaces(refined_drivable={layer: ...})``; refinement is rejected
+            (unrefined surfaces kept) when it drops ``lane_in_drivable`` < 0.98.
 5. Exports  ``<name>.twin/``, ``<name>.xodr``, ``<name>.obj/.mtl``, previews (with/without
             ortho), one zoom per largest junction, DEM and mask quicklooks.
 6. Validate ``validate(...)`` -> ``report.json`` (+ ``violations.geojson``); exit 1 when the
@@ -745,11 +746,6 @@ class _Timer:
             log.info("== %s done in %.2f s", name, dt)
 
 
-def _drivable_union(model: TwinModel):
-    geoms = [s.geometry for s in model.surfaces_of("drivable") if not s.geometry.is_empty]
-    return shapely.union_all(geoms) if geoms else None
-
-
 def _largest_junctions(model: TwinModel, n: int) -> list:
     js = [j for j in model.junctions if j.polygon is not None and not j.polygon.is_empty]
     js.sort(key=lambda j: j.polygon.area, reverse=True)
@@ -985,27 +981,35 @@ def _build_pipeline(args: argparse.Namespace, osm, bbox, frame: LocalFrame, out:
         elif ortho is None:
             refine_meta["reason"] = "no ortho"
         else:
-            from .refine import lane_keep_out, road_mask, refine_drivable, save_overlay
-            prior = _drivable_union(model)
-            if prior is None:
+            from .refine import (deck_footprint, drivable_by_layer, ground_layer, road_mask,
+                                 refine_layers, save_overlay)
+            groups = drivable_by_layer(model)
+            if not groups:
                 refine_meta["reason"] = "no drivable surfaces"
             else:
+                # layer-aware (refine.py "layers"): only the ground layer is refined, with the
+                # elevated decks' footprint masked out; decks and tunnels keep the lane graph
+                ground = ground_layer(groups)
+                prior = groups[ground]
                 t0 = time.perf_counter()
-                mask = road_mask(ortho, prior=prior, method=args.mask_method)
+                mask = road_mask(ortho, prior=prior, method=args.mask_method,
+                                 ignore=deck_footprint(model))
                 refine_meta["mask_seconds"] = round(time.perf_counter() - t0, 2)
                 refine_meta["mask_method"] = args.mask_method
                 refine_meta["mask_fraction"] = float(mask.mean())
                 t0 = time.perf_counter()
-                refined, rstats = refine_drivable(prior, mask, ortho, keep=lane_keep_out(model))
+                refined_layers, rstats, mask = refine_layers(model, ortho, mask=mask)
+                refined = refined_layers[ground]
                 refine_meta["refine_seconds"] = round(time.perf_counter() - t0, 2)
                 refine_meta["stats"] = _json_safe(rstats)
+                refine_meta["layers"] = _json_safe(rstats.get("layers", {}))
                 try:
                     p = out / f"{args.name}_mask.png"
                     save_overlay(ortho, mask, p, prior=prior, refined=refined)
                     outputs["mask_png"] = str(p)
                 except Exception as exc:  # noqa: BLE001 - quicklook only
                     log.warning("mask overlay failed: %s", exc)
-                build_surfaces(model, refined_drivable=refined)
+                build_surfaces(model, refined_drivable=refined_layers)
                 refined_stats = dict(model.metadata.get("surfaces", {}))
                 xodr_text = export_xodr(model)
                 check = validate_mod.validate(model, xodr_text, step=args.step)
