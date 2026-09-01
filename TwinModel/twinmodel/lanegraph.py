@@ -910,13 +910,23 @@ def is_bridge(tags: dict[str, str]) -> bool:
     return tags.get("bridge") not in (None, "", "no")
 
 
-def _is_underground(tags: dict[str, str]) -> bool:
-    """Not part of the surface twin: tunnels, and ``layer < 0`` *service* ways (the aisles and
-    ramps of an underground car park). A public road on ``layer=-1`` without a tunnel tag is an
-    underpass — a surface feature that must be kept, and whose z comes from its own profile."""
-    if tags.get("tunnel") in ("yes", "building_passage"):
+def is_tunnel(tags: dict[str, str]) -> bool:
+    """A way that runs underground: ``tunnel=*`` (anything but ``no`` / ``building_passage``)
+    or a negative ``layer``. See ``model.road_is_tunnel``."""
+    if tags.get("tunnel") not in (None, "", "no", "building_passage"):
         return True
-    return osm_layer(tags) < 0 and tags.get("highway") == "service"
+    return osm_layer(tags) < 0
+
+
+def _is_underground(tags: dict[str, str]) -> bool:
+    """Not part of the surface twin: ``tunnel=building_passage`` (a street through a building
+    at ground level, no street space of its own), and *service* ways in a tunnel or on
+    ``layer < 0`` (the aisles and ramps of an underground car park). A public road in a tunnel
+    (``tunnel=yes``, or ``layer=-1`` without a tunnel tag: an underpass) is kept — it is a
+    road of the twin whose z comes from its own profile (``cli.apply_tunnel_profiles``)."""
+    if tags.get("tunnel") == "building_passage":
+        return True
+    return tags.get("highway") == "service" and is_tunnel(tags)
 
 
 def is_parking_aisle(tags: dict[str, str]) -> bool:
@@ -1461,8 +1471,10 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             # A carriageway of a divided arterial has no building face on the median side, and a
             # freeway has no street space (buildings sit behind the right of way), so the canyon
             # cross-section (which needs both faces) is not measured for them either.
+            # ... and a tunnel runs *under* the buildings: no faces, no canyon
             faces = (None if (aisle or info is not None
-                              or road.highway in P.lane.grade_separated_classes)
+                              or road.highway in P.lane.grade_separated_classes
+                              or is_tunnel(head.way.tags))
                      else _measure_faces(road, bld, blockers_for(ch, xy)))
             if faces is not None:
                 canyon_faces[road.id] = faces

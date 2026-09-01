@@ -241,6 +241,23 @@ class ElevationRules:
     # over how much of the approach road the deck-to-approach step is faded out
     # (``cli.weld_deck_abutments``)
     abutment_blend_m: float = 40.0
+    # tunnels / underpasses (``tunnel=yes`` or ``layer < 0``, ``cli.apply_tunnel_profiles``): the
+    # mirror image of a deck. The DTM over a tunnel is the ground above it, so the tunnel road
+    # runs straight between its portals (the z of the approach roads) and is sunk wherever a
+    # road of a higher layer passes over it until it sits ``min_clearance_m`` below that road
+    # (5 m of interior height + about a metre of ceiling slab). The dip ramps down and up at no
+    # more than ``tunnel_max_grade`` (AASHTO tunnels: 3-4 % desirable, 8 % is the ceiling for
+    # a short urban underpass); when the ramp reaches a portal, the approach is pulled down
+    # into a trench over ``portal_blend_m`` (``cli.weld_deck_abutments``, or the length the
+    # grade needs, whichever is longer).
+    portal_blend_m: float = 40.0
+    tunnel_max_grade: float = 0.08
+    # the enclosure box the mesh draws over a tunnel road (``surfaces.tunnel_enclosure``):
+    # interior clear height (US: 16 ft 6 in = 5.03 m minimum for a highway tunnel) and wall
+    # thickness (1 ft 4 in) — walls and ceiling are their own surface kinds so an exporter
+    # can skip them
+    tunnel_height_m: float = 5.0
+    tunnel_wall_m: float = 0.4
 
 
 @dataclass(frozen=True)

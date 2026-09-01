@@ -293,9 +293,16 @@ def test_drivable_surfaces_are_separated_by_layer(model):
 
 
 def test_layer_minus_one_public_road_is_kept(frame):
-    """An underpass tagged ``layer=-1`` without ``tunnel`` is a surface road and must survive;
-    only tunnels and the layer<0 *service* aisles of an underground car park are dropped."""
-    from twinmodel.lanegraph import _is_underground
+    """An underpass tagged ``layer=-1`` without ``tunnel`` is a road of the twin and must
+    survive, and so is a public road in a tunnel (``cli.apply_tunnel_profiles`` sinks it);
+    only the layer<0 / tunnel *service* aisles of an underground car park and a street through
+    a building (``building_passage``) are dropped."""
+    from twinmodel.lanegraph import _is_underground, is_tunnel
     assert not _is_underground({"highway": "secondary", "layer": "-1"})
-    assert _is_underground({"highway": "secondary", "tunnel": "yes"})
+    assert not _is_underground({"highway": "secondary", "tunnel": "yes"})
+    assert is_tunnel({"highway": "secondary", "tunnel": "yes"})
+    assert is_tunnel({"highway": "secondary", "layer": "-1"})
+    assert not is_tunnel({"highway": "secondary", "tunnel": "building_passage"})
+    assert _is_underground({"highway": "secondary", "tunnel": "building_passage"})
     assert _is_underground({"highway": "service", "layer": "-1"})
+    assert _is_underground({"highway": "service", "tunnel": "yes", "service": "parking_aisle"})
