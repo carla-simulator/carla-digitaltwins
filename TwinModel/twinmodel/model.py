@@ -24,7 +24,8 @@ SCHEMA_VERSION = "0.1"
 
 LaneType = Literal["driving", "sidewalk", "shoulder", "parking", "biking", "median", "verge", "none"]
 Direction = Literal["forward", "backward"]
-SurfaceKind = Literal["drivable", "sidewalk", "island", "crossing", "median", "parking", "ground", "verge"]
+SurfaceKind = Literal["drivable", "sidewalk", "island", "crossing", "median", "parking", "ground", "verge",
+                      "tunnel_wall", "tunnel_ceiling"]
 SurfaceSource = Literal["osm_tags", "area_highway", "imagery"]
 SignalKind = Literal["traffic_light", "stop", "yield", "speed_limit", "crosswalk"]
 MarkingKind = Literal["solid", "broken"]
@@ -112,6 +113,17 @@ def road_osm_layer(road: "Road") -> int:
 def road_is_bridge(road: "Road") -> bool:
     """True when the road is a bridge deck (OSM ``bridge=*``, anything but ``no``)."""
     return (road.tags or {}).get("bridge") not in (None, "", "no")
+
+
+def road_is_tunnel(road: "Road") -> bool:
+    """True when the road runs underground: OSM ``tunnel=*`` (anything but ``no`` and
+    ``building_passage``, which is a street through a building at ground level) or a negative
+    ``layer`` — an underpass is often tagged only with the layer. Its z comes from its own
+    profile, not from the DTM above it (``cli.apply_tunnel_profiles``)."""
+    tags = road.tags or {}
+    if tags.get("tunnel") not in (None, "", "no", "building_passage"):
+        return True
+    return road_osm_layer(road) < 0
 
 
 @dataclass

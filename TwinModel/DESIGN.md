@@ -537,8 +537,52 @@ that layer is within `datum.LAYER_FALLBACK_M` (20 m) before falling back to the 
 any layer — a deck's surface polygon reaches a little past its coverage buffer, and the plain
 fallback dropped those vertices onto the street 6 m below, a cliff at the end of the viaduct.
 
+**Tunnels.** A road with ``tunnel=*`` (anything but ``no`` / ``building_passage``) or
+``layer < 0`` is a tunnel (``model.road_is_tunnel``, ``cli.tunnel_road_ids``) — kept as a road
+of the twin (``lanegraph._is_underground`` only drops *service* ways underground: car-park
+aisles and their ramps). The mirror image of a deck, in every part of the pipeline:
+
+* *Elevation* (``cli.apply_tunnel_profiles``): the DTM over a tunnel is the ground above it,
+  so a tunnel chain never samples it. It runs straight between its portals (anchor z = the
+  linked approach road's contact; a chain end at a junction takes the DEM there) and is sunk
+  wherever a plain road of a higher layer passes over it (``_crossing_samples``, adjacency
+  excluded exactly as for decks) until it sits ``ElevationRules.min_clearance_m`` below that
+  road (``tunnel_height_m`` 5 m of interior + ~1 m of ceiling slab): the profile becomes
+  ``min(straight line, envelope)``, the envelope rising from every cover requirement at
+  ``ElevationRules.tunnel_max_grade`` (8 %) — a dip with ramps at the maximum grade. When the
+  tunnel is too short for the ramp the portal itself sinks and ``weld_deck_abutments``
+  (``what="portal"``) pulls the approach down into a trench over ``portal_blend_m`` or the
+  length the grade needs, whichever is longer; the approach also never reads the DEM *past*
+  its portal (``road_profile_from_dem(hold=...)`` holds the end sample instead of extending
+  into the hill). A chain end the bbox cut (no approach) stays sunk: its anchor is the DEM
+  there minus the clearance — the mirror of a clipped deck being lifted.
+* *Datum*: ``RoadDatum.z(x, y, layer=-1)`` answers on the tunnel's own layer, and a tunnel
+  road never answers for the surface — a query for ``layer >= 0`` or with no layer skips
+  negative-layer roads entirely (coverage and the far fallback), so the ground above a tunnel
+  never drops into it.
+* *Surfaces*: the tunnel gets its own negative-layer ``drivable`` / ``sidewalk`` / curbs /
+  markings (the per-layer machinery decks already use), except that buildings do not cut a
+  tunnel's sidewalk (it runs under them) and a tunnel road measures no street canyon. The
+  ground above a tunnel stays intact — a tunnel is under the ground, so unlike a deck it
+  neither covers nor attracts ground fill (``ground``, islands and parking sit on
+  ``surfaces.ground_layer_of``, never on a negative layer) — except the *open cut*
+  (``surfaces.tunnel_trench``): wherever the DEM is less than ``tunnel_height_m`` above the
+  tunnel road (the ceiling would stand above the ground: the portal ramps), the ground is cut
+  back. ``surfaces.tunnel_enclosure`` adds a box so the mesh reads as a tunnel: a
+  ``tunnel_ceiling`` over the street space at ``tunnel_height_m`` above the tunnel datum (cut
+  back over the trench) and a ``tunnel_wall`` ring of ``tunnel_wall_m``, both their own
+  surface kinds so an exporter can skip them; ``export.mesh`` extrudes the wall rings into
+  vertical faces and writes the two extra OBJ groups/materials only when they exist (a twin
+  without a tunnel is byte-identical to before).
+* *Validation*: ``grade_separation`` handles under-crossings unchanged (the tunnel is the
+  lower layer of the pair), and ``z_error`` compares a tunnel waypoint against the tunnel
+  datum (``sample_z(layer=...)``), not the ground.
+
 `tools/gradesep_preview.py TWIN OUT.png CX CY HALF` renders an oblique 3D view of a crossing
-(surfaces coloured by layer, tightest z gap annotated) for eyeballing all of the above.
+(surfaces coloured by layer, tightest non-adjacent z gap annotated, decks and tunnels alike)
+for eyeballing all of the above; `tools/tunnel_profile.py TWIN OUT.png` draws the side view of
+every tunnel chain — its z along s under the DEM, the crossing roads, the approaches and the
+portal welds.
 
 ## Rules for all workers
 

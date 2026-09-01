@@ -3,7 +3,9 @@
 DESIGN.md §Mesh. The .obj is written in model space (x east, y north, z up, metres); whoever
 loads it into Unreal does ``(x, -y, z) * 100``. Groups: ``drivable``, ``sidewalk``, ``island``,
 ``crossing``, ``median``, ``verge``, ``parking``, ``ground``, ``curb``, ``marking_white``,
-``marking_yellow``.
+``marking_yellow``; a twin with a tunnel also gets ``tunnel_wall`` (vertical faces extruded
+from the wall ring, ``elevation.tunnel_height_m`` high) and ``tunnel_ceiling`` (the enclosure
+roof), both on the tunnel's own datum layer — skip the two groups for a bare road surface.
 
 Marking width / dash pattern / lift and the elevation subdivision grid come from the active
 :mod:`twinmodel.profiles` profile (read at export time).
@@ -41,6 +43,12 @@ MATERIALS: dict[str, tuple[float, float, float]] = {
     "curb": (0.50, 0.50, 0.50),
     "marking_white": (0.95, 0.95, 0.95),
     "marking_yellow": (0.95, 0.80, 0.15),
+}
+# only written (obj groups and mtl) when the twin has a tunnel, so a twin without one is
+# byte-identical to before they existed
+TUNNEL_MATERIALS: dict[str, tuple[float, float, float]] = {
+    "tunnel_wall": (0.44, 0.44, 0.46),
+    "tunnel_ceiling": (0.33, 0.33, 0.36),
 }
 
 
@@ -183,7 +191,7 @@ class _ObjWriter:
             f.write(f"mtllib {mtl_name}\n")
             for x, y, z in self.vertices:
                 f.write(f"v {x:.4f} {y:.4f} {z:.4f}\n")
-            for group in MATERIALS:
+            for group in list(MATERIALS) + list(TUNNEL_MATERIALS):
                 faces = self.groups.get(group)
                 if not faces:
                     continue
@@ -192,10 +200,12 @@ class _ObjWriter:
                     f.write(f"f {a} {b} {c}\n")
 
 
-def _write_mtl(path_mtl: Path) -> None:
+def _write_mtl(path_mtl: Path, groups: Iterable[str] = ()) -> None:
+    used = set(groups)
     with open(path_mtl, "w") as f:
         f.write("# twinmodel materials\n")
-        for name, (r, g, b) in MATERIALS.items():
+        for name, (r, g, b) in list(MATERIALS.items()) + [
+                (n, c) for n, c in TUNNEL_MATERIALS.items() if n in used]:
             f.write(f"newmtl {name}\nKa {r:.3f} {g:.3f} {b:.3f}\nKd {r:.3f} {g:.3f} {b:.3f}\n"
                     f"Ks 0.050 0.050 0.050\nNs 10\nd 1.0\nillum 2\n\n")
 
@@ -224,6 +234,36 @@ def _add_surface(w: _ObjWriter, model: TwinModel, geom: BaseGeometry, z_offset: 
         base = w.add_vertices(xyz)
         w.add_faces(group, faces, base)
         n += len(faces)
+    return n
+
+
+def _add_wall(w: _ObjWriter, model: TwinModel, s: Surface, subdivide: bool) -> int:
+    """A ``tunnel_wall`` surface: every ring of its polygons extruded into vertical faces from
+    the tunnel datum (its layer) up by ``tags["height"]`` — the inside and outside faces of the
+    wall ring, so the enclosure is closed from both sides."""
+    height = float(s.tags.get("height") or profiles.get().elevation.tunnel_height_m)
+    layer = s.tags.get("layer")
+    n = 0
+    for poly in _polygons(s.geometry):
+        for ring in [poly.exterior] + list(poly.interiors):
+            line = LineString(ring.coords)
+            if subdivide:
+                line = line.segmentize(profiles.get().elevation.mesh_grid_m)
+            xy = np.asarray(line.coords, dtype=np.float64)[:, :2]
+            if len(xy) < 2:
+                continue
+            z0 = _z(model, xy, 0.0, layer)
+            low = np.column_stack([xy, z0])
+            high = np.column_stack([xy, z0 + height])
+            base = w.add_vertices(np.concatenate([low, high], axis=0))
+            m = len(xy)
+            faces = []
+            for i in range(m - 1):
+                a, b, c, d = i, i + 1, m + i + 1, m + i
+                faces.append((a, b, c))
+                faces.append((a, c, d))
+            w.add_faces("tunnel_wall", np.asarray(faces, dtype=np.int64), base)
+            n += len(faces)
     return n
 
 
@@ -287,7 +327,10 @@ def export_obj(model: TwinModel, path_obj: Path | str) -> None:
     w = _ObjWriter()
     counts: dict[str, int] = {}
     for s in model.surfaces:
-        group = s.kind if s.kind in MATERIALS else "drivable"
+        if s.kind == "tunnel_wall":
+            counts[s.kind] = counts.get(s.kind, 0) + _add_wall(w, model, s, subdivide)
+            continue
+        group = s.kind if (s.kind in MATERIALS or s.kind in TUNNEL_MATERIALS) else "drivable"
         counts[group] = counts.get(group, 0) + _add_surface(
             w, model, s.geometry, s.z_offset, group, subdivide, s.tags.get("layer"))
     for c in model.curbs:
@@ -297,7 +340,7 @@ def export_obj(model: TwinModel, path_obj: Path | str) -> None:
         counts[group] = counts.get(group, 0) + _add_marking(w, model, mk, subdivide)
     path_obj.parent.mkdir(parents=True, exist_ok=True)
     w.write(path_obj, path_mtl.name)
-    _write_mtl(path_mtl)
+    _write_mtl(path_mtl, w.groups)
     log.info("wrote %s (%d vertices, z from %s, faces per group: %s)", path_obj, len(w.vertices),
              "road datum" if datum is not None else ("dem" if model.elevation is not None else "0"),
              counts)
@@ -314,6 +357,8 @@ PREVIEW_COLORS = {
     "median": "#8fa382",
     "verge": "#5f8a48",
     "parking": "#55555a",
+    "tunnel_ceiling": "#7a6f8a",
+    "tunnel_wall": "#4a4455",
 }
 SIGNAL_STYLE = {
     "traffic_light": dict(marker="o", color="#ff3b30", ms=6),
@@ -376,9 +421,15 @@ def export_preview_png(model: TwinModel, path_png: Path | str, ortho: np.ndarray
     order = {"ground": 1.5, "drivable": 2, "parking": 2.5, "island": 3, "median": 3, "verge": 3,
              "sidewalk": 3, "crossing": 4}
     for s in model.surfaces:
+        under = (s.tags.get("layer") or 0) < 0   # a tunnel: drawn translucent under everything
         for p in _polygons(s.geometry):
+            if s.kind == "tunnel_ceiling":
+                patch(p, facecolor="none", edgecolor=PREVIEW_COLORS[s.kind], lw=0.8, ls="--",
+                      zorder=1.2)
+                continue
             patch(p, facecolor=PREVIEW_COLORS.get(s.kind, "#888"), edgecolor="none",
-                  alpha=0.85 if ortho is not None else 1.0, zorder=order.get(s.kind, 2))
+                  alpha=0.45 if under else (0.85 if ortho is not None else 1.0),
+                  zorder=1.1 if under else order.get(s.kind, 2))
     for c in model.curbs:
         xy = np.asarray(c.geometry.coords)[:, :2]
         ax.plot(xy[:, 0], xy[:, 1], color="#111111", lw=0.9, zorder=5)
