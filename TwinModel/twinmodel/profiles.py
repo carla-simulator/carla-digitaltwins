@@ -41,6 +41,12 @@ class ClassDefaults:
     verge: Optional[float] = None      # planting strip between curb and sidewalk (US); None = none
     parking: ParkingSides = "none"     # on-street parking assumed when tags are silent
     center_marking: bool = True        # two-way roads get a centre line
+    # paved shoulders (freeway/expressway classes; exported as OpenDRIVE ``shoulder`` lanes and
+    # part of the drivable surface). ``shoulder`` is the outside (right-hand) shoulder of a
+    # carriageway, ``shoulder_inner`` the median-side one of a divided/oneway carriageway.
+    # None = no shoulder lane. Undivided two-way roads get ``shoulder`` on both sides.
+    shoulder: Optional[float] = None
+    shoulder_inner: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +62,12 @@ class LaneRules:
     parking_max: float
     drivable_classes: frozenset[str]
     service_min_length: float  # unnamed service ways shorter than this are not roads
+    # grade-separated classes: ways of these classes only ever meet at a gore (merge/diverge),
+    # never at an at-grade intersection, so their intersection nodes do not cluster
+    # (JunctionRules.gore_cluster_m instead of cluster_m) and get no crossings/signals.
+    grade_separated_classes: frozenset[str] = frozenset({"motorway", "motorway_link"})
+    # ramp classes: an end of one of these on a grade-separated mainline is a gore
+    link_classes: frozenset[str] = frozenset({"motorway_link", "trunk_link"})
 
     def for_class(self, highway: str) -> ClassDefaults:
         return self.classes.get(highway, self.fallback)
@@ -125,6 +137,13 @@ class JunctionRules:
     # line, the open corner needs no receding face) or "recess" (only when one of the two arms'
     # canyon face steps back past its end; 90-degree corners never open)
     corner_opening: Literal["always", "recess"] = "recess"
+    # freeway gores (LaneRules.grade_separated_classes): the clustering radius for intersection
+    # nodes on those ways. A ramp gore is a point, not a plaza: 0 m keeps every gore its own
+    # junction instead of swallowing the whole speed-change lane into one 90 m "intersection".
+    gore_cluster_m: float = 0.0
+    # a gore junction gets no plaza, no chamfer, no sidewalk band and no signals; its cover is
+    # the union of the arm cross sections and the connecting roads' carriageways
+    gore_cover: Literal["convex", "bounded"] = "bounded"
 
     # ---- divided (dual) carriageways -------------------------------------------------------
     # A divided arterial is mapped in OSM as two ``oneway=yes`` ways with the same name/ref
@@ -202,6 +221,11 @@ class ElevationRules:
     junction_blend_m: float
     connecting_blend_m: float
     mesh_grid_m: float          # subdivision grid for surfaces when elevation is present
+    # bridge decks: a DTM has the deck removed, so the deck z is a straight line between its
+    # abutments. The abutment z is the highest DEM sample within this distance of the deck end
+    # (outward along the approach): the DTM steps from deck level down into the trench of the
+    # road below within a couple of cells, and the top of that step is the abutment.
+    bridge_abutment_m: float = 12.0
 
 
 @dataclass(frozen=True)
@@ -237,10 +261,13 @@ class StreetProfile:
 # --------------------------------------------------------------------------- EU dense (Eixample) — the 2026-09-01 values
 
 _EU_CLASSES = {
-    "motorway":       ClassDefaults(3.5,  2, None),
-    "motorway_link":  ClassDefaults(3.5,  1, None),
-    "trunk":          ClassDefaults(3.5,  2, None),
-    "trunk_link":     ClassDefaults(3.5,  1, None),
+    # freeway classes: no sidewalk / verge / parking, hard shoulder outside + a narrow
+    # median-side shoulder (Spanish IC-1: arcén exterior 2.5 m, arcén interior 1.0 m;
+    # ramps 1.5 m / 0.75 m)
+    "motorway":       ClassDefaults(3.5,  2, None, shoulder=2.5, shoulder_inner=1.0),
+    "motorway_link":  ClassDefaults(3.5,  1, None, shoulder=1.5, shoulder_inner=0.75),
+    "trunk":          ClassDefaults(3.5,  2, None, shoulder=1.5),
+    "trunk_link":     ClassDefaults(3.5,  1, None, shoulder=1.0),
     "primary":        ClassDefaults(3.5,  2, 2.0),
     "primary_link":   ClassDefaults(3.5,  1, 2.0),
     "secondary":      ClassDefaults(3.25, 2, 2.0),
@@ -299,7 +326,8 @@ EU_DENSE = StreetProfile(
                                  building_pad_m=0.3, face_tol_m=1.5, blocker_min_dist_m=1.0,
                                  ground_reach_m=12.0, sidewalk_to_face_max_m=12.0),
     elevation=ElevationRules(resample_m=2.0, smooth_window_m=10.0, datum_max_dist_m=25.0,
-                             junction_blend_m=20.0, connecting_blend_m=15.0, mesh_grid_m=5.0),
+                             junction_blend_m=20.0, connecting_blend_m=15.0, mesh_grid_m=5.0,
+                             bridge_abutment_m=12.0),   # ICGC MDT 2 m: ~6 cells of abutment ramp
     sources=DataSources(ortho=("icgc", "ign_es", "osm_tiles"), dem=("icgc_mdt2m", "ign_wcs", "opentopo", "copernicus_aws")),
 )
 
@@ -312,10 +340,15 @@ EU_DENSE = StreetProfile(
 # marking width 4–6 in. Crosswalks 6 ft minimum, 10 ft typical (MUTCD 3B.18).
 
 _US_URBAN_CLASSES = {
-    "motorway":       ClassDefaults(12 * FT, 6, None, center_marking=False),
-    "motorway_link":  ClassDefaults(12 * FT, 1, None, center_marking=False),
-    "trunk":          ClassDefaults(12 * FT, 4, 8 * FT),
-    "trunk_link":     ClassDefaults(12 * FT, 1, 8 * FT),
+    # freeway classes: no sidewalk / verge / parking (PROWAG does not apply, pedestrians are
+    # prohibited); AASHTO Green Book 7th ed. shoulders: 10 ft outside / 4 ft median-side on a
+    # 4-lane freeway, 8 ft / 4 ft on ramps, 8 ft on an expressway (trunk)
+    "motorway":       ClassDefaults(12 * FT, 6, None, center_marking=False,
+                                    shoulder=10 * FT, shoulder_inner=4 * FT),
+    "motorway_link":  ClassDefaults(12 * FT, 1, None, center_marking=False,
+                                    shoulder=8 * FT, shoulder_inner=4 * FT),
+    "trunk":          ClassDefaults(12 * FT, 4, 8 * FT, shoulder=8 * FT),
+    "trunk_link":     ClassDefaults(12 * FT, 1, 8 * FT, shoulder=6 * FT),
     "primary":        ClassDefaults(11 * FT, 4, 8 * FT, parking="both"),
     "primary_link":   ClassDefaults(11 * FT, 1, 8 * FT),
     "secondary":      ClassDefaults(11 * FT, 2, 6 * FT, parking="both"),
@@ -370,7 +403,9 @@ US_URBAN = StreetProfile(
                                  building_pad_m=0.3, face_tol_m=1.5, blocker_min_dist_m=1.0,
                                  ground_reach_m=15.0, sidewalk_to_face_max_m=15.0),
     elevation=ElevationRules(resample_m=2.0, smooth_window_m=10.0, datum_max_dist_m=25.0,
-                             junction_blend_m=20.0, connecting_blend_m=15.0, mesh_grid_m=5.0),
+                             junction_blend_m=20.0, connecting_blend_m=15.0, mesh_grid_m=5.0,
+                             # 3DEP 1 m hydro-flattened: the abutment ramp smears over ~40 ft
+                             bridge_abutment_m=12.0),
     sources=DataSources(ortho=("naip", "osm_tiles"), dem=("usgs_3dep", "opentopo", "copernicus_aws")),
 )
 
@@ -381,10 +416,14 @@ US_URBAN = StreetProfile(
 # behind a 6 ft planting strip, buildings set back (canyon regime rarely triggers).
 
 _US_SUBURBAN_CLASSES = {
-    "motorway":       ClassDefaults(12 * FT, 6, None, center_marking=False),
-    "motorway_link":  ClassDefaults(12 * FT, 1, None, center_marking=False),
-    "trunk":          ClassDefaults(12 * FT, 4, None),
-    "trunk_link":     ClassDefaults(12 * FT, 1, None),
+    # freeway classes as US_URBAN: 10 ft outside / 4 ft median-side shoulders, 8 ft / 4 ft on
+    # ramps, 8 ft on an expressway (AASHTO Green Book 7th ed.); no sidewalk / verge / parking
+    "motorway":       ClassDefaults(12 * FT, 6, None, center_marking=False,
+                                    shoulder=10 * FT, shoulder_inner=4 * FT),
+    "motorway_link":  ClassDefaults(12 * FT, 1, None, center_marking=False,
+                                    shoulder=8 * FT, shoulder_inner=4 * FT),
+    "trunk":          ClassDefaults(12 * FT, 4, None, shoulder=8 * FT),
+    "trunk_link":     ClassDefaults(12 * FT, 1, None, shoulder=6 * FT),
     "primary":        ClassDefaults(12 * FT, 4, 5 * FT, verge=6 * FT),
     "primary_link":   ClassDefaults(12 * FT, 1, 5 * FT),
     "secondary":      ClassDefaults(12 * FT, 4, 5 * FT, verge=6 * FT),

@@ -42,6 +42,7 @@ class Marking:
     color: MarkingColor = "white"
     width: float = 0.12
     geometry: Optional[LineString] = None  # model space; None when attached to a lane edge
+    layer: Optional[int] = None  # OSM stacking level of the road it belongs to (see road_osm_layer)
 
 
 @dataclass
@@ -93,6 +94,24 @@ class Road:
 
     def width_right(self, types: tuple[str, ...] = ("driving", "parking", "biking", "shoulder")) -> float:
         return sum(l.width for l in self.lanes if l.id < 0 and l.type in types)
+
+
+def road_osm_layer(road: "Road") -> int:
+    """Vertical stacking level of a road: the OSM ``layer`` tag as an int, 0 when absent.
+
+    Roads on different layers cross in 2D without meeting — they form no junction
+    (``lanegraph``), get their own drivable surface (``surfaces``) and their own datum
+    (``datum.RoadDatum``), so an overpass is not flattened onto the road below."""
+    v = (road.tags or {}).get("layer")
+    try:
+        return int(round(float(v)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def road_is_bridge(road: "Road") -> bool:
+    """True when the road is a bridge deck (OSM ``bridge=*``, anything but ``no``)."""
+    return (road.tags or {}).get("bridge") not in (None, "", "no")
 
 
 @dataclass
@@ -166,6 +185,7 @@ class CurbLine:
     height: float = 0.15
     low_side_kind: SurfaceKind = "drivable"
     high_side_kind: SurfaceKind = "sidewalk"
+    layer: Optional[int] = None   # OSM stacking level (grade separation); None = single level
 
 
 @dataclass
@@ -286,12 +306,16 @@ class TwinModel:
             self.rebuild_datum()
         return self._datum
 
-    def sample_z(self, x, y):
+    def sample_z(self, x, y, layer: Optional[int] = None):
         """Surface z at xy: the road datum (reference-line z, see ``twinmodel.datum``) when the
-        roads carry elevation, else the raw DEM, else 0."""
+        roads carry elevation, else the raw DEM, else 0.
+
+        ``layer``: the OSM stacking level the queried surface belongs to (see
+        ``road_osm_layer``). Only roads on that layer are considered, so a point under an
+        overpass takes the z of the road below, not of the deck above."""
         datum = self.road_datum()
         if datum is not None:
-            return datum.z(x, y)
+            return datum.z(x, y, layer=layer)
         if self.elevation is None:
             return np.zeros_like(np.asarray(x, dtype=np.float64)) if np.ndim(x) else 0.0
         return self.elevation.sample(x, y)

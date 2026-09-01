@@ -563,6 +563,20 @@ def lanes_for_way(tags: dict[str, str], highway: str) -> LaneSpec:
         else:
             right.append(Lane(id=0, type="shoulder", width=shoulder_total / 2, direction="forward"))
             left.append(Lane(id=0, type="shoulder", width=shoulder_total / 2, direction="backward"))
+    elif cls.shoulder or cls.shoulder_inner:
+        # class default shoulders (freeway / expressway classes, ClassDefaults.shoulder): the
+        # outside shoulder sits outboard of the outermost driving lane. On a oneway
+        # carriageway the reference line is the left carriageway edge, so the median-side
+        # (inner) shoulder goes on the left; an undivided two-way road gets the outside
+        # shoulder on both sides and no inner one.
+        if cls.shoulder:
+            right.append(Lane(id=0, type="shoulder", width=float(cls.shoulder), direction="forward"))
+        if oneway:
+            if cls.shoulder_inner:
+                left.append(Lane(id=0, type="shoulder", width=float(cls.shoulder_inner),
+                                 direction="forward"))
+        elif cls.shoulder:
+            left.append(Lane(id=0, type="shoulder", width=float(cls.shoulder), direction="backward"))
     # cycle lanes
     cl, cr = _cycleways(tags)
     if cr:
@@ -706,6 +720,7 @@ class _Cluster:
     area: Optional[BaseGeometry] = None
     plaza: Optional[BaseGeometry] = None  # open space between the corner buildings (streetspace)
     way_nodes: dict[int, set[int]] = field(default_factory=dict)  # internal way -> its node ids
+    kind: str = "intersection"            # "gore" = freeway merge/diverge, no plaza, no signals
 
     def absorb(self, way_id: int, nodes: Iterable[Optional[int]]) -> None:
         self.way_ids.add(way_id)
@@ -748,15 +763,19 @@ class _Approach:
         w = self.group_width / 2.0
         return (x + math.sin(h) * w, y - math.cos(h) * w)  # right of travel
 
+    def signed_offset(self, other: "_Approach") -> float:
+        """Lateral offset of ``other``'s lane group from this one's, positive to the left of
+        this approach's travel direction."""
+        px, py = self.group_centre()
+        qx, qy = other.group_centre()
+        h = self.heading
+        return -(qx - px) * math.sin(h) + (qy - py) * math.cos(h)
+
     def lateral_gap(self, other: "_Approach") -> float:
         """Lateral clearance between this arrival's lane group axis and ``other``'s group at its
         start: <= 0 when the groups overlap laterally (a genuine continuation), large when the
         departure is a parallel road (lateral vs. main carriageway)."""
-        px, py = self.group_centre()
-        qx, qy = other.group_centre()
-        h = self.heading
-        offset = -(qx - px) * math.sin(h) + (qy - py) * math.cos(h)
-        return abs(offset) - (self.group_width + other.group_width) / 2.0
+        return abs(self.signed_offset(other)) - (self.group_width + other.group_width) / 2.0
 
 
 # --------------------------------------------------------------------------- divided carriageways
@@ -880,8 +899,24 @@ def _apply_median(lanes: list[Lane], gap: float) -> float:
 
 # --------------------------------------------------------------------------- selection / clipping
 
+def osm_layer(tags: dict[str, str]) -> int:
+    """OSM ``layer`` of a way as an int (0 when absent/unparseable). The vertical stacking
+    order at a 2D crossing: two ways with different layers do not meet."""
+    v = _num(tags.get("layer"))
+    return int(round(v)) if v is not None else 0
+
+
+def is_bridge(tags: dict[str, str]) -> bool:
+    return tags.get("bridge") not in (None, "", "no")
+
+
 def _is_underground(tags: dict[str, str]) -> bool:
-    return tags.get("tunnel") in ("yes", "building_passage") or (_num(tags.get("layer")) or 0) < 0
+    """Not part of the surface twin: tunnels, and ``layer < 0`` *service* ways (the aisles and
+    ramps of an underground car park). A public road on ``layer=-1`` without a tunnel tag is an
+    underpass — a surface feature that must be kept, and whose z comes from its own profile."""
+    if tags.get("tunnel") in ("yes", "building_passage"):
+        return True
+    return osm_layer(tags) < 0 and tags.get("highway") == "service"
 
 
 def is_parking_aisle(tags: dict[str, str]) -> bool:
@@ -1052,6 +1087,38 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     stats["service_ways_skipped"] = n_service_dropped
     stats["parking_aisle_ways"] = len({p.way.id for p in pieces if is_parking_aisle(p.way.tags)})
 
+    # 1b. grade separation: a node in the *interior* of two drivable ways whose OSM ``layer``
+    #     differs is the 2D crossing of an overpass and the road under it, not an intersection.
+    #     Correctly mapped OSM never shares such a node, but plenty of data does; give each
+    #     layer its own copy of the node (synthetic negative ids) so the ways never meet and no
+    #     junction cluster forms across the grade separation. Nodes where any way *ends* are
+    #     left alone: that is an abutment or a genuine junction.
+    interior_layers: dict[int, set[int]] = defaultdict(set)
+    endpoint_nodes: set[int] = set()
+    for p in pieces:
+        lay = osm_layer(p.way.tags)
+        for nid in p.nodes[1:-1]:
+            if nid is not None:
+                interior_layers[nid].add(lay)
+        for nid in (p.nodes[0], p.nodes[-1]):
+            if nid is not None:
+                endpoint_nodes.add(nid)
+    crossing_only = {nid for nid, lays in interior_layers.items() if len(lays) > 1} - endpoint_nodes
+    if crossing_only:
+        remap: dict[tuple[int, int], int] = {}
+        next_synth = -1
+        for nid in sorted(crossing_only):
+            for k, lay in enumerate(sorted(interior_layers[nid])):
+                if k == 0:
+                    remap[(nid, lay)] = nid  # the lowest layer keeps the OSM id
+                else:
+                    remap[(nid, lay)] = next_synth
+                    next_synth -= 1
+        for p in pieces:
+            lay = osm_layer(p.way.tags)
+            p.nodes = [remap.get((n, lay), n) if n in crossing_only else n for n in p.nodes]
+    stats["grade_separated_crossings"] = len(crossing_only)
+
     # 2. node degrees in the drivable graph (street degree = without the parking-lot aisles)
     degree: dict[int, int] = defaultdict(int)
     street_degree: dict[int, int] = defaultdict(int)
@@ -1114,6 +1181,10 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
         if is_parking_aisle(s1.way.tags) != is_parking_aisle(s2.way.tags):
             return False  # a lot aisle never chains with a service street of the same width
         if s1.way.tags.get("highway") != s2.way.tags.get("highway"):
+            return False
+        # a bridge deck is its own road: its z is interpolated between the abutments instead of
+        # sampled from the DEM (cli.apply_elevation), and the datum keeps it off the layer below
+        if (osm_layer(s1.way.tags), is_bridge(s1.way.tags)) != (osm_layer(s2.way.tags), is_bridge(s2.way.tags)):
             return False
         sp1, sp2 = spec_for(s1), spec_for(s2)
         if sp1.oneway != sp2.oneway:
@@ -1231,7 +1302,18 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
         if a in minor_nodes or b in minor_nodes:
             continue
         if a in intersection and b in intersection and a != b:
-            limit = P.junction.cluster_m
+            # a chain of grade-separated (freeway) ways links two gores, not two halves of one
+            # intersection: clustering them would swallow the whole speed-change lane into a
+            # single "junction" the width of the freeway (P.junction.gore_cluster_m, 0 by
+            # default). A bridge deck is never inside a junction either: the two ramp terminals
+            # of a diamond interchange are one cluster radius apart, and swallowing the deck
+            # between them would put the overpass on the junction's plane, i.e. on the freeway.
+            grade_separated = all(s.way.tags.get("highway") in P.lane.grade_separated_classes
+                                  for s in ch.segments)
+            spans_levels = any(is_bridge(s.way.tags) or osm_layer(s.way.tags) != 0
+                               for s in ch.segments)
+            limit = (P.junction.gore_cluster_m if (grade_separated or spans_levels)
+                     else P.junction.cluster_m)
             if dual_nodes and (a in dual_nodes or b in dual_nodes):
                 limit = min(limit, P.junction.dual_carriageway_cluster_m)
             if (_polyline_length(ch.xy) < limit
@@ -1262,7 +1344,10 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     _ROAD_TAG_KEYS = ("oneway", "lanes", "width", "maxspeed", "surface", "lit", "sidewalk",
                       "sidewalk:both", "sidewalk:left", "sidewalk:right", "cycleway", "cycleway:left",
                       "cycleway:right", "cycleway:both", "turn:lanes", "lanes:forward",
-                      "lanes:backward", "placement", "junction", "service", "access")
+                      "lanes:backward", "placement", "junction", "service", "access",
+                      # vertical position: needed by the elevation (a bridge deck interpolates
+                      # between its abutments) and by the layer-aware road datum
+                      "layer", "bridge", "tunnel")
 
     # 6. roads from chains (rebuilt per clustering iteration)
     def roads_from_chains(node_cluster: dict[int, _Cluster]):
@@ -1303,7 +1388,12 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             c_start = node_cluster.get(nodes[0]) if nodes[0] is not None else None
             c_end = node_cluster.get(nodes[-1]) if nodes[-1] is not None else None
             length = _polyline_length(xy)
-            if c_start is not None and c_start is c_end and length < junction_internal_m:
+            # a bridge deck is a road of its own even inside a cluster: absorbing it would put
+            # the deck on the junction's plane, i.e. on the road it crosses over
+            on_bridge = any(is_bridge(sg.way.tags) or osm_layer(sg.way.tags) != 0
+                            for sg in ch.segments)
+            if (c_start is not None and c_start is c_end and length < junction_internal_m
+                    and not on_bridge):
                 for sg in ch.segments:
                     c_start.absorb(sg.way.id, sg.nodes)
                 n_internal += 1
@@ -1337,10 +1427,12 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                 xy = _dedupe(_offset_polyline(xy, -shift))
                 road.reference_line = _line3d(xy)
             # aisles keep their profile cross section: a lot between two buildings is not a
-            # street canyon, and an aisle never gets sidewalks or parking bands from the faces
-            # a carriageway of a divided arterial has no building face on the median side, so the
-            # canyon cross-section (which needs both faces) must not be measured for it either
-            faces = (None if (aisle or info is not None)
+            # street canyon, and an aisle never gets sidewalks or parking bands from the faces.
+            # A carriageway of a divided arterial has no building face on the median side, and a
+            # freeway has no street space (buildings sit behind the right of way), so the canyon
+            # cross-section (which needs both faces) is not measured for them either.
+            faces = (None if (aisle or info is not None
+                              or road.highway in P.lane.grade_separated_classes)
                      else _measure_faces(road, bld, blockers_for(ch, xy)))
             if faces is not None:
                 canyon_faces[road.id] = faces
@@ -1622,6 +1714,20 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     stats.update(_sidewalk_widths_from_footways(
         [r for r in roads if r.tags.get("cross_section_source") != "buildings"], footways))
 
+    # 7e-bis. ramp gores: a cluster whose arms are all grade-separated (freeway) classes and of
+    #     which at least one is a ramp (link class) is a merge/diverge gore, not an
+    #     intersection. It gets no band-overlap cut (7f), no plaza (7i), no chamfer, no sidewalk
+    #     band and no signals; the lane count simply changes along the mainline (7h tapers the
+    #     width step). ``surfaces`` and ``_build_signals`` read this through ``_Cluster.kind`` /
+    #     ``Junction.tags["kind"]``.
+    for c in clusters:
+        arms = arms_of(c)
+        hws = [r.highway for r, _e in arms]
+        if arms and all(h in P.lane.grade_separated_classes for h in hws) \
+                and any(h in P.lane.link_classes for h in hws):
+            c.kind = "gore"
+    stats["gore_junctions"] = sum(1 for c in clusters if c.kind == "gore")
+
     # 7f. a road's full band (carriageway + sidewalks) must not cover another road's carriageway
     #     at a junction: with 6 m sidewalks the carriageway-only trim leaves a raised sidewalk
     #     slab across the crossing street's lanes. Shorten the offending arm by exactly the
@@ -1643,6 +1749,11 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
         for _pass in range(3):
             changed = False
             for c in clusters:
+                if c.kind == "gore":
+                    # at a ramp gore the arms *are* meant to overlap: the speed-change lane runs
+                    # beside the mainline for 100-200 m before the nose. Cutting the arms back by
+                    # the overlap would turn the whole taper into one giant junction.
+                    continue
                 arms = arms_of(c)
                 carriage = {r.id: _road_band(r, full=False) for r, _e in arms}
                 for r, end in arms:
@@ -1889,6 +2000,8 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     #     the arms' street corridors (each from its trimmed end into the junction)
     n_plaza = 0
     for c in clusters:
+        if c.kind == "gore":
+            continue
         centre = (float(np.mean([p[0] for p in c.xy])), float(np.mean([p[1] for p in c.xy])))
         corridors = []
         reach = 0.0
@@ -1986,7 +2099,8 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
         outgoing = [a for a in approaches if not a.incoming]
         junction = Junction(id=c.id, polygon=None, osm_node_ids=list(c.node_ids),
                             osm_way_ids=sorted(c.way_ids),
-                            tags={"centre": [float(np.mean([p[0] for p in c.xy])),
+                            tags={"kind": c.kind,
+                                  "centre": [float(np.mean([p[0] for p in c.xy])),
                                              float(np.mean([p[1] for p in c.xy]))],
                                   # a hull smaller than the widest arm's width squared (single
                                   # node, collinear nodes) is widened to that arm's half width
@@ -2001,7 +2115,36 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                                   "trim_area_wkt": (c.area.wkt if c.area is not None else None),
                                   "n_incoming": len(incoming), "n_outgoing": len(outgoing)})
         m = 0
-        for inc in incoming:
+        # (arrival, its lane, departure, its lane, turn) for every movement of this junction
+        movements: list[tuple[_Approach, Lane, _Approach, Lane, str]] = []
+        def make_connection(inc: _Approach, out: _Approach, turn: str,
+                            in_lane: Lane, out_lane: Lane) -> bool:
+            nonlocal m
+            m += 1
+            p0 = inc.lane_inner_edge(in_lane)
+            p1 = out.lane_inner_edge(out_lane)
+            coords = _hermite(p0, inc.heading, p1, out.heading)
+            if _polyline_length(coords) < P.geometry.min_road_length:
+                coords = [p0, p1] if math.dist(p0, p1) >= P.geometry.min_road_length else coords
+                if _polyline_length(coords) < P.geometry.min_road_length:
+                    log.warning("%s: skipping degenerate connection %s->%s", c.id, inc.road.id, out.road.id)
+                    return False
+            cid = f"{c.id}c{m}"
+            cr = Road(id=cid, reference_line=_line3d(coords),
+                      lanes=[Lane(id=-1, type="driving", width=in_lane.width, direction="forward",
+                                  speed_limit=in_lane.speed_limit, tags={"turn": turn})],
+                      name=inc.road.name, highway=inc.road.highway, junction_id=c.id,
+                      predecessor=RoadLink("road", inc.road.id, inc.contact),
+                      successor=RoadLink("road", out.road.id, out.contact),
+                      tags={"turn": turn, "from_lane": in_lane.id, "to_lane": out_lane.id,
+                            "to_road": out.road.id})
+            roads.append(cr)
+            junction.connections.append(Connection(
+                id=cid, incoming_road=inc.road.id, connecting_road=cid, contact_point="start",
+                lane_links=[LaneLink(from_lane=in_lane.id, to_lane=-1)]))
+            return True
+
+        for inc in (() if c.kind == "gore" else incoming):
             rules = []
             for rule in _rules_for(restrictions, inc, c):
                 targets = _resolve_to(rule, c, outgoing, road_end_node, way_names)
@@ -2047,32 +2190,6 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                 if aligned and len(aligned) < len(throughs):
                     n_parallel_dropped += len(throughs) - len(aligned)
                     legal = [t for t in legal if t[1] != "through" or t in aligned]
-            def make_connection(out: _Approach, turn: str, in_lane: Lane, out_lane: Lane,
-                                _inc: _Approach = inc) -> bool:
-                nonlocal m
-                m += 1
-                p0 = _inc.lane_inner_edge(in_lane)
-                p1 = out.lane_inner_edge(out_lane)
-                coords = _hermite(p0, _inc.heading, p1, out.heading)
-                if _polyline_length(coords) < P.geometry.min_road_length:
-                    coords = [p0, p1] if math.dist(p0, p1) >= P.geometry.min_road_length else coords
-                    if _polyline_length(coords) < P.geometry.min_road_length:
-                        log.warning("%s: skipping degenerate connection %s->%s", c.id, _inc.road.id, out.road.id)
-                        return False
-                cid = f"{c.id}c{m}"
-                cr = Road(id=cid, reference_line=_line3d(coords),
-                          lanes=[Lane(id=-1, type="driving", width=in_lane.width, direction="forward",
-                                      speed_limit=in_lane.speed_limit, tags={"turn": turn})],
-                          name=_inc.road.name, highway=_inc.road.highway, junction_id=c.id,
-                          predecessor=RoadLink("road", _inc.road.id, _inc.contact),
-                          successor=RoadLink("road", out.road.id, out.contact),
-                          tags={"turn": turn, "from_lane": in_lane.id, "to_lane": out_lane.id,
-                                "to_road": out.road.id})
-                roads.append(cr)
-                junction.connections.append(Connection(
-                    id=cid, incoming_road=_inc.road.id, connecting_road=cid, contact_point="start",
-                    lane_links=[LaneLink(from_lane=in_lane.id, to_lane=-1)]))
-                return True
 
             mapped: set[int] = set()
             for out, turn, forced in legal:
@@ -2080,7 +2197,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                 mapping_turn = "through" if len(legal) == 1 else turn
                 for in_lane, out_lane in _lane_pairs(inc.lanes, out.lanes, mapping_turn,
                                                      forced or len(legal) == 1):
-                    if make_connection(out, turn, in_lane, out_lane):
+                    if make_connection(inc, out, turn, in_lane, out_lane):
                         mapped.add(in_lane.id)
             # every driving lane of an approach must feed at least one connection. An outer lane
             # of a lane-count taper that no movement picks up is a dead end in the xodr: the
@@ -2100,11 +2217,15 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                 out_lane = (out.lanes[-1] if turn == "right"
                             else out.lanes[0] if turn == "left"
                             else out.lanes[min(k_lane, len(out.lanes) - 1)])
-                if make_connection(out, turn, in_lane, out_lane):
+                if make_connection(inc, out, turn, in_lane, out_lane):
                     mapped.add(in_lane.id)
                     n_lane_fallbacks += 1
                     log.debug("%s: lane %d of %s had no movement; added a %s connection to %s",
                               c.id, in_lane.id, inc.road.id, turn, out.road.id)
+        if c.kind == "gore":
+            # a gore has no turns: the lane count simply changes along the mainline
+            for inc, in_lane, out, out_lane, turn in _gore_movements(incoming, outgoing):
+                make_connection(inc, out, turn, in_lane, out_lane)
         n_conn_total += len(junction.connections)
         junctions.append(junction)
     stats["connections"] = n_conn_total
@@ -2281,6 +2402,41 @@ def _lane_pairs(in_lanes: list[Lane], out_lanes: list[Lane], turn: str, forced: 
 
 # --------------------------------------------------------------------------- signals
 
+def _gore_movements(incoming: list[_Approach], outgoing: list[_Approach]
+                    ) -> list[tuple[_Approach, Lane, _Approach, Lane, str]]:
+    """Lane mapping at a freeway gore (merge / diverge): there is no turn there, only a lane
+    count change along the mainline.
+
+    Both sides' lane groups are laid out in their lateral order across the mainline and matched
+    one to one from the left, so a 5-lane arrival that splits into 4 mainline lanes plus a
+    1-lane off-ramp maps straight across (no lane is left without a successor and the ramp is
+    fed by the outermost lane only), and an on-ramp merges into the outermost lane of the road
+    it joins. ``_lane_pairs``' turn logic would classify a diverging ramp as a "right turn" and
+    connect one lane out of five."""
+    if not incoming or not outgoing:
+        return []
+    ref = max(incoming, key=lambda a: len(a.lanes))
+    ins = sorted(incoming, key=lambda a: -ref.signed_offset(a))
+    outs = sorted(outgoing, key=lambda a: -ref.signed_offset(a))
+    in_lanes = [(a, l) for a in ins for l in a.lanes]
+    out_lanes = [(a, l) for a in outs for l in a.lanes]
+    if not in_lanes or not out_lanes:
+        return []
+    moves: list[tuple[_Approach, Lane, _Approach, Lane, str]] = []
+    seen: set[tuple] = set()
+    for k in range(max(len(in_lanes), len(out_lanes))):
+        ia, il = in_lanes[min(k, len(in_lanes) - 1)]
+        oa, ol = out_lanes[min(k, len(out_lanes) - 1)]
+        if ia.road is oa.road:
+            continue  # a u-turn back onto the arrival (a clipped arm): never a gore movement
+        key = (id(ia), il.id, id(oa), ol.id)
+        if key in seen:
+            continue
+        seen.add(key)
+        moves.append((ia, il, oa, ol, "through"))
+    return moves
+
+
 def _signal_side(road: Road, forward: bool) -> float:
     """t of a signal pole just outside the carriageway on the right of travel."""
     P = profiles.get()
@@ -2328,6 +2484,8 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
     for c in clusters:
         if tl_pts is None:
             break
+        if c.kind == "gore":
+            continue  # a freeway merge/diverge is never signalised (the ramp terminal beyond it is)
         near = [nid for nid in tl_nodes if Point(xy_of[nid]).distance(c.hull) <= P.junction.signal_search_m]
         if not near:
             continue

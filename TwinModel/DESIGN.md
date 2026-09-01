@@ -339,6 +339,46 @@ epsilons) stay in the modules.
   two-way / 13 ft one-way, 10 mph, driveways off. EU_DENSE: 6.0 / 3.5 m, `include=False` (the
   Eixample regression).
 
+## Freeways, ramp gores and grade separation
+
+`highway=motorway|motorway_link|trunk|trunk_link` are the *freeway* classes: no sidewalk, no
+verge, no on-street parking and no street canyon (buildings beside a freeway are behind the
+right of way, never a cross section). They get paved **shoulders** instead —
+`ClassDefaults.shoulder` (outside) and `shoulder_inner` (median side of a oneway carriageway),
+AASHTO 10 ft / 4 ft on a US freeway, 2.5 m / 1.0 m in EU_DENSE — exported as OpenDRIVE
+`shoulder` lanes and part of the `drivable` surface.
+
+**Ramp gores.** A cluster whose arms are all in `LaneRules.grade_separated_classes` and of which
+at least one is a ramp (`link_classes`) is a merge/diverge *gore*, not an intersection
+(`_Cluster.kind` / `Junction.tags["kind"] == "gore"`). Gores differ from intersections in four
+ways: their intersection nodes cluster at `JunctionRules.gore_cluster_m` (0 m) instead of
+`cluster_m`, so a gore never swallows the whole speed-change lane; the band-overlap trim (7f)
+is skipped, because a ramp *is* meant to run beside the mainline for 100–200 m; there is no
+plaza, no chamfer, no sidewalk apron and no traffic light (`gore_cover` is the cover polygon);
+and the lane mapping (`_gore_movements`) lays the arrival and departure lane groups side by
+side in their lateral order and matches them one to one, so a 5-lane arrival splitting into 4
+mainline lanes plus a 1-lane off-ramp maps straight across. The mainline lane count changes at
+the gore and `7h` tapers the carriageway width step.
+
+**Grade separation.** `layer` / `bridge` / `tunnel` travel from the OSM way into `Road.tags`
+(`model.road_osm_layer`, `model.road_is_bridge`). Ways on different layers never meet: a node
+interior to two drivable ways of different layers is split per layer (lanegraph 1b), a chain
+that is a bridge or changes layer never joins a junction cluster, and a bridge deck is always
+its own road (the chain compatibility test includes layer and bridge). Each layer then gets
+its own `drivable` / `sidewalk` / `verge` / `crossing` surfaces (tagged `layer`), its own curbs
+and markings, and `RoadDatum.z(x, y, layer=...)` only considers roads of that layer, so the
+mesh does not fuse a deck onto the carriageway 6 m below it.
+
+A DTM has the deck removed, so elevation is handled from both sides: a bridge deck takes a
+straight profile between its abutments (`cli.apply_bridge_profiles`, the whole chain of linked
+bridge roads at once, abutment z = the highest DEM sample within
+`ElevationRules.bridge_abutment_m` of the chain end); and the roads *under* a deck have the DEM
+masked over the deck footprint and interpolated across (`road_profile_from_dem(mask=...)`, only
+where the deck crosses the road's interior — a deck that reaches the road's end is the same
+street continuing over the bridge). `validate` reports `grade_separation`: the minimum z gap
+between driving waypoints of different layers that share an xy, which must be
+`>= MIN_CLEARANCE_M` (4.5 m).
+
 ## Rules for all workers
 
 - Pure functions over the dataclasses in `model.py`; no global state; no network inside tests.

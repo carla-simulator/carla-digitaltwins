@@ -200,24 +200,27 @@ def _write_mtl(path_mtl: Path) -> None:
                     f"Ks 0.050 0.050 0.050\nNs 10\nd 1.0\nillum 2\n\n")
 
 
-def _z(model: TwinModel, xy: np.ndarray, z_offset: float) -> np.ndarray:
+def _z(model: TwinModel, xy: np.ndarray, z_offset: float,
+       layer: Optional[int] = None) -> np.ndarray:
     """Vertex z = road datum z (``model.sample_z``: nearest reference-line z when the roads
-    carry elevation, else DEM, else 0) + the surface's ``z_offset``."""
+    carry elevation, else DEM, else 0) + the surface's ``z_offset``. ``layer``: the OSM
+    stacking level of the surface (grade separation), so a bridge deck takes the deck z and
+    the road under it the z below."""
     if len(xy) == 0:
         return np.zeros(0)
-    z = model.sample_z(xy[:, 0], xy[:, 1])
+    z = model.sample_z(xy[:, 0], xy[:, 1], layer=layer)
     return np.asarray(z, dtype=np.float64) + z_offset
 
 
 def _add_surface(w: _ObjWriter, model: TwinModel, geom: BaseGeometry, z_offset: float,
-                 group: str, subdivide: bool) -> int:
+                 group: str, subdivide: bool, layer: Optional[int] = None) -> int:
     polys = _grid_split(geom, profiles.get().elevation.mesh_grid_m) if subdivide else _polygons(geom)
     n = 0
     for poly in polys:
         verts, faces = triangulate_polygon(poly)
         if len(faces) == 0:
             continue
-        xyz = np.column_stack([verts, _z(model, verts, z_offset)])
+        xyz = np.column_stack([verts, _z(model, verts, z_offset, layer)])
         base = w.add_vertices(xyz)
         w.add_faces(group, faces, base)
         n += len(faces)
@@ -231,7 +234,7 @@ def _add_curb(w: _ObjWriter, model: TwinModel, curb: CurbLine, subdivide: bool) 
     xy = np.asarray(line.coords, dtype=np.float64)[:, :2]
     if len(xy) < 2:
         return 0
-    z0 = _z(model, xy, 0.0)
+    z0 = _z(model, xy, 0.0, curb.layer)
     z1 = z0 + curb.height
     low = np.column_stack([xy, z0])
     high = np.column_stack([xy, z1])
@@ -269,7 +272,7 @@ def _add_marking(w: _ObjWriter, model: TwinModel, mk: Marking, subdivide: bool) 
     n = 0
     for piece in pieces:
         quad = piece.buffer(width / 2.0, cap_style="flat", join_style="mitre", mitre_limit=2.0)
-        n += _add_surface(w, model, quad, M.z, group, subdivide)
+        n += _add_surface(w, model, quad, M.z, group, subdivide, mk.layer)
     return n
 
 
@@ -285,7 +288,8 @@ def export_obj(model: TwinModel, path_obj: Path | str) -> None:
     counts: dict[str, int] = {}
     for s in model.surfaces:
         group = s.kind if s.kind in MATERIALS else "drivable"
-        counts[group] = counts.get(group, 0) + _add_surface(w, model, s.geometry, s.z_offset, group, subdivide)
+        counts[group] = counts.get(group, 0) + _add_surface(
+            w, model, s.geometry, s.z_offset, group, subdivide, s.tags.get("layer"))
     for c in model.curbs:
         counts["curb"] = counts.get("curb", 0) + _add_curb(w, model, c, subdivide)
     for mk in model.markings:

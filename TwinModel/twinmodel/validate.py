@@ -20,7 +20,9 @@ import shapely
 from shapely.geometry import Point, mapping
 from shapely.geometry.base import BaseGeometry
 
-from .model import TwinModel
+from scipy.spatial import cKDTree
+
+from .model import TwinModel, road_osm_layer
 from .export.xodr import build_id_map, read_twin_ids, sample_reference
 
 log = logging.getLogger("twinmodel.validate")
@@ -35,6 +37,13 @@ TERMINAL_INSIDE_M = 30.0
 # a road between two junctions shorter than this cannot carry a lane link (see
 # profiles.JunctionRules.sliver_m)
 SLIVER_M = 5.0
+# grade separation (``grade_separation``): two driving waypoints on different OSM layers within
+# CROSSING_RADIUS_M of each other in xy are a crossing; the upper one must clear the lower one
+# by at least MIN_CLEARANCE_M (Caltrans/AASHTO minimum vertical clearance over a freeway is
+# 16 ft 6 in = 5.03 m to the soffit; 4.5 m to the *deck surface* of the road above is the
+# floor below which the twin is certainly wrong).
+CROSSING_RADIUS_M = 3.0
+MIN_CLEARANCE_M = 4.5
 
 
 def _to_model_xyz(location) -> tuple[float, float, float]:
@@ -103,7 +112,7 @@ def validate(model: TwinModel, xodr_text: str, *, step: float = 1.0,
         "name": model.name, "step": step, "tolerance_m": tol,
         "topology": {"loaded": False}, "lane_in_drivable": None, "junction_containment": None,
         "z_error": None, "z_error_dem": None, "sidewalk_coverage": None, "lane_coverage": None,
-        "landmarks": None,
+        "landmarks": None, "grade_separation": None,
         "notes": [], "violations": [],
     }
     try:
@@ -115,6 +124,18 @@ def validate(model: TwinModel, xodr_text: str, *, step: float = 1.0,
 
     ids = read_twin_ids(xodr_text) or build_id_map(model)
     road_of = ids.road_inv
+    # OSM stacking level per model road; a connecting road inherits the level of the road it
+    # comes from (a junction never spans a grade separation, see lanegraph 1b)
+    plain_ids = {r.id for r in model.roads if r.junction_id is None}
+    layer_of = {r.id: road_osm_layer(r) for r in model.roads if r.junction_id is None}
+    junction_layer: dict[str, int] = {}
+    for j in model.junctions:
+        ls = [layer_of.get(c.incoming_road, 0) for c in j.connections]
+        junction_layer[j.id] = max(set(ls), key=ls.count) if ls else 0
+    for r in model.roads:
+        if r.junction_id is not None:
+            # one level per junction (its connecting roads share one plane, datum.py)
+            layer_of[r.id] = junction_layer.get(r.junction_id, 0)
     wps = cmap.generate_waypoints(step)
     driving = [wp for wp in wps if wp.lane_type == carla.LaneType.Driving]
     topo = cmap.get_topology()
@@ -239,7 +260,15 @@ def validate(model: TwinModel, xodr_text: str, *, step: float = 1.0,
     # comparison is kept as z_error_dem for information (how far the road sits off terrain).
     if len(xyz):
         datum = model.rebuild_datum()
-        zs = np.asarray(model.sample_z(xyz[:, 0], xyz[:, 1]), dtype=np.float64)
+        # grade separation: a waypoint on an overpass must be compared against the surface of
+        # *its* layer, not against the road it flies over (they share the xy)
+        wp_layer = np.array([layer_of.get(road_of.get(wp.road_id), 0) for wp in driving],
+                            dtype=np.int64)
+        zs = np.empty(len(xyz), dtype=np.float64)
+        for lay in np.unique(wp_layer):
+            sel = wp_layer == lay
+            zs[sel] = np.asarray(model.sample_z(xyz[sel, 0], xyz[sel, 1], layer=int(lay)),
+                                 dtype=np.float64)
         err = np.abs(xyz[:, 2] - zs)
         el_name = "none" if model.elevation is None else (model.elevation.source or "grid")
         report["z_error"] = {
@@ -255,6 +284,69 @@ def validate(model: TwinModel, xodr_text: str, *, step: float = 1.0,
                 "p50": float(np.percentile(errd, 50)), "p95": float(np.percentile(errd, 95)),
                 "max": float(errd.max()), "elevation": el_name,
             }
+
+    # grade separation: wherever two driving waypoints of different OSM layers share the same
+    # xy, the upper one must clear the lower one by MIN_CLEARANCE_M ---------------------
+    # Connecting roads are excluded: a junction sits on one plane, and one at a bridge abutment
+    # legitimately has arms of two layers meeting there.
+    plain_wp = np.array([(road_of.get(wp.road_id) or "") in plain_ids for wp in driving])
+    # roads that meet: directly linked, or two arms of the same junction. A deck and its
+    # approach share an abutment, where their z is continuous by construction.
+    adjacent: set[tuple[str, str]] = set()
+    for r in model.roads:
+        for link in (r.predecessor, r.successor):
+            if link is not None and link.element == "road":
+                adjacent.add((r.id, link.id))
+                adjacent.add((link.id, r.id))
+    for j in model.junctions:
+        arms = sorted({c.incoming_road for c in j.connections} |
+                      {model.road(c.connecting_road).successor.id for c in j.connections
+                       if model.road(c.connecting_road).successor is not None})
+        for a in arms:
+            for b in arms:
+                adjacent.add((a, b))
+    if len(xyz) and len(np.unique(wp_layer[plain_wp])) > 1:
+        gaps: list[tuple[float, dict[str, Any]]] = []
+        upper_layers = [int(l) for l in np.unique(wp_layer[plain_wp]) if l > int(wp_layer[plain_wp].min())]
+        for lay in upper_layers:
+            hi = (wp_layer == lay) & plain_wp
+            lo = (wp_layer < lay) & plain_wp
+            if not hi.any() or not lo.any():
+                continue
+            lo_xy = xyz[lo][:, :2]
+            tree = cKDTree(lo_xy)
+            d, k = tree.query(xyz[hi][:, :2], k=1)
+            near = d <= CROSSING_RADIUS_M
+            if not near.any():
+                continue
+            hi_idx = np.flatnonzero(hi)[near]
+            lo_idx = np.flatnonzero(lo)[k[near]]
+            dz = xyz[hi_idx, 2] - xyz[lo_idx, 2]
+            for i, j, gap in zip(hi_idx, lo_idx, dz):
+                a = road_of.get(driving[i].road_id)
+                b = road_of.get(driving[j].road_id)
+                if (a, b) in adjacent:
+                    continue  # abutment: the deck and its approach meet there, z is continuous
+                gaps.append((float(gap), {
+                    "upper_road": road_of.get(driving[i].road_id, str(driving[i].road_id)),
+                    "lower_road": road_of.get(driving[j].road_id, str(driving[j].road_id)),
+                    "x": float(xyz[i, 0]), "y": float(xyz[i, 1]),
+                }))
+        if gaps:
+            gaps.sort(key=lambda t: t[0])
+            worst_gap, worst = gaps[0]
+            report["grade_separation"] = {
+                "crossing_waypoints": len(gaps),
+                "min_z_gap_m": worst_gap,
+                "p05_z_gap_m": float(np.percentile([g for g, _ in gaps], 5)),
+                "min_required_m": MIN_CLEARANCE_M,
+                "worst": worst,
+                "pass": bool(worst_gap >= MIN_CLEARANCE_M),
+            }
+            if worst_gap < MIN_CLEARANCE_M:
+                violations.append({"kind": "grade_separation", "x": worst["x"], "y": worst["y"],
+                                   "z": worst_gap, "road_id": worst["upper_road"],
+                                   "lower_road": worst["lower_road"]})
 
     # sidewalk coverage -----------------------------------------------------------------
     sidewalk = _union([s.geometry for s in model.surfaces_of("sidewalk")])
@@ -392,6 +484,13 @@ def summary(report: dict[str, Any]) -> str:
         if zd is not None:
             lines.append(f"z_error_dem (info, vs raw DEM): p50 {zd['p50']:.3f} p95 {zd['p95']:.3f} "
                          f"max {zd['max']:.3f}")
+        gs = report.get("grade_separation")
+        if gs is not None:
+            lines.append(f"grade_separation: min z gap {gs['min_z_gap_m']:.2f} m "
+                         f"(p05 {gs['p05_z_gap_m']:.2f} m, {gs['crossing_waypoints']} crossing "
+                         f"waypoints, need {gs['min_required_m']:.1f} m; worst "
+                         f"{gs['worst']['upper_road']} over {gs['worst']['lower_road']}) "
+                         f"{'PASS' if gs['pass'] else 'FAIL'}")
         sc = report.get("sidewalk_coverage")
         lines.append("sidewalk_coverage: " + ("null" if sc is None else
                      f"ratio {sc['ratio']:.3f} (sidewalk {sc['sidewalk_area']:.0f} m2 / "
