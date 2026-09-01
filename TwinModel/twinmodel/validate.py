@@ -22,7 +22,7 @@ from shapely.geometry.base import BaseGeometry
 
 from scipy.spatial import cKDTree
 
-from .model import TwinModel, road_osm_layer
+from .model import TwinModel, lane_present_at, road_osm_layer
 from .export.xodr import build_id_map, read_twin_ids, sample_reference
 
 log = logging.getLogger("twinmodel.validate")
@@ -90,7 +90,8 @@ def _junction_arm_lanes(model: TwinModel, junction) -> dict[str, set[int]]:
                 continue
             if r.tags.get(f"dead_end_{end}"):
                 continue
-            lanes = {l.id for l in r.lanes if l.type == "driving" and (l.id < 0) == (sign < 0)}
+            lanes = {l.id for l in r.lanes if l.type == "driving" and (l.id < 0) == (sign < 0)
+                     and lane_present_at(l, r, end)}  # not an aux lane that tapered out earlier
             if lanes:
                 out.setdefault(r.id, set()).update(lanes)
     return out
@@ -552,6 +553,11 @@ def validate(model: TwinModel, xodr_text: str, *, step: float = 1.0,
             violations.append({"kind": "unreachable_lanes", "x": g["x"], "y": g["y"], "z": 0.0,
                                "road_id": g["roads"][0] if g["roads"] else "", "reason": g["reason"],
                                "lanes": g["lanes"]})
+    # ramp continuity (taper-model gores, lanegraph 7k): a merging ramp's lane must run on
+    # into a mainline driving lane through ``next()`` alone, without a junction; a diverging
+    # ramp must be reached from the mainline's deceleration lane, through nothing but the
+    # nose junction's stubs ----------------------------------------------------------------
+    report["ramp_continuity"] = _ramp_continuity(model, driving, road_of, roads_by_id, violations)
 
     report["violations"] = violations
     report["violation_count"] = len(violations)
@@ -560,6 +566,88 @@ def validate(model: TwinModel, xodr_text: str, *, step: float = 1.0,
         out.mkdir(parents=True, exist_ok=True)
         write_violations(violations, out / "violations.geojson")
     return report
+
+
+RAMP_WALK_M = 60.0   # how far past the nose the continuity walk follows next()
+
+
+def _ramp_continuity(model: TwinModel, driving: list, road_of: dict[int, str],
+                     roads_by_id: dict[str, Any], violations: list[dict[str, Any]]) -> dict[str, Any]:
+    """Walk ``next(2.0)`` from the end of every taper-model ramp lane (merge) or from the end
+    of the mainline lanes that feed a diverging ramp, and check that the other side is reached
+    with no junction waypoint on the way (a diverge may pass its own nose junction)."""
+    nose_conn: dict[str, str] = {}   # connecting road id -> junction id, for nose junctions only
+    for j in model.junctions:
+        if j.tags.get("gore_role") == "diverge_nose":
+            for c in j.connections:
+                nose_conn[c.connecting_road] = j.id
+    last: dict[tuple[str, int], Any] = {}
+    for wp in driving:
+        rid = road_of.get(wp.road_id)
+        if rid is None or wp.lane_id >= 0:
+            continue
+        cur = last.get((rid, wp.lane_id))
+        if cur is None or wp.s > cur.s:
+            last[(rid, wp.lane_id)] = wp
+    checks: list[dict[str, Any]] = []
+    for r in model.roads:
+        kind = r.tags.get("gore_kind")
+        if r.tags.get("gore_model") != "taper" or kind not in ("merge", "diverge"):
+            continue
+        main_id = r.tags.get("gore_mainline")
+        main = roads_by_id.get(main_id)
+        if main is None:
+            continue
+        if kind == "merge":
+            starts = [wp for (rid, _lid), wp in last.items() if rid == r.id]
+            target = main.id
+        else:
+            # the lanes feeding the ramp at the mainline's end, by their OpenDRIVE ids there
+            # (an auxiliary lane that began mid-road is renumbered in the last lane section)
+            from .export.xodr import _contact_lanes
+            lanes_at_end, ids_at_end = _contact_lanes(main, "end")
+            aux_ids = [ids_at_end[l.id] for l in lanes_at_end
+                       if l.tags.get("aux") and l.tags.get("ramp") == r.id]
+            feeder = sorted((ids_at_end[l.id] for l in lanes_at_end
+                             if l.type == "driving" and l.id < 0), reverse=True)
+            lane_ids = aux_ids or feeder[-1:]
+            starts = [wp for (rid, lid), wp in last.items() if rid == main.id and lid in lane_ids]
+            target = r.id
+        for wp in starts:
+            ok, via_junction, path = False, False, [road_of.get(wp.road_id, "?")]
+            frontier, walked = [wp], 0.0
+            while frontier and walked < RAMP_WALK_M:
+                nxt = []
+                for w in frontier:
+                    for q in w.next(2.0):
+                        qid = road_of.get(q.road_id, str(q.road_id))
+                        if q.is_junction and qid not in nose_conn:
+                            via_junction = True
+                        if qid == target and q.lane_type == carla_driving():
+                            ok = True
+                        nxt.append(q)
+                        if qid != path[-1]:
+                            path.append(qid)
+                if ok:
+                    break
+                frontier, walked = nxt[:8], walked + 2.0
+            entry = {"ramp": r.id, "kind": kind, "from_road": road_of.get(wp.road_id), "from_lane": wp.lane_id,
+                     "reached": ok, "via_junction": via_junction, "path": path[:8]}
+            checks.append(entry)
+            if not ok or via_junction:
+                x, y, z = _to_model_xyz(wp.transform.location)
+                violations.append({"kind": "ramp_continuity", "x": x, "y": y, "z": z,
+                                   "road_id": road_of.get(wp.road_id), "lane_id": int(wp.lane_id),
+                                   "s": float(wp.s), "ramp": r.id, "reached": ok,
+                                   "via_junction": via_junction})
+    failures = [c for c in checks if not c["reached"] or c["via_junction"]]
+    return {"checked": len(checks), "failures": len(failures), "pass": not failures,
+            "details": failures[:20]}
+
+
+def carla_driving():
+    import carla
+    return carla.LaneType.Driving
 
 
 def write_violations(violations: list[dict[str, Any]], path: Path | str) -> Path:
@@ -612,6 +700,10 @@ def summary(report: dict[str, Any]) -> str:
         if jl:
             lines.append(f"junction_lane_links: {jl['unlinked_arms']} arm(s) with an unlinked lane "
                          + ("PASS" if jl.get("pass") else "FAIL"))
+        rc = report.get("ramp_continuity") or {}
+        if rc and rc.get("checked"):
+            lines.append(f"ramp_continuity (taper gores): {rc['checked']} lane(s) walked, "
+                         f"{rc['failures']} failure(s) " + ("PASS" if rc.get("pass") else "FAIL"))
         lm = report.get("landmarks") or {}
         lines.append(f"landmarks: {lm.get('count')} / {lm.get('expected_signals')} expected; "
                      f"crosswalk vertices {lm.get('crosswalk_vertices')}")

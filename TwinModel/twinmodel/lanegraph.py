@@ -45,7 +45,7 @@ from . import profiles, streetspace
 from .frame import LocalFrame
 from .ingest.osm import OsmData, OsmNode, OsmRelation, OsmWay
 from .model import (Building, Connection, Controller, Junction, Lane, LaneLink, Marking,
-                    PointObject, Road, RoadLink, Signal, TwinModel)
+                    PointObject, Road, RoadLink, Signal, TwinModel, lane_present_at)
 
 log = logging.getLogger("twinmodel.lanegraph")
 
@@ -721,6 +721,7 @@ class _Cluster:
     plaza: Optional[BaseGeometry] = None  # open space between the corner buildings (streetspace)
     way_nodes: dict[int, set[int]] = field(default_factory=dict)  # internal way -> its node ids
     kind: str = "intersection"            # "gore" = freeway merge/diverge, no plaza, no signals
+    gore_role: str = ""                   # "diverge_nose" = the nose junction of a taper-model diverge (7k)
 
     def absorb(self, way_id: int, nodes: Iterable[Optional[int]]) -> None:
         self.way_ids.add(way_id)
@@ -2410,6 +2411,62 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                  r.id, line2d.length, cs.id, r.id, tail.id)
     stats["junction_loops_split"] = n_loops_split
 
+    # 7k. ramp gores as speed-change lanes (P.junction.gore_model == "taper", DESIGN.md "Ramp
+    #     gores"). A merge dissolves its gore cluster: the mainline runs through as one road
+    #     link, the ramp ends at the nose and links road-to-road into an auxiliary lane of the
+    #     downstream mainline road that tapers out (aux lane tags, see model.aux_span). A
+    #     diverge gets the deceleration lane tapering in on the upstream road and keeps a
+    #     compact nose junction (2 * gore_nose_m long): a road with two successors must be a
+    #     junction in OpenDRIVE, and CARLA follows only one road-level successor.
+    n_gore_merge = n_gore_diverge = n_gore_kept = 0
+    if P.junction.gore_model == "taper":
+        def extend_to_node(r: Road, end: str) -> None:
+            """Undo the junction trim at ``end``: put back the untrimmed line up to the node."""
+            line2d = _line2d(r.reference_line)
+            orig = orig_line[r.id]
+            if end == "end":
+                s0 = orig.project(Point(line2d.coords[-1]))
+                if orig.length - s0 < 1e-3:
+                    return
+                tail = substring(orig, s0, orig.length)
+                coords = list(line2d.coords) + list(tail.coords)[1:]
+            else:
+                s1 = orig.project(Point(line2d.coords[0]))
+                if s1 < 1e-3:
+                    return
+                head = substring(orig, 0.0, s1)
+                coords = list(head.coords)[:-1] + list(line2d.coords)
+            r.reference_line = _line3d(_dedupe([(x, y) for x, y, *_ in coords]))
+
+        def gore_approaches(c: _Cluster) -> list[_Approach]:
+            out: list[_Approach] = []
+            for r, end in arms_of(c):
+                fwd = [l for l in r.lanes_right() if l.type == "driving" and lane_present_at(l, r, end)]
+                bwd = [l for l in r.lanes_left() if l.type == "driving" and lane_present_at(l, r, end)]
+                if fwd:
+                    out.append(_Approach(r, end, fwd, end == "end"))
+                if bwd:
+                    out.append(_Approach(r, end, bwd, end == "start"))
+            return out
+
+        for c in list(clusters):
+            if c.kind != "gore":
+                continue
+            result = _taper_gore(c, gore_approaches(c), extend_to_node, attach, set_link)
+            if result == "merge":
+                clusters.remove(c)
+                n_gore_merge += 1
+            elif result == "diverge":
+                c.gore_role = "diverge_nose"
+                n_gore_diverge += 1
+            else:
+                n_gore_kept += 1
+                log.info("%s: gore kept as a junction (%s)", c.id, result)
+    stats["gore_tapers_merge"] = n_gore_merge
+    stats["gore_tapers_diverge"] = n_gore_diverge
+    stats["gore_junctions_kept"] = n_gore_kept
+    stats["gore_junctions"] = sum(1 for c in clusters if c.kind == "gore")
+
     # 8. junctions with connecting roads
     junctions: list[Junction] = []
     restrictions = _restriction_index(osm)
@@ -2430,8 +2487,10 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             for end in ("start", "end"):
                 if road_end_cluster[r.id][end] is not c:
                     continue
-                fwd = [l for l in r.lanes_right() if l.type == "driving"]        # left->right in travel
-                bwd = [l for l in r.lanes_left() if l.type == "driving"]         # +1 first = leftmost
+                # left->right in travel; an auxiliary lane (7k) that has tapered out before
+                # this end is not an approach lane
+                fwd = [l for l in r.lanes_right() if l.type == "driving" and lane_present_at(l, r, end)]
+                bwd = [l for l in r.lanes_left() if l.type == "driving" and lane_present_at(l, r, end)]  # +1 first = leftmost
                 if end == "end":
                     if fwd:
                         approaches.append(_Approach(r, "end", fwd, True))
@@ -2447,6 +2506,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
         junction = Junction(id=c.id, polygon=None, osm_node_ids=list(c.node_ids),
                             osm_way_ids=sorted(c.way_ids),
                             tags={"kind": c.kind,
+                                  **({"gore_role": c.gore_role, "gore_model": "taper"} if c.gore_role else {}),
                                   "centre": [float(np.mean([p[0] for p in c.xy])),
                                              float(np.mean([p[1] for p in c.xy]))],
                                   # a hull smaller than the widest arm's width squared (single
@@ -2887,6 +2947,206 @@ def _gore_movements(incoming: list[_Approach], outgoing: list[_Approach]
         seen.add(key)
         moves.append((ia, il, oa, ol, "through"))
     return moves
+
+
+# --------------------------------------------------------------------------- ramp gores as tapers (7k)
+
+def _aux_plan(kind: str, length: float, lane_m: float, taper_m: float, margin: float
+              ) -> dict[str, Any]:
+    """Lane tags for an auxiliary lane on a mainline road of ``length``: ``kind`` "merge"
+    (acceleration lane from the road start: full width over ``lane_m``, then tapering to 0
+    over ``taper_m``) or "diverge" (deceleration lane up to the road end: tapering in from 0
+    over ``taper_m``, then full width over ``lane_m``). Both are capped so the lane closes at
+    least ``margin`` before the far end of the road; a road too short for even a half taper
+    carries the lane over its whole length as a weaving lane."""
+    avail = length - margin
+    total = min(lane_m + taper_m, avail)
+    if avail < max(10.0, 0.5 * taper_m):
+        return {"aux": "weave", "aux_s0": 0.0, "aux_s1": float(length)}
+    taper = min(taper_m, total)
+    if kind == "merge":
+        return {"aux": "merge", "aux_s0": 0.0, "aux_s1": float(total),
+                "taper_s0": float(total - taper), "taper_s1": float(total)}
+    s0 = length - total
+    return {"aux": "diverge", "aux_s0": float(s0), "aux_s1": float(length),
+            "taper_s0": float(s0), "taper_s1": float(s0 + taper)}
+
+
+def _add_aux_lanes(road: Road, n: int, width: float, tags: dict[str, Any]) -> list[Lane]:
+    """Insert ``n`` auxiliary driving lanes outboard of the right-hand driving lanes (inside
+    the shoulder) and renumber. The reference line is not moved: the through lanes keep their
+    lateral position across the gore."""
+    right = road.lanes_right()
+    left = road.lanes_left()
+    drv = [i for i, l in enumerate(right) if l.type == "driving"]
+    idx = drv[-1] + 1 if drv else 0
+    outer = right[drv[-1]] if drv else None
+    new = [Lane(id=0, type="driving", width=width, direction="forward",
+                speed_limit=outer.speed_limit if outer else None, tags=dict(tags))
+           for _ in range(n)]
+    right[idx:idx] = new
+    road.lanes = _renumber(left, right)
+    return new
+
+
+def _merge_overlapping_aux(road: Road) -> None:
+    """A merge lane and a diverge lane on one road whose spans overlap are one weaving lane."""
+    aux = [l for l in road.lanes if l.tags.get("aux") and l.id < 0]
+    merges = [l for l in aux if l.tags["aux"] == "merge"]
+    diverges = [l for l in aux if l.tags["aux"] == "diverge"]
+    for m in merges:
+        for d in diverges:
+            if d not in road.lanes or m not in road.lanes:
+                continue
+            if float(d.tags["aux_s0"]) < float(m.tags["aux_s1"]):
+                m.tags.pop("taper_s0", None)
+                m.tags.pop("taper_s1", None)
+                m.tags.update({"aux": "weave", "aux_s0": 0.0, "aux_s1": float(road.length),
+                               "gore_out": d.tags.get("gore"), "ramp_out": d.tags.get("ramp")})
+                right = [l for l in road.lanes_right() if l is not d]
+                road.lanes = _renumber(road.lanes_left(), right)
+                break
+
+
+def _ramp_to_nose(ramp2d: LineString, main2d: LineString, offset: float, p_nose: tuple[float, float],
+                  h_nose: float, *, at_end: bool, blend: float, clear: float, min_keep: float
+                  ) -> list[tuple[float, float]]:
+    """Re-lay the ramp's end (``at_end``) or start as a Hermite into the nose pose
+    ``(p_nose, h_nose)``. The blend starts where the ramp's reference line is at least
+    ``offset + clear`` from the mainline and is at least ``blend`` long."""
+    L = ramp2d.length
+    far: Optional[float] = None
+    if at_end:
+        s = L - 5.0
+        while s >= min_keep:
+            if main2d.distance(ramp2d.interpolate(s)) >= offset + clear:
+                far = s
+                break
+            s -= 2.0
+        s_c = min(far, L - blend) if far is not None else L - blend
+        s_c = max(min_keep, min(s_c, L - 5.0))
+        h_c = _heading_along(ramp2d, s_c)
+        head = substring(ramp2d, 0.0, s_c)
+        q = ramp2d.interpolate(s_c)
+        tail = _hermite((q.x, q.y), h_c, p_nose, h_nose)
+        return _dedupe([(x, y) for x, y in head.coords][:-1] + tail)
+    s = 5.0
+    while s <= L - min_keep:
+        if main2d.distance(ramp2d.interpolate(s)) >= offset + clear:
+            far = s
+            break
+        s += 2.0
+    s_c = max(far, blend) if far is not None else blend
+    s_c = min(L - min_keep, max(s_c, 5.0))
+    h_c = _heading_along(ramp2d, s_c)
+    q = ramp2d.interpolate(s_c)
+    head = _hermite(p_nose, h_nose, (q.x, q.y), h_c)
+    rest = substring(ramp2d, s_c, L)
+    return _dedupe(head + [(x, y) for x, y in rest.coords][1:])
+
+
+def _taper_gore(c: _Cluster, approaches: list[_Approach], extend_to_node, attach, set_link) -> str:
+    """Turn gore cluster ``c`` into a speed-change lane. Returns "merge" (cluster dissolved),
+    "diverge" (cluster kept as the nose junction) or the reason it was left as a junction."""
+    P = profiles.get()
+    incoming = [a for a in approaches if a.incoming]
+    outgoing = [a for a in approaches if not a.incoming]
+    is_link = lambda a: a.road.highway in P.lane.link_classes
+    mains_in = [a for a in incoming if not is_link(a)]
+    mains_out = [a for a in outgoing if not is_link(a)]
+    ramps = [a for a in approaches if is_link(a)]
+    if len(mains_in) != 1 or len(mains_out) != 1 or len(ramps) != 1:
+        return f"arms: {len(mains_in)} mainline in, {len(mains_out)} out, {len(ramps)} ramp(s)"
+    A, B, R = mains_in[0], mains_out[0], ramps[0]
+    for a in (A, B, R):
+        if any(l.type == "driving" and l.id > 0 for l in a.road.lanes):
+            return f"{a.road.id} is not a one-way carriageway"
+    if A.contact != "end" or B.contact != "start" or A.road is B.road or R.road is A.road or R.road is B.road:
+        return "mainline orientation"
+    if A.signed_offset(R) > 0:
+        return f"ramp {R.road.id} is on the left"
+    merge = R.incoming
+    if merge and R.contact != "end" or not merge and R.contact != "start":
+        return "ramp orientation"
+    lane_w = A.lanes[-1].width
+    k = len(R.lanes)
+    n_in, n_out = len(A.lanes), len(B.lanes)
+
+    # untrimmed arms: the nose is the OSM node
+    extend_to_node(A.road, "end")
+    extend_to_node(B.road, "start")
+    extend_to_node(R.road, R.contact)
+    main2d = LineString(list(_line2d(A.road.reference_line).coords) + list(_line2d(B.road.reference_line).coords)[1:])
+
+    def right_driving_width(road: Road, upto: Optional[Lane] = None) -> float:
+        w = 0.0
+        for l in road.lanes_right():
+            if l is upto:
+                break
+            if l.type == "driving":
+                w += l.width
+        return w
+
+    if merge:
+        need = n_in + k - n_out
+        if need > 0:
+            plan = _aux_plan("merge", B.road.length, P.junction.gore_merge_lane_m,
+                             P.junction.gore_merge_taper_m, P.junction.gore_nose_m)
+            plan.update({"gore": c.id, "ramp": R.road.id})
+            aux = _add_aux_lanes(B.road, need, lane_w, plan)
+            _merge_overlapping_aux(B.road)
+            first = aux[0]
+        else:
+            # OSM already gives the downstream road the lane(s): the ramp feeds the outer k
+            first = [l for l in B.road.lanes_right() if l.type == "driving"][-k]
+        t_ref = -right_driving_width(B.road, first)
+        b2d = _line2d(B.road.reference_line)
+        p0 = point_on_road(B.road, 0.0, t_ref)
+        h0 = _heading_along(b2d, 0.0)
+        coords = _ramp_to_nose(_line2d(R.road.reference_line), main2d, -t_ref, (p0.x, p0.y), h0,
+                               at_end=True, blend=P.junction.gore_blend_m, clear=P.junction.gore_clear_m,
+                               min_keep=P.geometry.min_road_length)
+        R.road.reference_line = _line3d(coords)
+        for a, end in ((A, "end"), (B, "start"), (R, "end")):
+            attach(a.road, end, None)
+        set_link(A.road, "end", RoadLink("road", B.road.id, "start"))
+        set_link(B.road, "start", RoadLink("road", A.road.id, "end"))
+        set_link(R.road, "end", RoadLink("road", B.road.id, "start"))
+        R.road.tags.update({"gore_model": "taper", "gore_kind": "merge", "gore_mainline": B.road.id,
+                            "gore": c.id})
+        B.road.tags.setdefault("gore_merge_ramps", []).append(R.road.id)
+        log.info("%s: merge gore -> taper: %s ends into %s (%d lane(s) in + %d ramp -> %d, %d aux)",
+                 c.id, R.road.id, B.road.id, n_in, k, n_out, max(0, need))
+        return "merge"
+
+    need = n_out + k - n_in
+    d = P.junction.gore_nose_m
+    a2d, b2d = _line2d(A.road.reference_line), _line2d(B.road.reference_line)
+    if a2d.length <= 2 * d + P.geometry.min_road_length or b2d.length <= 2 * d + P.geometry.min_road_length:
+        return "mainline too short for a nose junction"
+    A.road.reference_line = _line3d([(x, y) for x, y in substring(a2d, 0.0, a2d.length - d).coords])
+    B.road.reference_line = _line3d([(x, y) for x, y in substring(b2d, d, b2d.length).coords])
+    if need > 0:
+        plan = _aux_plan("diverge", A.road.length, P.junction.gore_diverge_lane_m,
+                         P.junction.gore_diverge_taper_m, P.junction.gore_nose_m)
+        plan.update({"gore": c.id, "ramp": R.road.id})
+        aux = _add_aux_lanes(A.road, need, lane_w, plan)
+        _merge_overlapping_aux(A.road)
+    # the ramp is fed by the outermost k driving lanes of the arrival (auxiliary or not)
+    feeders = [l for l in A.road.lanes_right() if l.type == "driving"][-k:]
+    t_ref = -right_driving_width(A.road, feeders[0])
+    p0 = point_on_road(B.road, 0.0, t_ref)
+    h0 = _heading_along(_line2d(B.road.reference_line), 0.0)
+    coords = _ramp_to_nose(_line2d(R.road.reference_line), main2d, -t_ref, (p0.x, p0.y), h0,
+                           at_end=False, blend=P.junction.gore_blend_m, clear=P.junction.gore_clear_m,
+                           min_keep=P.geometry.min_road_length)
+    R.road.reference_line = _line3d(coords)
+    R.road.tags.update({"gore_model": "taper", "gore_kind": "diverge", "gore_mainline": A.road.id,
+                        "gore": c.id})
+    A.road.tags.setdefault("gore_diverge_ramps", []).append(R.road.id)
+    log.info("%s: diverge gore -> taper + nose junction: %s leaves %s (%d lane(s) in -> %d + %d ramp, %d aux)",
+             c.id, R.road.id, A.road.id, n_in, n_out, k, max(0, need))
+    return "diverge"
 
 
 def _signal_side(road: Road, forward: bool) -> float:

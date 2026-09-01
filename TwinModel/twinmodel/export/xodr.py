@@ -39,7 +39,8 @@ import numpy as np
 from lxml import etree
 
 from .. import profiles
-from ..model import Controller, Lane, Marking, Road, Signal, TwinModel
+from ..model import (AUX_EPS, Controller, Lane, Marking, Road, Signal, TwinModel, aux_span,
+                     aux_width_at)
 
 log = logging.getLogger("twinmodel.export.xodr")
 
@@ -315,18 +316,60 @@ def sample_reference(road: Road, step: float = 1.0) -> np.ndarray:
     return np.asarray(pts)
 
 
+# ------------------------------------------------------------------------------ lane sections
+
+def road_sections(road: Road) -> list[tuple[float, float, list[Lane]]]:
+    """``[(s_start, s_end, lanes present)]`` along the road. An ordinary road is one section;
+    an auxiliary lane (``model.aux_span``) that begins or ends inside the road opens a new
+    ``<laneSection>`` there, in which the lane is absent."""
+    L = float(road.length)
+    cuts = {0.0, L}
+    for l in road.lanes:
+        if l.tags.get("aux"):
+            for v in aux_span(l, road):
+                if AUX_EPS < v < L - AUX_EPS:
+                    cuts.add(float(v))
+    bounds = sorted(cuts)
+    out: list[tuple[float, float, list[Lane]]] = []
+    for s0, s1 in zip(bounds, bounds[1:]):
+        present = []
+        for l in road.lanes:
+            a, b = aux_span(l, road)
+            if a <= s0 + AUX_EPS and b >= s1 - AUX_EPS:
+                present.append(l)
+        out.append((s0, s1, present))
+    return out
+
+
+def section_ids(lanes: list[Lane]) -> dict[int, int]:
+    """Model lane id -> OpenDRIVE lane id inside one section (ids are contiguous outward)."""
+    ids: dict[int, int] = {}
+    for i, l in enumerate(sorted((l for l in lanes if l.id > 0), key=lambda l: l.id)):
+        ids[l.id] = i + 1
+    for i, l in enumerate(sorted((l for l in lanes if l.id < 0), key=lambda l: -l.id)):
+        ids[l.id] = -(i + 1)
+    return ids
+
+
+def _contact_lanes(road: Road, contact: str) -> tuple[list[Lane], dict[int, int]]:
+    secs = road_sections(road)
+    lanes = secs[0][2] if contact == "start" else secs[-1][2]
+    return lanes, section_ids(lanes)
+
+
 # ------------------------------------------------------------------------------ lane linking
 
-def _lane_centre_offsets(road: Road) -> dict[int, float]:
-    """Signed lateral offset (t) of each lane's centre from the reference line."""
-    out: dict[int, float] = {}
+def _lane_centre_offsets(road: Road, contact: str = "start") -> dict[int, tuple[float, Lane]]:
+    """OpenDRIVE lane id at ``contact`` -> (signed lateral offset t of the lane centre, lane)."""
+    lanes, ids = _contact_lanes(road, contact)
+    out: dict[int, tuple[float, Lane]] = {}
     acc = 0.0
-    for l in road.lanes_left():
-        out[l.id] = acc + l.width / 2.0
+    for l in sorted((l for l in lanes if l.id > 0), key=lambda l: l.id):
+        out[ids[l.id]] = (acc + l.width / 2.0, l)
         acc += l.width
     acc = 0.0
-    for l in road.lanes_right():
-        out[l.id] = -(acc + l.width / 2.0)
+    for l in sorted((l for l in lanes if l.id < 0), key=lambda l: -l.id):
+        out[ids[l.id]] = (-(acc + l.width / 2.0), l)
         acc += l.width
     return out
 
@@ -343,20 +386,20 @@ def _end_pose(road: Road, contact: str) -> tuple[np.ndarray, np.ndarray]:
     return p, np.array([-d[1], d[0]])
 
 
-def _lane_end_points(road: Road, contact: str) -> dict[int, np.ndarray]:
+def _lane_end_points(road: Road, contact: str) -> dict[int, tuple[np.ndarray, Lane]]:
     p, n = _end_pose(road, contact)
-    return {lid: p + n * t for lid, t in _lane_centre_offsets(road).items()}
+    return {lid: (p + n * t, lane) for lid, (t, lane) in _lane_centre_offsets(road, contact).items()}
 
 
 def _nearest_lane(point: np.ndarray, other: Road, contact: str, lane_type: str,
                   tol: float = 1.5, want_right: Optional[bool] = None) -> Optional[int]:
-    """Nearest lane centre of ``lane_type`` on ``other`` at ``contact``. ``want_right`` restricts
-    the candidates to one side: the lanes of a road are only a lane apart, so without it a
-    driving lane can be linked to its oncoming neighbour — a link CARLA cannot traverse."""
+    """Nearest lane centre of ``lane_type`` on ``other`` at ``contact`` (its OpenDRIVE id
+    there). ``want_right`` restricts the candidates to one side: the lanes of a road are only
+    a lane apart, so without it a driving lane can be linked to its oncoming neighbour — a
+    link CARLA cannot traverse."""
     best, best_d = None, tol
-    for lid, q in _lane_end_points(other, contact).items():
-        ltype = next(l.type for l in other.lanes if l.id == lid)
-        if ltype != lane_type:
+    for lid, (q, lane) in _lane_end_points(other, contact).items():
+        if lane.type != lane_type:
             continue
         if want_right is not None and (lid < 0) != want_right:
             continue
@@ -378,21 +421,25 @@ def _ordinal_lane(road: Road, lane: Lane, contact: str, other: Road, other_conta
     vehicles into before deleting them, and a stair-stepped wedge in the mesh."""
     flip = contact == other_contact  # end->end / start->start reverses the travel direction
     want_right = (lane.id < 0) != flip
-    mine = [l.id for l in (road.lanes_right() if lane.id < 0 else road.lanes_left())
-            if l.type == lane.type]
-    theirs = [l.id for l in (other.lanes_right() if want_right else other.lanes_left())
-              if l.type == lane.type]
+    mine_lanes, _ = _contact_lanes(road, contact)
+    theirs_lanes, their_ids = _contact_lanes(other, other_contact)
+    mine = [l.id for l in sorted((l for l in mine_lanes if (l.id < 0) == (lane.id < 0)),
+                                 key=lambda l: abs(l.id)) if l.type == lane.type]
+    theirs = [their_ids[l.id] for l in sorted((l for l in theirs_lanes if (l.id < 0) == want_right),
+                                              key=lambda l: abs(l.id)) if l.type == lane.type]
     if not theirs or lane.id not in mine:
         return None
     return theirs[min(mine.index(lane.id), len(theirs) - 1)]
 
 
 def _lane_links(model: TwinModel, road: Road) -> dict[int, dict[str, int]]:
-    """Per lane id -> {"predecessor": id, "successor": id} at road-to-road links.
+    """Per model lane id -> {"predecessor": id, "successor": id} at road-to-road links; the
+    values are the linked road's OpenDRIVE lane ids at its contact.
 
     Priority: explicit junction ``lane_links`` (for connecting roads), then geometric nearest
     lane of the same type on the linked road (within 1.5 m).  Links into a junction get no
-    lane-level entry (``<laneLink>`` carries them).
+    lane-level entry (``<laneLink>`` carries them). A lane absent at a contact (an auxiliary
+    lane that tapered out before it) gets no link there.
     """
     links: dict[int, dict[str, int]] = {l.id: {} for l in road.lanes}
     # explicit lane links from junction connections (incoming -> connecting road)
@@ -406,9 +453,10 @@ def _lane_links(model: TwinModel, road: Road) -> dict[int, dict[str, int]]:
                 if conn.connecting_road != road.id:
                     continue
                 key = "predecessor" if conn.contact_point == "start" else "successor"
+                inc_ids = _incoming_contact_ids(model, junction, conn.incoming_road)
                 for ll in conn.lane_links:
                     if ll.to_lane in links and key not in links[ll.to_lane]:
-                        links[ll.to_lane][key] = ll.from_lane
+                        links[ll.to_lane][key] = inc_ids.get(ll.from_lane, ll.from_lane)
     for key, link, contact in (("predecessor", road.predecessor, "start"),
                                ("successor", road.successor, "end")):
         if link is None or link.element != "road":
@@ -419,15 +467,18 @@ def _lane_links(model: TwinModel, road: Road) -> dict[int, dict[str, int]]:
             log.warning("road %s links to unknown road %s", road.id, link.id)
             continue
         other_contact = link.contact or ("start" if key == "successor" else "end")
+        mine, my_ids = _contact_lanes(road, contact)
         ends = _lane_end_points(road, contact)
-        for lane in road.lanes:
+        for lane in mine:
             if key in links[lane.id]:
                 continue
             want_right = ((lane.id < 0) != (contact == other_contact)
                           if lane.type == "driving" else None)
-            nearest = _nearest_lane(ends[lane.id], other, other_contact, lane.type,
+            nearest = _nearest_lane(ends[my_ids[lane.id]][0], other, other_contact, lane.type,
                                     want_right=want_right)
-            if nearest is None and lane.type == "driving":
+            if nearest is None and lane.type == "driving" and not lane.tags.get("aux"):
+                # (an auxiliary lane is fed by its ramp, or ends in the lane beside it: never
+                # by the ordinal fallback, which would declare a through lane its origin)
                 nearest = _ordinal_lane(road, lane, contact, other, other_contact)
                 if nearest is not None:
                     log.debug("road %s lane %d -> %s lane %d by ordinal match (lane counts differ)",
@@ -435,6 +486,27 @@ def _lane_links(model: TwinModel, road: Road) -> dict[int, dict[str, int]]:
             if nearest is not None:
                 links[lane.id][key] = nearest
     return links
+
+
+def _incoming_contact_ids(model: TwinModel, junction, road_id: str) -> dict[int, int]:
+    """Model lane id -> OpenDRIVE lane id of ``road_id`` at the end that touches ``junction``
+    (an auxiliary lane absent there renumbers the lanes outboard of it)."""
+    try:
+        road = model.road(road_id)
+    except KeyError:
+        return {}
+    contact = ("end" if road.successor is not None and road.successor.element == "junction"
+               and road.successor.id == junction.id else "start")
+    _lanes, ids = _contact_lanes(road, contact)
+    return ids
+
+
+def _inboard_continuing(lane: Lane, lanes: list[Lane]) -> Optional[Lane]:
+    """The nearest lane inboard of ``lane`` on its side that is present in ``lanes`` (where an
+    auxiliary lane ends, its traffic continues in the lane it merges into)."""
+    side = [l for l in lanes if (l.id < 0) == (lane.id < 0) and abs(l.id) < abs(lane.id)
+            and l.type == "driving"]
+    return max(side, key=lambda l: abs(l.id)) if side else None
 
 
 # ------------------------------------------------------------------------------ XML helpers
@@ -548,38 +620,82 @@ def _write_road(parent, model: TwinModel, road: Road, ids: IdMap, signals: list[
 
     lanes = _sub(r, "lanes")
     _sub(lanes, "laneOffset", s=0, a=0, b=0, c=0, d=0)
-    sec = _sub(lanes, "laneSection", s=0)
     links = _lane_links(model, road)
     P = profiles.get()
     heights = {"sidewalk": P.sidewalk.z, "verge": P.sidewalk.curb_height}
+    sections = road_sections(road)
+    ids_per_section = [section_ids(lanes_) for _s0, _s1, lanes_ in sections]
 
-    def write_lane(container, lane: Lane):
-        le = _sub(container, "lane", id=str(lane.id), type=xodr_lane_type(lane.type), level="false")
-        lk = _sub(le, "link")
-        for tag in ("predecessor", "successor"):
-            if tag in links[lane.id]:
-                _sub(lk, tag, id=str(links[lane.id][tag]))
-        _sub(le, "width", sOffset=0, a=lane.width, b=0, c=0, d=0)
-        _road_mark(le, lane.marking)
-        if lane.type in RAISED_LANE_TYPES:
-            h = heights[lane.type]
-            _sub(le, "height", sOffset=0, inner=h, outer=h)
-        if lane.speed_limit:
-            _sub(le, "speed", sOffset=0, max=lane.speed_limit * 3.6, unit="km/h")
+    def width_records(lane: Lane, s0: float, s1: float) -> list[tuple[float, float, float]]:
+        """``(sOffset, a, b)`` of the lane's width polynomial(s) inside section ``[s0, s1]``."""
+        if not lane.tags.get("aux"):
+            return [(0.0, lane.width, 0.0)]
+        t0, t1 = lane.tags.get("taper_s0"), lane.tags.get("taper_s1")
+        if t0 is None or t1 is None or float(t1) - float(t0) <= AUX_EPS:
+            return [(0.0, lane.width, 0.0)]
+        t0, t1 = max(float(t0), s0), min(float(t1), s1)
+        if t1 - t0 <= AUX_EPS:
+            return [(0.0, aux_width_at(lane, road, s0), 0.0)]
+        slope = (aux_width_at(lane, road, t1) - aux_width_at(lane, road, t0)) / (t1 - t0)
+        recs = []
+        if t0 - s0 > AUX_EPS:
+            recs.append((0.0, aux_width_at(lane, road, s0), 0.0))
+        recs.append((t0 - s0, aux_width_at(lane, road, t0), slope))
+        if s1 - t1 > AUX_EPS:
+            recs.append((t1 - s0, aux_width_at(lane, road, t1), 0.0))
+        return recs
 
-    left = road.lanes_left()
-    if left:
-        el = _sub(sec, "left")
-        for lane in reversed(left):  # OpenDRIVE: highest id first
-            write_lane(el, lane)
-    centre = _sub(_sub(sec, "center"), "lane", id="0", type="none", level="false")
-    _sub(centre, "link")
-    _road_mark(centre, road.center_marking)
-    right = road.lanes_right()
-    if right:
-        er = _sub(sec, "right")
-        for lane in right:
-            write_lane(er, lane)
+    for k, (s0, s1, present) in enumerate(sections):
+        sec = _sub(lanes, "laneSection", s=s0)
+        ids = ids_per_section[k]
+        prev_ids = ids_per_section[k - 1] if k > 0 else None
+        next_ids = ids_per_section[k + 1] if k + 1 < len(sections) else None
+
+        def write_lane(container, lane: Lane):
+            le = _sub(container, "lane", id=str(ids[lane.id]), type=xodr_lane_type(lane.type), level="false")
+            lk = _sub(le, "link")
+            # predecessor: the previous section (an auxiliary lane starting here branches off
+            # the lane inboard of it), or the linked road at the road start
+            if prev_ids is not None:
+                if lane.id in prev_ids:
+                    _sub(lk, "predecessor", id=str(prev_ids[lane.id]))
+                else:
+                    inb = _inboard_continuing(lane, sections[k - 1][2])
+                    if inb is not None:
+                        _sub(lk, "predecessor", id=str(prev_ids[inb.id]))
+            elif "predecessor" in links[lane.id]:
+                _sub(lk, "predecessor", id=str(links[lane.id]["predecessor"]))
+            if next_ids is not None:
+                if lane.id in next_ids:
+                    _sub(lk, "successor", id=str(next_ids[lane.id]))
+                else:
+                    inb = _inboard_continuing(lane, sections[k + 1][2])
+                    if inb is not None:
+                        _sub(lk, "successor", id=str(next_ids[inb.id]))
+            elif "successor" in links[lane.id]:
+                _sub(lk, "successor", id=str(links[lane.id]["successor"]))
+            for s_off, a, b in width_records(lane, s0, s1):
+                _sub(le, "width", sOffset=s_off, a=a, b=b, c=0, d=0)
+            _road_mark(le, lane.marking)
+            if lane.type in RAISED_LANE_TYPES:
+                h = heights[lane.type]
+                _sub(le, "height", sOffset=0, inner=h, outer=h)
+            if lane.speed_limit:
+                _sub(le, "speed", sOffset=0, max=lane.speed_limit * 3.6, unit="km/h")
+
+        left = sorted((l for l in present if l.id > 0), key=lambda l: l.id)
+        if left:
+            el = _sub(sec, "left")
+            for lane in reversed(left):  # OpenDRIVE: highest id first
+                write_lane(el, lane)
+        centre = _sub(_sub(sec, "center"), "lane", id="0", type="none", level="false")
+        _sub(centre, "link")
+        _road_mark(centre, road.center_marking)
+        right = sorted((l for l in present if l.id < 0), key=lambda l: -l.id)
+        if right:
+            er = _sub(sec, "right")
+            for lane in right:
+                write_lane(er, lane)
 
     objects = _sub(r, "objects")
     sigs = _sub(r, "signals")
@@ -646,8 +762,10 @@ def export_xodr(model: TwinModel, path: Optional[Path | str] = None) -> str:
             ce = _sub(je, "connection", id=str(i), incomingRoad=str(ids.road[conn.incoming_road]),
                       connectingRoad=str(ids.road[conn.connecting_road]),
                       contactPoint=conn.contact_point)
+            inc_ids = _incoming_contact_ids(model, j, conn.incoming_road)
             for ll in conn.lane_links:
-                _sub(ce, "laneLink", **{"from": str(ll.from_lane), "to": str(ll.to_lane)})
+                _sub(ce, "laneLink", **{"from": str(inc_ids.get(ll.from_lane, ll.from_lane)),
+                                        "to": str(ll.to_lane)})
         for ctl in controllers:
             if ctl.junction_id == j.id:
                 _sub(je, "controller", id=ctl.id, type="0", sequence="0")

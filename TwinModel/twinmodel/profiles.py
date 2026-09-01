@@ -144,6 +144,34 @@ class JunctionRules:
     # a gore junction gets no plaza, no chamfer, no sidewalk band and no signals; its cover is
     # the union of the arm cross sections and the connecting roads' carriageways
     gore_cover: Literal["convex", "bounded"] = "bounded"
+    # ---- ramp gores as speed-change lanes (lanegraph 7k, DESIGN.md "Ramp gores") ----------
+    # "junction": every gore is an OpenDRIVE junction with connecting roads (the 2026-09-01
+    # model). "taper": the mainline gains an *auxiliary lane* on the ramp side whose width is a
+    # polynomial along the mainline's own reference line — an acceleration lane that tapers
+    # out after a merge, a deceleration lane that tapers in before a diverge — and the ramp
+    # links to that lane road-to-road. A merge then has no junction at all; a diverge keeps a
+    # nose junction ``2 * gore_nose_m`` long, because a road with two successors must be a
+    # junction in OpenDRIVE (and CARLA's MapBuilder::GetLaneNext only follows one).
+    gore_model: Literal["taper", "junction"] = "junction"
+    # parallel-type entrance: acceleration lane at full width, then an end taper to zero
+    # (AASHTO Green Book 7th ed. §10.9.6 / Table 10-3: 900-1,200 ft for a 60-70 mph freeway
+    # and a 25-30 mph ramp; the end taper 300 ft, i.e. 25:1 on a 12 ft lane). Both are capped
+    # by the mainline road available in the tile; when the road is shorter than the taper the
+    # lane runs its full length as a weaving lane.
+    gore_merge_lane_m: float = 275.0
+    gore_merge_taper_m: float = 90.0
+    # parallel-type exit: a taper from zero, then the deceleration lane at full width up to the
+    # nose (AASHTO Table 10-5: ~500 ft from 70 mph to a 30 mph ramp; taper 300 ft = 25:1)
+    gore_diverge_lane_m: float = 150.0
+    gore_diverge_taper_m: float = 90.0
+    # half length of the diverge nose junction's connecting roads (the mainline is cut this far
+    # before the nose, the mainline continuation and the ramp start this far after it)
+    gore_nose_m: float = 2.5
+    # the ramp's last / first metres are re-laid as a Hermite into the nose so its heading
+    # matches the mainline there; the blend starts where the ramp's reference line is at least
+    # ``gore_clear_m`` further from the mainline than the auxiliary lane's inner edge
+    gore_blend_m: float = 40.0
+    gore_clear_m: float = 1.5
 
     # ---- divided (dual) carriageways -------------------------------------------------------
     # A divided arterial is mapped in OSM as two ``oneway=yes`` ways with the same name/ref
@@ -370,7 +398,12 @@ EU_DENSE = StreetProfile(
                            # no divided-carriageway model: the Eixample laterals (Passeig de
                            # Gracia) are two-way, not paired one-ways, and the regression build
                            # is pinned on the 2026-09-01 lane graph — keep both switches off
-                           dual_carriageway_max_gap_m=0.0, median_max_width_m=0.0, sliver_m=0.0),
+                           dual_carriageway_max_gap_m=0.0, median_max_width_m=0.0, sliver_m=0.0,
+                           # gores stay junctions (2026-09-01 lane graph); the speed-change lane
+                           # lengths below are what "taper" would use: Norma 3.1-IC (ES) style
+                           # carril de aceleracion ~200 m + cuna 75 m, deceleracion ~120 m + 75 m
+                           gore_model="junction", gore_merge_lane_m=200.0, gore_merge_taper_m=75.0,
+                           gore_diverge_lane_m=120.0, gore_diverge_taper_m=75.0),
     geometry=GeometryRules(min_road_length=1.0, connect_sample_m=1.0, simplify_m=0.1,
                            width_step_m=1.0, taper_max_m=15.0, taper_pieces_max=3, jog_max_m=5.0,
                            jog_min_turn_deg=45.0, jog_transition_m=10.0, street_width_outlier=0.25),
@@ -457,7 +490,15 @@ US_URBAN = StreetProfile(
                            # a service throat: a 24 ft two-way driveway plus its 10-15 ft curb
                            # returns is ~40 ft wide; two service entrances closer than that
                            # share one throat, further apart they are two T-junctions
-                           service_cluster_m=40 * FT),
+                           service_cluster_m=40 * FT,
+                           # ramp gores are speed-change lanes, not junctions. AASHTO Green Book
+                           # 7th ed.: parallel-type entrance 900 ft acceleration lane (Table
+                           # 10-3, 60 mph freeway / 25 mph ramp) + 300 ft end taper (25:1 on a
+                           # 12 ft lane, §10.9.6.3); parallel-type exit 300 ft taper (25:1) +
+                           # 500 ft deceleration lane (Table 10-5, 70 mph / 30 mph ramp)
+                           gore_model="taper", gore_merge_lane_m=900 * FT, gore_merge_taper_m=300 * FT,
+                           gore_diverge_lane_m=500 * FT, gore_diverge_taper_m=300 * FT,
+                           gore_nose_m=2.5, gore_blend_m=40.0, gore_clear_m=5 * FT),
     geometry=GeometryRules(min_road_length=1.0, connect_sample_m=1.0, simplify_m=0.1,
                            width_step_m=1.0, taper_max_m=25.0, taper_pieces_max=3, jog_max_m=5.0,
                            jog_min_turn_deg=45.0, jog_transition_m=10.0, street_width_outlier=0.25),

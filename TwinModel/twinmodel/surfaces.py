@@ -28,7 +28,8 @@ from shapely.geometry.base import BaseGeometry
 from shapely.ops import linemerge, nearest_points, substring, unary_union
 
 from . import profiles, streetspace
-from .model import (CurbLine, Junction, Lane, Marking, Road, Signal, Surface, TwinModel,
+from .model import (AUX_EPS, aux_span, aux_width_at, lane_present_at,
+                    CurbLine, Junction, Lane, Marking, Road, Signal, Surface, TwinModel,
                     road_is_tunnel, road_osm_layer)
 
 log = logging.getLogger("twinmodel.surfaces")
@@ -165,15 +166,107 @@ def carriageway_extent(road: Road) -> tuple[float, float]:
     return wl, wr
 
 
-def carriageway_polygon(road: Road) -> Polygon | MultiPolygon:
-    """Per-road carriageway polygon, flat caps, mitre joins, asymmetric widths."""
+def _aux_lanes(road: Road) -> list[Lane]:
+    return [l for l in road.lanes if l.tags.get("aux")]
+
+
+def carriageway_extent_at(road: Road, s: float) -> tuple[float, float]:
+    """:func:`carriageway_extent` at ``s``: an auxiliary lane (``model.aux_span``) only counts
+    with its width there, and the lanes outboard of it move in by the rest."""
+    aux = _aux_lanes(road)
+    if not aux:
+        return carriageway_extent(road)
+    wl, wr = carriageway_extent(road)
+    for l in aux:
+        if l.type in CARRIAGEWAY_TYPES:
+            missing = l.width - aux_width_at(l, road, s)
+            if l.id > 0:
+                wl -= missing
+            else:
+                wr -= missing
+    return max(0.0, wl), max(0.0, wr)
+
+
+def _variable_offset(ref: LineString, s_vals: np.ndarray, t_vals: np.ndarray) -> np.ndarray:
+    """Points at signed lateral offsets ``t_vals`` (left positive) at ``s_vals`` along ``ref``."""
+    L = ref.length
+    out = np.empty((len(s_vals), 2))
+    for i, (s, t) in enumerate(zip(s_vals, t_vals)):
+        s = min(max(float(s), 0.0), L)
+        p = ref.interpolate(s)
+        a, b = ref.interpolate(max(0.0, s - 0.5)), ref.interpolate(min(L, s + 0.5))
+        dx, dy = b.x - a.x, b.y - a.y
+        n = math.hypot(dx, dy) or 1.0
+        out[i] = (p.x - t * dy / n, p.y + t * dx / n)
+    return out
+
+
+def aux_wedges(road: Road, step: float = 2.0) -> list[Polygon]:
+    """The carriageway strips of the auxiliary lanes: between the carriageway edge *without*
+    them and the edge with their width at every s (the shoulder outboard follows the taper).
+    Empty for an ordinary road."""
+    aux = [l for l in _aux_lanes(road) if l.type in CARRIAGEWAY_TYPES]
+    if not aux:
+        return []
     ref = _ref2d(road)
     wl, wr = carriageway_extent(road)
+    base_l = wl - sum(l.width for l in aux if l.id > 0)
+    base_r = wr - sum(l.width for l in aux if l.id < 0)
+    out: list[Polygon] = []
+    for left in (True, False):
+        side = [l for l in aux if (l.id > 0) == left]
+        if not side:
+            continue
+        s0 = min(aux_span(l, road)[0] for l in side)
+        s1 = max(aux_span(l, road)[1] for l in side)
+        if s1 - s0 <= AUX_EPS:
+            continue
+        cuts = {s0, s1}
+        for l in side:
+            cuts.update(aux_span(l, road))
+            for key in ("taper_s0", "taper_s1"):
+                if l.tags.get(key) is not None:
+                    cuts.add(float(l.tags[key]))
+        cuts = sorted(c for c in cuts if s0 - AUX_EPS <= c <= s1 + AUX_EPS)
+        s_vals: list[float] = []
+        for a, b in zip(cuts, cuts[1:]):
+            n = max(1, int(math.ceil((b - a) / step)))
+            s_vals.extend(np.linspace(a, b, n + 1)[:-1])
+        s_vals.append(cuts[-1])
+        s_arr = np.asarray(s_vals)
+        base = base_l if left else base_r
+        w = np.array([sum(aux_width_at(l, road, s) for l in side) for s in s_arr])
+        sign = 1.0 if left else -1.0
+        inner = _variable_offset(ref, s_arr, sign * base * np.ones_like(s_arr))
+        outer = _variable_offset(ref, s_arr, sign * (base + w))
+        ring = np.vstack([inner, outer[::-1]])
+        poly = Polygon(ring)
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+        if not poly.is_empty:
+            out.append(poly)
+    return out
+
+
+def carriageway_polygon(road: Road) -> Polygon | MultiPolygon:
+    """Per-road carriageway polygon, flat caps, mitre joins, asymmetric widths. The strip of
+    an auxiliary lane (freeway speed-change lane, lanegraph 7k) is added only where the lane
+    exists, as wide as it is there (:func:`aux_wedges`)."""
+    ref = _ref2d(road)
+    aux = [l for l in _aux_lanes(road) if l.type in CARRIAGEWAY_TYPES]
+    if aux:
+        wl, wr = carriageway_extent(road)
+        wl -= sum(l.width for l in aux if l.id > 0)
+        wr -= sum(l.width for l in aux if l.id < 0)
+    else:
+        wl, wr = carriageway_extent(road)
     parts = []
     if wl > 0:
         parts.append(_side_band(ref, 0.0, wl, left=True))
     if wr > 0:
         parts.append(_side_band(ref, 0.0, wr, left=False))
+    if aux:
+        parts.extend(aux_wedges(road))
     if not parts:
         return Polygon()
     return _clean(unary_union(parts))
@@ -191,7 +284,7 @@ def _end_cross_section(road: Road, at_end: bool) -> list[tuple[float, float]]:
         return [tuple(p)]
     d = d / nrm
     n = np.array([-d[1], d[0]])
-    wl, wr = carriageway_extent(road)
+    wl, wr = carriageway_extent_at(road, float(_ref2d(road).length) if at_end else 0.0)
     return [tuple(p + n * wl), tuple(p), tuple(p - n * wr)]
 
 
@@ -821,6 +914,26 @@ def road_markings(road: Road, default_markings: bool = True) -> list[Marking]:
         g = ref.offset_curve(dist, join_style="mitre", mitre_limit=MITRE_LIMIT)
         return _lines(g)
 
+    aux = [b for b in bands if b.lane.tags.get("aux")]
+
+    def aux_outboard(b: _LaneBand) -> list[_LaneBand]:
+        return [o for o in aux if o.left == b.left and o.inner >= b.outer - 1e-6]
+
+    def clip_span(line: LineString, s0: float, s1: float, keep_inside: bool) -> list[LineString]:
+        """The part(s) of an offset line whose reference s lies inside / outside [s0, s1]."""
+        a = line.project(ref.interpolate(min(s0, ref.length)))
+        c = line.project(ref.interpolate(min(s1, ref.length)))
+        a, c = min(a, c), max(a, c)
+        if keep_inside:
+            seg = substring(line, a, c)
+            return [seg] if isinstance(seg, LineString) and seg.length > 1e-6 else []
+        parts = []
+        if a > 1e-6:
+            parts.append(substring(line, 0.0, a))
+        if line.length - c > 1e-6:
+            parts.append(substring(line, c, line.length))
+        return [q for q in parts if isinstance(q, LineString) and q.length > 1e-6]
+
     for b in bands:
         if b.lane.type not in CARRIAGEWAY_TYPES:
             continue
@@ -829,11 +942,41 @@ def road_markings(road: Road, default_markings: bool = True) -> list[Marking]:
             mk = _default_marking(bands, b)
         if mk is None:
             continue
+        if b.lane.tags.get("aux"):
+            # the outer edge of a speed-change lane follows its width; lanes outboard of it
+            # (its shoulder) carry no line
+            s0, s1 = aux_span(b.lane, road)
+            n = max(2, int(math.ceil((s1 - s0) / 2.0)) + 1)
+            s_arr = np.linspace(s0, s1, n)
+            inboard_aux = [o for o in aux if o.left == b.left and o.outer <= b.inner + 1e-6]
+            base = b.inner - sum(o.lane.width for o in inboard_aux)
+            t = np.array([base + sum(aux_width_at(o.lane, road, s) for o in inboard_aux)
+                          + aux_width_at(b.lane, road, s) for s in s_arr])
+            pts = _variable_offset(ref, s_arr, (1.0 if b.left else -1.0) * t)
+            if len(pts) >= 2:
+                out.append(Marking(kind=mk.kind, color=mk.color, width=mk.width,
+                                   geometry=LineString(pts)))
+            continue
         edge = b.outer
         is_outermost = abs(edge - (wl if b.left else wr)) < 1e-6
         if is_outermost:
             edge = max(0.0, edge - EDGE_MARKING_INSET)
         dist = edge if b.left else -edge
+        beside = [o for o in aux_outboard(b) if abs(o.inner - b.outer) < 1e-6]
+        if beside:
+            # the lane a speed-change lane runs beside: a broken line while the auxiliary
+            # lane exists, the carriageway edge line elsewhere
+            s0 = min(aux_span(o.lane, road)[0] for o in beside)
+            s1 = max(aux_span(o.lane, road)[1] for o in beside)
+            M = profiles.get().marking
+            edge_mk = Marking("solid", M.edge_color, M.width)
+            for line in offset(dist):
+                for seg in clip_span(line, s0, s1, True):
+                    out.append(Marking(kind=mk.kind, color=mk.color, width=mk.width, geometry=seg))
+                for seg in clip_span(line, s0, s1, False):
+                    out.append(Marking(kind=edge_mk.kind, color=edge_mk.color, width=edge_mk.width,
+                                       geometry=seg))
+            continue
         for line in offset(dist):
             out.append(Marking(kind=mk.kind, color=mk.color, width=mk.width, geometry=line))
     cm = road.center_marking
@@ -1114,6 +1257,10 @@ def build_surfaces(model: TwinModel,
         # plaza, no chamfer, no corner apron — just the arms and the connecting carriageways
         gore = j.tags.get("kind") == "gore"
         j_cover = P.junction.gore_cover if gore else cover
+        if j.tags.get("gore_role") == "diverge_nose":
+            # the nose junction of a taper-model diverge (lanegraph 7k) is a few metres of
+            # stubs between three arm ends: the hull of those ends is the whole of it
+            j_cover = "convex"
         base = junction_cover_polygon(model, j, carriageways, cover=j_cover,
                                       buildings=buildings if j_cover == "bounded" else None)
         _, incoming = _junction_roads(model, j)

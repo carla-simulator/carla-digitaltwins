@@ -487,6 +487,33 @@ side in their lateral order and matches them one to one, so a 5-lane arrival spl
 mainline lanes plus a 1-lane off-ramp maps straight across. The mainline lane count changes at
 the gore and `7h` tapers the carriageway width step.
 
+**Speed-change lanes** (`JunctionRules.gore_model`, lanegraph `7k`). With `gore_model="taper"`
+(the US profiles' default; `"junction"` keeps the behaviour above) a gore is not exported as an
+OpenDRIVE junction at all: the mainline gains an *auxiliary lane* on the ramp side, on its own
+reference line, whose `<width>` is a polynomial along s — full width then tapering to zero
+after a merge (the acceleration lane), growing from zero then full width before a diverge (the
+deceleration lane) — with the shoulder riding outside it, and a `<laneSection>` opens where
+the lane begins/ends (`model.aux_span` describes the lane; `export.xodr.road_sections` writes
+the sections and renumbers the lanes outboard where it is absent, `surfaces.aux_wedges` puts
+the taper wedge into `drivable`, and the lane lines follow the taper: broken beside the lane
+while it exists, the edge line elsewhere). Lengths come from the profile with AASHTO Green
+Book sources in `profiles.py` (US: 900 ft acceleration lane + 300 ft end taper, 300 ft taper +
+500 ft deceleration lane), capped by the mainline road available in the tile; a road too short
+to close the taper carries the lane full-length as a weaving lane, and a merge lane meeting a
+diverge lane on one road becomes a single weave. Where OSM already tags the extra lane
+(`lanes=5` -> `4` + ramp) no auxiliary lane is needed and the ramp feeds the outermost lane(s)
+directly. A *merge* then has no junction: the on-ramp's reference line is re-laid as a Hermite
+into the nose (the OSM node), ending at the auxiliary lane's inner edge with the mainline's
+heading, and links road-to-road into it (where the lane closes, its in-road `<link>` hands the
+traffic to the lane beside it). A *diverge* keeps a compact **nose junction** — a road with
+two successors must be a junction, both in the OpenDRIVE spec and in CARLA's
+`MapBuilder::GetLaneNext`, which follows a single road-level successor — but it is only
+`2 * gore_nose_m` (5 m) of straight stubs at the nose (`Junction.tags["gore_role"] ==
+"diverge_nose"`, cover = the convex hull of the three arm ends, ~100–150 m² instead of the
+750–1,000 m² trim-based gore junctions). `validate.ramp_continuity` walks `next()` from every
+merge ramp lane and every diverging feeder lane and fails when the other side is not reached,
+or when anything but a nose stub is a junction on the way.
+
 **Grade separation.** `layer` / `bridge` / `tunnel` travel from the OSM way into `Road.tags`
 (`model.road_osm_layer`, `model.road_is_bridge`). Ways on different layers never meet: a node
 interior to two drivable ways of different layers is split per layer (lanegraph 1b), a chain
