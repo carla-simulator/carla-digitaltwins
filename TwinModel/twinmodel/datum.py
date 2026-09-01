@@ -216,8 +216,14 @@ class RoadDatum:
             p_sel = pts[pi]
             s = shapely.line_locate_point(lines, p_sel)
             foot = shapely.line_interpolate_point(lines, s)
+            # tangent from two points straddling the foot. Clamp at the start: shapely measures
+            # a *negative* distance from the END of the line, so for a point projecting within
+            # 0.1 m of a road's start ``s - 0.1`` landed near its far end, the tangent came out
+            # reversed and the side test below flipped — the road's reach on the *other* side was
+            # applied (SoMa: 4th Street's 17.7 m right-hand reach used for a point 6.6 m off its
+            # 4.3 m left side, beating the service road whose lane the point is on; 1.2 m z jump)
             ahead = shapely.line_interpolate_point(lines, s + 0.1)
-            behind = shapely.line_interpolate_point(lines, s - 0.1)
+            behind = shapely.line_interpolate_point(lines, np.maximum(s - 0.1, 0.0))
             tx = shapely.get_x(ahead) - shapely.get_x(behind)
             ty = shapely.get_y(ahead) - shapely.get_y(behind)
             dx = x[pi] - shapely.get_x(foot)
