@@ -897,6 +897,66 @@ def curb_lines(drivable: BaseGeometry, raised: BaseGeometry) -> list[LineString]
 
 # --------------------------------------------------------------------------- main entry
 
+def _lot_enclosure_classifier(model: TwinModel, carriageways: dict[str, BaseGeometry],
+                              junction_polys: dict[str, Polygon]):
+    """``f(hole) -> fraction`` of a drivable hole's boundary that runs along lot circulation:
+    parking aisles and driveways (``tags["parking_aisle"]``), unnamed ``highway=service``
+    roads, the connecting roads and junctions whose arms are all of those. The rest of the
+    boundary is street. A boundary nothing classifies (an imagery-refined edge) counts as
+    street, so an inferred lot is always positively enclosed by its own aisles."""
+    roads_by_id = {r.id: r for r in model.roads}
+
+    def lot_road(r: Road) -> bool:
+        if r.tags.get("parking_aisle"):
+            return True
+        return r.highway == "service" and not r.name
+
+    def is_lot(r: Road) -> bool:
+        if r.junction_id is None:
+            return lot_road(r)
+        ends = [roads_by_id.get(r.predecessor.id) if r.predecessor is not None else None,
+                roads_by_id.get(r.tags.get("to_road", ""))]
+        return all(e is not None and lot_road(e) for e in ends)
+
+    geoms: list[BaseGeometry] = []
+    kinds: list[bool] = []
+    for rid, cw in carriageways.items():
+        r = roads_by_id.get(rid)
+        if r is None or cw.is_empty:
+            continue
+        geoms.append(cw)
+        kinds.append(is_lot(r))
+    for j in model.junctions:
+        poly = junction_polys.get(j.id)
+        if poly is None or poly.is_empty:
+            continue
+        arms = [roads_by_id.get(c.incoming_road) for c in j.connections]
+        geoms.append(poly)
+        kinds.append(bool(arms) and all(a is not None and lot_road(a) for a in arms))
+    if not geoms:
+        return lambda hole: 0.0
+    tree = shapely.STRtree(geoms)
+    tol = 0.3
+
+    def fraction(hole: Polygon) -> float:
+        ring = hole.exterior
+        if ring.length <= 0:
+            return 0.0
+        lot_len = 0.0
+        street_len = 0.0
+        for k in tree.query(ring.buffer(tol)):
+            along = ring.intersection(geoms[k].buffer(tol)).length
+            if kinds[k]:
+                lot_len += along
+            else:
+                street_len += along
+        # segments lie next to several polygons at a junction: cap at the ring length
+        street_len = max(street_len, ring.length - lot_len)
+        return lot_len / (lot_len + street_len) if lot_len + street_len > 0 else 0.0
+
+    return fraction
+
+
 def build_surfaces(model: TwinModel,
                    refined_drivable: Polygon | MultiPolygon | None = None,
                    default_markings: bool = True,
@@ -1054,8 +1114,14 @@ def build_surfaces(model: TwinModel,
     # and step 4b fills it with the lot's `parking` surface.
     lots = [shapely_wkt.loads(w) for w in model.metadata.get("parking_lots_wkt", []) or []]
     lots_union = _clean(unary_union(lots)) if lots else Polygon()
+    # A hole enclosed by a lot's own circulation (aisles, driveways, unnamed service roads) is
+    # its stall field even when OSM drew no ``amenity=parking`` polygon around it
+    # (ParkingAisleRules.lot_enclosure_fraction): inferred lots, filled at grade in step 4b.
+    lot_fraction_of = _lot_enclosure_classifier(model, carriageways, junction_polys)
+    A = P.parking_aisle
 
-    def _fill_holes(geom: BaseGeometry, islands_out: list[Polygon]) -> Polygon | MultiPolygon:
+    def _fill_holes(geom: BaseGeometry, islands_out: list[Polygon],
+                    inferred_out: list[Polygon]) -> Polygon | MultiPolygon:
         filled: list[Polygon] = []
         for part in _parts(geom):
             keep_holes = []
@@ -1066,13 +1132,22 @@ def build_surfaces(model: TwinModel,
                 keep_holes.append(ring)
                 in_lot = (not lots_union.is_empty
                           and lots_union.intersection(hole).area > 0.5 * hole.area)
+                if (not in_lot and A.include and A.lot_enclosure_fraction > 0
+                        and hole.area <= A.inferred_lot_max_area
+                        and lot_fraction_of(hole) >= A.lot_enclosure_fraction):
+                    inferred_out.append(hole)
+                    continue
                 if hole.area <= MAX_ISLAND_AREA and not hole.intersects(buildings) and not in_lot:
                     islands_out.append(hole)
             filled.append(Polygon(part.exterior, keep_holes))
         return _clean(unary_union(filled)) if filled else Polygon()
 
     islands: list[Polygon] = []
-    drivable = _fill_holes(drivable, islands)
+    inferred_lots: list[Polygon] = []
+    drivable = _fill_holes(drivable, islands, inferred_lots)
+    if inferred_lots:
+        log.info("surfaces: %d aisle-enclosed hole(s) (%.0f m2) taken as parking lots at grade",
+                 len(inferred_lots), sum(h.area for h in inferred_lots))
 
     def touching_roads(geom: BaseGeometry, candidates: Iterable[str]) -> list[str]:
         return [rid for rid in candidates if carriageways[rid].intersects(geom)]
@@ -1092,7 +1167,7 @@ def build_surfaces(model: TwinModel,
                 continue
             g = _clean(unary_union(geoms))
             g = _clean(g.simplify(SIMPLIFY_TOL, preserve_topology=True))
-            layer_groups.append((lay, _fill_holes(g, [])))
+            layer_groups.append((lay, _fill_holes(g, [], [])))
         stats["drivable_layers"] = layers
     multi_layer = len(layer_groups) > 1
     drivable_by_layer = {lay: g for lay, g in layer_groups}
@@ -1262,8 +1337,8 @@ def build_surfaces(model: TwinModel,
     #     level, never over the carriageway, a raised surface or a building
     raised_all = _clean(unary_union(raised_union_parts + islands)) if (raised_union_parts or islands) else Polygon()
     parking = Polygon()
-    if lots:
-        parking = lots_union
+    if lots or inferred_lots:
+        parking = _clean(unary_union([lots_union] + inferred_lots))
         bbox = _model_bbox(model)
         if bbox is not None:
             parking = _clean(parking.intersection(bbox))
@@ -1347,6 +1422,7 @@ def build_surfaces(model: TwinModel,
         "sidewalk_area": float(sum(s.geometry.area for s in model.surfaces_of("sidewalk"))),
         "verge_area": float(sum(s.geometry.area for s in model.surfaces_of("verge"))),
         "island_count": len(islands),
+        "island_area": float(sum(g.area for g in islands)),
         "curb_length": float(sum(c.geometry.length for c in model.curbs)),
         "marking_count": len(model.markings),
         "junctions_with_polygon": len(junction_polys),
@@ -1358,6 +1434,8 @@ def build_surfaces(model: TwinModel,
         "ground_area": float(ground_area),
         "parking_lot_count": len(lots),
         "parking_area": float(parking.area),
+        "inferred_lot_count": len(inferred_lots),
+        "inferred_lot_area": float(sum(h.area for h in inferred_lots)),
         "drivable_source": source,
     })
     model.metadata.setdefault("surfaces", {}).update(stats)

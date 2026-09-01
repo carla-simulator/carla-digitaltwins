@@ -96,6 +96,130 @@ def _junction_arm_lanes(model: TwinModel, junction) -> dict[str, set[int]]:
     return out
 
 
+def _road_kind(r) -> str:
+    """``street`` / ``aisle`` / ``driveway`` / ``junction`` for the reachability check."""
+    if r.junction_id is not None:
+        return "junction"
+    if r.tags.get("driveway"):
+        return "driveway"
+    if r.tags.get("parking_aisle"):
+        return "aisle"
+    return "street"
+
+
+def unreachable_lanes(model: TwinModel, cmap, road_of: dict[int, str], driving,
+                      inside_poly: Optional[BaseGeometry]) -> dict[str, Any]:
+    """Driving lanes no vehicle can reach from a street: no directed path through the xodr
+    lane links (``carla.Map.get_topology``) from any lane of a street-class road (not a parking
+    aisle, not a driveway, not a connecting road) to them.
+
+    A vehicle may turn round at a dead end: a lane whose end has no successor flows into the
+    opposite-direction lanes of its own road, so the outbound lane of a two-way cul-de-sac (or
+    of an aisle that ends at its last stall) is reachable through the inbound one — only a lot
+    nothing enters is reported. The unreachable lanes are grouped into connected components
+    (one per lot, normally) with a reason each:
+
+    - ``entrance_outside_bbox`` — a road of the component runs out of the bbox: its entrance is
+      beyond the twin's scope;
+    - ``exit_only`` — the component reaches a street through its one-way exit(s) but nothing
+      leads in (an entrance mapped as a one-way *out*, or an entrance lost with a dropped way);
+    - ``return_lane`` — every road of the component is reachable along its other lane: a
+      two-way aisle whose far end only leads onto a one-way aisle has a return lane no legal
+      movement enters (the lot itself is reachable; not a failure);
+    - ``isolated`` — no link to the rest of the network at all.
+    """
+    roads_by_id = {r.id: r for r in model.roads}
+
+    def kind_of(rid: str) -> str:
+        r = roads_by_id.get(rid)
+        return _road_kind(r) if r is not None else "unknown"
+
+    nodes: set[tuple[str, int]] = {(road_of.get(wp.road_id, str(wp.road_id)), wp.lane_id) for wp in driving}
+    out_edges: dict[tuple[str, int], set[tuple[str, int]]] = {n: set() for n in nodes}
+    in_edges: dict[tuple[str, int], set[tuple[str, int]]] = {n: set() for n in nodes}
+    for a, b in cmap.get_topology():
+        ka = (road_of.get(a.road_id, str(a.road_id)), a.lane_id)
+        kb = (road_of.get(b.road_id, str(b.road_id)), b.lane_id)
+        if ka == kb:
+            continue
+        out_edges.setdefault(ka, set()).add(kb)
+        in_edges.setdefault(kb, set()).add(ka)
+        nodes.update((ka, kb))
+    # turning round at a dead end: a lane end with no successor flows into the opposite lanes
+    by_road: dict[str, set[int]] = {}
+    for rid, lid in nodes:
+        by_road.setdefault(rid, set()).add(lid)
+    uturns: dict[tuple[str, int], set[tuple[str, int]]] = {}
+    for n in nodes:
+        rid, lid = n
+        if out_edges.get(n) or kind_of(rid) == "junction":
+            continue
+        uturns[n] = {(rid, o) for o in by_road[rid] if (o < 0) != (lid < 0)}
+
+    seeds = [n for n in nodes if kind_of(n[0]) == "street"]
+    seen = set(seeds)
+    stack = list(seeds)
+    while stack:
+        n = stack.pop()
+        for m in out_edges.get(n, ()) | uturns.get(n, set()):
+            if m not in seen:
+                seen.add(m)
+                stack.append(m)
+    unreached = sorted(n for n in nodes if n not in seen)
+
+    # components over the undirected link graph, restricted to the unreachable lanes
+    comp: dict[tuple[str, int], int] = {}
+    for n in unreached:
+        if n in comp:
+            continue
+        cid = len({c for c in comp.values()})
+        comp[n] = cid
+        stack = [n]
+        while stack:
+            x = stack.pop()
+            for y in out_edges.get(x, set()) | in_edges.get(x, set()) | uturns.get(x, set()):
+                if y in comp or y in seen:
+                    continue
+                comp[y] = cid
+                stack.append(y)
+    groups: list[dict[str, Any]] = []
+    for cid in sorted(set(comp.values())):
+        members = [n for n, c in comp.items() if c == cid]
+        rids = sorted({rid for rid, _ in members}, key=lambda s: (len(s), s))
+        plain = [roads_by_id[r] for r in rids if r in roads_by_id and roads_by_id[r].junction_id is None]
+        exits = any(m in seen for n in members for m in out_edges.get(n, ()))
+        at_edge = False
+        for r in plain:
+            for link, end in ((r.predecessor, "start"), (r.successor, "end")):
+                if link is not None or r.tags.get(f"dead_end_{end}"):
+                    continue
+                pt = r.reference_line.coords[0 if end == "start" else -1]
+                if inside_poly is None or not inside_poly.contains(Point(pt[0], pt[1])):
+                    at_edge = True
+        return_lane = bool(plain) and all(
+            any((r.id, l.id) in seen for l in r.lanes if l.type == "driving") for r in plain)
+        reason = ("entrance_outside_bbox" if at_edge else "return_lane" if return_lane
+                  else "exit_only" if exits else "isolated")
+        xy = plain[0].reference_line.interpolate(0.5, normalized=True) if plain else None
+        groups.append({
+            "reason": reason, "lanes": len(members),
+            "roads": [r for r in rids if r in roads_by_id and roads_by_id[r].junction_id is None],
+            "kinds": sorted({kind_of(r) for r in rids}),
+            "osm_way_ids": sorted({w for r in plain for w in (r.osm_way_ids or [])}),
+            "x": float(xy.x) if xy is not None else None, "y": float(xy.y) if xy is not None else None,
+        })
+    by_kind: dict[str, int] = {}
+    for rid, _ in unreached:
+        by_kind[kind_of(rid)] = by_kind.get(kind_of(rid), 0) + 1
+    return {
+        "count": len(unreached), "by_kind": by_kind,
+        "in_bbox_count": sum(g["lanes"] for g in groups if g["reason"] in ("exit_only", "isolated")),
+        "return_lane_count": sum(g["lanes"] for g in groups if g["reason"] == "return_lane"),
+        "groups": groups, "lanes": [{"road_id": r, "lane_id": l} for r, l in unreached[:200]],
+        "pass": not any(g["reason"] in ("exit_only", "isolated") for g in groups),
+    }
+
+
 def _lane_last_waypoints(wps) -> list:
     """One waypoint per (road, lane): the last one in the lane's driving direction."""
     best: dict[tuple[int, int], Any] = {}
@@ -421,6 +545,14 @@ def validate(model: TwinModel, xodr_text: str, *, step: float = 1.0,
     report["junction_lane_links"] = {"unlinked_arms": len(unlinked), "pass": not unlinked,
                                     "arms": unlinked[:50]}
 
+    # lanes no vehicle can reach from a street (a lot whose entrance is not in the twin) ------
+    report["unreachable_lanes"] = unreachable_lanes(model, cmap, road_of, driving, inside_poly)
+    for g in report["unreachable_lanes"]["groups"]:
+        if g["reason"] in ("exit_only", "isolated") and g["x"] is not None:
+            violations.append({"kind": "unreachable_lanes", "x": g["x"], "y": g["y"], "z": 0.0,
+                               "road_id": g["roads"][0] if g["roads"] else "", "reason": g["reason"],
+                               "lanes": g["lanes"]})
+
     report["violations"] = violations
     report["violation_count"] = len(violations)
     if out_dir is not None:
@@ -464,6 +596,14 @@ def summary(report: dict[str, Any]) -> str:
             lines.append(f"terminal_lanes (>{tl['inside_m']:.0f} m inside the bbox): {tl['count']} "
                          f"[{tl['cul_de_sacs']} cul-de-sacs, {tl['at_bbox_edge']} at the edge] "
                          + ("PASS" if tl.get("pass") else "FAIL"))
+        ur = report.get("unreachable_lanes") or {}
+        if ur:
+            outside = sum(g["lanes"] for g in ur["groups"] if g["reason"] == "entrance_outside_bbox")
+            lines.append(f"unreachable_lanes (no path from a street): {ur['count']} "
+                         f"[{ur['in_bbox_count']} with the entrance in the bbox, {outside} entered "
+                         f"from outside it, {ur['return_lane_count']} return lanes; "
+                         f"{len(ur['groups'])} group(s)] "
+                         + ("PASS" if ur.get("pass") else "FAIL"))
         sl = report.get("junction_slivers") or {}
         if sl:
             lines.append(f"junction_slivers (< {sl['max_m']:.0f} m between two junctions): "
