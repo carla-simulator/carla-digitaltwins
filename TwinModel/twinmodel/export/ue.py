@@ -31,6 +31,7 @@ import numpy as np
 import shapely
 from shapely.geometry import LineString, Polygon, box
 from shapely.geometry.base import BaseGeometry
+from shapely.ops import unary_union
 
 from .. import profiles
 from ..model import Building, CurbLine, Road, TwinModel, road_osm_layer
@@ -67,8 +68,13 @@ _BASE_COLORS["groundplane"] = (0.45, 0.50, 0.40)
 ZEBRA_STRIPE = 0.5   # m, stripe width along the crossing
 ZEBRA_GAP = 0.5      # m
 ZEBRA_MIN_LEN = 2.0  # m, crossings shorter than this get no stripes
+# raised plates (sidewalk / island / median / verge / grass fill, all at curb-top level) get a
+# vertical skirt along every free edge — without it they read as planes floating over the
+# ground slab; the drivable-side edges already carry the curb strips
+SKIRT_KINDS = frozenset({"sidewalk", "island", "median", "verge", "ground"})
 BUILDING_SINK = 0.3  # m, walls start this far below the lowest datum sample so no gap shows
 GROUND_PLANE_DROP = 0.35  # m below the datum: closes the block courtyards without z-fighting
+SKIRT_DROP = GROUND_PLANE_DROP + 0.15  # m below the datum: the skirt ends under the ground slab
 GROUND_PLANE_GRID = 20.0  # m subdivision so the slab follows the datum
 SPAWN_SPACING = 30.0  # m between spawn points along a lane
 SPAWN_MARGIN = 10.0   # m kept free at both road ends
@@ -272,25 +278,46 @@ def _tiles_of(geom: BaseGeometry, tile_m: float) -> Iterable[tuple[tuple[int, in
                 yield (i, j), piece
 
 
-def zebra_stripes(poly: Polygon, stripe: float = ZEBRA_STRIPE, gap: float = ZEBRA_GAP) -> list[Polygon]:
-    """Zebra stripes of a crossing polygon: bands of width ``stripe`` running parallel to the
-    short side of the minimum rotated rectangle (i.e. along the traffic), stepped along the
-    long side (the walking direction across the road) every ``stripe + gap``."""
+def zebra_stripes(poly: Polygon, stripe: float = ZEBRA_STRIPE, gap: float = ZEBRA_GAP,
+                  along: Optional[np.ndarray] = None) -> list[Polygon]:
+    """Zebra stripes of a crossing polygon: bands of width ``stripe`` whose bars run
+    perpendicular to the pedestrian walking direction (i.e. parallel to the road being
+    crossed), stepped along the walking direction every ``stripe + gap``.
+
+    ``along`` is the walking direction (unit 2-vector). Pass it whenever the road is known
+    (``crossing_walk_dir``): inferring it as the long axis of the minimum rotated rectangle
+    flips on near-square crossings — a 4 m crossing over a ~3.5 m carriageway lays its bars
+    across the road instead of along it. Without ``along`` the long-axis fallback applies."""
     if poly.is_empty or poly.area < 0.5:
         return []
-    rect = poly.minimum_rotated_rectangle
-    if not isinstance(rect, Polygon):
-        return []
-    c = np.asarray(rect.exterior.coords)[:4]
-    e0, e1 = c[1] - c[0], c[2] - c[1]
-    l0, l1 = float(np.hypot(*e0)), float(np.hypot(*e1))
-    if max(l0, l1) < ZEBRA_MIN_LEN or min(l0, l1) < 1e-6:
-        return []
-    # long axis u (walking direction), short axis v (traffic direction)
-    if l0 >= l1:
-        origin, u, L, v, W = c[0], e0 / l0, l0, e1 / l1, l1
+    if along is not None:
+        u = np.asarray(along, dtype=np.float64).reshape(2)
+        n = float(np.hypot(*u))
+        if n < 1e-9:
+            return []
+        u = u / n
+        v = np.array([-u[1], u[0]])
+        cc = np.asarray(poly.exterior.coords)[:, :2]
+        su, sv = cc @ u, cc @ v
+        L = float(su.max() - su.min())
+        W = float(sv.max() - sv.min())
+        if L < ZEBRA_MIN_LEN or W < 1e-6:
+            return []
+        origin = u * float(su.min()) + v * float(sv.min())
     else:
-        origin, u, L, v, W = c[1], e1 / l1, l1, -e0 / l0, l0
+        rect = poly.minimum_rotated_rectangle
+        if not isinstance(rect, Polygon):
+            return []
+        c = np.asarray(rect.exterior.coords)[:4]
+        e0, e1 = c[1] - c[0], c[2] - c[1]
+        l0, l1 = float(np.hypot(*e0)), float(np.hypot(*e1))
+        if max(l0, l1) < ZEBRA_MIN_LEN or min(l0, l1) < 1e-6:
+            return []
+        # long axis u (walking direction), short axis v (traffic direction)
+        if l0 >= l1:
+            origin, u, L, v, W = c[0], e0 / l0, l0, e1 / l1, l1
+        else:
+            origin, u, L, v, W = c[1], e1 / l1, l1, -e0 / l0, l0
     out: list[Polygon] = []
     s = gap / 2.0
     while s + stripe <= L + 1e-6:
@@ -301,6 +328,98 @@ def zebra_stripes(poly: Polygon, stripe: float = ZEBRA_STRIPE, gap: float = ZEBR
         out.extend(p for p in _polygons(piece) if p.area > 0.01)
         s += stripe + gap
     return out
+
+
+def crossing_walk_dir(model: TwinModel, s, poly: Polygon) -> Optional[np.ndarray]:
+    """Pedestrian walking direction of a crossing surface: the crossed road's left normal at
+    the crossing polygon, so the zebra bars run parallel to the road no matter how the clipped
+    polygon is shaped (``surfaces.crossing_polygon`` builds the rect from the road, but the
+    intersection with the drivable surface can leave a near-square or skewed piece). None when
+    the surface references no known road (polygon-PCA fallback applies)."""
+    for rid in getattr(s, "road_ids", None) or ():
+        try:
+            road = model.road(rid)
+        except KeyError:
+            continue
+        ref = shapely.force_2d(road.reference_line)
+        if ref.length < 1e-6:
+            continue
+        t = ref.project(poly.centroid)
+        p0 = ref.interpolate(max(0.0, t - 0.5))
+        p1 = ref.interpolate(min(ref.length, t + 0.5))
+        d = np.array([p1.x - p0.x, p1.y - p0.y], dtype=np.float64)
+        n = float(np.hypot(*d))
+        if n < 1e-9:
+            continue
+        d /= n
+        return np.array([-d[1], d[0]])
+    return None
+
+
+def _boundary_lines(geom: BaseGeometry) -> list[LineString]:
+    """Oriented boundary rings of a polygonal geometry: exteriors CCW, holes CW, so the
+    right-hand normal of every segment points out of the material."""
+    out: list[LineString] = []
+    for p in _polygons(geom):
+        p = shapely.geometry.polygon.orient(shapely.force_2d(p), 1.0)
+        out.append(LineString(p.exterior.coords))
+        for h in p.interiors:
+            out.append(LineString(shapely.geometry.polygon.orient(Polygon(h), -1.0).exterior.coords))
+    return out
+
+
+def skirt_lines(geom: BaseGeometry, cover: Optional[BaseGeometry]) -> list[LineString]:
+    """Free edges of a raised plate: its boundary minus the segments already carrying a curb
+    strip (``cover``: the curb lines buffered a little)."""
+    out: list[LineString] = []
+    for ring in _boundary_lines(geom):
+        stack = [ring.difference(cover) if cover is not None else ring]
+        while stack:
+            g = stack.pop()
+            if g.is_empty:
+                continue
+            if isinstance(g, LineString):
+                if g.length > 0.05:
+                    out.append(g)
+            elif hasattr(g, "geoms"):
+                stack.extend(g.geoms)
+    return out
+
+
+def _add_skirt_strip(mb: MeshBuilder, model: TwinModel, line: LineString, z_top_offset: float,
+                     layer: Optional[int], subdivide: bool) -> int:
+    """Vertical wall from a raised plate's top edge down to under the ground slab
+    (``SKIRT_DROP``): the riser that keeps sidewalks / islands / grass from reading as planes
+    floating over the slab. Same construction as the curb strips: flat per-segment normals
+    facing away from the material, (along, height) UVs."""
+    if subdivide:
+        line = line.segmentize(profiles.get().elevation.mesh_grid_m)
+    xy = np.asarray(line.coords, dtype=np.float64)[:, :2]
+    if len(xy) < 2:
+        return 0
+    z1 = _z(model, xy, z_top_offset, layer)
+    z0 = _z(model, xy, 0.0, layer) - SKIRT_DROP
+    seg = np.diff(xy, axis=0)
+    seg_len = np.hypot(seg[:, 0], seg[:, 1])
+    along = np.concatenate([[0.0], np.cumsum(seg_len)])
+    verts, nrms, uvs, faces = [], [], [], []
+    k = 0
+    for i in np.nonzero(seg_len > 1e-6)[0]:
+        d = seg[i] / seg_len[i]
+        n = np.array([d[1], -d[0], 0.0])
+        a, b = xy[i], xy[i + 1]
+        quad = np.array([[a[0], a[1], z0[i]], [b[0], b[1], z0[i + 1]],
+                         [b[0], b[1], z1[i + 1]], [a[0], a[1], z1[i]]])
+        verts.append(quad)
+        nrms.append(np.tile(n, (4, 1)))
+        uvs.append(np.array([[along[i], 0.0], [along[i + 1], 0.0],
+                             [along[i + 1], z1[i + 1] - z0[i + 1]], [along[i], z1[i] - z0[i]]]))
+        faces.append(np.array([[k, k + 2, k + 1], [k, k + 3, k + 2]]))
+        k += 4
+    if not verts:
+        return 0
+    mb.add(np.concatenate(verts), np.concatenate(nrms), np.concatenate(uvs), np.concatenate(faces))
+    return 2 * len(verts)
 
 
 def _add_curb_strip(mb: MeshBuilder, model: TwinModel, curb: CurbLine, subdivide: bool) -> int:
@@ -499,13 +618,33 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
             _add_surface(mb(layer, kind, tile), model, piece, s.z_offset, kind, subdivide, layer)
         if s.kind == "crossing":
             for poly in _polygons(s.geometry):
-                for stripe in zebra_stripes(poly):
+                walk = crossing_walk_dir(model, s, poly)
+                for stripe in zebra_stripes(poly, along=walk):
                     c = stripe.centroid
                     _add_surface(mb(layer, "marking_white", _tile_index(c.x, c.y, tile_m)), model,
                                  stripe, s.z_offset + M.z, "marking_white", subdivide, layer)
     for c in model.curbs:
         cen = c.geometry.centroid
         _add_curb_strip(mb(c.layer, "curb", _tile_index(cen.x, cen.y, tile_m)), model, c, subdivide)
+    # skirts: the free edges of every raised plate get a vertical face down under the ground
+    # slab. One union per (layer, top height) so flush neighbours (sidewalk | grass fill)
+    # produce no interior double wall; the drivable-side edges are excluded — they already
+    # carry the curb strips on the same boundary (a second coplanar face would z-fight).
+    # Skirts live in the ``curb`` assets: visually they are the curb/riser band.
+    curb_by_layer: dict[int, list[BaseGeometry]] = {}
+    for c in model.curbs:
+        curb_by_layer.setdefault(int(c.layer or 0), []).append(c.geometry)
+    curb_cover = {lay: unary_union(gs).buffer(0.06) for lay, gs in curb_by_layer.items()}
+    skirt_groups: dict[tuple[int, float], list[BaseGeometry]] = {}
+    for s in model.surfaces:
+        if s.kind in SKIRT_KINDS:
+            key = (int(s.tags.get("layer") or 0), round(float(s.z_offset), 4))
+            skirt_groups.setdefault(key, []).append(s.geometry)
+    for (layer, z_top), geoms in sorted(skirt_groups.items()):
+        for line in skirt_lines(unary_union(geoms), curb_cover.get(layer)):
+            cen = line.centroid
+            _add_skirt_strip(mb(layer, "curb", _tile_index(cen.x, cen.y, tile_m)), model, line,
+                             z_top, layer, subdivide)
     for mk in model.markings:
         if mk.geometry is None or mk.geometry.is_empty:
             continue
@@ -535,7 +674,6 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
                 b.add_faces("groundplane", faces, base0)
     n_clipped = n_skipped = 0
     if buildings:
-        from shapely.ops import unary_union
         drivable = unary_union([s.geometry for s in model.surfaces
                                 if s.kind in ("drivable", "parking", "crossing")])
         drivable = drivable.buffer(0.25) if not drivable.is_empty else None

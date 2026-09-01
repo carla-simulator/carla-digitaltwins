@@ -7,11 +7,11 @@ import math
 import numpy as np
 import pytest
 import trimesh
-from shapely.geometry import Polygon, box
+from shapely.geometry import LineString, Polygon, box
 
 from twinmodel import profiles
 from twinmodel.export import ue
-from twinmodel.model import Building, Elevation
+from twinmodel.model import Building, Elevation, Lane, Road, Surface, TwinModel
 from twinmodel.surfaces import build_surfaces
 from tests import synthetic
 
@@ -273,3 +273,147 @@ def test_elevation_puts_vertices_on_the_datum(tmp_path):
     expect = m.sample_z(p[:, 0], p[:, 1])
     assert np.allclose(p[:, 2], expect, atol=0.02)
     assert p[:, 2].max() - p[:, 2].min() > 0.3  # 0.4 % grade over the 100 m road
+
+
+# --------------------------------------------------------------------------- zebra orientation
+
+def _bar_cos_x(stripe) -> float:
+    """|cos| of the stripe's long (bar) axis against the x axis."""
+    r = stripe.minimum_rotated_rectangle
+    c = np.asarray(r.exterior.coords)[:4]
+    e0, e1 = c[1] - c[0], c[2] - c[1]
+    e = e0 if np.hypot(*e0) >= np.hypot(*e1) else e1
+    return abs(e[0]) / np.hypot(*e)
+
+
+def test_zebra_walking_hint_fixes_near_square_crossings():
+    # 4 m crossing (x = along the road) over a 3.5 m carriageway: the min-rect long axis IS
+    # the road axis, so the unhinted stripes flip to bars across the road — the rotated-zebra
+    # bug seen on the baked Eixample. The walking hint (road left normal, y) fixes them.
+    poly = box(0, 0, 4.0, 3.5)
+    flipped = ue.zebra_stripes(poly)
+    assert flipped and all(_bar_cos_x(s) < 0.05 for s in flipped)   # documents the failure mode
+    fixed = ue.zebra_stripes(poly, along=np.array([0.0, 1.0]))
+    assert fixed and all(_bar_cos_x(s) > 0.95 for s in fixed)       # bars parallel to the road
+    # a clearly elongated crossing is not changed by a consistent hint
+    wide = box(0, 0, 12, 4)
+    a = ue.zebra_stripes(wide)
+    b = ue.zebra_stripes(wide, along=np.array([1.0, 0.0]))
+    assert len(a) == len(b) == 12
+    assert sum(s.area for s in a) == pytest.approx(sum(s.area for s in b))
+    for s in b:
+        assert _bar_cos_x(s) < 0.05  # bars along y (across the walking direction)
+
+
+# a real case from the v8 Eixample build (crossing_1 on road r52, residential, one 3.75 m
+# lane): the crossing polygon is a 4 m x ~3.75 m near-square rotated ~44 deg, whose min-rect
+# long axis lies ALONG the road — PCA alone laid the bars across it (90 deg off).
+EIXAMPLE_ROTATED_CROSSING = Polygon([(-212.88, -173.18), (-215.77, -170.41),
+                                     (-213.17, -167.71), (-210.29, -170.48)])
+EIXAMPLE_CROSSED_ROAD = LineString([(-213.53, -167.36, 0.0), (-157.95, -220.77, 0.0)])
+
+
+def _one_crossing_model(poly, ref) -> tuple[TwinModel, Surface]:
+    m = TwinModel(name="x", origin_lat=41.39, origin_lon=2.16,
+                  bbox_wgs84=(41.3905, 2.1630, 41.3945, 2.1690))
+    m.roads.append(Road(id="r52", reference_line=ref, highway="residential",
+                        lanes=[Lane(id=-1, type="driving", width=3.75)]))
+    s = Surface(id="crossing_0", kind="crossing", geometry=poly, z_offset=0.003,
+                road_ids=["r52"])
+    m.surfaces.append(s)
+    return m, s
+
+
+def test_rotated_eixample_crossing_bars_run_along_the_road(tmp_path):
+    m, s = _one_crossing_model(EIXAMPLE_ROTATED_CROSSING, EIXAMPLE_CROSSED_ROAD)
+    d = np.asarray(EIXAMPLE_CROSSED_ROAD.coords)[1, :2] - np.asarray(EIXAMPLE_CROSSED_ROAD.coords)[0, :2]
+    h = math.atan2(d[1], d[0])
+
+    def dev_deg(stripe) -> float:
+        r = stripe.minimum_rotated_rectangle
+        c = np.asarray(r.exterior.coords)[:4]
+        e0, e1 = c[1] - c[0], c[2] - c[1]
+        e = e0 if np.hypot(*e0) >= np.hypot(*e1) else e1
+        dd = abs(math.atan2(e[1], e[0]) - h) % math.pi
+        return math.degrees(min(dd, math.pi - dd))
+
+    # the failure mode this pins down: unhinted stripes are ~90 deg off on this polygon
+    unhinted = ue.zebra_stripes(EIXAMPLE_ROTATED_CROSSING)
+    assert unhinted and min(dev_deg(st) for st in unhinted) > 45.0
+    # the export path orients from the crossed road
+    walk = ue.crossing_walk_dir(m, s, EIXAMPLE_ROTATED_CROSSING)
+    assert walk is not None
+    assert abs(walk @ (d / np.hypot(*d))) < 1e-6  # walking dir is the road normal
+    hinted = ue.zebra_stripes(EIXAMPLE_ROTATED_CROSSING, along=walk)
+    assert hinted and max(dev_deg(st) for st in hinted) <= 20.0
+    # and export_ue itself writes those stripes into marking_white
+    man = ue.export_ue(m, tmp_path / "ue", name="t", tile_m=0.0, buildings=False)
+    a = next(a for a in man["assets"] if a["kind"] == "marking_white")
+    g = ue.read_glb(tmp_path / "ue" / a["file"])
+    assert len(g["faces"]) == 2 * len(hinted)
+
+
+def test_crossing_walk_dir_none_without_a_road():
+    m, s = _one_crossing_model(EIXAMPLE_ROTATED_CROSSING, EIXAMPLE_CROSSED_ROAD)
+    s.road_ids = ["missing"]
+    assert ue.crossing_walk_dir(m, s, EIXAMPLE_ROTATED_CROSSING) is None
+
+
+# --------------------------------------------------------------------------- skirts
+
+def test_skirt_lines_skip_the_curbed_edges():
+    from shapely.ops import unary_union
+    m = build_surfaces(synthetic.straight_road())
+    raised = unary_union([s.geometry for s in m.surfaces if s.kind in ue.SKIRT_KINDS])
+    cover = unary_union([c.geometry for c in m.curbs]).buffer(0.06)
+    lines = ue.skirt_lines(raised, cover)
+    assert lines
+    total = sum(l.length for l in lines)
+    boundary = sum(l.length for l in ue._boundary_lines(raised))
+    curbed = sum(c.geometry.length for c in m.curbs)
+    # the skirted length is the free boundary: everything except the curbed edges
+    assert total == pytest.approx(boundary - curbed, rel=0.02)
+    for l in lines:  # nothing left on a curb line (endpoints may touch the buffer)
+        assert l.intersection(cover).length < 0.15
+
+
+def test_raised_plates_carry_skirts_down_under_the_ground_slab(tmp_path):
+    P = profiles.get()
+    m = build_surfaces(synthetic.straight_road())
+    man = ue.export_ue(m, tmp_path / "ue", name="t", tile_m=0.0, buildings=False)
+    a = next(a for a in man["assets"] if a["kind"] == "curb")
+    d = ue.read_glb(tmp_path / "ue" / a["file"])
+    p = ue.gltf_to_model(d["positions"])
+    n = ue.gltf_to_model(d["normals"])
+    # curb strips + skirts: all vertical, unit normals
+    assert np.allclose(n[:, 2], 0.0) and np.allclose(np.linalg.norm(n, axis=1), 1.0)
+    # the skirts reach from the raised top down under the ground slab (datum z = 0 here)
+    assert p[:, 2].max() == pytest.approx(P.sidewalk.z, abs=1e-6)
+    assert p[:, 2].min() == pytest.approx(-ue.SKIRT_DROP, abs=1e-6)
+    assert ue.SKIRT_DROP > ue.GROUND_PLANE_DROP  # ends below the slab: no gap, no z-fight
+
+
+def test_sidewalk_top_sits_a_curb_height_above_the_road_edge(tmp_path):
+    P = profiles.get()
+    m = build_surfaces(synthetic.straight_road())
+    man = ue.export_ue(m, tmp_path / "ue", name="t", tile_m=0.0, buildings=False)
+
+    def pts(kind):
+        out = []
+        for a in man["assets"]:
+            if a["kind"] == kind:
+                out.append(ue.gltf_to_model(ue.read_glb(tmp_path / "ue" / a["file"])["positions"]))
+        return np.concatenate(out)
+
+    side, driv = pts("sidewalk"), pts("drivable")
+    # for every sidewalk vertex near the carriageway, the top is exactly the curb height
+    # above the nearest road vertex — the riser an ambulance sees at the curb
+    d2 = ((side[:, None, :2] - driv[None, :, :2]) ** 2).sum(-1)
+    nearest = d2.argmin(axis=1)
+    near = d2[np.arange(len(side)), nearest] < 1.0
+    assert near.sum() >= 4  # the unsubdivided synthetic band shares only its corner verts
+    dz = side[near][:, 2] - driv[nearest[near], 2]
+    assert np.allclose(dz, P.sidewalk.z, atol=1e-6)
+    # crossings stay at road level (vehicles must not beach): their z offset is millimetres
+    cross = [s for s in m.surfaces if s.kind == "crossing"]
+    assert all(s.z_offset <= 0.01 for s in cross)
