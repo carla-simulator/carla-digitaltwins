@@ -74,6 +74,21 @@ class OrthoImage:
     dy: float
     source: str = ""           # provider name: icgc | ign_es | naip | osm_tiles
     detail: str = ""           # human-readable provenance (service, layer, CRS)
+    fetched: str = ""          # ISO date the provider was queried (survives the cache)
+    cached: bool = False       # True when this instance came from the GeoTIFF cache
+
+    def label(self) -> str:
+        """One-line provenance for figure titles: ``naip · USGS NAIP Plus ImageServer
+        exportImage @0.6 m · fetched 2026-08-30 · cache``. Cache hits keep the provider, the
+        detail and the fetch date because they travel as GeoTIFF tags (``save_geotiff``)."""
+        parts = [self.source or "n/a"]
+        if self.detail:
+            parts.append(self.detail.split(" (")[0])
+        if self.fetched:
+            parts.append(f"fetched {self.fetched}")
+        if self.cached:
+            parts.append("cache")
+        return " · ".join(parts)
 
     # -- geometry helpers ------------------------------------------------------
     @property
@@ -121,7 +136,7 @@ class OrthoImage:
                            count=3, dtype="uint8", crs=crs, transform=self.north_up_transform(),
                            compress="deflate", tiled=True, blockxsize=256, blockysize=256) as dst:
             dst.write(data)
-            dst.update_tags(source=self.source, detail=self.detail)
+            dst.update_tags(source=self.source, detail=self.detail, fetched=self.fetched)
         return path
 
     @classmethod
@@ -133,6 +148,11 @@ class OrthoImage:
             tags = ds.tags()
             source = tags.get("source", "")
             detail = tags.get("detail", "")
+            fetched = tags.get("fetched", "")
+        if not fetched:
+            # cache files written before the tag existed: the file's mtime is the fetch date
+            import datetime as _dt
+            fetched = _dt.datetime.fromtimestamp(Path(path).stat().st_mtime).date().isoformat()
         if t.e >= 0:  # south-up file (unusual): rows already increase with y
             array = arr.transpose(1, 2, 0)
             dy = float(t.e)
@@ -142,7 +162,8 @@ class OrthoImage:
             dy = float(-t.e)
             y0 = float(t.f) - (arr.shape[1] - 0.5) * dy
         return cls(np.ascontiguousarray(array), x0=float(t.c) + t.a / 2, y0=y0,
-                   dx=float(t.a), dy=dy, source=source, detail=detail)
+                   dx=float(t.a), dy=dy, source=source, detail=detail, fetched=fetched,
+                   cached=True)
 
     def save_quicklook(self, path: Path | str, max_px: int = 2400) -> Path:
         """PNG (north-up) for eyeballing; downsampled to at most ``max_px`` a side."""
@@ -398,7 +419,9 @@ def fetch_ortho(frame: LocalFrame, bbox_swne: tuple[float, float, float, float],
             try:
                 img = OrthoImage.from_geotiff(cpath)
                 img.source = name
-                log.info("ortho cache hit %s [%s] (%dx%d)", cpath, name, img.width, img.height)
+                img.cached = True
+                log.info("ortho cache hit %s [%s] (%dx%d)", cpath, img.label(), img.width,
+                         img.height)
                 return img
             except Exception as exc:  # corrupt cache -> refetch
                 log.warning("ortho cache %s unreadable (%s); refetching", cpath, exc)
@@ -411,6 +434,9 @@ def fetch_ortho(frame: LocalFrame, bbox_swne: tuple[float, float, float, float],
         if img is None:
             continue
         img.source = name
+        if not img.fetched:
+            import datetime as _dt
+            img.fetched = _dt.date.today().isoformat()
         log.info("imagery: using %s -> %s", name, img.detail)
         if name not in _SELF_CACHING:
             try:

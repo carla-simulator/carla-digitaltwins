@@ -121,7 +121,7 @@ const IMG = { osm: "__IMG_OSM__", ortho: "__IMG_ORTHO__", mesh: "__IMG_MESH__", 
 
 const LAYERS = [
   { id: "osm",   name: "OSM tiles (z" + (L.zoom || 19) + ")", key: "1", alpha: 1.0, on: true,  sw: "#f2efe9" },
-  { id: "ortho", name: "Orthophoto " + (L.ortho_source || "ICGC 25 cm"), key: "2", alpha: 1.0, on: false, sw: "#6d6a5c" },
+  { id: "ortho", name: "Orthophoto " + (L.ortho_label || L.ortho_source || "n/a"), key: "2", alpha: 1.0, on: false, sw: "#6d6a5c" },
   { id: "mesh",  name: "Twin mesh (top render)", key: "3", alpha: 0.65, on: true, sw: "#3a3a3a" },
 ];
 const images = {};
