@@ -285,16 +285,42 @@ def _lane_end_points(road: Road, contact: str) -> dict[int, np.ndarray]:
 
 
 def _nearest_lane(point: np.ndarray, other: Road, contact: str, lane_type: str,
-                  tol: float = 1.5) -> Optional[int]:
+                  tol: float = 1.5, want_right: Optional[bool] = None) -> Optional[int]:
+    """Nearest lane centre of ``lane_type`` on ``other`` at ``contact``. ``want_right`` restricts
+    the candidates to one side: the lanes of a road are only a lane apart, so without it a
+    driving lane can be linked to its oncoming neighbour — a link CARLA cannot traverse."""
     best, best_d = None, tol
     for lid, q in _lane_end_points(other, contact).items():
         ltype = next(l.type for l in other.lanes if l.id == lid)
         if ltype != lane_type:
             continue
+        if want_right is not None and (lid < 0) != want_right:
+            continue
         d = float(np.linalg.norm(q - point))
         if d < best_d:
             best, best_d = lid, d
     return best
+
+
+def _ordinal_lane(road: Road, lane: Lane, contact: str, other: Road, other_contact: str
+                  ) -> Optional[int]:
+    """Fallback for :func:`_nearest_lane`: match the lanes of the same type ordinally, inner
+    edge outwards, clamping to the outermost one on ``other``.
+
+    The geometric match compares lane *centres*, so it fails whenever the two linked roads have
+    different lane counts (a 3-lane carriageway meeting a 4-lane one is centred on the same OSM
+    way, so every centre is offset by half a lane). Without a fallback the narrower road's outer
+    lanes simply stop: a dead end in the middle of the map that the traffic manager routes
+    vehicles into before deleting them, and a stair-stepped wedge in the mesh."""
+    flip = contact == other_contact  # end->end / start->start reverses the travel direction
+    want_right = (lane.id < 0) != flip
+    mine = [l.id for l in (road.lanes_right() if lane.id < 0 else road.lanes_left())
+            if l.type == lane.type]
+    theirs = [l.id for l in (other.lanes_right() if want_right else other.lanes_left())
+              if l.type == lane.type]
+    if not theirs or lane.id not in mine:
+        return None
+    return theirs[min(mine.index(lane.id), len(theirs) - 1)]
 
 
 def _lane_links(model: TwinModel, road: Road) -> dict[int, dict[str, int]]:
@@ -333,7 +359,15 @@ def _lane_links(model: TwinModel, road: Road) -> dict[int, dict[str, int]]:
         for lane in road.lanes:
             if key in links[lane.id]:
                 continue
-            nearest = _nearest_lane(ends[lane.id], other, other_contact, lane.type)
+            want_right = ((lane.id < 0) != (contact == other_contact)
+                          if lane.type == "driving" else None)
+            nearest = _nearest_lane(ends[lane.id], other, other_contact, lane.type,
+                                    want_right=want_right)
+            if nearest is None and lane.type == "driving":
+                nearest = _ordinal_lane(road, lane, contact, other, other_contact)
+                if nearest is not None:
+                    log.debug("road %s lane %d -> %s lane %d by ordinal match (lane counts differ)",
+                              road.id, lane.id, other.id, nearest)
             if nearest is not None:
                 links[lane.id][key] = nearest
     return links

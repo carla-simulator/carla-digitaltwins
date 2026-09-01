@@ -56,7 +56,11 @@ def straight_road(with_elevation: bool = True) -> TwinModel:
     z = 0.02 * xs if with_elevation else np.zeros(3)
     line = LineString([(x, 0.0, zz) for x, zz in zip(xs, z)])
     road = Road(id="r1", reference_line=line, lanes=_two_way_lanes(), name="Carrer Test",
-                highway="residential", center_marking=Marking("solid", "yellow", 0.12))
+                highway="residential", center_marking=Marking("solid", "yellow", 0.12),
+                # the street stops at both ends on purpose: mark it as a cul-de-sac the way
+                # lanegraph does for an OSM degree-1 node, so validate's terminal_lanes check
+                # does not read it as a dead end in the middle of the map
+                tags={"dead_end_start": True, "dead_end_end": True})
     m = TwinModel(name="straight", origin_lat=ORIGIN[0], origin_lon=ORIGIN[1], bbox_wgs84=BBOX,
                   roads=[road])
     m.signals = [
