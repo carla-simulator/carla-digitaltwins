@@ -18,3 +18,6 @@ include = ["twinmodel*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.setuptools.package-data]
+twinmodel = ["templates/*.html"]

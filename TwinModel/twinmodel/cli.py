@@ -3,6 +3,7 @@
     twinmodel build --bbox S W N E --name NAME --out DIR [--no-imagery] [--no-dem]
                     [--no-refine] [--fixture PATH] [--cache data] [--mask-method classical|sam|auto]
     twinmodel validate <twin_dir> <xodr> [--out DIR] [--step 1.0]
+    twinmodel compare BUILD_DIR NAME [--resolution 0.25] [--zoom 19]   (twinmodel.compare)
 
 ``build`` stages (each timed, everything recorded in ``model.metadata["build"]``):
 
@@ -462,6 +463,30 @@ def build(args: argparse.Namespace) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------- compare
+
+def compare(args: argparse.Namespace) -> int:
+    from .compare import compare_build
+    layers = compare_build(args.build_dir, args.name, out_dir=args.out,
+                           resolution=args.resolution, zoom=args.zoom, cache_dir=args.cache,
+                           n_junctions=args.junctions)
+    st = layers.get("stats", {})
+    if "iou" in st:
+        print(f"mesh road vs OSM tiles: IoU {st['iou']:.3f}, agree {st['agree_m2']:.0f} m2, "
+              f"mesh-only {st['mesh_only_m2']:.0f} m2, OSM-only {st['osm_only_m2']:.0f} m2")
+    for k in ("shift_mesh_to_osm", "shift_mesh_to_ortho", "shift_osm_to_ortho"):
+        if k in st:
+            print(f"{k}: dx {st[k]['dx_m']:+.2f} m dy {st[k]['dy_m']:+.2f} m "
+                  f"(corr {st[k]['peak_corr']:.3f} vs {st[k]['zero_corr']:.3f} at zero)")
+    out = Path(args.out) if args.out else Path(args.build_dir) / "compare"
+    print(f"files -> {out}: " + ", ".join(sorted(layers.get("files", {}).values())))
+    if not getattr(args, "no_viewer", False):
+        from .viewer import write_viewer
+        html = write_viewer(args.build_dir, args.name, out_html=out / "viewer.html")
+        print(f"viewer -> {html} ({html.stat().st_size / 1e6:.1f} MB, self-contained; publish or open in a browser)")
+    return 0
+
+
 # --------------------------------------------------------------------------- entry point
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -487,6 +512,18 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("validate", add_help=False,
                    help="python -m twinmodel.validate <twin_dir> <xodr> [--out DIR] [--step S]")
+
+    c = sub.add_parser("compare", help="OSM tiles | ortho | mesh top view | diff rasters "
+                                       "-> <build_dir>/compare/ (twinmodel.compare)")
+    c.add_argument("build_dir", help="directory holding <name>.twin and <name>.obj")
+    c.add_argument("name")
+    c.add_argument("--resolution", type=float, default=0.25, help="grid resolution (m)")
+    c.add_argument("--zoom", type=int, default=19, help="OSM tile zoom")
+    c.add_argument("--out", help="output directory (default <build_dir>/compare)")
+    c.add_argument("--cache", default="data", help="tile/WMS cache directory")
+    c.add_argument("--junctions", type=int, default=3, help="junction crops for the N largest")
+    c.add_argument("--no-viewer", action="store_true", help="skip writing compare/viewer.html")
+    c.set_defaults(func=compare)
     return ap
 
 

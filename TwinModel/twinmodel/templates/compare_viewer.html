@@ -1,0 +1,333 @@
+<title>__TITLE__</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #eef0f2; --panel: #ffffff; --panel-2: #f6f7f8; --line: #d5dadf;
+    --text: #1a1f24; --muted: #5b656e; --accent: #d9631f; --accent-ink: #ffffff;
+    --mesh-only: #e03535; --osm-only: #2b6fd6; --agree: #7a838b;
+    --focus: #d9631f;
+    --font-ui: "Barlow", "Helvetica Neue", Arial, sans-serif;
+    --font-label: "Barlow Condensed", "Arial Narrow", Arial, sans-serif;
+    --font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1316; --panel: #171c21; --panel-2: #1e242a; --line: #2b333b;
+      --text: #e6e9ec; --muted: #8a949c; --accent: #ff8a3d; --accent-ink: #14100c;
+      --mesh-only: #ff4d4f; --osm-only: #3d8bff; --agree: #9aa3ab; --focus: #ff8a3d;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1316; --panel: #171c21; --panel-2: #1e242a; --line: #2b333b;
+    --text: #e6e9ec; --muted: #8a949c; --accent: #ff8a3d; --accent-ink: #14100c;
+    --mesh-only: #ff4d4f; --osm-only: #3d8bff; --agree: #9aa3ab; --focus: #ff8a3d;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-ui); font-size: 14px; overflow: hidden; }
+  .app { display: grid; grid-template-columns: 272px 1fr; grid-template-rows: 48px 1fr; height: 100vh; }
+  header { grid-column: 1 / -1; display: flex; align-items: center; gap: 18px; padding: 0 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-family: var(--font-label); font-weight: 600; font-size: 18px; letter-spacing: 0.02em; margin: 0; text-transform: uppercase; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  .stats { margin-left: auto; display: flex; gap: 18px; font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .stats span b { display: block; font-family: var(--font-label); font-weight: 500; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .stats .mo { color: var(--mesh-only); } .stats .oo { color: var(--osm-only); }
+  aside { background: var(--panel); border-right: 1px solid var(--line); padding: 14px; display: flex; flex-direction: column; gap: 18px; overflow-y: auto; }
+  .group h2 { font-family: var(--font-label); font-weight: 600; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+  .modes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  .modes button { font-family: var(--font-label); font-weight: 600; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; padding: 7px 0; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); border-radius: 3px; cursor: pointer; }
+  .modes button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .layer { display: grid; grid-template-columns: 22px 1fr 44px; grid-template-rows: auto auto; gap: 4px 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+  .layer:first-of-type { border-top: 0; }
+  .layer .name { font-weight: 500; }
+  .layer .key { font-family: var(--font-mono); font-size: 11px; color: var(--muted); text-align: right; }
+  .layer input[type="range"] { grid-column: 2 / 4; width: 100%; accent-color: var(--accent); }
+  .layer .sw { width: 14px; height: 14px; border-radius: 2px; border: 1px solid var(--line); }
+  .layer input[type="checkbox"] { accent-color: var(--accent); margin: 0; }
+  .hint { color: var(--muted); font-size: 12px; line-height: 1.45; }
+  .hint kbd { font-family: var(--font-mono); font-size: 11px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+  .jumps { display: flex; flex-wrap: wrap; gap: 4px; }
+  .jumps button, .vec label { font-family: var(--font-mono); font-size: 12px; padding: 4px 8px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); border-radius: 3px; cursor: pointer; }
+  .vec { display: flex; flex-direction: column; gap: 6px; }
+  .vec label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .vec input { accent-color: var(--accent); margin: 0; }
+  .swipe-pair { display: grid; grid-template-columns: 1fr 24px 1fr; align-items: center; gap: 4px; margin-top: 6px; }
+  .swipe-pair select { width: 100%; font-family: var(--font-ui); font-size: 13px; padding: 4px; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 3px; }
+  .swipe-pair .vs { text-align: center; color: var(--muted); font-family: var(--font-label); }
+  main { position: relative; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+  canvas:active { cursor: grabbing; }
+  .readout { position: absolute; right: 12px; bottom: 12px; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 3px; padding: 6px 10px; font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text); pointer-events: none; }
+  .readout span { color: var(--muted); }
+  .legend { position: absolute; left: 12px; bottom: 12px; display: none; gap: 12px; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 3px; padding: 6px 10px; font-size: 12px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  .scale { position: absolute; left: 12px; top: 12px; font-family: var(--font-mono); font-size: 11px; color: var(--text); background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 3px; padding: 4px 8px; pointer-events: none; }
+  .scale i { display: block; height: 3px; background: var(--accent); margin-top: 3px; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="app">
+  <header>
+    <h1>__TITLE__</h1>
+    <div class="sub" id="sub"></div>
+    <div class="stats" id="stats"></div>
+  </header>
+  <aside>
+    <div class="group">
+      <h2>Compare</h2>
+      <div class="modes" role="group" aria-label="Compare mode">
+        <button data-mode="stack" aria-pressed="true">Stack</button>
+        <button data-mode="swipe" aria-pressed="false">Swipe</button>
+        <button data-mode="flicker" aria-pressed="false">Flicker</button>
+        <button data-mode="diff" aria-pressed="false">Diff</button>
+      </div>
+      <div class="swipe-pair" id="pair" hidden>
+        <select id="pairA"></select><span class="vs">vs</span><select id="pairB"></select>
+      </div>
+    </div>
+    <div class="group">
+      <h2>Layers</h2>
+      <div id="layers"></div>
+    </div>
+    <div class="group">
+      <h2>Vectors</h2>
+      <div class="vec" id="vectors"></div>
+    </div>
+    <div class="group">
+      <h2>Junctions</h2>
+      <div class="jumps" id="jumps"></div>
+    </div>
+    <div class="group hint">
+      Drag to pan, wheel to zoom, <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> toggle layers, <kbd>space</kbd> flicker the swipe pair, <kbd>0</kbd> fit. Rasters share one 0.25 m grid in model space; the mesh layer is a top-down render of the exported OBJ.
+    </div>
+  </aside>
+  <main>
+    <canvas id="c"></canvas>
+    <div class="scale" id="scale">50 m<i style="width:100px"></i></div>
+    <div class="legend" id="legend">
+      <span><i style="background:var(--agree)"></i>agree</span>
+      <span><i style="background:var(--mesh-only)"></i>mesh only</span>
+      <span><i style="background:var(--osm-only)"></i>OSM only</span>
+    </div>
+    <div class="readout" id="readout"><span>x</span> — <span>y</span> — </div>
+  </main>
+</div>
+
+<script>
+const L = __LAYERS_JSON__;
+const VEC = __VECTORS_JSON__;
+const IMG = { osm: "__IMG_OSM__", ortho: "__IMG_ORTHO__", mesh: "__IMG_MESH__", diff: "__IMG_DIFF__" };
+
+const LAYERS = [
+  { id: "osm",   name: "OSM tiles (z" + (L.zoom || 19) + ")", key: "1", alpha: 1.0, on: true,  sw: "#f2efe9" },
+  { id: "ortho", name: "Orthophoto " + (L.ortho_source || "ICGC 25 cm"), key: "2", alpha: 1.0, on: false, sw: "#6d6a5c" },
+  { id: "mesh",  name: "Twin mesh (top render)", key: "3", alpha: 0.65, on: true, sw: "#3a3a3a" },
+];
+const images = {};
+let loaded = 0;
+for (const k of Object.keys(IMG)) {
+  const im = new Image();
+  im.onload = () => { loaded++; if (loaded === 1) fit(); draw(); };
+  im.src = IMG[k];
+  images[k] = im;
+}
+
+// ---- view state: model space (metres, y up) -> screen
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const view = { cx: 0, cy: 0, ppm: 1 }; // centre in model space, pixels per metre
+let mode = "stack", pair = ["osm", "mesh"], swipeFrac = 0.5, flickerOn = false, flickerPhase = 0;
+const vecOn = { junctions: true, roads: false, signals: false };
+
+function resize() {
+  const r = canvas.getBoundingClientRect();
+  canvas.width = Math.round(r.width * devicePixelRatio);
+  canvas.height = Math.round(r.height * devicePixelRatio);
+  draw();
+}
+function fit() {
+  const w = L.width * L.dx, h = L.height * L.dy;
+  view.cx = L.x0 + w / 2; view.cy = L.y0 + h / 2;
+  view.ppm = Math.min(canvas.width / w, canvas.height / h) * 0.96;
+  draw();
+}
+function toScreen(x, y) {
+  return [canvas.width / 2 + (x - view.cx) * view.ppm, canvas.height / 2 - (y - view.cy) * view.ppm];
+}
+function toModel(sx, sy) {
+  return [view.cx + (sx - canvas.width / 2) / view.ppm, view.cy - (sy - canvas.height / 2) / view.ppm];
+}
+// raster rect in model space: images are north-up; top edge is y0 + height*dy
+function drawRaster(im, alpha, clipX) {
+  if (!im.complete || !im.naturalWidth) return;
+  const [sx, sy] = toScreen(L.x0, L.y0 + L.height * L.dy);
+  const sw = L.width * L.dx * view.ppm, sh = L.height * L.dy * view.ppm;
+  ctx.save();
+  if (clipX !== undefined) { ctx.beginPath(); ctx.rect(clipX[0], 0, clipX[1] - clipX[0], canvas.height); ctx.clip(); }
+  ctx.globalAlpha = alpha;
+  ctx.imageSmoothingEnabled = view.ppm < 4;
+  ctx.drawImage(im, sx, sy, sw, sh);
+  ctx.restore();
+}
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = css("--bg"); ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (mode === "stack") {
+    for (const l of LAYERS) if (l.on) drawRaster(images[l.id], l.alpha);
+  } else if (mode === "swipe") {
+    const x = swipeFrac * canvas.width;
+    drawRaster(images[pair[0]], 1, [0, x]);
+    drawRaster(images[pair[1]], 1, [x, canvas.width]);
+    ctx.strokeStyle = css("--accent"); ctx.lineWidth = 2 * devicePixelRatio;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+    label(pair[0], x - 8 * devicePixelRatio, "right"); label(pair[1], x + 8 * devicePixelRatio, "left");
+  } else if (mode === "flicker") {
+    drawRaster(images[pair[flickerPhase]], 1);
+    label(pair[flickerPhase], 12 * devicePixelRatio, "left", canvas.height - 12 * devicePixelRatio);
+  } else if (mode === "diff") {
+    drawRaster(images.ortho, 0.35);
+    drawRaster(images.diff, 1);
+  }
+  drawVectors();
+  document.getElementById("legend").style.display = mode === "diff" ? "flex" : "none";
+  updateScale();
+}
+function label(id, x, align, y) {
+  const name = LAYERS.find(l => l.id === id).name;
+  ctx.save();
+  ctx.font = `${13 * devicePixelRatio}px ${css("--font-label")}`;
+  ctx.textAlign = align; ctx.textBaseline = "top";
+  const w = ctx.measureText(name).width + 12 * devicePixelRatio, h = 20 * devicePixelRatio;
+  const yy = y === undefined ? 12 * devicePixelRatio : y - h;
+  const xx = align === "right" ? x - w : x;
+  ctx.fillStyle = css("--panel"); ctx.globalAlpha = 0.85; ctx.fillRect(xx, yy, w, h); ctx.globalAlpha = 1;
+  ctx.fillStyle = css("--text"); ctx.fillText(name, align === "right" ? x - 6 * devicePixelRatio : x + 6 * devicePixelRatio, yy + 4 * devicePixelRatio);
+  ctx.restore();
+}
+function drawVectors() {
+  const dpr = devicePixelRatio;
+  if (vecOn.roads) {
+    ctx.strokeStyle = css("--accent"); ctx.lineWidth = 1.2 * dpr; ctx.globalAlpha = 0.9;
+    for (const r of VEC.roads) { ctx.beginPath(); r.forEach(([x, y], i) => { const [sx, sy] = toScreen(x, y); i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); }); ctx.stroke(); }
+    ctx.globalAlpha = 1;
+  }
+  if (vecOn.junctions) {
+    ctx.strokeStyle = css("--osm-only"); ctx.lineWidth = 1.5 * dpr; ctx.setLineDash([6 * dpr, 4 * dpr]);
+    for (const j of VEC.junctions) {
+      for (const ring of j.rings) { ctx.beginPath(); ring.forEach(([x, y], i) => { const [sx, sy] = toScreen(x, y); i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); }); ctx.closePath(); ctx.stroke(); }
+      const [sx, sy] = toScreen(j.centre[0], j.centre[1]);
+      ctx.setLineDash([]); ctx.font = `${12 * dpr}px ${css("--font-mono")}`; ctx.fillStyle = css("--osm-only"); ctx.textAlign = "center"; ctx.fillText(j.id, sx, sy - 6 * dpr); ctx.setLineDash([6 * dpr, 4 * dpr]);
+    }
+    ctx.setLineDash([]);
+  }
+  if (vecOn.signals) {
+    for (const s of VEC.signals) {
+      const [sx, sy] = toScreen(s.x, s.y);
+      ctx.beginPath(); ctx.arc(sx, sy, 3.5 * dpr, 0, Math.PI * 2);
+      ctx.fillStyle = s.kind === "traffic_light" ? css("--mesh-only") : (s.kind === "crosswalk" ? "#ffffff" : css("--accent"));
+      ctx.fill(); ctx.strokeStyle = css("--bg"); ctx.lineWidth = dpr; ctx.stroke();
+    }
+  }
+}
+function updateScale() {
+  const target = 100 * devicePixelRatio / view.ppm; // metres spanning ~100 css px
+  const nice = [1, 2, 5, 10, 20, 50, 100, 200, 500].reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a);
+  const el = document.getElementById("scale");
+  el.firstChild.nodeValue = nice + " m";
+  el.querySelector("i").style.width = (nice * view.ppm / devicePixelRatio) + "px";
+}
+
+// ---- interaction
+let drag = null, dragSwipe = false;
+canvas.addEventListener("pointerdown", e => {
+  canvas.setPointerCapture(e.pointerId);
+  const sx = e.offsetX * devicePixelRatio;
+  if (mode === "swipe" && Math.abs(sx - swipeFrac * canvas.width) < 10 * devicePixelRatio) { dragSwipe = true; return; }
+  drag = { x: e.clientX, y: e.clientY, cx: view.cx, cy: view.cy };
+});
+canvas.addEventListener("pointermove", e => {
+  if (dragSwipe) { swipeFrac = Math.min(1, Math.max(0, e.offsetX * devicePixelRatio / canvas.width)); draw(); return; }
+  if (drag) {
+    view.cx = drag.cx - (e.clientX - drag.x) * devicePixelRatio / view.ppm;
+    view.cy = drag.cy + (e.clientY - drag.y) * devicePixelRatio / view.ppm;
+    draw();
+  }
+  const [x, y] = toModel(e.offsetX * devicePixelRatio, e.offsetY * devicePixelRatio);
+  const lat = L.origin_lat + y / 111320, lon = L.origin_lon + x / (111320 * Math.cos(L.origin_lat * Math.PI / 180));
+  document.getElementById("readout").innerHTML = `<span>x</span> ${x.toFixed(1)} <span>y</span> ${y.toFixed(1)} m &nbsp; <span>lat</span> ${lat.toFixed(6)} <span>lon</span> ${lon.toFixed(6)}`;
+});
+canvas.addEventListener("pointerup", () => { drag = null; dragSwipe = false; });
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  const [mx, my] = toModel(e.offsetX * devicePixelRatio, e.offsetY * devicePixelRatio);
+  const f = Math.exp(-e.deltaY * 0.0015);
+  view.ppm = Math.min(200, Math.max(0.05, view.ppm * f));
+  const [mx2, my2] = toModel(e.offsetX * devicePixelRatio, e.offsetY * devicePixelRatio);
+  view.cx += mx - mx2; view.cy += my - my2;
+  draw();
+}, { passive: false });
+window.addEventListener("resize", resize);
+window.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  const l = LAYERS.find(l => l.key === e.key);
+  if (l) { l.on = !l.on; renderLayerPanel(); draw(); }
+  if (e.key === "0") fit();
+  if (e.key === " ") { e.preventDefault(); setMode(mode === "flicker" ? "swipe" : "flicker"); }
+});
+
+// ---- panel
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll(".modes button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
+  document.getElementById("pair").hidden = !(m === "swipe" || m === "flicker");
+  if (flickerTimer) { clearInterval(flickerTimer); flickerTimer = null; }
+  if (m === "flicker") flickerTimer = setInterval(() => { flickerPhase = 1 - flickerPhase; draw(); }, 500);
+  draw();
+}
+let flickerTimer = null;
+document.querySelectorAll(".modes button").forEach(b => b.addEventListener("click", () => setMode(b.dataset.mode)));
+for (const [i, sel] of [["pairA", 0], ["pairB", 1]]) {
+  const s = document.getElementById(i);
+  for (const l of LAYERS) { const o = document.createElement("option"); o.value = l.id; o.textContent = l.name; s.appendChild(o); }
+  s.value = pair[sel];
+  s.addEventListener("change", () => { pair[sel] = s.value; draw(); });
+}
+function renderLayerPanel() {
+  const host = document.getElementById("layers"); host.innerHTML = "";
+  for (const l of LAYERS) {
+    const d = document.createElement("div"); d.className = "layer";
+    d.innerHTML = `<input type="checkbox" ${l.on ? "checked" : ""} aria-label="show ${l.name}">
+      <span class="name"><span class="sw" style="background:${l.sw};display:inline-block;vertical-align:-2px;margin-right:6px"></span>${l.name}</span>
+      <span class="key">${Math.round(l.alpha * 100)} %</span>
+      <input type="range" min="0" max="100" value="${Math.round(l.alpha * 100)}" aria-label="${l.name} opacity">`;
+    d.querySelector("[type=checkbox]").addEventListener("change", e => { l.on = e.target.checked; draw(); });
+    d.querySelector("[type=range]").addEventListener("input", e => { l.alpha = e.target.value / 100; d.querySelector(".key").textContent = e.target.value + " %"; draw(); });
+    host.appendChild(d);
+  }
+}
+renderLayerPanel();
+const vh = document.getElementById("vectors");
+for (const [k, name] of [["junctions", "Junction polygons"], ["roads", "Road reference lines"], ["signals", "Signals & crossings"]]) {
+  const lab = document.createElement("label");
+  lab.innerHTML = `<input type="checkbox" ${vecOn[k] ? "checked" : ""}> ${name}`;
+  lab.querySelector("input").addEventListener("change", e => { vecOn[k] = e.target.checked; draw(); });
+  vh.appendChild(lab);
+}
+const jh = document.getElementById("jumps");
+for (const j of [...VEC.junctions].sort((a, b) => b.area - a.area)) {
+  const b = document.createElement("button"); b.textContent = j.id + " · " + Math.round(j.area) + " m²";
+  b.addEventListener("click", () => { view.cx = j.centre[0]; view.cy = j.centre[1]; view.ppm = canvas.width / 140; draw(); });
+  jh.appendChild(b);
+}
+const st = L.stats || {};
+document.getElementById("stats").innerHTML =
+  `<span><b>IoU mesh∩OSM</b>${(st.iou ?? 0).toFixed(3)}</span>` +
+  `<span class="mo"><b>mesh only</b>${Math.round(st.mesh_only_m2 ?? 0)} m²</span>` +
+  `<span class="oo"><b>OSM only</b>${Math.round(st.osm_only_m2 ?? 0)} m²</span>` +
+  `<span><b>grid</b>${L.width}×${L.height} @ ${L.resolution} m</span>`;
+document.getElementById("sub").textContent = `${L.name} · bbox ${L.bbox_swne.map(v => v.toFixed(4)).join(" ")} · origin ${L.origin_lat.toFixed(5)}, ${L.origin_lon.toFixed(5)}`;
+resize();
+</script>
