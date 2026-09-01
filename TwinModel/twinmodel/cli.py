@@ -1133,6 +1133,29 @@ def compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def bake_export(args: argparse.Namespace) -> int:
+    """``twinmodel bake-export <build_dir> <name> [--out DIR]``: write ``<out>/meshes/*.glb`` and
+    ``<out>/manifest.json`` for ``ue/bake_level.py``."""
+    from .export.ue import export_ue
+    from .model import TwinModel
+
+    build_dir = Path(args.build_dir)
+    model = TwinModel.load(build_dir / f"{args.name}.twin")
+    prof = args.profile or (model.metadata.get("profile") or {}).get("name")
+    if prof and prof in PROFILE_CHOICES and prof != "auto":
+        profiles.activate(prof)
+    xodr = build_dir / f"{args.name}.xodr"
+    out = Path(args.out) if args.out else build_dir / "ue"
+    m = export_ue(model, out, name=args.name, xodr_path=xodr if xodr.exists() else None,
+                  tile_m=args.tile, buildings=not args.no_buildings)
+    st = m["stats"]
+    print(f"{st['assets']} assets, {st['triangles']} triangles, {st['spawn_points']} spawn points, "
+          f"{st['buildings']} buildings, layers {st['layers']} -> {out / 'manifest.json'}")
+    if not xodr.exists():
+        print(f"warning: {xodr} not found; manifest has no xodr")
+    return 0
+
+
 # --------------------------------------------------------------------------- entry point
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -1157,6 +1180,17 @@ def _build_parser() -> argparse.ArgumentParser:
     b.add_argument("--step", type=float, default=1.0, help="waypoint step for validation (m)")
     b.add_argument("--junction-zooms", type=int, default=3, help="zoom PNGs for the N largest junctions")
     b.set_defaults(func=build)
+
+    u = sub.add_parser("bake-export", help="twin model -> UE bake input: per-(layer, kind, tile) .glb "
+                                            "meshes + manifest.json (twinmodel.export.ue)")
+    u.add_argument("build_dir", help="directory holding <name>.twin and <name>.xodr")
+    u.add_argument("name")
+    u.add_argument("--out", help="output directory (default <build_dir>/ue)")
+    u.add_argument("--tile", type=float, default=250.0, help="tile size in m (0 = one asset per kind)")
+    u.add_argument("--no-buildings", action="store_true")
+    u.add_argument("--profile", default=None, choices=list(PROFILE_CHOICES),
+                   help="region profile (default: the one recorded in the twin's metadata)")
+    u.set_defaults(func=bake_export)
 
     sub.add_parser("validate", add_help=False,
                    help="python -m twinmodel.validate <twin_dir> <xodr> [--out DIR] [--step S]")

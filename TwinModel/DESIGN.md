@@ -445,6 +445,118 @@ divided-carriageway and sliver models disabled, for before/after comparisons on 
    mesh — it is only to prove the xodr topology is sound in CARLA. The OBJ overlay in Unreal is a
    stretch goal.
 
+## Baker (UE 5.8): twin -> World Partition level in carla-ue58-dev
+
+Two stages, both driven from `TwinModel/`; the first is pure Python (offline, tested), the
+second is editor Python run by `UnrealEditor-Cmd -run=pythonscript`.
+
+```
+<build>/<name>.twin ──bake-export──► <build>/ue/{manifest.json, meshes/*.glb}
+                                          │
+                                          ▼  ue/bake_level.py (editor Python, Interchange)
+        /Game/Carla/Static/<Label>/Twins/<Name>/<asset>      static meshes, Nanite on
+        /Game/Carla/Maps/Twins/<Name>/Materials/MI_<Name>_*  MIC children of CARLA materials
+        /Game/Carla/Maps/Twins/<Name>/<Name>                 World Partition level
+        Content/Carla/Maps/Twins/<Name>/OpenDrive/<Name>.xodr
+```
+
+### Stage 1 — `python -m twinmodel bake-export <build_dir> <name> [--out DIR] [--tile 250]`
+(`twinmodel/export/ue.py`) One glTF 2.0 binary per **(layer, kind, tile)**:
+- kinds: every surface kind (`drivable`, `sidewalk`, `crossing`, `island`, `median`, `verge`,
+  `parking`, `ground`), `curb` (vertical strips, per-segment normals, (along, height) UVs),
+  `marking_white` / `marking_yellow` (lane lines as in the OBJ, plus **zebra stripes** cut from
+  every `crossing` polygon: 0.5 m stripes / 0.5 m gaps across the road), `building` (OSM
+  footprints extruded from the lowest datum sample −0.3 m to `Building.effective_height`, per
+  `profile.building.level_height_m` / `default_levels`; flat-shaded walls, roof on top).
+- layer = OSM `layer` of the surface/curb/marking (grade separation); tile = `tile_m` grid cell
+  in model space (a World Partition cell streams whole tiles). Asset name
+  `<name>_L<layer>_<kind>_<i>_<j>` (`m` for minus).
+- coordinates: the glb vertices are written as `(x, z, −y)` metres so that Interchange's
+  `UE = (gx, gz, gy)·100` lands them at CARLA's `(x, −y, z)·100` — actors go at the origin with
+  no transform. Faces CCW in model space (the importer reverses winding for the handedness
+  change). UVs metric planar (`u = x`, `v = −y`; 1 unit = 1 m) so the CARLA material tiling
+  parameters mean metres.
+- `manifest.json`: assets (file, kind, layer, tile, material key, ATagger semantic folder, bbox
+  in UE cm, tri count), `spawn_points` (UE cm / yaw°: every 30 m along each driving lane of every
+  non-junction road, 10 m clear of the ends, 0.5 m above the datum (less and try_spawn_actor hits the road), heading in the lane's travel
+  direction), `junctions` (largest first, centre in UE and model space), origin lat/lon,
+  geo_reference, xodr path, profile.
+
+### Stage 2 — `ue/bake_level.py --manifest <build>/ue/manifest.json --name <Name>`
+```
+UE_ROOT=/home/german/Projects/CARLA_SOURCE/UnrealEngine_5
+DLSS_SDK=/home/german/SDKs/DLSS flock /home/german/Projects/CARLA_SOURCE/.omc/ue.lock \
+  $UE_ROOT/Engine/Binaries/Linux/UnrealEditor-Cmd \
+  /home/german/Projects/CARLA_SOURCE/carla-ue58-dev/Unreal/CarlaUnreal/CarlaUnreal.uproject \
+  -run=pythonscript "-script=<abs>/ue/bake_level.py --manifest <abs>/ue/manifest.json --name Eixample" \
+  -unattended -nosplash -stdout -FullStdOutLogOutput
+```
+1. **Materials** — `MI_<Name>_<key>` instances under `Maps/Twins/<Name>/Materials`, parented to
+   what `AOpenDriveGenerator` and the classic towns use: road → `GenericMaterials/Roads/
+   MI_RoadAsphalt_Town15`, sidewalk → `Sidewalk/MI_Sidewalk_Apartment`, curb →
+   `Gutters_Curbs/Curb/MI_CurbDirty01`, markings → `Roads/MI_Road_Asphalt_B_LaneMarkingWhite|
+   Yellow` (the Town10HD lane-marking meshes use these), grass → `Ground/MI_LargeLandscape_Grass`,
+   ground → `Ground/MI_Grass_Park`, building → `Facade/MI_Facade01|03|05|07, MI_Brick01`
+   (rotated per tile). Tiling is tuned on the instance, not baked in the mesh.
+2. **Meshes** — `AssetImportTask` + an `InterchangePipelineStackOverride` (generic assets
+   pipeline: static meshes only, no materials/textures, `build_nanite`), destination
+   `/Game/Carla/Static/<Label>/Twins/<Name>/`. The label folder is **required**: `ATagger`
+   reads the folder right under `/Game/Carla/Static/` (`Road`, `SideWalk`, `RoadLine`, `Building`,
+   `Terrain`) to tag components, which is what semantic segmentation and the collision sensor's
+   `static.road` / `static.sidewalk` ids come from — a mesh under `Maps/Twins/` would tag as
+   `None`. Then per mesh: material slot 0 = our MIC, Nanite on with `fallback_percent_triangles =
+   1.0` (the physics fallback mesh is the full surface), collision *complex as simple* (markings:
+   no collision).
+3. **Level** — `LevelEditorSubsystem.new_level(path, is_partitioned_world=True)`; one
+   `StaticMeshActor` per asset at the origin, `AVehicleSpawnPoint` per manifest spawn point
+   (`ACarlaGameModeBase::StoreSpawnPoints` reads them; without any it would derive them from the
+   xodr topology), a `PlayerStart`, `BP_Carla_Sky` (not spatially loaded). Actors are spawned with
+   `UOpenDriveToMap.spawn_actor_with_check_no_collisions` (CarlaTools; plain `UWorld::SpawnActor`) — the editor placement path
+   (`EditorActorSubsystem.spawn_actor_from_*`) segfaults under `-run=pythonscript`. World
+   Partition runtime hash: the engine default for `new_level` (RuntimeHashSet, 256 m grid
+   cells); with 250 m tiles every tile is ~one cell.
+4. **OpenDRIVE** — copied to `Content/Carla/Maps/Twins/<Name>/OpenDrive/<Name>.xodr`.
+   `UOpenDrive::GetXODR` looks in `<dir of the .umap>/OpenDrive/`, and because that directory is
+   named after the map it accepts any `*.xodr` there (same layout as Town12/13/15).
+   `client.get_available_maps()` finds the level through the AssetRegistry / `*.umap` scan — no
+   registration; for a *packaged* server add `+MapsToCook` and `+DirectoriesToAlwaysStageAsUFS`
+   (`Carla/Maps/Twins/<Name>/OpenDrive`) to `DefaultGame.ini`.
+5. `bake_report.json` next to the manifest: per-mesh nanite/collision/material, actor and spawn
+   point counts, content size.
+
+Generated content is a build product (not committed): `Content/Carla/Maps/Twins/<Name>/`,
+`Content/Carla/__ExternalActors__/Carla/Maps/Twins/<Name>/`,
+`Content/Carla/Static/{Road,SideWalk,RoadLine,Building,Terrain}/Twins/<Name>/`.
+
+### Packaging a baked twin as a content pack (evaluated 2026-09-01, not yet executed)
+
+The content-pack tooling (commit `da94ed2b7`, branch `ue58-dev-carla`, checked out in
+`carla-ue58-cosmos`) supports World Partition maps by design: `carla-pack add --map ...
+--world-partition` copies the map's `__ExternalActors__`/`__ExternalObjects__` and `_BuiltData`
+into the pack plugin and the manifest records `world_partition: true`; `FindPathToXODRFile`
+searches mounted packs' `Content/Maps/OpenDrive/`. A baked twin would fit like this:
+1. author the pack in the tree that has the tooling: `carla-pack init TwinEixample`, then run
+   `ue/bake_level.py` with `--map-root /TwinEixample/Maps --mesh-root /TwinEixample/Static/
+   {semantic}/Twins/{name}` after a *Save-As into the pack* (a WP map must be duplicated into
+   the pack mount from the editor, file copies keep `/Game/...` references); the pack-side
+   Tagger rule is `/<Pack>/Static/<Label>/...` (first `Static` folder), which the mesh-root
+   above satisfies.
+2. `carla-pack add TwinEixample --map .../Maps/Eixample.umap --xodr Eixample.xodr
+   --world-partition`, `carla-pack build --base carla-0.10.0-Linux-release-metadata.tar.gz`
+   (needs the source build's editor as DLC cooker + the base-release metadata, both present in
+   `carla-ue58-cosmos/Build`), `carla-pack install` into the pack-capable packaged server.
+Blockers for doing it from this lane: the tooling, the mount RPCs and the pack-aware Tagger are
+not on `ue58-dev` (this tree) — authoring/cooking would have to happen in the
+`carla-ue58-cosmos` worktree (`ue58-dev-carla`), which another task owns; and a WP pack has not
+been verified end to end anywhere yet (TestPack is flat). No blocker is architectural.
+
+### Stage 3 — `tools/carla_level_check.py <build_dir> <name> --level <Name> --port 4000`
+Same soak as `carla_load_check.py` (20 TM vehicles, 600 sync frames, collision sensors, stuck
+tracking, junction captures) but `client.load_world(<Name>)` instead of
+`generate_opendrive_world`. Output in `<build_dir>/carla_level/`. A level "drives" only when the
+report says so (0 `static.road` / `static.sidewalk` collisions, vehicles moving, captures show
+the baked surfaces).
+
 ## Tools
 
 - `tools/carla_load_check.py` — loads a `.xodr` into a running ue58-dev server (`generate_opendrive_world`), captures
