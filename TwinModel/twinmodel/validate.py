@@ -27,6 +27,14 @@ log = logging.getLogger("twinmodel.validate")
 
 CONTAINMENT_TOL = 0.05  # metres of slack around surfaces (mesh/xodr are independent samples)
 Z_TOL = 0.05
+# A driving lane that stops with no ``next()`` this far inside the bbox is a dead end in the
+# middle of the map: the traffic manager routes a vehicle onto it and then deletes the vehicle.
+# Lanes that end at the bbox edge, and roads the lane graph marked as real cul-de-sacs
+# (``dead_end_start`` / ``dead_end_end``, OSM degree-1 nodes) do not count.
+TERMINAL_INSIDE_M = 30.0
+# a road between two junctions shorter than this cannot carry a lane link (see
+# profiles.JunctionRules.sliver_m)
+SLIVER_M = 5.0
 
 
 def _to_model_xyz(location) -> tuple[float, float, float]:
@@ -36,6 +44,39 @@ def _to_model_xyz(location) -> tuple[float, float, float]:
 def _union(geoms: list[BaseGeometry]) -> Optional[BaseGeometry]:
     geoms = [g for g in geoms if g is not None and not g.is_empty]
     return shapely.union_all(geoms) if geoms else None
+
+
+def _bbox_inside(model: TwinModel, margin: float) -> Optional[BaseGeometry]:
+    """The requested bbox in model space, shrunk by ``margin``. ``None`` when the model has no
+    bbox (a synthetic twin): every terminal lane then counts."""
+    bbox = getattr(model, "bbox_wgs84", None)
+    if not bbox:
+        return None
+    from .frame import LocalFrame
+    frame = LocalFrame(model.origin_lat, model.origin_lon)
+    south, west, north, east = (float(v) for v in bbox)
+    lons = np.array([west, east, east, west])
+    lats = np.array([south, south, north, north])
+    x, y = frame.to_local(lons, lats)
+    poly = shapely.Polygon(list(zip(np.atleast_1d(x), np.atleast_1d(y))))
+    shrunk = poly.buffer(-margin)
+    return shrunk if not shrunk.is_empty else None
+
+
+def _junction_arm_lanes(model: TwinModel, junction) -> dict[str, set[int]]:
+    """{road id: driving lane ids that travel INTO ``junction``} for every arm of it. Lanes with
+    a negative id run along +s (they enter through the road's end), positive ones along -s."""
+    out: dict[str, set[int]] = {}
+    for r in model.roads:
+        if r.junction_id is not None:
+            continue
+        for link, sign in ((r.successor, -1), (r.predecessor, 1)):
+            if link is None or link.element != "junction" or link.id != junction.id:
+                continue
+            lanes = {l.id for l in r.lanes if l.type == "driving" and (l.id < 0) == (sign < 0)}
+            if lanes:
+                out.setdefault(r.id, set()).update(lanes)
+    return out
 
 
 def _lane_last_waypoints(wps) -> list:
@@ -224,6 +265,62 @@ def validate(model: TwinModel, xodr_text: str, *, step: float = 1.0,
             "ratio": float(sidewalk.area / drivable.area) if sidewalk is not None and drivable.area else 0.0,
         }
 
+    # terminal lanes inside the map -----------------------------------------------------
+    # (the symptom the CARLA traffic-manager soak sees: a vehicle routed onto one of these is
+    # deleted mid-map). A lane that stops at the bbox edge, or on a road whose OSM end node has
+    # degree 1 (a real cul-de-sac: Jennifer Place, Scott Alley, ...), is not a defect.
+    inside_poly = _bbox_inside(model, TERMINAL_INSIDE_M)
+    roads_by_id = {r.id: r for r in model.roads}
+    terminal: list[dict[str, Any]] = []
+    n_culdesac = n_edge = 0
+    for wp in (_lane_last_waypoints(driving) if inside_poly is not None else []):
+        if wp.next(2.0):
+            continue
+        rid = road_of.get(wp.road_id, str(wp.road_id))
+        r = roads_by_id.get(rid)
+        end = "end" if wp.lane_id < 0 else "start"
+        if r is not None and r.tags.get(f"dead_end_{end}"):
+            n_culdesac += 1
+            continue
+        x, y, z = _to_model_xyz(wp.transform.location)
+        if inside_poly is not None and not inside_poly.contains(Point(x, y)):
+            n_edge += 1
+            continue
+        terminal.append({"road_id": rid, "lane_id": int(wp.lane_id), "x": float(x), "y": float(y),
+                         "junction": bool(r is not None and r.junction_id is not None)})
+        violations.append({"kind": "terminal_lane", "x": float(x), "y": float(y), "z": float(z),
+                           "road_id": rid, "lane_id": int(wp.lane_id), "s": float(wp.s)})
+    report["terminal_lanes"] = {
+        "inside_m": TERMINAL_INSIDE_M, "count": len(terminal) if inside_poly is not None else None,
+        "cul_de_sacs": n_culdesac, "at_bbox_edge": n_edge,
+        "pass": not terminal, "lanes": terminal[:100],
+    }
+    if inside_poly is None:
+        report["notes"].append("no bbox in the model - terminal_lanes skipped")
+
+    # slivers: a road between two junctions too short to hold a lane link ------------------
+    slivers = [{"road_id": r.id, "name": r.name, "length": round(float(r.length), 2),
+                "predecessor": r.predecessor.id, "successor": r.successor.id}
+               for r in model.roads
+               if r.junction_id is None and r.length < SLIVER_M
+               and r.predecessor is not None and r.predecessor.element == "junction"
+               and r.successor is not None and r.successor.element == "junction"]
+    report["junction_slivers"] = {"max_m": SLIVER_M, "count": len(slivers),
+                                  "pass": not slivers, "roads": slivers}
+
+    # every driving lane entering a junction must be the incoming lane of a connection ------
+    unlinked: list[dict[str, Any]] = []
+    for j in model.junctions:
+        by_road: dict[str, set[int]] = {}
+        for conn in j.connections:
+            by_road.setdefault(conn.incoming_road, set()).update(ll.from_lane for ll in conn.lane_links)
+        for rid, lanes in _junction_arm_lanes(model, j).items():
+            missing = sorted(lanes - by_road.get(rid, set()))
+            if missing:
+                unlinked.append({"junction_id": j.id, "road_id": rid, "lane_ids": missing})
+    report["junction_lane_links"] = {"unlinked_arms": len(unlinked), "pass": not unlinked,
+                                    "arms": unlinked[:50]}
+
     report["violations"] = violations
     report["violation_count"] = len(violations)
     if out_dir is not None:
@@ -262,6 +359,19 @@ def summary(report: dict[str, Any]) -> str:
                      f"roads w/o successor {len(t['roads_no_successor'])}")
         lc = report.get("lane_coverage") or {}
         lines.append(f"lane coverage: {lc.get('fraction')} ({len(lc.get('missing', []))} missing)")
+        tl = report.get("terminal_lanes") or {}
+        if tl and tl.get("count") is not None:
+            lines.append(f"terminal_lanes (>{tl['inside_m']:.0f} m inside the bbox): {tl['count']} "
+                         f"[{tl['cul_de_sacs']} cul-de-sacs, {tl['at_bbox_edge']} at the edge] "
+                         + ("PASS" if tl.get("pass") else "FAIL"))
+        sl = report.get("junction_slivers") or {}
+        if sl:
+            lines.append(f"junction_slivers (< {sl['max_m']:.0f} m between two junctions): "
+                         f"{sl['count']} " + ("PASS" if sl.get("pass") else "FAIL"))
+        jl = report.get("junction_lane_links") or {}
+        if jl:
+            lines.append(f"junction_lane_links: {jl['unlinked_arms']} arm(s) with an unlinked lane "
+                         + ("PASS" if jl.get("pass") else "FAIL"))
         lm = report.get("landmarks") or {}
         lines.append(f"landmarks: {lm.get('count')} / {lm.get('expected_signals')} expected; "
                      f"crosswalk vertices {lm.get('crosswalk_vertices')}")

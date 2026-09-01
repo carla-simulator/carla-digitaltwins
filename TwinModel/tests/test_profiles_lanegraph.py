@@ -63,6 +63,21 @@ def urban(osm):
     return _build(osm, "us_urban")
 
 
+SUNNYVALE_FIXTURE = Path(__file__).parent / "fixtures" / "sunnyvale_overpass.json"
+SUNNYVALE_BBOX = (37.3690, -122.0420, 37.3740, -122.0340)
+
+
+@pytest.fixture(scope="module")
+def sunnyvale():
+    """A real US suburban area (El Camino Real x S Mathilda Ave): the Eixample fixture has
+    almost no two-way arterial left once the US cross sections are applied, so the US-specific
+    street furniture is checked where it actually occurs."""
+    osm_us = load_fixture(SUNNYVALE_FIXTURE)
+    with profiles.use("us_suburban"):
+        return build_lanegraph(osm_us, LocalFrame.from_bbox(*SUNNYVALE_BBOX), SUNNYVALE_BBOX,
+                               name="sunnyvale")
+
+
 def _plain(model):
     return [r for r in model.roads if r.junction_id is None]
 
@@ -114,6 +129,12 @@ def test_us_suburban_residential_parking_both_sides_and_no_centre_line(osm, subu
     silent = [r for r in res if not any(k.startswith("parking") for k in _way_tags(osm, r))]
     assert len(silent) >= 4
     for r in silent:
+        if r.tags.get("dual_carriageway"):
+            # a carriageway of a divided arterial (Rambla de Catalunya) has no curb on the
+            # median side: no parking there, a median lane instead
+            assert not any(l.type == "parking" and l.id > 0 for l in r.lanes), r.id
+            assert any(l.type == "median" and l.id > 0 for l in r.lanes), r.id
+            continue
         assert any(l.type == "parking" and l.id > 0 for l in r.lanes), r.id
         assert any(l.type == "parking" and l.id < 0 for l in r.lanes), r.id
     assert any(_twoway(r) for r in res)
@@ -135,8 +156,11 @@ def test_us_suburban_residential_parking_both_sides_and_no_centre_line(osm, subu
         assert not any(l.type == "parking" for l in one_side)  # any parking:* tag silences the default
 
 
-def test_us_suburban_centre_lines_are_yellow_from_tertiary_up(suburban):
-    tert = [r for r in _plain(suburban) if _twoway(r)
+def test_us_suburban_centre_lines_are_yellow_from_tertiary_up(suburban, sunnyvale):
+    # Eixample keeps a single two-way street once the US cross sections are applied (and the
+    # divided-arterial model removed the 1 m Passeig de Gracia remnants that used to stand in
+    # for one), so the arterial check runs on the Sunnyvale fixture.
+    tert = [r for r in _plain(sunnyvale) if _twoway(r)
             and r.highway in ("tertiary", "secondary", "primary", "trunk")]
     assert len(tert) >= 3
     for r in tert:
@@ -210,7 +234,10 @@ def test_us_profiles_build_a_sane_graph(suburban, urban):
         assert _digest(m)[0] != EU_DENSE_CHECKSUM
         assert m.metadata["profile"] in ("us_suburban", "us_urban")
         assert 10 <= len(m.junctions) <= 25
-        assert sum(len(j.connections) for j in m.junctions) >= 100
+        # movements per junction, not a raw total: merging the junctions on either side of a
+        # 1 m sliver (junction.sliver_m) legitimately removes junctions and their duplicates
+        n_conn = sum(len(j.connections) for j in m.junctions)
+        assert n_conn >= 8 * len(m.junctions), (n_conn, len(m.junctions))
         assert m.metadata["lanegraph"]["restrictions_unresolved"] == 0
         for r in m.roads:
             assert any(l.type == "driving" for l in r.lanes), r.id

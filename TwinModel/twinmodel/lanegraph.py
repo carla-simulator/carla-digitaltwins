@@ -236,8 +236,13 @@ _ALL_LANE_TYPES = ("driving", "parking", "biking", "shoulder", "verge", "sidewal
 
 
 def _road_band(road: Road, full: bool) -> BaseGeometry:
-    """Flat-capped polygon of the road: carriageway lanes only, or all lanes (``full``)."""
-    types = _ALL_LANE_TYPES if full else ("driving", "parking", "biking", "shoulder")
+    """Flat-capped polygon of the road: carriageway lanes only, or all lanes (``full``).
+
+    ``median`` lanes are never part of the band: the median of a divided arterial lies between
+    its own two carriageways, and the street crossing the arterial legitimately runs over it —
+    counting it would shorten every arm of the crossing street for nothing."""
+    types = tuple(t for t in _ALL_LANE_TYPES if t != "median") if full else (
+        "driving", "parking", "biking", "shoulder")
     line2d = _line2d(road.reference_line)
     parts = []
     wl, wr = road.width_left(types), road.width_right(types)
@@ -754,6 +759,125 @@ class _Approach:
         return abs(offset) - (self.group_width + other.group_width) / 2.0
 
 
+# --------------------------------------------------------------------------- divided carriageways
+# A divided (dual) arterial is mapped in OSM as two ``oneway=yes`` ways with the same name (or
+# ref) running in opposite directions with a median between them — El Camino Real and South
+# Mathilda Avenue in the Sunnyvale fixture, Howard/Folsom in SoMa.  Two things go wrong without
+# an explicit model (DESIGN.md "Divided carriageways"):
+#
+#  * the generic 40–60 m node clustering hops along a carriageway from one intersection to the
+#    next and fuses them into one 80–130 m blob, and
+#  * each carriageway is given the class default sidewalk / verge / parking on BOTH sides, so
+#    the two carriageways' bands overlap each other across the median and the band-overlap rule
+#    (build_lanegraph step 7f) grinds the arm between two junctions down to a 1 m sliver.
+#
+# The model here pairs the carriageways geometrically, drops the median-side furniture, puts an
+# explicit ``median`` lane half-way across the gap, and lowers the cluster radius at every node
+# of a carriageway to ``junction.dual_carriageway_cluster_m`` so a junction is the median box
+# (both carriageways + the crossing street) and never the next block.
+
+
+@dataclass
+class _DualInfo:
+    """One carriageway of a divided arterial."""
+    key: str             # arterial key (normalised name / ref)
+    partner: int         # chain index of the opposite carriageway
+    gap: float           # median separation of the two centrelines (m)
+    paired_m: float      # length of this chain that runs beside its partner
+
+
+def _street_key(tags: dict[str, str]) -> str:
+    return (tags.get("name") or tags.get("ref") or "").strip().lower()
+
+
+def _antiparallel_run(a: LineString, b: LineString, *, min_gap: float, max_gap: float,
+                      parallel_rad: float, step: float = 5.0) -> tuple[float, float]:
+    """``(length of a that runs anti-parallel to b at a separation in [min_gap, max_gap],
+    median separation over that run)``. Both lines run in travel direction."""
+    n = max(2, int(a.length / step) + 1)
+    ds = a.length / (n - 1)
+    ok_len = 0.0
+    gaps: list[float] = []
+    for i in range(n):
+        s = min(a.length, i * ds)
+        p = a.interpolate(s)
+        sb = b.project(p)
+        d = p.distance(b.interpolate(sb))
+        if not (min_gap <= d <= max_gap):
+            continue
+        if abs(abs(_wrap(_heading_along(a, s) - _heading_along(b, sb))) - math.pi) > parallel_rad:
+            continue
+        ok_len += ds
+        gaps.append(d)
+    return min(ok_len, a.length), (float(np.median(gaps)) if gaps else 0.0)
+
+
+def _dual_carriageways(lines: dict[int, tuple[str, LineString]]) -> dict[int, _DualInfo]:
+    """Pair the one-way carriageways of divided arterials. ``lines`` maps a chain index to
+    ``(arterial key, centreline in travel direction)``; the result has one entry per chain that
+    is a carriageway of a divided arterial. Empty when the active profile switches the model off
+    (``junction.dual_carriageway_max_gap_m == 0``, e.g. ``EU_DENSE``)."""
+    P = profiles.get()
+    J = P.junction
+    if J.dual_carriageway_max_gap_m <= 0.0 or len(lines) < 2:
+        return {}
+    groups: dict[str, list[int]] = defaultdict(list)
+    for i, (key, _line) in lines.items():
+        groups[key].append(i)
+    rad = math.radians(J.dual_carriageway_parallel_deg)
+    out: dict[int, _DualInfo] = {}
+    for key, idxs in groups.items():
+        if len(idxs) < 2:
+            continue
+        best: dict[int, _DualInfo] = {}
+        for i in idxs:
+            a = lines[i][1]
+            for jx in idxs:
+                if jx == i:
+                    continue
+                paired, gap = _antiparallel_run(
+                    a, lines[jx][1], min_gap=J.dual_carriageway_min_gap_m,
+                    max_gap=J.dual_carriageway_max_gap_m, parallel_rad=rad)
+                if paired <= 0.0 or paired < J.dual_carriageway_min_fraction * a.length:
+                    continue
+                cur = best.get(i)
+                if cur is None or paired > cur.paired_m:
+                    best[i] = _DualInfo(key=key, partner=jx, gap=gap, paired_m=paired)
+        # a whole street must be paired over a decent length, otherwise two short one-way stubs
+        # that happen to run past each other (a slip road, a bus loop) would count
+        if sum(v.paired_m for v in best.values()) >= J.dual_carriageway_min_paired_m:
+            out.update(best)
+            log.info("divided arterial %r: %d carriageway chain(s), median gap %.1f m",
+                     key, len(best), float(np.median([v.gap for v in best.values()])))
+    return out
+
+
+def _apply_median(lanes: list[Lane], gap: float) -> float:
+    """Rewrite ``lanes`` (in place) as one carriageway of a divided arterial and return the
+    width of the ``median`` lane it gained (0 when the gap leaves no room).
+
+    The median side (left of travel where traffic drives on the right) loses its parking, cycle,
+    verge and sidewalk lanes — there is no curb there, the other carriageway is — and gains one
+    ``median`` lane reaching half-way across the gap, so the two carriageways' median lanes meet
+    and the mesh gets a single contiguous median strip. ``median`` is not a carriageway lane
+    type, so the reference line keeps sitting where it did (carriageway centred on the OSM way).
+    """
+    P = profiles.get()
+    left_is_median = P.drives_on == "right"
+    left = sorted((l for l in lanes if l.id > 0), key=lambda l: l.id)      # inner -> outer
+    right = sorted((l for l in lanes if l.id < 0), key=lambda l: -l.id)    # inner -> outer
+    med, oth = (left, right) if left_is_median else (right, left)
+    med[:] = [l for l in med if l.type in ("driving", "shoulder")]
+    core = sum(l.width for l in med + oth if l.type in ("driving", "parking", "biking", "shoulder"))
+    w = min(max(0.0, gap / 2.0 - core / 2.0), P.junction.median_max_width_m)
+    if w >= 0.25:
+        med.append(Lane(id=0, type="median", width=round(w, 3), direction="forward"))
+    else:
+        w = 0.0
+    lanes[:] = _renumber(left, right)
+    return w
+
+
 # --------------------------------------------------------------------------- selection / clipping
 
 def _is_underground(tags: dict[str, str]) -> bool:
@@ -1062,9 +1186,34 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                   if int(k) != own_i]
         return unary_union(others) if others else None
 
+    # 4b. divided arterials: pair the one-way carriageways (see _dual_carriageways)
+    dual_lines: dict[int, tuple[str, LineString]] = {}
+    for i, ch in enumerate(chains):
+        if not spec_for(ch.segments[0]).oneway:
+            continue
+        key = _street_key(ch.segments[0].way.tags)
+        if not key:
+            continue
+        xy_d = _dedupe(ch.xy)
+        if len(xy_d) >= 2:
+            line = LineString(xy_d)
+            if line.length > 1.0:
+                dual_lines[i] = (key, line)
+    dual = _dual_carriageways(dual_lines)
+    dual_by_chain: dict[int, _DualInfo] = {id(chains[i]): info for i, info in dual.items()}
+    dual_nodes: set[int] = set()
+    for i in dual:
+        dual_nodes.update(n for n in chains[i].nodes if n is not None)
+    stats["dual_carriageway_chains"] = len(dual)
+    stats["dual_carriageway_pairs"] = len({info.key for info in dual.values()})
+
     # 5. cluster intersection nodes -> junctions. Two intersection nodes join one cluster when a
     #    chain shorter than junction.cluster_m links them and they are closer than that. Clusters
     #    whose linking road is completely swallowed by the trim are merged and the pass repeated.
+    #    At a node of a divided carriageway the radius drops to
+    #    junction.dual_carriageway_cluster_m: the median box (both carriageways plus the street
+    #    crossing between them) is one junction, but the crawl along a carriageway to the next
+    #    intersection — and side streets that hit the two carriageways at offset nodes — are not.
     uf = _UnionFind()
     for nid in intersection:
         uf.find(nid)
@@ -1075,15 +1224,24 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     minor_nodes = {nid for nid in intersection
                    if aisle_degree[nid] > 0 and street_degree[nid] <= 2}
     stats["minor_junction_nodes"] = len(minor_nodes)
+    n_dual_suppressed = 0
     for ch in chains:
         nodes = ch.nodes
         a, b = nodes[0], nodes[-1]
         if a in minor_nodes or b in minor_nodes:
             continue
         if a in intersection and b in intersection and a != b:
-            if (_polyline_length(ch.xy) < P.junction.cluster_m
-                    and math.dist(node_xy[a], node_xy[b]) < P.junction.cluster_m):
+            limit = P.junction.cluster_m
+            if dual_nodes and (a in dual_nodes or b in dual_nodes):
+                limit = min(limit, P.junction.dual_carriageway_cluster_m)
+            if (_polyline_length(ch.xy) < limit
+                    and math.dist(node_xy[a], node_xy[b]) < limit):
                 uf.union(a, b)
+            elif (limit < P.junction.cluster_m
+                  and _polyline_length(ch.xy) < P.junction.cluster_m
+                  and math.dist(node_xy[a], node_xy[b]) < P.junction.cluster_m):
+                n_dual_suppressed += 1
+    stats["dual_merges_suppressed"] = n_dual_suppressed
 
     def make_clusters() -> tuple[list[_Cluster], dict[int, _Cluster]]:
         groups: dict[int, list[int]] = defaultdict(list)
@@ -1115,6 +1273,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
         n_internal = 0
         n_jogs = 0
         n_canyon = 0
+        n_dual_roads = [0]
         canyon_faces: dict[str, tuple[float, float]] = {}
         canyon_key: dict[str, tuple] = {}
         canyon_tags: dict[str, dict[str, str]] = {}
@@ -1159,6 +1318,18 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             aisle = is_parking_aisle(head.way.tags)
             if aisle:
                 road.tags["parking_aisle"] = True
+            for end, nid in (("start", nodes[0]), ("end", nodes[-1])):
+                if nid is not None and degree.get(nid, 0) == 1:
+                    road.tags[f"dead_end_{end}"] = True  # a real cul-de-sac, not a trim/bbox cut
+            # divided arterial: median-side furniture off, explicit median lane (see _apply_median)
+            info = dual_by_chain.get(id(ch))
+            if info is not None and spec.oneway:
+                mw = _apply_median(road.lanes, info.gap)
+                road.tags["dual_carriageway"] = info.key
+                road.tags["median_gap_m"] = round(info.gap, 2)
+                road.tags["median_width_m"] = round(mw, 2)
+                road.tags["median_side"] = "left" if P.drives_on == "right" else "right"
+                n_dual_roads[0] += 1
             # reference line between forward and backward carriageway lanes
             wl, wr = road.width_left(), road.width_right()
             shift = (wl - wr) / 2.0  # positive: move right (carriageway centre stays on the OSM line)
@@ -1167,7 +1338,10 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                 road.reference_line = _line3d(xy)
             # aisles keep their profile cross section: a lot between two buildings is not a
             # street canyon, and an aisle never gets sidewalks or parking bands from the faces
-            faces = None if aisle else _measure_faces(road, bld, blockers_for(ch, xy))
+            # a carriageway of a divided arterial has no building face on the median side, so the
+            # canyon cross-section (which needs both faces) must not be measured for it either
+            faces = (None if (aisle or info is not None)
+                     else _measure_faces(road, bld, blockers_for(ch, xy)))
             if faces is not None:
                 canyon_faces[road.id] = faces
                 canyon_key[road.id] = (road.name, road.highway, spec.oneway,
@@ -1184,6 +1358,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             if guarded:
                 r.tags["street_width_guarded"] = True
         stats["canyon_roads"] = n_canyon
+        stats["dual_carriageways"] = n_dual_roads[0]
         return roads, road_end_cluster, road_end_node, road_nodes, n_internal, n_jogs
 
     # 7. trim roads at junctions (cluster hull buffered by half the road width + margin). Trims
@@ -1305,6 +1480,13 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                 if ce is not None:
                     r.successor = RoadLink("junction", ce.id)
                 kept.append(r)
+                # a sliver: what is left between the two junctions is too short to hold a lane
+                # link, so no vehicle can ever traverse it — the junctions belong together
+                if (cs is not None and ce is not None and cs is not ce
+                        and r.length < P.junction.sliver_m):
+                    log.info("%s: %.1f m sliver between %s and %s: merging the junctions",
+                             r.id, r.length, cs.id, ce.id)
+                    merges.append((cs, ce))
                 continue
             if cs is not None and ce is not None and cs is not ce:
                 merges.append((cs, ce))  # the junctions overlap: merge them and redo
@@ -1444,42 +1626,143 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     #     at a junction: with 6 m sidewalks the carriageway-only trim leaves a raised sidewalk
     #     slab across the crossing street's lanes. Shorten the offending arm by exactly the
     #     overlap (not every arm by the full width, which would pave the chamfer corners).
-    n_band_cuts = 0
-    for _pass in range(3):
-        changed = False
-        for c in clusters:
-            arms = arms_of(c)
-            carriage = {r.id: _road_band(r, full=False) for r, _e in arms}
-            for r, end in arms:
-                band = _road_band(r, full=True)
-                line2d = _line2d(r.reference_line)
-                s_cut: Optional[float] = None
-                for rb, _eb in arms:
-                    if rb is r:
+    #     The two carriageways of one divided arterial are exempt: they run beside each other by
+    #     construction, their bands overlap along their whole length, and cutting one against the
+    #     other grinds the arm between two junctions down to a 1 m sliver (the SoMa "Howard
+    #     Street" dead ends). The overlap between them is the median, which 7d/_apply_median owns.
+    n_band_cuts = [0]
+
+    def same_arterial(a: Road, b: Road) -> bool:
+        key = a.tags.get("dual_carriageway")
+        return bool(key) and b.tags.get("dual_carriageway") == key
+
+    def band_overlap_pass() -> list[tuple[_Cluster, _Cluster]]:
+        """Shorten arms whose full band covers a neighbour's carriageway. Returns the junction
+        pairs that could not be separated without leaving a sliver between them."""
+        slivers: list[tuple[_Cluster, _Cluster]] = []
+        for _pass in range(3):
+            changed = False
+            for c in clusters:
+                arms = arms_of(c)
+                carriage = {r.id: _road_band(r, full=False) for r, _e in arms}
+                for r, end in arms:
+                    band = _road_band(r, full=True)
+                    line2d = _line2d(r.reference_line)
+                    s_cut: Optional[float] = None
+                    for rb, _eb in arms:
+                        if rb is r or same_arterial(r, rb):
+                            continue
+                        ov = band.intersection(carriage[rb.id])
+                        if ov.is_empty or ov.area <= P.junction.band_overlap_m2:
+                            continue
+                        ss = [line2d.project(Point(x, y)) for x, y in _ring_coords(ov)]
+                        reach = (max(ss) if end == "start" else min(ss))
+                        s_cut = reach if s_cut is None else (max(s_cut, reach) if end == "start" else min(s_cut, reach))
+                    if s_cut is None:
                         continue
-                    ov = band.intersection(carriage[rb.id])
-                    if ov.is_empty or ov.area <= P.junction.band_overlap_m2:
+                    # stop P.junction.trim_margin_m short of the corner: two arms cut exactly to the corner
+                    # where their sidewalks meet leave a zero-length turn between them
+                    if end == "start":
+                        lo, hi = min(line2d.length - P.geometry.min_road_length, s_cut + P.junction.trim_margin_m), line2d.length
+                    else:
+                        lo, hi = 0.0, max(P.geometry.min_road_length, s_cut - P.junction.trim_margin_m)
+                    other = road_end_cluster[r.id]["end" if end == "start" else "start"]
+                    if (hi - lo < P.junction.sliver_m and other is not None and other is not c):
+                        # Cutting would leave a sliver between two junctions — a road too short
+                        # to carry a lane link, which the traffic manager routes into and then
+                        # deletes the vehicle. Two neighbouring nodes really are one junction;
+                        # two junctions a block apart are not, and merging them would pave the
+                        # block, so there the band overlap (a sidewalk slab over a lane) stays.
+                        if c.hull.centroid.distance(other.hull.centroid) <= P.junction.cluster_m:
+                            slivers.append((c, other))
+                        else:
+                            log.warning("%s: %s would be a %.1f m sliver between %s and %s; "
+                                        "keeping the band overlap instead",
+                                        c.id, r.id, hi - lo, c.id, other.id)
                         continue
-                    ss = [line2d.project(Point(x, y)) for x, y in _ring_coords(ov)]
-                    reach = (max(ss) if end == "start" else min(ss))
-                    s_cut = reach if s_cut is None else (max(s_cut, reach) if end == "start" else min(s_cut, reach))
-                if s_cut is None:
-                    continue
-                # stop P.junction.trim_margin_m short of the corner: two arms cut exactly to the corner
-                # where their sidewalks meet leave a zero-length turn between them
-                if end == "start":
-                    lo, hi = min(line2d.length - P.geometry.min_road_length, s_cut + P.junction.trim_margin_m), line2d.length
-                else:
-                    lo, hi = 0.0, max(P.geometry.min_road_length, s_cut - P.junction.trim_margin_m)
-                if hi - lo < P.geometry.min_road_length or (end == "start" and lo <= 1e-6) or (end == "end" and hi >= line2d.length - 1e-6):
-                    log.warning("%s: %s cannot be shortened enough to clear a neighbour's carriageway", c.id, r.id)
-                    continue
-                r.reference_line = _line3d([(x, y) for x, y in substring(line2d, lo, hi).coords])
-                n_band_cuts += 1
-                changed = True
-        if not changed:
+                    if hi - lo < P.geometry.min_road_length or (end == "start" and lo <= 1e-6) or (end == "end" and hi >= line2d.length - 1e-6):
+                        log.warning("%s: %s cannot be shortened enough to clear a neighbour's carriageway", c.id, r.id)
+                        continue
+                    r.reference_line = _line3d([(x, y) for x, y in substring(line2d, lo, hi).coords])
+                    n_band_cuts[0] += 1
+                    changed = True
+            if not changed:
+                break
+        return slivers
+
+    def merge_clusters(ca: _Cluster, cb: _Cluster) -> None:
+        """Fold ``cb`` into ``ca`` after the clustering loop has finished: the arms change hands,
+        the hull grows, and every arm of the result is re-cut from its untrimmed line."""
+        ca.node_ids = sorted(set(ca.node_ids) | set(cb.node_ids))
+        pts = [node_xy[n] for n in ca.node_ids if n in node_xy]
+        if pts:
+            ca.xy = pts
+            ca.hull = MultiPoint(pts).convex_hull
+        ca.way_ids |= cb.way_ids
+        for wid, ns in cb.way_nodes.items():
+            ca.way_nodes.setdefault(wid, set()).update(ns)
+        if cb.area is not None:
+            ca.area = cb.area if ca.area is None else ca.area.union(cb.area)
+        ca.plaza = None
+        max_half[ca.id] = max(max_half[ca.id], max_half[cb.id])
+        for r in list(roads):
+            for end in ("start", "end"):
+                if road_end_cluster[r.id][end] is cb:
+                    attach(r, end, ca)
+        if cb in clusters:
+            clusters.remove(cb)
+        for r in list(roads):
+            ends = road_end_cluster[r.id]
+            if ends["start"] is ca and ends["end"] is ca:
+                # the sliver itself: now internal to the merged junction
+                for wid in r.osm_way_ids:
+                    ca.absorb(wid, road_nodes[r.id])
+                roads.remove(r)
+                by_id.pop(r.id, None)
+            elif ends["start"] is ca or ends["end"] is ca:
+                if not retrim(r):
+                    log.warning("%s: %s vanished when re-cut at the merged junction", ca.id, r.id)
+
+    n_sliver_merges = 0
+    for _round in range(3):
+        slivers = band_overlap_pass()
+        pairs_left = [(ca, cb) for ca, cb in slivers if ca is not cb and ca in clusters and cb in clusters]
+        if not pairs_left:
             break
-    stats["band_overlap_cuts"] = n_band_cuts
+        for ca, cb in pairs_left:
+            if ca is cb or ca not in clusters or cb not in clusters:
+                continue
+            log.info("merging %s and %s: the arm between them would be a sliver", ca.id, cb.id)
+            merge_clusters(ca, cb)
+            n_sliver_merges += 1
+    # a sliver with a junction at one end only cannot be merged away — it is absorbed into that
+    # junction (7b does this before the band cuts; the band cuts make new ones)
+    n_sliver_absorbed = 0
+    for r in list(roads):
+        ends = road_end_cluster[r.id]
+        if (ends["start"] is None) == (ends["end"] is None) or r.length >= P.junction.sliver_m:
+            continue
+        c = ends["start"] or ends["end"]
+        free_end = "end" if ends["start"] is not None else "start"
+        nid = road_end_node[r.id][free_end]
+        others = [(rb, eb) for rb, eb in free_ends().get(nid, []) if rb is not r] if nid is not None else []
+        if len(others) > 1:
+            continue  # a fork: dropping the road would orphan more than one neighbour
+        for wid in r.osm_way_ids:
+            c.absorb(wid, road_nodes[r.id])
+        roads.remove(r)
+        by_id.pop(r.id, None)
+        n_sliver_absorbed += 1
+        log.info("%s: %.1f m sliver off %s absorbed into the junction", r.id, r.length, c.id)
+        if others:
+            rb, eb = others[0]
+            attach(rb, eb, c)
+            max_half[c.id] = max(max_half[c.id], half_width(rb))
+            if not retrim(rb):
+                log.warning("%s: %s would vanish when re-cut at the junction; kept untrimmed", c.id, rb.id)
+    stats["band_overlap_cuts"] = n_band_cuts[0]
+    stats["sliver_junction_merges"] = n_sliver_merges
+    stats["slivers_absorbed"] = n_sliver_absorbed
 
     # 7g. non-junction roads shorter than P.junction.short_road_m merge into the road-linked neighbour
     #     they continue when the lane configuration matches
@@ -1634,6 +1917,42 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             n_plaza += 1
     stats["plazas"] = n_plaza
 
+    # 7j. a road with the same junction at both ends is a loop (a parking-lot ring off one
+    #     driveway). OpenDRIVE's <connection> names the incoming road by id only, so CARLA
+    #     cannot tell the two ends apart and half the movements into the loop dead-end. Split
+    #     it in the middle into two roads joined road<->road.
+    n_loops_split = 0
+    for r in list(roads):
+        cs, ce = road_end_cluster[r.id]["start"], road_end_cluster[r.id]["end"]
+        if cs is None or cs is not ce or r.length < 4 * P.geometry.min_road_length:
+            continue
+        line2d = _line2d(r.reference_line)
+        half = line2d.length / 2.0
+        tail = Road(id=f"r{next_num}",
+                    reference_line=_line3d([(x, y) for x, y in substring(line2d, half, line2d.length).coords]),
+                    lanes=[Lane(id=l.id, type=l.type, width=l.width, direction=l.direction,
+                                marking=l.marking, speed_limit=l.speed_limit, tags=dict(l.tags))
+                           for l in r.lanes],
+                    name=r.name, highway=r.highway, osm_way_ids=list(r.osm_way_ids),
+                    center_marking=r.center_marking, tags={**r.tags, "loop_split": True})
+        next_num += 1
+        r.reference_line = _line3d([(x, y) for x, y in substring(line2d, 0.0, half).coords])
+        tail.successor = r.successor
+        tail.predecessor = RoadLink("road", r.id, "end")
+        r.successor = RoadLink("road", tail.id, "start")
+        road_end_cluster[tail.id] = {"start": None, "end": ce}
+        road_end_cluster[r.id]["end"] = None
+        road_end_node[tail.id] = {"start": None, "end": road_end_node[r.id]["end"]}
+        road_end_node[r.id]["end"] = None
+        road_nodes[tail.id] = []
+        orig_line[tail.id] = _line2d(tail.reference_line)
+        roads.append(tail)
+        by_id[tail.id] = tail
+        n_loops_split += 1
+        log.info("%s: %.1f m loop with both ends at %s; split into %s + %s",
+                 r.id, line2d.length, cs.id, r.id, tail.id)
+    stats["junction_loops_split"] = n_loops_split
+
     # 8. junctions with connecting roads
     junctions: list[Junction] = []
     restrictions = _restriction_index(osm)
@@ -1642,6 +1961,8 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     n_restricted = 0
     n_rules_unresolved = 0
     n_parallel_dropped = 0
+    n_lane_fallbacks = 0
+    n_dead_arms_rescued = 0
     plain_roads = list(roads)
     for c in clusters:
         approaches: list[_Approach] = []
@@ -1706,45 +2027,92 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             # several through departures (a lateral beside the main carriageway): only the
             # laterally aligned one(s) continue this arrival; the lane fan into the parallel
             # road is not a movement
+            if not legal:
+                # every departure was excluded (turn restrictions that leave nothing, or only
+                # near-u-turn departures): the whole arm would dead-end into the junction. Keep
+                # the straightest departure on another road so the approach still leads out.
+                alt = [(out, _wrap(out.heading - inc.heading)) for out in outgoing
+                       if out.road is not inc.road]
+                if alt:
+                    out, delta = min(alt, key=lambda t: abs(t[1]))
+                    turn = ("through" if abs(delta) < math.radians(P.junction.through_deg)
+                            else ("left" if delta > 0 else "right"))
+                    legal = [(out, turn, True)]
+                    n_dead_arms_rescued += 1
+                    log.info("%s: %s has no legal departure; keeping the straightest one (%s, %s)",
+                             c.id, inc.road.id, out.road.id, turn)
             throughs = [t for t in legal if t[1] == "through"]
             if len(throughs) > 1:
                 aligned = [t for t in throughs if t[2] or inc.lateral_gap(t[0]) <= P.junction.through_align_m]
                 if aligned and len(aligned) < len(throughs):
                     n_parallel_dropped += len(throughs) - len(aligned)
                     legal = [t for t in legal if t[1] != "through" or t in aligned]
+            def make_connection(out: _Approach, turn: str, in_lane: Lane, out_lane: Lane,
+                                _inc: _Approach = inc) -> bool:
+                nonlocal m
+                m += 1
+                p0 = _inc.lane_inner_edge(in_lane)
+                p1 = out.lane_inner_edge(out_lane)
+                coords = _hermite(p0, _inc.heading, p1, out.heading)
+                if _polyline_length(coords) < P.geometry.min_road_length:
+                    coords = [p0, p1] if math.dist(p0, p1) >= P.geometry.min_road_length else coords
+                    if _polyline_length(coords) < P.geometry.min_road_length:
+                        log.warning("%s: skipping degenerate connection %s->%s", c.id, _inc.road.id, out.road.id)
+                        return False
+                cid = f"{c.id}c{m}"
+                cr = Road(id=cid, reference_line=_line3d(coords),
+                          lanes=[Lane(id=-1, type="driving", width=in_lane.width, direction="forward",
+                                      speed_limit=in_lane.speed_limit, tags={"turn": turn})],
+                          name=_inc.road.name, highway=_inc.road.highway, junction_id=c.id,
+                          predecessor=RoadLink("road", _inc.road.id, _inc.contact),
+                          successor=RoadLink("road", out.road.id, out.contact),
+                          tags={"turn": turn, "from_lane": in_lane.id, "to_lane": out_lane.id,
+                                "to_road": out.road.id})
+                roads.append(cr)
+                junction.connections.append(Connection(
+                    id=cid, incoming_road=_inc.road.id, connecting_road=cid, contact_point="start",
+                    lane_links=[LaneLink(from_lane=in_lane.id, to_lane=-1)]))
+                return True
+
+            mapped: set[int] = set()
             for out, turn, forced in legal:
                 # a single legal departure is a continuation: every lane feeds it
                 mapping_turn = "through" if len(legal) == 1 else turn
                 for in_lane, out_lane in _lane_pairs(inc.lanes, out.lanes, mapping_turn,
                                                      forced or len(legal) == 1):
-                    m += 1
-                    p0 = inc.lane_inner_edge(in_lane)
-                    p1 = out.lane_inner_edge(out_lane)
-                    coords = _hermite(p0, inc.heading, p1, out.heading)
-                    if _polyline_length(coords) < P.geometry.min_road_length:
-                        coords = [p0, p1] if math.dist(p0, p1) >= P.geometry.min_road_length else coords
-                        if _polyline_length(coords) < P.geometry.min_road_length:
-                            log.warning("%s: skipping degenerate connection %s->%s", c.id, inc.road.id, out.road.id)
-                            continue
-                    cid = f"{c.id}c{m}"
-                    cr = Road(id=cid, reference_line=_line3d(coords),
-                              lanes=[Lane(id=-1, type="driving", width=in_lane.width, direction="forward",
-                                          speed_limit=in_lane.speed_limit, tags={"turn": turn})],
-                              name=inc.road.name, highway=inc.road.highway, junction_id=c.id,
-                              predecessor=RoadLink("road", inc.road.id, inc.contact),
-                              successor=RoadLink("road", out.road.id, out.contact),
-                              tags={"turn": turn, "from_lane": in_lane.id, "to_lane": out_lane.id,
-                                    "to_road": out.road.id})
-                    roads.append(cr)
-                    junction.connections.append(Connection(
-                        id=cid, incoming_road=inc.road.id, connecting_road=cid, contact_point="start",
-                        lane_links=[LaneLink(from_lane=in_lane.id, to_lane=-1)]))
+                    if make_connection(out, turn, in_lane, out_lane):
+                        mapped.add(in_lane.id)
+            # every driving lane of an approach must feed at least one connection. An outer lane
+            # of a lane-count taper that no movement picks up is a dead end in the xodr: the
+            # traffic manager routes a vehicle onto it and then deletes it (the "terrain wedge"
+            # dead ends on S Mathilda Ave / Howard St). Give it the nearest legal departure.
+            for k_lane, in_lane in enumerate(inc.lanes):
+                if in_lane.id in mapped or not legal:
+                    continue
+                if k_lane == 0:
+                    order = ("left", "through", "right")
+                elif k_lane == len(inc.lanes) - 1:
+                    order = ("right", "through", "left")
+                else:
+                    order = ("through", "right", "left")
+                pick = next((t for want in order for t in legal if t[1] == want), legal[0])
+                out, turn = pick[0], pick[1]
+                out_lane = (out.lanes[-1] if turn == "right"
+                            else out.lanes[0] if turn == "left"
+                            else out.lanes[min(k_lane, len(out.lanes) - 1)])
+                if make_connection(out, turn, in_lane, out_lane):
+                    mapped.add(in_lane.id)
+                    n_lane_fallbacks += 1
+                    log.debug("%s: lane %d of %s had no movement; added a %s connection to %s",
+                              c.id, in_lane.id, inc.road.id, turn, out.road.id)
         n_conn_total += len(junction.connections)
         junctions.append(junction)
     stats["connections"] = n_conn_total
     stats["restricted_pairs"] = n_restricted
     stats["restrictions_unresolved"] = n_rules_unresolved
     stats["parallel_throughs_dropped"] = n_parallel_dropped
+    stats["lane_link_fallbacks"] = n_lane_fallbacks
+    stats["dead_arms_rescued"] = n_dead_arms_rescued
 
     model.roads = roads
     model.junctions = junctions

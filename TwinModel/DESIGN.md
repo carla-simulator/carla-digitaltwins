@@ -148,6 +148,74 @@ relations), worker A builds a connecting road as a cubic Hermite curve between t
 tangent-continuous, sampled every 1 m. Its centreline must stay inside the junction polygon —
 `validate` checks this.
 
+## Divided carriageways (the US arterial problem)
+
+A US arterial is mapped in OSM as **two `oneway=yes` ways with the same `name`/`ref` running in
+opposite directions** with a median between them (El Camino Real and South Mathilda Avenue in the
+Sunnyvale fixture; Rambla de Catalunya if the US profiles are pointed at Eixample). With
+`JunctionRules.cluster_m` at 40–60 m the generic clustering above hops *along* a carriageway from
+one intersection to the next and fuses them into a single 80–130 m blob, and each carriageway is
+given the class-default sidewalk/verge/parking on **both** sides, so the two carriageways' bands
+overlap across the median and the band-overlap rule (step 7f) grinds the road between two
+junctions down to a 1 m sliver that can carry no lane link.
+
+`lanegraph._dual_carriageways` pairs the carriageways geometrically, per chain: same street key
+(`name` or `ref`, lower-cased), both `oneway`, anti-parallel within
+`junction.dual_carriageway_parallel_deg` over at least `dual_carriageway_min_fraction` of the
+chain's length at a separation inside
+`[dual_carriageway_min_gap_m, dual_carriageway_max_gap_m]`; a street counts as divided only when
+its chains are paired over `dual_carriageway_min_paired_m` in total. Setting
+`dual_carriageway_max_gap_m = 0` switches the whole model off — that is what `EU_DENSE` does, so
+the pinned Eixample lane graph is untouched.
+
+Three things follow from a pairing:
+
+1. **Cross section.** `_apply_median` strips the parking / cycle / verge / sidewalk lanes from the
+   *median side* of the carriageway (left of travel where traffic drives on the right — there is
+   no curb there, the other carriageway is) and adds one explicit `median` lane reaching half-way
+   across the gap, capped at `junction.median_max_width_m`. The two carriageways' median lanes
+   meet, so `surfaces.py` (which already treats `median` as a raised lane type) produces **one
+   contiguous median strip** in the mesh and the xodr gets a `median` lane rather than a hole.
+   `median` is not a carriageway lane type, so the reference line stays where it was.
+   *Design choice*: two roads + a median lane on each, rather than one road carrying both
+   carriageways. One road would need the median as a centre lane with driving lanes on both sides
+   travelling the same way, which OpenDRIVE lane-direction rules do not express, and would break
+   every `oneway` movement rule in the junction builder. Two roads keep `carla.Map` happy and the
+   mesh contiguous because the medians meet in the middle.
+2. **Clustering.** At any node of a paired carriageway the cluster radius drops from `cluster_m`
+   to `junction.dual_carriageway_cluster_m` (≈ the widest median we accept). The short internal
+   ways that cross the median — the side street between the two carriageways, or the box sides of
+   a divided × divided crossing — are shorter than that and still merge, so **the crossing is one
+   junction spanning both carriageways**. The 40–75 m hops along a carriageway do not, so a side
+   street that hits the two carriageways at *offset* nodes stays two junctions joined by the
+   arterial segment between them.
+3. **Band overlap.** Two carriageways of the same arterial never cut each other in step 7f; the
+   overlap between them is the median, which the cross section above owns. `_road_band` also
+   leaves `median` lanes out of the "full" band, so the street crossing the arterial is not
+   shortened for running over its median.
+
+### Slivers and dead ends
+
+A road left between two junctions shorter than `junction.sliver_m` (≈ one lane width; 0 = off,
+`EU_DENSE`) carries no lane link — CARLA's traffic manager routes a vehicle onto it and then
+deletes it. Three passes remove them: the clustering loop merges the two junctions when a *trim*
+leaves a sliver; the band-overlap pass merges them when a *band cut* would (only when the two
+hulls are within `cluster_m` — two junctions a block apart are not one junction, so there the
+band overlap is kept instead and logged); and a sliver with a junction at one end only is
+absorbed into it. A road with the *same* junction at both ends (a parking-lot ring off one
+driveway) is split in the middle: OpenDRIVE's `<connection>` names the incoming road by id alone,
+so CARLA cannot tell its two ends apart and half the movements dead-end.
+
+Two more lane-level rules keep every lane leading somewhere:
+
+- every driving lane of an approach must feed at least one connection — an outer lane no movement
+  picks up gets the nearest legal departure — and an approach with no legal departure at all
+  (turn restrictions that leave nothing) keeps the straightest one;
+- `export/xodr._lane_links` matches lanes by centre distance, which fails whenever two linked
+  roads have different lane counts (both carriageways are centred on the same OSM way, so every
+  centre is offset by half a lane). The match is now restricted to the correct travel side and
+  falls back to an ordinal inner→outer match, clamped to the outermost lane.
+
 ## Surfaces (worker B)
 
 1. Per road: carriageway polygon = reference line buffered by the per-side sum of driving/parking/
@@ -199,6 +267,18 @@ The output must parse with `carla.Map("twin", xodr_string)` (ue58 wheel, no serv
 - `z_error`: |waypoint z − surface z| p50/p95.
 - `topology`: `carla.Map` loaded, waypoint count, junction count, roads with no successor.
 - `sidewalk_coverage`: total sidewalk area vs. drivable area (sanity).
+- `terminal_lanes`: driving lanes whose last waypoint has no `next()` **more than 30 m inside the
+  bbox** — the dead ends a traffic-manager soak deletes vehicles on. Lanes that stop at the bbox
+  edge, and roads the lane graph tagged `dead_end_start`/`dead_end_end` (an OSM degree-1 node: a
+  real cul-de-sac), do not count. Target 0.
+- `junction_slivers`: non-junction roads shorter than 5 m between two junctions. Target 0.
+- `junction_lane_links`: arms with a driving lane that is the incoming lane of no connection.
+  Target 0.
+
+`tools/junction_metrics.py <build_dir> <name> <profile>` prints the junction-quality numbers
+(count, connecting-road length distribution, worst junction area / widest-arm street width²) next
+to those checks; `tools/build_variant.py off build ...` re-runs a build with the
+divided-carriageway and sliver models disabled, for before/after comparisons on one code base.
 
 ## Imagery / DEM / refinement (worker D) — best effort, must degrade gracefully
 
@@ -246,7 +326,8 @@ epsilons) stay in the modules.
 - `US_URBAN` / `US_SUBURBAN` — MUTCD / AASHTO / NACTO / PROWAG values (feet in the comments):
   10–12 ft lanes, yellow centre lines, 10 ft / 30 ft dashes, 10 ft crosswalks, parking both
   sides on residential streets, 5 ft sidewalks behind 4–6 ft planting strips (`verge` lane and
-  surface kind), 40–60 m junction clusters for divided arterials, NAIP + 3DEP sources.
+  surface kind), 40–60 m junction clusters, NAIP + 3DEP sources, and the divided-carriageway
+  model above (`dual_carriageway_*`, `median_max_width_m`, `sliver_m`; all off in `EU_DENSE`).
 - Selection: `twinmodel build --profile auto` → `ingest.osm.country_for_bbox` (Overpass
   `is_in`) → `profiles.choose_for_country(iso2, building_coverage)`; US picks urban when building
   footprints cover ≥ 30 % of the bbox. `--profile <name>` overrides. The chosen profile is recorded

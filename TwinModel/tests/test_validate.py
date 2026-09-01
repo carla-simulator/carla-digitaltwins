@@ -31,6 +31,10 @@ def test_straight_road_passes(tmp_path):
     assert rep["junction_containment"] is None
     assert rep["topology"]["dead_end_lane_count"] == 2  # open-ended street: both lanes end
     assert rep["topology"]["roads_no_successor"] == ["r1"]
+    # ... but both ends are tagged cul-de-sacs, so they are not terminal_lanes defects
+    assert rep["terminal_lanes"]["count"] == 0 and rep["terminal_lanes"]["cul_de_sacs"] == 2
+    assert rep["junction_slivers"]["count"] == 0
+    assert rep["junction_lane_links"]["unlinked_arms"] == 0
     gj = json.loads((tmp_path / "violations.geojson").read_text())
     assert gj["features"] == []
     write_report(rep, tmp_path / "report.json")
