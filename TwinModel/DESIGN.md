@@ -133,12 +133,46 @@ An OSM `amenity=parking` way/relation becomes a `parking` surface (`metadata["pa
   `z_offset = 0`, no z-fighting, no curb between them. A hole in `drivable` that lies inside a lot
   (the stall field enclosed by a ring of aisles) stays a hole and is filled by the lot — it must
   not become a raised `island`.
+- **Lots OSM did not draw** (`surfaces._lot_enclosure_classifier`): Sunnyvale has aisle loops
+  with no `amenity=parking` polygon around them, and their interiors became curbed islands
+  (990 m² of "island" that is really stall field). A hole in `drivable` whose boundary is at
+  least `ParkingAisleRules.lot_enclosure_fraction` (US: 2/3) lot circulation — aisle / driveway
+  roads, unnamed `highway=service` roads, the connecting roads and junctions whose arms are all
+  of those — and no larger than `inferred_lot_max_area` (US: 8100 m², ~300 stalls) is an
+  inferred lot: a `parking` surface at grade, no curb, minus raised surfaces and buildings.
+  A boundary along a street counts as street, and so does a boundary nothing classifies, so a
+  median between two carriageways or the triangle inside three residential streets stays an
+  island. Stats: `inferred_lot_count` / `inferred_lot_area`, `island_area`. Sunnyvale: 20
+  inferred lots, islands 9 / 1573 m² → 6 / 237 m²; the US-101 lots outside the 26 OSM polygons
+  (the loop around the big-box store) become parking too.
 - **OpenDRIVE**: aisles are ordinary roads with `driving` lanes and a low `<speed>`; they link to
   the street through the junction like any minor road, so `carla.Map` waypoints run through them.
-- `service=driveway` uses the same code path behind `ParkingAisleRules.include_driveways`
-  (`driveway_width` for the one-way case), **off by default**: in a subdivision every mapped house
-  driveway would become a dead-end stub. Turning it on for Sunnyvale adds 46 roads / 7 junctions
-  and connects 4 more lots — see the profile comment.
+- **Driveways** (`service=driveway`, `ParkingAisleRules.include_driveways`, **on for the US
+  profiles**, `driveway_width` = 12 ft for the one-way case) use the same code path and the
+  same minor-junction rule; the road carries `tags["driveway"]` next to `parking_aisle`
+  (`lanegraph.is_driveway`). They are how a lot is entered: 10 of Sunnyvale's 69 aisle lanes
+  were unreachable from every street because their lot is only entered through a driveway.
+  A driveway is a road only when it *leads somewhere* (`_driveway_leads_somewhere`): it touches
+  lot circulation (an aisle, another driveway of at least `min_length`, an unnamed service
+  road) or joins two roads (Tehama Street through to Howard Street in SoMa). A driveway off a
+  street to a garage and nothing else is not a road — in a subdivision every mapped house
+  driveway would be a dead-end stub with a junction on the street; nor is a one-way driveway
+  whose upstream end is free (a garage *exit*: nothing can enter it). The free end of a
+  driveway that is a road (the garage it serves) is a documented dead end,
+  `dead_end_<end>_reason = "driveway"`. SoMa: 14 driveway ways of which 12 are not roads
+  (garage entrances off Minna Street, private stubs off 5th and Tehama); Sunnyvale: 5
+  driveway roads, every lot with its entrance inside the bbox reachable.
+- **A lot entrance is always fed** (step 8): the connection rules serve the *arrivals* (each
+  arrival keeps a departure), but a departure may be left that no arrival feeds. Two cases on
+  Sunnyvale: an aisle re-attached beside West Iowa Avenue after its 21 m link road was absorbed
+  into the junction (its through from the street was then a "parallel through" and dropped),
+  and a one-way aisle hairpinning into the next row, where the inner lane edges of the two
+  narrow arms ended 0.8 m apart and the connecting road was degenerate. For a street that is
+  the data (turn restrictions are law); for an aisle or driveway it leaves the lot unreachable:
+  such a departure gets the straightest arrival the restrictions allow
+  (`dead_departures_rescued`), and before any connection is built the arms of a movement with
+  no room for one are pulled back a metre at a time (`arms_pulled_back`,
+  `_connection_room` / `_pull_back`).
 - `EU_DENSE` sets `include=False`: the Eixample fixture contains 13 `service=parking_aisle` ways
   and the Eixample build is the pinned regression (lane-graph SHA + OBJ checksum). The EU widths
   (6.0 m two-way / 3.5 m one-way) are in the profile, ready for when it is switched on.
@@ -246,7 +280,9 @@ graph tags the road end `dead_end_<end>` (with a `dead_end_<end>_reason`) so `te
   two one-way service ways converging on a two-way one at US-101/Mathilda);
 - `no_continuation` — the junction was dissolved because it had a single arm: every other way at
   that OSM node is outside the twin's scope (a private `service=driveway`, an underground ramp) or
-  was clipped away by the bbox.
+  was clipped away by the bbox;
+- `cul_de_sac` — an OSM degree-1 node (Jennifer Place, the last stall row of a lot);
+- `driveway` — the free end of a driveway road: the garage or private lot it serves.
 
 Across the three US fixtures that is four road ends in total; every other lane leads somewhere.
 
@@ -265,7 +301,8 @@ Two more lane-level rules keep every lane leading somewhere:
 1. Per road: carriageway polygon = reference line buffered by the per-side sum of driving/parking/
    biking lane widths (flat caps, mitre joins, limited).
 2. `drivable` = unary union of all carriageway polygons ∪ junction polygons (simplify 5 cm, keep
-   holes → `island` surfaces).
+   holes → `island` surfaces, unless the hole is a lot's stall field: inside an `amenity=parking`
+   polygon, or enclosed by lot circulation — see "Parking lots and their aisles").
 3. `sidewalk` = (reference line buffered by carriageway + sidewalk width) − drivable, per side,
    only where the road has a sidewalk on that side; union across roads; subtract building
    footprints.
@@ -322,6 +359,17 @@ The output must parse with `carla.Map("twin", xodr_string)` (ue58 wheel, no serv
 - `junction_lane_links`: arms with a driving lane that is the incoming lane of no connection. An
   arm the lane graph tagged `dead_end_<end>` is excluded — the same documented exception
   `terminal_lanes` makes, and inventing a movement out of it would be worse. Target 0.
+- `unreachable_lanes`: driving lanes with no directed path from any lane of a street-class road
+  (not an aisle, driveway or connecting road) through the xodr lane links
+  (`carla.Map.get_topology`). A vehicle may turn round where a lane ends with no successor
+  (the outbound lane of a cul-de-sac or of an aisle ending at its last stall is reached through
+  the inbound one), so only what nothing enters is reported, grouped into connected components
+  (one per lot) with a reason: `entrance_outside_bbox` (a road of the component leaves the
+  bbox), `return_lane` (every road is reachable along its other lane: a two-way aisle whose far
+  end only leads onto a one-way aisle), `exit_only` (the lot reaches a street but nothing leads
+  in), `isolated`. `pass` = no `exit_only` / `isolated` group; those two are also written to
+  `violations.geojson`. Sunnyvale: 16 unreachable aisle lanes before driveways → 4, all entered
+  from outside the bbox (way 189856857 from the west, 1189159388 from Aries Way).
 
 `tools/junction_metrics.py <build_dir> <name> <profile>` prints the junction-quality numbers
 (count, connecting-road length distribution, worst junction area / widest-arm street width²) next
@@ -383,9 +431,10 @@ epsilons) stay in the modules.
 - Lane order outward from the reference line: driving… | biking | parking | verge | sidewalk.
   `verge` → OpenDRIVE `border` lane; mesh group `verge` (grass, curb-top level).
 - `ParkingAisleRules` (see "Parking lots and their aisles"): `include`, two-way / one-way aisle
-  width, minimum length, aisle speed limit, `include_driveways` + `driveway_width`. US: 24 ft
-  two-way / 13 ft one-way, 10 mph, driveways off. EU_DENSE: 6.0 / 3.5 m, `include=False` (the
-  Eixample regression).
+  width, minimum length, aisle speed limit, `include_driveways` + `driveway_width`,
+  `lot_enclosure_fraction` + `inferred_lot_max_area` (lots OSM did not draw). US: 24 ft
+  two-way / 13 ft one-way, 10 mph, driveways on at 12 ft, lots inferred at 2/3 enclosure up to
+  8100 m². EU_DENSE: 6.0 / 3.5 m, `include=False` (the Eixample regression), no inference.
 
 ## Freeways, ramp gores and grade separation
 
