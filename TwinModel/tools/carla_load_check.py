@@ -1,7 +1,8 @@
 """Load the twin xodr in a running CARLA server (OpenDriveGenerator runtime mesh), capture
 cameras over the largest junctions, and run a 20-vehicle Traffic Manager soak.
 
-usage: python carla_load_check.py <build_dir> <name> [--host localhost] [--port 3000] [--tm-port 8000]
+usage: python carla_load_check.py <build_dir> <name> [--out DIR] [--host localhost] [--port 3000] [--tm-port 8000]
+(--out defaults to <build_dir>; captures and carla_report.json are written there)
 """
 from __future__ import annotations
 
@@ -66,6 +67,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("build_dir")
     ap.add_argument("name")
+    ap.add_argument("--out", default=None, help="output dir for captures/report (default: build_dir)")
     ap.add_argument("--host", default="localhost")
     ap.add_argument("--port", type=int, default=3000)
     ap.add_argument("--tm-port", type=int, default=8000)
@@ -73,10 +75,12 @@ def main() -> int:
     ap.add_argument("--frames", type=int, default=600)
     ap.add_argument("--respawn", action="store_true", help="respawn vehicles lost at dead ends")
     args = ap.parse_args()
-    out = Path(args.build_dir)
-    model = TwinModel.load(out / f"{args.name}.twin")
-    xodr = (out / f"{args.name}.xodr").read_text()
-    result: dict = {"xodr": str(out / f"{args.name}.xodr"), "captures": {}, "notes": []}
+    src = Path(args.build_dir)
+    out = Path(args.out) if args.out else src
+    out.mkdir(parents=True, exist_ok=True)
+    model = TwinModel.load(src / f"{args.name}.twin")
+    xodr = (src / f"{args.name}.xodr").read_text()
+    result: dict = {"xodr": str(src / f"{args.name}.xodr"), "captures": {}, "notes": []}
 
     client = carla.Client(args.host, args.port)
     client.set_timeout(300.0)
