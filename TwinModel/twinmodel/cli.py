@@ -391,6 +391,79 @@ def _contact_z(road: Road, contact: Optional[str]) -> float:
     return float(p[2]) if len(p) > 2 else 0.0
 
 
+def _blend_from_contact(road: Road, contact: str, dz: float, budget: float,
+                        step: float = 4.0) -> float:
+    """Add ``dz`` to ``road``'s z at ``contact``, fading linearly to 0 after ``budget`` metres
+    (the reference line is densified so the ramp has vertices). Returns the dz still owed at the
+    far end when the road is shorter than ``budget`` — the caller carries it on to the next road.
+    """
+    c = np.asarray(road.reference_line.coords, dtype=np.float64)
+    xy, z = c[:, :2], (c[:, 2] if c.shape[1] > 2 else np.zeros(len(c)))
+    s = _vertex_s(xy)
+    length = float(s[-1])
+    if length <= 0.0:
+        return 0.0
+    span = min(budget, length)
+    from_start = contact == "start"
+    extra = np.arange(step, span, step)
+    s_new = np.unique(np.concatenate([s, extra if from_start else length - extra]))
+    line2d = LineString(xy)
+    pts = shapely.line_interpolate_point(line2d, np.clip(s_new, 0.0, length))
+    xy_new = np.column_stack([shapely.get_x(pts), shapely.get_y(pts)])
+    xy_new[0], xy_new[-1] = xy[0], xy[-1]
+    z_new = np.interp(s_new, s, z)
+    d = s_new if from_start else (length - s_new)
+    z_new += dz * np.clip(1.0 - d / budget, 0.0, 1.0)
+    road.reference_line = LineString(np.column_stack([xy_new, z_new]))
+    return dz * max(0.0, 1.0 - length / budget)
+
+
+def weld_deck_abutments(model: TwinModel, roads: dict[str, Road],
+                        deck_ids: set[str], blend_m: float) -> int:
+    """Make the road surface continuous where a deck meets its approach; returns how many
+    abutments were welded.
+
+    The two sides disagree by a metre or more otherwise: the deck's abutment z is the top of the
+    DEM step beside it (``apply_bridge_profiles.anchor_z``), while the approach's own smoothed
+    profile is dragged down by the half-window ``road_profile_from_dem`` extends *past* the road
+    end — straight over the deck, i.e. into the trench of the road the deck flies over. The step
+    that leaves is a real ledge in the exported surface: vehicles scrape it (``static.road``),
+    and CARLA's runtime terrain raster, which hugs the lowest paved z per cell, reads the deck's
+    height in the cells beside the approach and rises through it (``static.terrain``).
+
+    The deck is the side to trust (its z came from ground the DTM actually shows), so the
+    approach is pulled onto it and the offset faded out over ``blend_m``, continuing into the
+    next road when the first is shorter than that. Junctions stop the walk: their plane is
+    harmonized afterwards from the contacts this pass leaves behind."""
+    welded = 0
+    for d in model.roads:
+        if d.junction_id is not None or d.id not in deck_ids:
+            continue
+        for end, link in (("start", d.predecessor), ("end", d.successor)):
+            if link is None or link.element != "road" or link.id in deck_ids:
+                continue
+            a = roads.get(link.id)
+            if a is None or a.junction_id is not None or link.contact is None:
+                continue
+            dz = _contact_z(d, end) - _contact_z(a, link.contact)
+            if abs(dz) < 0.02:
+                continue
+            log.info("abutment %s/%s -> %s/%s: welded a %+.2f m step, blended over %.0f m",
+                     d.id, end, a.id, link.contact, dz, blend_m)
+            welded += 1
+            cur, contact, rest, budget, guard = a, link.contact, dz, blend_m, 0
+            while cur is not None and abs(rest) > 0.02 and budget > 0.5 and guard < 8:
+                rest = _blend_from_contact(cur, contact, rest, budget)
+                budget -= cur.length
+                nxt = cur.successor if contact == "start" else cur.predecessor
+                if (rest == 0.0 or nxt is None or nxt.element != "road"
+                        or nxt.id in deck_ids or nxt.id not in roads):
+                    break
+                cur, contact = roads[nxt.id], (nxt.contact or "start")
+                guard += 1
+    return welded
+
+
 def apply_elevation(model: TwinModel, elevation: Optional[Elevation] = None) -> dict[str, Any]:
     """Set z on every road reference line and signal from ``elevation`` (default:
     ``model.elevation``). Non-connecting roads take the smoothed DEM profile; connecting
@@ -419,6 +492,7 @@ def apply_elevation(model: TwinModel, elevation: Optional[Elevation] = None) -> 
                 max(2.0, (r.width_left() + r.width_right()) / 2.0 + 1.0), cap_style="flat")
             for r in upper if len(r.reference_line.coords) >= 2])
     deck_ids = deck_road_ids(model)
+    E_rules = profiles.get().elevation
     for r in model.roads:
         if r.junction_id is not None or r.id in deck_ids:
             continue
@@ -428,6 +502,7 @@ def apply_elevation(model: TwinModel, elevation: Optional[Elevation] = None) -> 
         max_resid = max(max_resid, resid)
         n_plain += 1
     n_bridge, n_lifted = apply_bridge_profiles(model, el, roads)
+    n_welded = weld_deck_abutments(model, roads, deck_ids, E_rules.abutment_blend_m)
     for r in model.roads:
         if r.junction_id is None:
             continue
@@ -468,6 +543,7 @@ def apply_elevation(model: TwinModel, elevation: Optional[Elevation] = None) -> 
     stats.update({
         "applied": True,
         "roads": n_plain, "bridge_decks": n_bridge, "deck_chains_lifted": n_lifted,
+        "abutments_welded": n_welded,
         "connecting_roads": n_conn, "connecting_roads_dem_fallback": n_conn_fallback,
         "road_z_min": float(zs.min()), "road_z_max": float(zs.max()),
         "smoothing": {"resample_m": E.resample_m, "window_m": E.smooth_window_m, "filter": "savgol1"},

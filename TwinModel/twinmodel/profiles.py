@@ -235,6 +235,9 @@ class ElevationRules:
     # a crossing this close to an *anchored* chain end is the abutment itself, not a crossing
     clearance_abutment_skip_m: float = 8.0
     max_deck_lift_m: float = 30.0
+    # over how much of the approach road the deck-to-approach step is faded out
+    # (``cli.weld_deck_abutments``)
+    abutment_blend_m: float = 40.0
 
 
 @dataclass(frozen=True)
