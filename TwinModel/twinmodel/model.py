@@ -117,6 +117,8 @@ class Junction:
     connections: list[Connection] = field(default_factory=list)
     osm_node_ids: list[int] = field(default_factory=list)
     name: str = ""
+    osm_way_ids: list[int] = field(default_factory=list)  # OSM ways swallowed by the node cluster
+    tags: dict[str, Any] = field(default_factory=dict)  # e.g. centre, hull_wkt, area_wkt (lanegraph)
 
 
 @dataclass
@@ -398,6 +400,7 @@ def _road_from_feature(f: dict[str, Any]) -> Road:
 
 def _junction_feature(j: Junction) -> dict[str, Any]:
     props = {"id": j.id, "name": j.name, "osm_node_ids": j.osm_node_ids,
+             "osm_way_ids": j.osm_way_ids, "tags": j.tags,
              "connections": [asdict(c) for c in j.connections]}
     geom = j.polygon if j.polygon is not None else Point(0, 0)
     props["has_polygon"] = j.polygon is not None
@@ -414,4 +417,5 @@ def _junction_from_feature(f: dict[str, Any]) -> Junction:
                                 lane_links=[LaneLink(**ll) for ll in c.get("lane_links", [])])
                      for c in p.get("connections", [])],
         osm_node_ids=p.get("osm_node_ids", []), name=p.get("name", ""),
+        osm_way_ids=p.get("osm_way_ids", []), tags=p.get("tags", {}),
     )
