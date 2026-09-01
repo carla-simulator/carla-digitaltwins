@@ -109,6 +109,14 @@ class CrossingRules:
 
 
 @dataclass(frozen=True)
+class BuildingRules:
+    """Extrusion of OSM building footprints (export.ue): ``height=*`` wins, else
+    ``building:levels`` x ``level_height_m``, else ``default_levels``."""
+    level_height_m: float = 3.5
+    default_levels: int = 3
+
+
+@dataclass(frozen=True)
 class JunctionRules:
     cluster_m: float           # cluster intersection nodes closer than this joined by short ways
     trim_margin_m: float       # extra distance outside the cluster hull where roads are cut
@@ -267,6 +275,7 @@ class StreetProfile:
     elevation: ElevationRules
     sources: DataSources
     drives_on: Literal["right", "left"] = "right"
+    building: BuildingRules = BuildingRules()
 
     def with_(self, **overrides) -> "StreetProfile":
         """Copy with top-level fields replaced (``profile.with_(name="x", lane=...)``)."""
@@ -344,6 +353,7 @@ EU_DENSE = StreetProfile(
                              junction_blend_m=20.0, connecting_blend_m=15.0, mesh_grid_m=5.0,
                              bridge_abutment_m=12.0),   # ICGC MDT 2 m: ~6 cells of abutment ramp
     sources=DataSources(ortho=("icgc", "ign_es", "osm_tiles"), dem=("icgc_mdt2m", "ign_wcs", "opentopo", "copernicus_aws")),
+    building=BuildingRules(level_height_m=3.2, default_levels=5),
 )
 
 
@@ -422,6 +432,7 @@ US_URBAN = StreetProfile(
                              # 3DEP 1 m hydro-flattened: the abutment ramp smears over ~40 ft
                              bridge_abutment_m=12.0),
     sources=DataSources(ortho=("naip", "osm_tiles"), dem=("usgs_3dep", "opentopo", "copernicus_aws")),
+    building=BuildingRules(level_height_m=3.5, default_levels=3),
 )
 
 
@@ -459,6 +470,7 @@ US_SUBURBAN = US_URBAN.with_(
     lane=replace(US_URBAN.lane, classes=_US_SUBURBAN_CLASSES,
                  fallback=ClassDefaults(11 * FT, 2, 5 * FT, verge=6 * FT, parking="both"),
                  min_width=10 * FT, canyon_max_width=12 * FT, service_min_length=40.0),
+    building=BuildingRules(level_height_m=3.5, default_levels=2),
     sidewalk=replace(US_URBAN.sidewalk, max_width=10 * FT),
     junction=replace(US_URBAN.junction, cluster_m=60.0, plaza_radius_m=60.0, signal_search_m=45.0,
                      dead_end_stub_m=15.0,
