@@ -169,6 +169,17 @@ class JunctionRules:
     # validator flags every road shorter than that between two junctions, so a profile that
     # merges at a smaller radius leaves failures the lane graph considers acceptable.
     sliver_m: float = 0.0
+    # ---- service ways (frontage roads, parking-lot access, driveways, alleys) --------------
+    # Cluster radius at a *service node*: an intersection node that is one only because a
+    # non-aisle ``highway=service`` way meets the street there (at most one street runs through
+    # it). Service nodes never seed or extend a street junction — the generic ``cluster_m``
+    # crawl would otherwise hop from a lot entrance to the next along a frontage road and fuse a
+    # whole parking loop into the street intersection (Sunnyvale, W Olive Ave x S Taaffe St:
+    # 7100 m2, ten nodes). A service node joins the street junction only when it is directly
+    # linked to one of its street nodes by a chain shorter than this; two service nodes fuse
+    # only within this radius and never beyond it (the fused group stays inside one throat).
+    # 0 = off (EU_DENSE: 2026-09-01 behaviour, the Eixample lane graph is pinned).
+    service_cluster_m: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -410,7 +421,11 @@ US_URBAN = StreetProfile(
                            dual_carriageway_max_gap_m=25.0, dual_carriageway_min_gap_m=3.0,
                            dual_carriageway_parallel_deg=25.0, dual_carriageway_min_fraction=0.5,
                            dual_carriageway_min_paired_m=50.0, dual_carriageway_cluster_m=25.0,
-                           median_max_width_m=8 * FT, sliver_m=20 * FT),
+                           median_max_width_m=8 * FT, sliver_m=20 * FT,
+                           # a service throat: a 24 ft two-way driveway plus its 10-15 ft curb
+                           # returns is ~40 ft wide; two service entrances closer than that
+                           # share one throat, further apart they are two T-junctions
+                           service_cluster_m=40 * FT),
     geometry=GeometryRules(min_road_length=1.0, connect_sample_m=1.0, simplify_m=0.1,
                            width_step_m=1.0, taper_max_m=25.0, taper_pieces_max=3, jog_max_m=5.0,
                            jog_min_turn_deg=45.0, jog_transition_m=10.0, street_width_outlier=0.25),
