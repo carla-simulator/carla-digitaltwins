@@ -155,10 +155,85 @@ def road_profile_from_dem(road: Road, elevation: Elevation,
     return z_vertices, float(np.max(np.abs(z_vertices - z_raw_vertices)))
 
 
+def deck_road_ids(model: TwinModel) -> set[str]:
+    """Roads whose z must not come from the DEM under them: a bridge deck (``bridge=*``) or any
+    road stacked above the ground layer (``layer > 0``). A DTM has the structure removed, so a
+    sample under either is bare earth — the street below, not the deck."""
+    return {r.id for r in model.roads
+            if r.junction_id is None and (road_is_bridge(r) or road_osm_layer(r) > 0)}
+
+
+def _chain_adjacent(model: TwinModel, chain_ids: set[str]) -> set[str]:
+    """Road ids that meet ``chain_ids`` — directly linked, or an arm of a junction the chain
+    reaches. Their z is continuous with the deck at the abutment, so they are not "crossed"."""
+    out = set(chain_ids)
+    junctions: set[str] = set()
+    for r in model.roads:
+        for link in (r.predecessor, r.successor):
+            if link is None:
+                continue
+            if link.element == "road" and (r.id in chain_ids or link.id in chain_ids):
+                out.add(link.id)
+                out.add(r.id)
+            elif link.element == "junction" and r.id in chain_ids:
+                junctions.add(link.id)
+    if junctions:
+        for r in model.roads:
+            for link in (r.predecessor, r.successor):
+                if link is not None and link.element == "junction" and link.id in junctions:
+                    out.add(r.id)
+    return out
+
+
+def _clearance_deficits(model: TwinModel, chain_xy: np.ndarray, chain_z: np.ndarray,
+                        half_width: float, layer: int, skip: set[str],
+                        clearance: float) -> list[tuple[float, float]]:
+    """``[(s along the chain, how far the deck falls short of ``clearance``)]`` for every road
+    the chain passes over: plain roads on a lower OSM layer whose carriageway overlaps the deck
+    footprint and that do not meet the chain (an abutment is not a crossing).
+
+    Both z's are already set: the roads below took their (deck-masked) DEM profile before the
+    decks were resolved, and ``chain_z`` is the deck's straight line."""
+    line = LineString(chain_xy)
+    deck = line.buffer(max(half_width, 2.0), cap_style="flat")
+    s_chain = _vertex_s(chain_xy)
+    out: list[tuple[float, float]] = []
+    for r in model.roads:
+        if r.junction_id is not None or r.id in skip or road_osm_layer(r) >= layer:
+            continue
+        c = np.asarray(r.reference_line.coords, dtype=np.float64)
+        if c.shape[0] < 2 or c.shape[1] < 3:
+            continue
+        below = LineString(c[:, :2])
+        w = max((r.width_left() + r.width_right()) / 2.0, 2.0)
+        inter = below.buffer(w, cap_style="flat").intersection(deck)
+        if inter.is_empty:
+            continue
+        # sample the road below where it runs under the deck
+        seg = below.intersection(deck)
+        pieces = [g for g in getattr(seg, "geoms", [seg])
+                  if g.geom_type == "LineString" and not g.is_empty]
+        if not pieces:
+            pieces = [below]
+        s_below = _vertex_s(c[:, :2])
+        for g in pieces:
+            gc = np.asarray(g.coords, dtype=np.float64)[:, :2]
+            n = max(2, int(g.length / 2.0) + 1)
+            pts = np.asarray([shapely.line_interpolate_point(g, t).coords[0]
+                              for t in np.linspace(0.0, g.length, n)], dtype=np.float64)
+            z_lo = np.interp([below.project(Point(p)) for p in pts], s_below, c[:, 2])
+            s_up = np.asarray([line.project(Point(p)) for p in pts], dtype=np.float64)
+            z_up = np.interp(s_up, s_chain, chain_z)
+            for s, deficit in zip(s_up, z_lo + clearance - z_up):
+                if deficit > 0.0:
+                    out.append((float(s), float(deficit)))
+    return out
+
+
 def apply_bridge_profiles(model: TwinModel, elevation: Elevation,
-                          roads: dict[str, Road]) -> int:
+                          roads: dict[str, Road]) -> tuple[int, int]:
     """Give every bridge deck a straight profile between its two abutments; returns how many
-    roads were set. Call after the non-bridge roads have their DEM profile.
+    deck roads were set and how many chains had to be lifted for clearance. Call after the non-bridge roads have their DEM profile.
 
     A DTM (3DEP, ICGC MDT) has the deck removed, so sampling it along the deck drops the
     overpass into the trench of the road it crosses. A deck is usually several roads (one per
@@ -166,8 +241,16 @@ def apply_bridge_profiles(model: TwinModel, elevation: Elevation,
     bridge roads is resolved at once and shares one straight line: an abutment z comes from the
     non-bridge road linked at the end of the chain (its profile is already smoothed), else from
     the DEM at that chain end. Interpolating each piece on its own would pin the interior
-    abutments to the DEM under the deck, which is exactly the trench."""
-    bridge_ids = {r.id for r in model.roads if r.junction_id is None and road_is_bridge(r)}
+    abutments to the DEM under the deck, which is exactly the trench.
+
+    A chain end with no approach road is *free*: the deck leaves the bbox (SoMa's I-80 is
+    elevated all the way across the tile) and there is no abutment anywhere in the data, so the
+    DEM there is bare earth under the viaduct — street level — and the straight line would lay
+    the deck on the road it flies over. A free end is therefore lifted until the deck clears
+    every road it crosses by ``ElevationRules.min_clearance_m``: both ends free shifts the whole
+    chain rigidly (its DEM-derived grade is kept), one end free pivots about the real abutment.
+    """
+    bridge_ids = deck_road_ids(model)
 
     def link_at(r: Road, end: str) -> tuple[Optional[str], Optional[str]]:
         link = r.predecessor if end == "start" else r.successor
@@ -175,10 +258,13 @@ def apply_bridge_profiles(model: TwinModel, elevation: Elevation,
             return link.id, link.contact
         return None, None
 
-    window = profiles.get().elevation.bridge_abutment_m
+    E = profiles.get().elevation
+    window = E.bridge_abutment_m
 
-    def anchor_z(r: Road, end: str) -> float:
-        """z of the abutment at the chain's outer ``end``.
+    def anchor_z(r: Road, end: str) -> tuple[float, bool]:
+        """``(z, anchored)`` of the abutment at the chain's outer ``end``. ``anchored`` is True
+        only when a real approach road is linked there — otherwise the chain is clipped by the
+        bbox and the z is a bare-earth guess that ``_lift_free_ends`` may raise.
 
         The DTM steps from the approach (deck level) down into the trench of the crossing road
         within a couple of cells, and OSM's ``bridge=yes`` extent rarely lands exactly on that
@@ -187,11 +273,13 @@ def apply_bridge_profiles(model: TwinModel, elevation: Elevation,
         (already smoothed) contact z. Averaging or taking the end sample alone puts the deck
         one to two metres into the trench."""
         cands: list[float] = []
+        anchored = False
         nb_id, contact = link_at(r, end)
         if nb_id is not None and nb_id not in bridge_ids:
             c = np.asarray(roads[nb_id].reference_line.coords, dtype=np.float64)
             if c.shape[1] >= 3 and np.any(c[:, 2] != 0.0):
                 cands.append(float(c[0, 2] if contact == "start" else c[-1, 2]))
+                anchored = True
         xy = np.asarray(r.reference_line.coords, dtype=np.float64)[:, :2]
         if end == "start":
             p, t = xy[0], xy[0] - xy[1]
@@ -205,10 +293,11 @@ def apply_bridge_profiles(model: TwinModel, elevation: Elevation,
                 elevation.sample(p[0] + t[0] * d, p[1] + t[1] * d), dtype=np.float64))))
         else:
             cands.append(float(np.asarray(elevation.sample(p[0], p[1]), dtype=np.float64)))
-        return max(cands)
+        return max(cands), anchored
 
     done: set[str] = set()
     n = 0
+    n_lifted = 0
     for rid in sorted(bridge_ids):
         if rid in done:
             continue
@@ -230,10 +319,53 @@ def apply_bridge_profiles(model: TwinModel, elevation: Elevation,
             if nb_id is None or nb_id not in bridge_ids or nb_id in {r.id for r, _ in chain}:
                 break
             road, entry = roads[nb_id], contact
-        z_head = anchor_z(chain[0][0], chain[0][1])
-        z_tail = anchor_z(chain[-1][0], "end" if chain[-1][1] == "start" else "start")
+        z_head, head_anchored = anchor_z(chain[0][0], chain[0][1])
+        z_tail, tail_anchored = anchor_z(chain[-1][0],
+                                         "end" if chain[-1][1] == "start" else "start")
         lengths = [r.length for r, _ in chain]
         total = sum(lengths) or 1.0
+        if not (head_anchored and tail_anchored):
+            # the chain leaves the bbox: no abutment to interpolate from, so hold the clearance
+            # over everything the deck flies over instead (see the docstring)
+            chain_xy = np.concatenate([
+                (np.asarray(r.reference_line.coords, dtype=np.float64)[:, :2]
+                 if entry == "start"
+                 else np.asarray(r.reference_line.coords, dtype=np.float64)[::-1, :2])[
+                    (1 if i else 0):]
+                for i, (r, entry) in enumerate(chain)])
+            s_chain = _vertex_s(chain_xy)
+            span = float(s_chain[-1]) or 1.0
+            chain_z = z_head + (z_tail - z_head) * (s_chain / span)
+            half_w = max((r.width_left() + r.width_right()) / 2.0 for r, _ in chain) + 1.0
+            layer = max(road_osm_layer(r) for r, _ in chain) or 1
+            deficits = _clearance_deficits(
+                model, chain_xy, chain_z, half_w, layer,
+                _chain_adjacent(model, {r.id for r, _ in chain}), E.min_clearance_m)
+            d_head = d_tail = 0.0
+            for s, deficit in deficits:
+                if head_anchored:
+                    if s <= E.clearance_abutment_skip_m:
+                        continue
+                    d_tail = max(d_tail, deficit * span / s)
+                elif tail_anchored:
+                    if span - s <= E.clearance_abutment_skip_m:
+                        continue
+                    d_head = max(d_head, deficit * span / max(span - s, 1e-6))
+                else:
+                    d_head = d_tail = max(d_head, d_tail, deficit)
+            d_head = min(d_head, E.max_deck_lift_m)
+            d_tail = min(d_tail, E.max_deck_lift_m)
+            if d_head > 0.0 or d_tail > 0.0:
+                log.info("deck chain %s (%d roads, %.0f m, %s end%s free): lifted %+.2f / %+.2f m "
+                         "to clear %d sample(s) of the roads below by %.1f m",
+                         chain[0][0].id, len(chain), span,
+                         "both" if not (head_anchored or tail_anchored)
+                         else ("head" if not head_anchored else "tail"),
+                         "s" if not (head_anchored or tail_anchored) else "",
+                         d_head, d_tail, len(deficits), E.min_clearance_m)
+                z_head += d_head
+                z_tail += d_tail
+                n_lifted += 1
         s0 = 0.0
         for (r, entry), L in zip(chain, lengths):
             za = z_head + (z_tail - z_head) * (s0 / total)
@@ -245,7 +377,7 @@ def apply_bridge_profiles(model: TwinModel, elevation: Elevation,
             r.reference_line = _with_z(r.reference_line, z)
             s0 += L
             n += 1
-    return n
+    return n, n_lifted
 
 
 def _with_z(line: LineString, z: np.ndarray) -> LineString:
@@ -274,7 +406,7 @@ def apply_elevation(model: TwinModel, elevation: Optional[Elevation] = None) -> 
 
     roads = {r.id: r for r in model.roads}
     max_resid = 0.0
-    n_plain = n_conn = n_conn_fallback = n_bridge = 0
+    n_plain = n_conn = n_conn_fallback = n_bridge = n_lifted = 0
     # grade separation: the decks that pass over the roads below. Their footprint masks the DEM
     # for every road on layer <= 0 (``road_profile_from_dem``); the decks themselves get a
     # straight profile between their abutments (``bridge_profile``) after the roads they link to.
@@ -286,15 +418,16 @@ def apply_elevation(model: TwinModel, elevation: Optional[Elevation] = None) -> 
             LineString([(x, y) for x, y, *_ in r.reference_line.coords]).buffer(
                 max(2.0, (r.width_left() + r.width_right()) / 2.0 + 1.0), cap_style="flat")
             for r in upper if len(r.reference_line.coords) >= 2])
+    deck_ids = deck_road_ids(model)
     for r in model.roads:
-        if r.junction_id is not None or road_is_bridge(r):
+        if r.junction_id is not None or r.id in deck_ids:
             continue
         z, resid = road_profile_from_dem(
             r, el, mask=deck_mask if road_osm_layer(r) <= 0 else None)
         r.reference_line = _with_z(r.reference_line, z)
         max_resid = max(max_resid, resid)
         n_plain += 1
-    n_bridge = apply_bridge_profiles(model, el, roads)
+    n_bridge, n_lifted = apply_bridge_profiles(model, el, roads)
     for r in model.roads:
         if r.junction_id is None:
             continue
@@ -334,7 +467,7 @@ def apply_elevation(model: TwinModel, elevation: Optional[Elevation] = None) -> 
     stats = plane_fit(el)
     stats.update({
         "applied": True,
-        "roads": n_plain, "bridge_decks": n_bridge,
+        "roads": n_plain, "bridge_decks": n_bridge, "deck_chains_lifted": n_lifted,
         "connecting_roads": n_conn, "connecting_roads_dem_fallback": n_conn_fallback,
         "road_z_min": float(zs.min()), "road_z_max": float(zs.max()),
         "smoothing": {"resample_m": E.resample_m, "window_m": E.smooth_window_m, "filter": "savgol1"},

@@ -226,6 +226,15 @@ class ElevationRules:
     # (outward along the approach): the DTM steps from deck level down into the trench of the
     # road below within a couple of cells, and the top of that step is the abutment.
     bridge_abutment_m: float = 12.0
+    # a deck whose chain leaves the bbox has no abutment to interpolate from: the DEM at the
+    # clipped end is bare earth (a DTM has the structure removed), i.e. the street below. Such a
+    # free chain end is then lifted until the deck clears every road it crosses by this much,
+    # measured deck surface to road surface. AASHTO/Caltrans want 16 ft 6 in (5.03 m) to the
+    # *soffit*; with a girder + deck the road above sits about a metre higher again.
+    min_clearance_m: float = 6.0
+    # a crossing this close to an *anchored* chain end is the abutment itself, not a crossing
+    clearance_abutment_skip_m: float = 8.0
+    max_deck_lift_m: float = 30.0
 
 
 @dataclass(frozen=True)
