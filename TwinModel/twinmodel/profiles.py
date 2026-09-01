@@ -187,6 +187,15 @@ class ParkingAisleRules:
     speed_limit: float         # m/s written on the aisle lanes
     include_driveways: bool = False   # same code path for service=driveway
     driveway_width: float = 3.0       # width of a one-way driveway (two-way: two_way_width)
+    # A hole in the drivable surface (an area enclosed by roads) whose boundary is at least
+    # this fraction lot circulation — aisles, driveways, unnamed service roads — is the stall
+    # field of a lot OSM did not draw as ``amenity=parking``: a ``parking`` surface at grade,
+    # not a raised curbed island (surfaces._fill_holes). Medians and islands are bounded by
+    # streets and keep their curb. 0 = off.
+    lot_enclosure_fraction: float = 0.0
+    # ... but never for an enclosure larger than this (a service ring around a block is a
+    # block, not a lot)
+    inferred_lot_max_area: float = 20000.0
 
 
 @dataclass(frozen=True)
@@ -394,11 +403,17 @@ US_URBAN = StreetProfile(
     crossing=CrossingRules(width=10 * FT, z=0.003, keep_m=2.5, near_cut_m=5.0),
     # Parking-lot aisles: 24 ft two-way / 13 ft one-way (typical US zoning minimum for a
     # drive aisle serving 90-degree stalls is 24 ft two-way, 12-14 ft one-way), 10 mph.
-    # Driveways stay off: they are mostly short entrances into building garages that would
-    # only add dead-end stubs (see DESIGN.md).
+    # Driveways are on (service=driveway, 12 ft one-way): the lots' links between the street
+    # and their aisles. A driveway that leads nowhere (a garage entrance off the street, no
+    # aisle or other service road at its far end) is not a road (lanegraph._driveway_is_road);
+    # the free end of one that does lead into a lot is a documented dead end.
     parking_aisle=ParkingAisleRules(include=True, two_way_width=24 * FT, one_way_width=13 * FT,
                                     min_length=8.0, speed_limit=10 * 1609.344 / 3600,
-                                    include_driveways=False, driveway_width=12 * FT),
+                                    include_driveways=True, driveway_width=12 * FT,
+                                    # 2/3 of the enclosure's boundary is lot circulation: a lot
+                                    # in the corner of a block still has a street on two sides;
+                                    # 2 acres (8100 m2) holds a ~300-stall lot
+                                    lot_enclosure_fraction=0.66, inferred_lot_max_area=8100.0),
     junction=JunctionRules(cluster_m=40.0, trim_margin_m=2.0, through_deg=30.0, uturn_deg=150.0,
                            through_align_m=1.0, signal_search_m=35.0, signal_lateral_m=0.5,
                            plaza_radius_m=50.0, chamfer_scan_m=60.0, dead_end_stub_m=10.0,

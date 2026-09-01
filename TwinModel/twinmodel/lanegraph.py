@@ -931,14 +931,46 @@ def is_parking_aisle(tags: dict[str, str]) -> bool:
     return service == "parking_aisle" or (service == "driveway" and A.include_driveways)
 
 
+def is_driveway(tags: dict[str, str]) -> bool:
+    """True when this way is ingested as a driveway (``service=driveway`` under a profile with
+    ``ParkingAisleRules.include_driveways``): the lot's link between the street and its aisles,
+    or the run from the street to a building's garage. Same cross section rules as an aisle
+    (``driveway_width`` for the one-way case); a free end is a documented dead end
+    (``dead_end_<end>_reason = "driveway"``), not a defect."""
+    return is_parking_aisle(tags) and tags.get("service") == "driveway"
+
+
+def _driveway_leads_somewhere(w: OsmWay, shared_nodes: frozenset[int] | set[int],
+                              lot_nodes: dict[int, set[int]]) -> bool:
+    """A driveway is a road when it leads somewhere: it touches a lot's circulation (an aisle,
+    another driveway, an unnamed service road — ``lot_nodes``: node -> ids of such ways) or
+    joins two roads (both ends shared with other drivable ways: Tehama Street through to Howard
+    Street in SoMa). A driveway off a street to a garage and nothing else is not a road — in a
+    subdivision every mapped house driveway would be a dead-end stub with a junction on the
+    street. A one-way driveway whose upstream end is free (a garage *exit*) can never be
+    entered and is not a road either; a one-way that ends free is the garage entrance, kept
+    as a documented dead end."""
+    if len(w.nodes) < 2:
+        return False
+    oneway, rev = _is_oneway(w.tags)
+    if oneway and (w.nodes[0] if not rev else w.nodes[-1]) not in shared_nodes:
+        return False
+    if any(lot_nodes.get(n, set()) - {w.id} for n in w.nodes):
+        return True
+    return w.nodes[0] in shared_nodes and w.nodes[-1] in shared_nodes
+
+
 def _way_is_road(w: OsmWay, length_m: float, ramp_nodes: frozenset[int] | set[int] = frozenset(),
                  aisle_nodes: frozenset[int] | set[int] = frozenset(),
-                 shared_nodes: frozenset[int] | set[int] = frozenset()) -> bool:
+                 shared_nodes: frozenset[int] | set[int] = frozenset(),
+                 lot_nodes: Optional[dict[int, set[int]]] = None) -> bool:
     """``ramp_nodes``: end nodes of underground drivable ways; an unnamed service way ending on
     one is the ramp into that car park and is dropped with it.
     ``aisle_nodes``: nodes of the parking aisles; a short unnamed service way touching one is
     the lot's link to the street and is kept (the aisles would be an island without it).
-    ``shared_nodes``: nodes used by more than one drivable way (see build_lanegraph step 1)."""
+    ``shared_nodes``: nodes used by more than one drivable way (see build_lanegraph step 1).
+    ``lot_nodes``: node -> ids of the lot-circulation ways there (aisles, driveways, unnamed
+    service ways), for the driveway rule (``_driveway_leads_somewhere``)."""
     P = profiles.get()
     hw = w.tags.get("highway")
     if hw not in P.lane.drivable_classes:
@@ -949,6 +981,8 @@ def _way_is_road(w: OsmWay, length_m: float, ramp_nodes: frozenset[int] | set[in
         return False  # underground car-park aisles etc. are not part of the surface twin
     if hw == "service":
         if is_parking_aisle(w.tags):
+            if is_driveway(w.tags) and not _driveway_leads_somewhere(w, shared_nodes, lot_nodes or {}):
+                return False
             # a lot aisle is a road of its own (profiles.ParkingAisleRules), never subject to
             # the unnamed-service-way length rule for through streets
             if length_m >= P.parking_aisle.min_length:
@@ -1080,6 +1114,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     # a node more than one drivable way uses: a way between two of them carries traffic through,
     # a way with a free end is a spur (see _way_is_road)
     shared_nodes = {nid for nid, n in ways_at_node.items() if n >= 2}
+    way_length: dict[int, float] = {}
     for w in osm.ways:
         if w.tags.get("highway") not in P.lane.drivable_classes:
             continue
@@ -1088,11 +1123,33 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             continue
         lons, lats = zip(*coords)
         x, y = frame.to_local(np.array(lons), np.array(lats))
-        length = _polyline_length(list(zip(np.atleast_1d(x), np.atleast_1d(y))))
-        if not _way_is_road(w, length, ramp_nodes, aisle_nodes, shared_nodes):
+        way_length[w.id] = _polyline_length(list(zip(np.atleast_1d(x), np.atleast_1d(y))))
+    # lot circulation a driveway can lead into (_driveway_leads_somewhere): the aisles and
+    # unnamed service ways that are roads, and every driveway long enough to be one
+    lot_nodes: dict[int, set[int]] = defaultdict(set)
+    n_driveways_skipped = 0
+    for w in osm.ways:
+        if w.id not in way_length or w.tags.get("highway") != "service":
+            continue
+        if is_driveway(w.tags):
+            lot = way_length[w.id] >= P.parking_aisle.min_length
+        elif is_parking_aisle(w.tags) or not w.tags.get("name"):
+            lot = _way_is_road(w, way_length[w.id], ramp_nodes, aisle_nodes, shared_nodes)
+        else:
+            lot = False
+        if lot:
+            for nid in w.nodes:
+                lot_nodes[nid].add(w.id)
+    for w in osm.ways:
+        if w.id not in way_length:
+            continue
+        length = way_length[w.id]
+        if not _way_is_road(w, length, ramp_nodes, aisle_nodes, shared_nodes, lot_nodes):
             n_service_dropped += w.tags.get("highway") == "service"
-            n_ramps += (_way_is_road(w, length, aisle_nodes=aisle_nodes, shared_nodes=shared_nodes)
-                        and not _way_is_road(w, length, ramp_nodes, aisle_nodes, shared_nodes))
+            n_driveways_skipped += is_driveway(w.tags)
+            n_ramps += (_way_is_road(w, length, aisle_nodes=aisle_nodes, shared_nodes=shared_nodes,
+                                     lot_nodes=lot_nodes)
+                        and not _way_is_road(w, length, ramp_nodes, aisle_nodes, shared_nodes, lot_nodes))
             continue
         oneway, rev = _is_oneway(w.tags)
         if rev:  # normalise oneway=-1 by reversing the node order
@@ -1101,6 +1158,8 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     stats["drivable_ways"] = len({p.way.id for p in pieces})
     stats["service_ways_skipped"] = n_service_dropped
     stats["parking_aisle_ways"] = len({p.way.id for p in pieces if is_parking_aisle(p.way.tags)})
+    stats["driveway_ways"] = len({p.way.id for p in pieces if is_driveway(p.way.tags)})
+    stats["driveways_skipped"] = n_driveways_skipped
 
     # 1b. grade separation: a node in the *interior* of two drivable ways whose OSM ``layer``
     #     differs is the 2D crossing of an overpass and the road under it, not an intersection.
@@ -1438,9 +1497,15 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             aisle = is_parking_aisle(head.way.tags)
             if aisle:
                 road.tags["parking_aisle"] = True
+            driveway = is_driveway(head.way.tags)
+            if driveway:
+                road.tags["driveway"] = True
             for end, nid in (("start", nodes[0]), ("end", nodes[-1])):
                 if nid is not None and degree.get(nid, 0) == 1:
                     road.tags[f"dead_end_{end}"] = True  # a real cul-de-sac, not a trim/bbox cut
+                    # a driveway's free end is the garage / the lot it serves; every other
+                    # degree-1 OSM node is a cul-de-sac (Jennifer Place, the last stall row)
+                    road.tags[f"dead_end_{end}_reason"] = "driveway" if driveway else "cul_de_sac"
             # divided arterial: median-side furniture off, explicit median lane (see _apply_median)
             info = dual_by_chain.get(id(ch))
             if info is not None and spec.oneway:
@@ -2196,6 +2261,8 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     n_parallel_dropped = 0
     n_lane_fallbacks = 0
     n_dead_arms_rescued = 0
+    n_dead_departures_rescued = 0
+    n_arms_pulled_back = 0
     n_funnel_dead_ends = 0
     plain_roads = list(roads)
     for c in clusters:
@@ -2280,6 +2347,31 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             log.info("%s: %s arrives where every other arm is a one-way into the junction; "
                      "its approach is a dead end", c.id, inc.road.id)
 
+        # room for a connecting road: at a sharp turn between two narrow arms (a one-way lot
+        # aisle hairpinning into the next row, both arms cut a few metres from the node) the
+        # inner lane edges of the two arms end within P.geometry.min_road_length of each
+        # other, the connection would be degenerate and the movement lost. Pull both arms back
+        # a metre at a time until every lane pair of the movement has room.
+        if c.kind != "gore":
+            for inc in incoming:
+                for out in outgoing:
+                    if out.road is inc.road:
+                        continue
+                    if abs(_wrap(out.heading - inc.heading)) > math.radians(P.junction.uturn_deg):
+                        continue
+                    for _ in range(4):
+                        if _connection_room(inc, out) >= P.geometry.min_road_length:
+                            break
+                        pulled = _pull_back(inc.road, inc.contact, 1.0, P.geometry.min_road_length)
+                        pulled = _pull_back(out.road, out.contact, 1.0, P.geometry.min_road_length) or pulled
+                        if not pulled:
+                            break
+                        n_arms_pulled_back += 1
+                        log.info("%s: %s -> %s had no room for a connecting road; arms pulled back",
+                                 c.id, inc.road.id, out.road.id)
+
+        legal_by_inc: dict[int, list[tuple[_Approach, str, bool]]] = {}
+        rules_by_inc: dict[int, list] = {}
         for inc in (() if c.kind == "gore" else incoming):
             rules = []
             for rule in _rules_for(restrictions, inc, c):
@@ -2326,7 +2418,42 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                 if aligned and len(aligned) < len(throughs):
                     n_parallel_dropped += len(throughs) - len(aligned)
                     legal = [t for t in legal if t[1] != "through" or t in aligned]
+            legal_by_inc[id(inc)] = legal
+            rules_by_inc[id(inc)] = rules
 
+        # A lot entrance no arrival leads into. The rules above serve the *arrivals*: each
+        # arrival keeps a departure, but a departure may be left that no arrival feeds — the
+        # aisle re-attached beside the street when its 20 m link road was absorbed into the
+        # junction (its through from the street is then a "parallel through" and dropped), an
+        # aisle behind a hairpin. For a street that is the data (turn restrictions are law);
+        # for a parking aisle or driveway it leaves the whole lot unreachable, so the
+        # straightest arrival the restrictions allow feeds it.
+        for out in (() if c.kind == "gore" else outgoing):
+            if not out.road.tags.get("parking_aisle"):
+                continue
+            if any(any(o is out for o, _, _ in legal) for legal in legal_by_inc.values()):
+                continue
+            cands = []
+            for inc in incoming:
+                if inc.road is out.road:
+                    continue
+                allowed, _forced = _apply_rules(rules_by_inc.get(id(inc), []), out.road)
+                if not allowed:
+                    continue
+                delta = _wrap(out.heading - inc.heading)
+                cands.append((abs(delta) > math.radians(P.junction.uturn_deg), abs(delta), inc, delta))
+            if not cands:
+                continue
+            _, _, inc, delta = min(cands, key=lambda t: (t[0], t[1]))
+            turn = ("through" if abs(delta) < math.radians(P.junction.through_deg)
+                    else ("left" if delta > 0 else "right"))
+            legal_by_inc.setdefault(id(inc), []).append((out, turn, True))
+            n_dead_departures_rescued += 1
+            log.info("%s: no arrival led into the lot aisle %s; fed from %s (%s)",
+                     c.id, out.road.id, inc.road.id, turn)
+
+        for inc in (() if c.kind == "gore" else incoming):
+            legal = legal_by_inc.get(id(inc), [])
             mapped: set[int] = set()
             for out, turn, forced in legal:
                 # a single legal departure is a continuation: every lane feeds it
@@ -2370,6 +2497,8 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     stats["parallel_throughs_dropped"] = n_parallel_dropped
     stats["lane_link_fallbacks"] = n_lane_fallbacks
     stats["dead_arms_rescued"] = n_dead_arms_rescued
+    stats["dead_departures_rescued"] = n_dead_departures_rescued
+    stats["arms_pulled_back"] = n_arms_pulled_back
     stats["oneway_funnel_dead_ends"] = n_funnel_dead_ends
 
     model.roads = roads
@@ -2394,6 +2523,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                              for l in r.lanes if l.type == "parking"),
         "parking_aisle_roads": sum(1 for r in roads if r.junction_id is None
                                    and r.tags.get("parking_aisle")),
+        "driveway_roads": sum(1 for r in roads if r.junction_id is None and r.tags.get("driveway")),
         "profile": P.name,
         "params": {"junction_cluster_m": P.junction.cluster_m, "trim_margin_m": P.junction.trim_margin_m,
                    "service_min_length": P.lane.service_min_length,
@@ -2482,6 +2612,32 @@ def _resolve_to(rule: _Restriction, c: _Cluster, outgoing: list[_Approach],
             if road_end_node[o.road.id][o.contact] in nodes and o.road.name == wname:
                 out.add(o.road.id)
     return out
+
+
+def _connection_room(inc: _Approach, out: _Approach) -> float:
+    """Length of the shortest connecting road any lane pair of the movement ``inc -> out``
+    would get (what ``make_connection`` builds: the hermite between the lanes' inner edges,
+    or the straight segment when that is longer)."""
+    best = math.inf
+    for li in inc.lanes:
+        p0 = inc.lane_inner_edge(li)
+        for lo in out.lanes:
+            p1 = out.lane_inner_edge(lo)
+            n = max(_polyline_length(_hermite(p0, inc.heading, p1, out.heading)), math.dist(p0, p1))
+            best = min(best, n)
+    return best
+
+
+def _pull_back(r: Road, contact: str, d: float, min_length: float) -> bool:
+    """Cut ``d`` metres off ``r`` at ``contact`` (its junction end); False when the road would
+    drop below twice ``min_length``."""
+    line2d = _line2d(r.reference_line)
+    if line2d.length - d < 2.0 * min_length:
+        return False
+    piece = (substring(line2d, d, line2d.length) if contact == "start"
+             else substring(line2d, 0.0, line2d.length - d))
+    r.reference_line = _line3d([(x, y) for x, y in piece.coords])
+    return True
 
 
 def _apply_rules(rules: list[tuple[_Restriction, set[str]]], out_road: Road) -> tuple[bool, bool]:
