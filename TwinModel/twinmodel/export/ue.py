@@ -489,6 +489,23 @@ def clip_building_footprint(b: Building, drivable) -> Optional[BaseGeometry]:
     return fp
 
 
+def _footprint_ring_ue(poly: Polygon) -> Optional[list[list[float]]]:
+    """Exterior ring of a footprint polygon in the UE frame for the manifest ``buildings``
+    array: ``[[x_cm, y_cm], ...]`` with ``ue = (x, -y) * 100``, open (no repeated last
+    point), wound counter-clockwise in UE coordinates (positive shoelace area over
+    ``(x_ue, y_ue)``). The y-flip reverses orientation, so the model-frame ring is
+    oriented clockwise (``orient(poly, -1.0)``) before converting. None for degenerate
+    rings (< 3 points or area < 4 m^2)."""
+    poly = shapely.force_2d(poly)
+    if poly.is_empty or poly.area < 4.0:
+        return None
+    ring = shapely.geometry.polygon.orient(poly, -1.0).exterior
+    xy = np.asarray(ring.coords, dtype=np.float64)[:-1, :2]
+    if len(xy) < 3:
+        return None
+    return [[round(float(x) * UE_SCALE, 1), round(float(-y) * UE_SCALE, 1)] for x, y in xy]
+
+
 def _add_building(mb: MeshBuilder, model: TwinModel, b: Building, level_height: float,
                   default_levels: int, footprint: Optional[BaseGeometry] = None) -> int:
     base, roof = building_geometry(model, b, level_height, default_levels)
@@ -673,11 +690,12 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
                 base0 = b.add_vertices(np.column_stack([verts, zz - GROUND_PLANE_DROP]))
                 b.add_faces("groundplane", faces, base0)
     n_clipped = n_skipped = 0
+    buildings_out: list[dict] = []
     if buildings:
         drivable = unary_union([s.geometry for s in model.surfaces
                                 if s.kind in ("drivable", "parking", "crossing")])
         drivable = drivable.buffer(0.25) if not drivable.is_empty else None
-        for b in model.buildings:
+        for idx, b in enumerate(model.buildings):
             fp = clip_building_footprint(b, drivable)
             if fp is None:
                 n_skipped += 1
@@ -687,6 +705,25 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
             cen = fp.centroid
             _add_building(mb(0, "building", _tile_index(cen.x, cen.y, tile_m)), model, b,
                           level_height, default_levels, footprint=fp)
+            # per-building footprint contours for an editor-side procedural building
+            # generator (an alternative to the baked slabs in the ``building`` assets)
+            rings = [r for r in (_footprint_ring_ue(p) for p in _polygons(fp)) if r is not None]
+            if not rings:
+                continue
+            raw_polys = sorted(_polygons(b.footprint), key=lambda p: p.area, reverse=True)
+            raw_ring = next((r for r in (_footprint_ring_ue(p) for p in raw_polys)
+                             if r is not None), None)
+            base, roof = building_geometry(model, b, level_height, default_levels)
+            buildings_out.append({
+                "id": b.osm_id if b.osm_id is not None else idx,
+                "rings_ue": rings,
+                "raw_ring_ue": raw_ring,
+                "base_z_cm": round(base * UE_SCALE, 1),
+                "roof_z_cm": round(roof * UE_SCALE, 1),
+                "levels": int(b.levels) if b.levels is not None else 0,
+                "height_m": round(float(b.effective_height(level_height, default_levels)), 3),
+                "category": str((b.tags or {}).get("building") or ""),
+            })
 
     assets = []
     for (layer, kind, tile), b in sorted(builders.items()):
@@ -732,6 +769,7 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
         "assets": assets,
         "spawn_points": sp,
         "junctions": junctions,
+        "buildings": buildings_out,
         "stats": {"assets": len(assets), "triangles": int(sum(a["triangles"] for a in assets)),
                   "spawn_points": len(sp), "buildings": len(model.buildings) if buildings else 0,
                   "buildings_clipped_by_roads": n_clipped, "buildings_skipped": n_skipped,

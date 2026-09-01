@@ -255,6 +255,61 @@ def test_buildings_clipped_against_the_drivable_network(tmp_path):
     assert pts[:, 1].max() >= maxy + 14
 
 
+def test_manifest_buildings_array(tmp_path):
+    """The manifest ``buildings`` array carries per-building footprint contours for the
+    editor-side procedural building generator: clipped rings + the raw exterior, in UE cm."""
+    m = build_surfaces(synthetic.straight_road(length=120.0))
+    drivable = next(s.geometry for s in m.surfaces if s.kind == "drivable")
+    minx, miny, maxx, maxy = drivable.bounds
+    m.buildings = [
+        Building(id="clear", footprint=box(20, maxy + 5, 40, maxy + 20), levels=3, osm_id=4242,
+                 tags={"building": "residential"}),
+        Building(id="canopy", footprint=box(-40, maxy + 5, -30, maxy + 15), levels=1,
+                 tags={"building": "roof"}),
+        Building(id="onroad", footprint=box(0, miny - 2, 20, maxy + 2), levels=2),
+    ]
+    man = ue.export_ue(m, tmp_path / "ue", name="t", tile_m=0.0)
+    bl = man["buildings"]
+    # the canopy (building=roof) emits no geometry, so it gets no entry either;
+    # ids: OSM id when the building carries one, else the index in model.buildings
+    assert [e["id"] for e in bl] == [4242, 2]
+
+    def shoelace(ring):
+        a = np.asarray(ring, dtype=float)
+        return 0.5 * float(np.sum(a[:, 0] * np.roll(a[:, 1], -1) - np.roll(a[:, 0], -1) * a[:, 1]))
+
+    e = bl[0]
+    # exact UE conversion ue = (x, -y) * 100 on the known box corners; open ring (4 points)
+    y0, y1 = maxy + 5, maxy + 20
+    corners = {(2000.0, round(-y0 * 100, 1)), (4000.0, round(-y0 * 100, 1)),
+               (2000.0, round(-y1 * 100, 1)), (4000.0, round(-y1 * 100, 1))}
+    (ring,) = e["rings_ue"]
+    assert len(ring) == 4 and {tuple(p) for p in ring} == corners
+    # Winding convention: CCW in the UE frame == POSITIVE shoelace area over (x_ue, y_ue).
+    # (The y-flip of the conversion reverses shapely's CCW; the exporter re-orients the
+    # model-frame ring CW so the converted ring's shoelace sign comes out positive.)
+    # Matching the full box area also pins the vertex order to a simple traversal.
+    assert shoelace(ring) == pytest.approx(2000.0 * 1500.0)
+    assert e["raw_ring_ue"] == ring  # unclipped building: raw ring == clipped ring
+    assert e["base_z_cm"] < e["roof_z_cm"]
+    lh, _dl = ue._profile_building_rules()
+    assert e["height_m"] == pytest.approx(3 * lh)
+    assert e["roof_z_cm"] - e["base_z_cm"] == pytest.approx((3 * lh + ue.BUILDING_SINK) * 100,
+                                                           abs=0.2)
+    assert e["levels"] == 3 and e["category"] == "residential"
+
+    # clipped building: rings_ue follows the road clip (two pieces astride the carriageway),
+    # raw_ring_ue keeps the full raw footprint; every ring stays CCW (positive shoelace)
+    e2 = bl[1]
+    assert len(e2["rings_ue"]) == 2
+    for r in e2["rings_ue"]:
+        assert len(r) >= 3 and shoelace(r) > 0
+    raw = {tuple(p) for p in e2["raw_ring_ue"]}
+    assert raw == {(0.0, round(-(miny - 2) * 100, 1)), (2000.0, round(-(miny - 2) * 100, 1)),
+                   (0.0, round(-(maxy + 2) * 100, 1)), (2000.0, round(-(maxy + 2) * 100, 1))}
+    assert e2["category"] == "" and e2["levels"] == 2 and e2["base_z_cm"] < e2["roof_z_cm"]
+
+
 def test_profile_building_rules():
     assert profiles.EU_DENSE.building.level_height_m == 3.2
     assert profiles.US_SUBURBAN.building.default_levels == 2
