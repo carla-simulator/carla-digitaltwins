@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "twinmodel"
+version = "0.1.0"
+description = "OSM -> Twin Model -> {surface mesh, OpenDRIVE} for CARLA digital twins"
+requires-python = ">=3.11"
+dependencies = ["numpy", "shapely>=2", "pyproj", "geopandas", "rasterio", "requests",
+                "networkx", "scipy", "scenariogeneration", "trimesh", "mapbox-earcut", "matplotlib"]
+
+[project.scripts]
+twinmodel = "twinmodel.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["twinmodel*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
