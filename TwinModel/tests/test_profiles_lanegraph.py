@@ -20,11 +20,17 @@ FT = 0.3048
 CARRIAGEWAY = ("driving", "parking", "biking", "shoulder")
 
 # sha256 over ((road id, [(lane id, type, width in mm)]) for every road incl. connecting roads,
-# (junction id, connection count) per junction), computed on 2026-09-01 on the lane graph
-# BEFORE its constants moved to twinmodel.profiles. EU_DENSE must reproduce it exactly: a
-# different value means the default build changed behaviour, not just its plumbing.
-EU_DENSE_CHECKSUM = "e7c5b0d5edc1aa843e2bd1e9b7a9e4b53a752a468268bb09c873b45e1f631520"
-EU_DENSE_COUNTS = (194, 15, 129)  # roads (incl. connecting), junctions, connections
+# (junction id, connection count) per junction). History of deliberate re-pins:
+# - e7c5b0d5edc1... / (194, 15, 129): 2026-09-01, the lane graph BEFORE its constants moved to
+#   twinmodel.profiles.
+# - 603eb47de332... / (195, 15, 129): 2026-09-01 ambulance pass — EU_DENSE residential /
+#   living_street / pedestrian lanes 3.0 -> 3.3 m, service 3.0 -> 3.25 m, min_width (taper
+#   floor) 2.75 -> 3.0 m: a 2.3 m ambulance could not hold the old lanes. The extra road is a
+#   taper piece split at the new floor; junctions and connections are unchanged.
+# EU_DENSE must reproduce the pin exactly: a different value means the default build changed
+# behaviour, not just its plumbing.
+EU_DENSE_CHECKSUM = "603eb47de33263660e3f8df1f8b35b0abad58b740305957f20eb04d43cb8a440"
+EU_DENSE_COUNTS = (195, 15, 129)  # roads (incl. connecting), junctions, connections
 
 
 def _digest(model) -> tuple[str, tuple[int, int, int]]:

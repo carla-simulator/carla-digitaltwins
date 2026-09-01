@@ -81,7 +81,7 @@ def test_lanes_defaults_two_way_residential():
     assert types[2] == "sidewalk" and types[-2] == "sidewalk"
     assert {l.direction for l in spec.lanes if l.id == 1} == {"backward"}
     assert spec.center_marking is not None and spec.center_marking.color == "white"
-    assert all(l.width == 3.0 for l in spec.lanes if l.type == "driving")
+    assert all(l.width == 3.3 for l in spec.lanes if l.type == "driving")  # 2026-09-01 ambulance pass
 
 
 def test_lanes_oneway_overrides():

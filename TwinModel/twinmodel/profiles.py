@@ -10,8 +10,10 @@ Rules
   time* (not import time) so tests and the CLI can switch profiles.
 - Pure numerical tolerances (precision grids, triangle area epsilons, k-neighbours) stay in the
   modules; they are not regional.
-- ``EU_DENSE`` reproduces the values the pipeline shipped with on 2026-09-01 exactly; changing
-  them changes the Eixample regression build.
+- ``EU_DENSE`` reproduces the values the pipeline shipped with on 2026-09-01, except the
+  driving-lane widening of the same day (see ``_EU_CLASSES``: a 2.3 m ambulance could not hold
+  a 2.75-3.0 m lane); changing these values changes the Eixample regression build and its
+  pinned lane-graph checksum.
 - Units: metres, degrees, m/s. US values are converted from feet in the comments so the source
   standard is visible (FHWA MUTCD 2009/2023, AASHTO Green Book 7th ed., NACTO Urban Street
   Design Guide, ADA/PROWAG for sidewalks).
@@ -364,10 +366,13 @@ _EU_CLASSES = {
     "tertiary":       ClassDefaults(3.25, 2, 2.0),
     "tertiary_link":  ClassDefaults(3.25, 1, 2.0),
     "unclassified":   ClassDefaults(3.25, 2, 2.0),
-    "residential":    ClassDefaults(3.0,  2, 2.0),
-    "living_street":  ClassDefaults(3.0,  2, 2.0),
-    "pedestrian":     ClassDefaults(3.0,  1, 2.0),
-    "service":        ClassDefaults(3.0,  2, None),
+    # 2026-09-01 ambulance pass: the 3.0 m classes widened to 3.25-3.3 m — a 2.3 m emergency
+    # vehicle plus mirrors needs ~2.6 m clear, and the taper floor used to cut these lanes to
+    # 2.75 m (see LaneRules.min_width below, raised to 3.0 in the same change).
+    "residential":    ClassDefaults(3.3,  2, 2.0),
+    "living_street":  ClassDefaults(3.3,  2, 2.0),
+    "pedestrian":     ClassDefaults(3.3,  1, 2.0),
+    "service":        ClassDefaults(3.25, 2, None),
 }
 _DRIVABLE = frozenset({"motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link",
                        "secondary", "secondary_link", "tertiary", "tertiary_link", "unclassified",
@@ -376,13 +381,14 @@ _DRIVABLE = frozenset({"motorway", "motorway_link", "trunk", "trunk_link", "prim
 EU_DENSE = StreetProfile(
     name="eu_dense",
     description="Dense European city (Barcelona Eixample calibration): buildings at the curb, "
-                "3.0–3.5 m lanes, white centre lines, 4 m zebra crossings.",
+                "3.25–3.75 m lanes, white centre lines, 4 m zebra crossings.",
     countries=frozenset({"ES", "PT", "FR", "IT", "DE", "AT", "CH", "NL", "BE", "LU", "DK", "SE",
                          "NO", "FI", "PL", "CZ", "SK", "HU", "GR", "RO", "BG", "HR", "SI", "EE",
                          "LV", "LT", "IE"}),
     lane=LaneRules(
         classes=_EU_CLASSES, fallback=ClassDefaults(3.25, 2, 2.0),
-        min_width=2.75, max_width=3.75, canyon_max_width=3.5, bike_width=1.5,
+        # min_width 2.75 -> 3.0 on 2026-09-01: the taper floor must still pass an ambulance
+        min_width=3.0, max_width=3.75, canyon_max_width=3.5, bike_width=1.5,
         parking_width={"parallel": 2.0, "diagonal": 4.5, "perpendicular": 5.0},
         parking_min=2.0, parking_max=2.5, drivable_classes=_DRIVABLE, service_min_length=30.0),
     sidewalk=SidewalkRules(min_width=1.5, max_width=6.0, canyon_fraction=0.22, z=0.15,
@@ -464,7 +470,9 @@ US_URBAN = StreetProfile(
     countries=frozenset(),  # chosen for US by density, see choose_for_country
     lane=LaneRules(
         classes=_US_URBAN_CLASSES, fallback=ClassDefaults(10 * FT, 2, 5 * FT, parking="both"),
-        min_width=9 * FT, max_width=12 * FT, canyon_max_width=12 * FT, bike_width=5 * FT,
+        # taper floor 9 ft -> 10 ft on 2026-09-01: 2.74 m left a 2.3 m ambulance no margin;
+        # the 10-12 ft class defaults themselves are MUTCD/NACTO standard and stay
+        min_width=10 * FT, max_width=12 * FT, canyon_max_width=12 * FT, bike_width=5 * FT,
         parking_width={"parallel": 8 * FT, "diagonal": 17 * FT, "perpendicular": 18 * FT},
         parking_min=7 * FT, parking_max=8 * FT, drivable_classes=_DRIVABLE, service_min_length=30.0),
     sidewalk=SidewalkRules(min_width=4 * FT, max_width=16 * FT, canyon_fraction=0.20, z=6 * IN,
