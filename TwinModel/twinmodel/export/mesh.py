@@ -310,10 +310,12 @@ SIGNAL_STYLE = {
 
 def export_preview_png(model: TwinModel, path_png: Path | str, ortho: np.ndarray | None = None,
                        extent: tuple[float, float, float, float] | None = None,
-                       dpi: int = 150, title: Optional[str] = None) -> None:
+                       dpi: int = 150, title: Optional[str] = None,
+                       window: tuple[float, float, float, float] | None = None) -> None:
     """Top-down plot: surfaces filled by kind, curbs, markings, junction polygons outlined,
     lane reference lines thin, signals as markers. ``ortho`` (H, W[, 3]) is drawn underneath
-    with ``extent = (xmin, xmax, ymin, ymax)`` in model space."""
+    with ``extent = (xmin, xmax, ymin, ymax)`` in model space. ``window`` (same layout)
+    restricts the plotted area without changing the ortho georeference (zooms)."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -323,7 +325,9 @@ def export_preview_png(model: TwinModel, path_png: Path | str, ortho: np.ndarray
     geoms: list[BaseGeometry] = [s.geometry for s in model.surfaces]
     geoms += [r.reference_line for r in model.roads]
     geoms += [b.footprint for b in model.buildings]
-    if extent is None:
+    if window is not None:
+        plot_extent = tuple(window)
+    elif extent is None:
         if geoms:
             minx, miny, maxx, maxy = unary_union([shapely.force_2d(g) for g in geoms]).bounds
         else:

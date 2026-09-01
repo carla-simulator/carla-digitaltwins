@@ -1,0 +1,506 @@
+"""``twinmodel`` command line: ``build`` (end-to-end pipeline) and ``validate`` (proxy).
+
+    twinmodel build --bbox S W N E --name NAME --out DIR [--no-imagery] [--no-dem]
+                    [--no-refine] [--fixture PATH] [--cache data] [--mask-method classical|sam|auto]
+    twinmodel validate <twin_dir> <xodr> [--out DIR] [--step 1.0]
+
+``build`` stages (each timed, everything recorded in ``model.metadata["build"]``):
+
+1. OSM      Overpass (cached) or ``--fixture`` -> ``parse_osm`` -> ``build_lanegraph``.
+2. DEM      ``fetch_dem`` -> ``model.elevation``; z applied to every reference line with
+            along-road smoothing (2 m resample, ~10 m Savitzky-Golay window), connecting
+            roads interpolated between their incoming/outgoing road ends, signal z set.
+3. Imagery  ``fetch_ortho`` (kept for the preview and for refinement).
+4. Surfaces ``build_surfaces``; then (unless ``--no-refine``) ``road_mask`` ->
+            ``refine_drivable`` -> ``build_surfaces(refined_drivable=...)``; refinement is
+            rejected (unrefined surfaces kept) when it drops ``lane_in_drivable`` < 0.98.
+5. Exports  ``<name>.twin/``, ``<name>.xodr``, ``<name>.obj/.mtl``, previews (with/without
+            ortho), one zoom per largest junction, DEM and mask quicklooks.
+6. Validate ``validate(...)`` -> ``report.json`` (+ ``violations.geojson``); exit 1 when the
+            xodr does not load in ``carla.Map`` or ``lane_in_drivable`` < 0.98.
+"""
+from __future__ import annotations
+
+import argparse
+import datetime as _dt
+import json
+import logging
+import math
+import sys
+import time
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Iterator, Optional
+
+import numpy as np
+import shapely
+from shapely.geometry import LineString, Point
+
+from .frame import LocalFrame
+from .model import Elevation, Road, TwinModel
+
+log = logging.getLogger("twinmodel.cli")
+
+DEFAULT_BBOX = (41.3905, 2.1630, 41.3945, 2.1690)  # Eixample, see DESIGN.md
+LANE_IN_DRIVABLE_MIN = 0.98
+RESAMPLE_M = 2.0          # along-road sampling step for the DEM
+SMOOTH_WINDOW_M = 10.0    # Savitzky-Golay window (metres) applied to the sampled profile
+JUNCTION_ZOOM_PAD_M = 25.0
+
+
+# --------------------------------------------------------------------------- elevation glue
+
+def _smooth_z(z: np.ndarray, ds: float) -> np.ndarray:
+    """Savitzky-Golay (polyorder 1, i.e. a least-squares moving average) over a ~SMOOTH_WINDOW_M
+    window; graceful for short lines."""
+    n = len(z)
+    if n < 3:
+        return z.copy()
+    win = int(round(SMOOTH_WINDOW_M / ds))
+    win = max(3, win | 1)  # odd, >= 3
+    if win > n:
+        win = n if n % 2 == 1 else n - 1
+    if win < 3:
+        return z.copy()
+    try:
+        from scipy.signal import savgol_filter
+        # polyorder 1 == least-squares moving average: roads have negligible vertical
+        # curvature over 10 m, and a quadratic over 5 samples would barely filter DEM noise
+        return savgol_filter(z, win, polyorder=1, mode="interp")
+    except Exception:  # pragma: no cover - scipy missing/odd input: moving average fallback
+        k = np.ones(win) / win
+        pad = win // 2
+        zp = np.pad(z, pad, mode="edge")
+        return np.convolve(zp, k, mode="valid")
+
+
+def _vertex_s(xy: np.ndarray) -> np.ndarray:
+    seg = np.linalg.norm(np.diff(xy, axis=0), axis=1)
+    return np.concatenate([[0.0], np.cumsum(seg)])
+
+
+def road_profile_from_dem(road: Road, elevation: Elevation) -> tuple[np.ndarray, float]:
+    """Smoothed z at the road's reference-line vertices; also the max |smoothed - raw DEM|."""
+    xy = np.asarray(road.reference_line.coords, dtype=np.float64)[:, :2]
+    s_v = _vertex_s(xy)
+    length = float(s_v[-1])
+    line2d = LineString(xy)
+    # sample every RESAMPLE_M along the line, extended half a window past both ends along the
+    # end tangents so the end vertices (junction contacts) get full-window smoothing too
+    ext = SMOOTH_WINDOW_M / 2.0
+    n_in = max(2, int(math.ceil(length / RESAMPLE_M)) + 1)
+    ds = length / (n_in - 1) if length > 0 else RESAMPLE_M
+    n_ext = int(math.ceil(ext / ds))
+    s_dense = np.concatenate([-ds * np.arange(n_ext, 0, -1), np.linspace(0.0, length, n_in),
+                              length + ds * np.arange(1, n_ext + 1)])
+    inside = np.clip(s_dense, 0.0, length)
+    pts = shapely.line_interpolate_point(line2d, inside)
+    px = shapely.get_x(pts).astype(np.float64)
+    py = shapely.get_y(pts).astype(np.float64)
+    t0 = xy[1] - xy[0]
+    t0 /= max(np.linalg.norm(t0), 1e-9)
+    t1 = xy[-1] - xy[-2]
+    t1 /= max(np.linalg.norm(t1), 1e-9)
+    before = s_dense < 0
+    after = s_dense > length
+    px[before] += t0[0] * s_dense[before]
+    py[before] += t0[1] * s_dense[before]
+    px[after] += t1[0] * (s_dense[after] - length)
+    py[after] += t1[1] * (s_dense[after] - length)
+    z_raw = np.asarray(elevation.sample(px, py), dtype=np.float64)
+    z_smooth = _smooth_z(z_raw, ds)
+    z_vertices = np.interp(s_v, s_dense, z_smooth)
+    z_raw_vertices = np.asarray(elevation.sample(xy[:, 0], xy[:, 1]), dtype=np.float64)
+    return z_vertices, float(np.max(np.abs(z_vertices - z_raw_vertices)))
+
+
+def _with_z(line: LineString, z: np.ndarray) -> LineString:
+    xy = np.asarray(line.coords, dtype=np.float64)[:, :2]
+    return LineString(np.column_stack([xy, np.asarray(z, dtype=np.float64)]))
+
+
+def _contact_z(road: Road, contact: Optional[str]) -> float:
+    c = road.reference_line.coords
+    p = c[0] if contact == "start" else c[-1]
+    return float(p[2]) if len(p) > 2 else 0.0
+
+
+def apply_elevation(model: TwinModel, elevation: Optional[Elevation] = None) -> dict[str, Any]:
+    """Set z on every road reference line and signal from ``elevation`` (default:
+    ``model.elevation``). Non-connecting roads take the smoothed DEM profile; connecting
+    roads interpolate linearly between the z of the roads they link so junctions stay
+    continuous. Returns the stats that ``build`` stores in ``metadata["elevation"]``."""
+    el = elevation if elevation is not None else model.elevation
+    if el is None:
+        for r in model.roads:
+            r.reference_line = _with_z(r.reference_line, np.zeros(len(r.reference_line.coords)))
+        for s in model.signals:
+            s.position = Point(s.position.x, s.position.y, 0.0)
+        return {"source": "none", "applied": False}
+
+    roads = {r.id: r for r in model.roads}
+    max_resid = 0.0
+    n_plain = n_conn = n_conn_fallback = 0
+    for r in model.roads:
+        if r.junction_id is not None:
+            continue
+        z, resid = road_profile_from_dem(r, el)
+        r.reference_line = _with_z(r.reference_line, z)
+        max_resid = max(max_resid, resid)
+        n_plain += 1
+    for r in model.roads:
+        if r.junction_id is None:
+            continue
+        z0 = z1 = None
+        if r.predecessor is not None and r.predecessor.element == "road" and r.predecessor.id in roads:
+            z0 = _contact_z(roads[r.predecessor.id], r.predecessor.contact)
+        if r.successor is not None and r.successor.element == "road" and r.successor.id in roads:
+            z1 = _contact_z(roads[r.successor.id], r.successor.contact)
+        xy = np.asarray(r.reference_line.coords, dtype=np.float64)[:, :2]
+        if z0 is None or z1 is None:
+            z, _ = road_profile_from_dem(r, el)
+            if z0 is not None:
+                z = z - z[0] + z0
+            elif z1 is not None:
+                z = z - z[-1] + z1
+            n_conn_fallback += 1
+        else:
+            s_v = _vertex_s(xy)
+            t = s_v / s_v[-1] if s_v[-1] > 0 else np.zeros_like(s_v)
+            z = z0 + (z1 - z0) * t
+        r.reference_line = _with_z(r.reference_line, z)
+        n_conn += 1
+    for s in model.signals:
+        r = roads.get(s.road_id)
+        if r is None:
+            continue
+        p = r.reference_line.interpolate(min(max(s.s, 0.0), r.length))
+        s.position = Point(s.position.x, s.position.y, float(p.z) if p.has_z else 0.0)
+
+    zs = np.concatenate([np.asarray(r.reference_line.coords)[:, 2] for r in model.roads]) \
+        if model.roads else np.zeros(1)
+    from .ingest.elevation import plane_fit
+    stats = plane_fit(el)
+    stats.update({
+        "applied": True,
+        "roads": n_plain, "connecting_roads": n_conn, "connecting_roads_dem_fallback": n_conn_fallback,
+        "road_z_min": float(zs.min()), "road_z_max": float(zs.max()),
+        "smoothing": {"resample_m": RESAMPLE_M, "window_m": SMOOTH_WINDOW_M, "filter": "savgol1"},
+        "max_abs_smoothing_residual_m": max_resid,
+        "grid": {"shape": list(el.z.shape), "dx": el.dx, "dy": el.dy},
+    })
+    return stats
+
+
+# --------------------------------------------------------------------------- helpers
+
+class _Timer:
+    def __init__(self):
+        self.timings: dict[str, float] = {}
+
+    @contextmanager
+    def stage(self, name: str) -> Iterator[None]:
+        log.info("== %s", name)
+        t0 = time.perf_counter()
+        try:
+            yield
+        finally:
+            dt = time.perf_counter() - t0
+            self.timings[name] = round(dt, 3)
+            log.info("== %s done in %.2f s", name, dt)
+
+
+def _drivable_union(model: TwinModel):
+    geoms = [s.geometry for s in model.surfaces_of("drivable") if not s.geometry.is_empty]
+    return shapely.union_all(geoms) if geoms else None
+
+
+def _largest_junctions(model: TwinModel, n: int) -> list:
+    js = [j for j in model.junctions if j.polygon is not None and not j.polygon.is_empty]
+    js.sort(key=lambda j: j.polygon.area, reverse=True)
+    return js[:n]
+
+
+def _junction_window(j, pad: float = JUNCTION_ZOOM_PAD_M) -> tuple[float, float, float, float]:
+    minx, miny, maxx, maxy = j.polygon.bounds
+    cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
+    half = max(maxx - minx, maxy - miny) / 2 + pad
+    return (cx - half, cx + half, cy - half, cy + half)
+
+
+def _rewrite_metadata(twin_dir: Path, model: TwinModel) -> None:
+    p = twin_dir / "model.json"
+    if not p.exists():
+        return
+    meta = json.loads(p.read_text())
+    meta["metadata"] = model.metadata
+    p.write_text(json.dumps(meta, indent=2, default=str))
+
+
+def _json_safe(o: Any) -> Any:
+    if isinstance(o, dict):
+        return {k: _json_safe(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_json_safe(v) for v in o]
+    if isinstance(o, (np.floating, np.integer)):
+        return o.item()
+    if isinstance(o, np.ndarray):
+        return o.tolist()
+    if isinstance(o, Path):
+        return str(o)
+    return o
+
+
+# --------------------------------------------------------------------------- build
+
+def build(args: argparse.Namespace) -> int:
+    from .ingest.osm import fetch_overpass, load_fixture, parse_osm
+    from .lanegraph import build_lanegraph
+    from .surfaces import build_surfaces
+    from .export.xodr import export_xodr
+    from .export.mesh import export_obj, export_preview_png
+    from . import validate as validate_mod
+
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    cache = Path(args.cache)
+    timer = _Timer()
+    build_meta: dict[str, Any] = {
+        "started": _dt.datetime.now().replace(microsecond=0).isoformat(),
+        "args": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()
+                 if k != "func"},
+        "timings": timer.timings, "outputs": {}, "notes": [],
+    }
+    outputs = build_meta["outputs"]
+
+    # 1. OSM -> lane graph ------------------------------------------------------------------
+    with timer.stage("osm"):
+        if args.fixture:
+            osm = load_fixture(args.fixture)
+            bbox = tuple(args.bbox) if args.bbox else (tuple(osm.bbox_swne) if osm.bbox_swne else None)
+            build_meta["osm_source"] = f"fixture:{args.fixture}"
+        else:
+            if not args.bbox:
+                log.error("--bbox S W N E is required without --fixture")
+                return 2
+            bbox = tuple(args.bbox)
+            osm = parse_osm(fetch_overpass(bbox, cache_dir=cache))
+            build_meta["osm_source"] = "overpass"
+        if bbox is None:
+            log.error("no bbox: pass --bbox or use a fixture that records one")
+            return 2
+        build_meta["bbox_swne"] = list(bbox)
+        frame = LocalFrame.from_bbox(*bbox)
+    with timer.stage("lanegraph"):
+        model = build_lanegraph(osm, frame, bbox, name=args.name)
+        log.info("lanegraph: %d roads, %d junctions, %d signals, %d buildings",
+                 len(model.roads), len(model.junctions), len(model.signals), len(model.buildings))
+
+    # 2. DEM --------------------------------------------------------------------------------
+    with timer.stage("dem"):
+        if args.no_dem:
+            model.elevation = None
+            build_meta["notes"].append("dem: skipped (--no-dem)")
+        else:
+            from .ingest.elevation import fetch_dem
+            model.elevation = fetch_dem(frame, bbox, cache_dir=cache)
+            if model.elevation is None:
+                build_meta["notes"].append("dem: no source reachable, z=0")
+        model.metadata["elevation"] = _json_safe(apply_elevation(model))
+        el = model.metadata["elevation"]
+        if el.get("applied"):
+            log.info("elevation: %s z %.1f..%.1f m, slope %.2f%% uphill toward %s (%.0f deg)",
+                     el["source"], el["z_min"], el["z_max"], el["slope_pct"], el["uphill_toward"],
+                     el["uphill_azimuth_deg"])
+        else:
+            log.info("elevation: none (z = 0)")
+
+    # 3. imagery ----------------------------------------------------------------------------
+    ortho = None
+    with timer.stage("imagery"):
+        if args.no_imagery:
+            build_meta["notes"].append("imagery: skipped (--no-imagery)")
+        else:
+            from .ingest.imagery import fetch_ortho
+            ortho = fetch_ortho(frame, bbox, cache_dir=cache)
+            if ortho is None:
+                build_meta["notes"].append("imagery: fetch failed, no ortho")
+            else:
+                build_meta["imagery"] = {"source": ortho.source, "width": ortho.width,
+                                         "height": ortho.height, "dx": ortho.dx}
+
+    # 4. surfaces (+ refinement) ------------------------------------------------------------
+    with timer.stage("surfaces"):
+        build_surfaces(model)
+        unrefined_stats = dict(model.metadata.get("surfaces", {}))
+    xodr_text = None
+    with timer.stage("refine"):
+        refine_meta: dict[str, Any] = {"status": "skipped"}
+        if args.no_refine:
+            refine_meta["reason"] = "--no-refine"
+        elif ortho is None:
+            refine_meta["reason"] = "no ortho"
+        else:
+            from .refine import road_mask, refine_drivable, save_overlay
+            prior = _drivable_union(model)
+            if prior is None:
+                refine_meta["reason"] = "no drivable surfaces"
+            else:
+                t0 = time.perf_counter()
+                mask = road_mask(ortho, prior=prior, method=args.mask_method)
+                refine_meta["mask_seconds"] = round(time.perf_counter() - t0, 2)
+                refine_meta["mask_method"] = args.mask_method
+                refine_meta["mask_fraction"] = float(mask.mean())
+                t0 = time.perf_counter()
+                refined, rstats = refine_drivable(prior, mask, ortho)
+                refine_meta["refine_seconds"] = round(time.perf_counter() - t0, 2)
+                refine_meta["stats"] = _json_safe(rstats)
+                try:
+                    p = out / f"{args.name}_mask.png"
+                    save_overlay(ortho, mask, p, prior=prior, refined=refined)
+                    outputs["mask_png"] = str(p)
+                except Exception as exc:  # noqa: BLE001 - quicklook only
+                    log.warning("mask overlay failed: %s", exc)
+                build_surfaces(model, refined_drivable=refined)
+                refined_stats = dict(model.metadata.get("surfaces", {}))
+                xodr_text = export_xodr(model)
+                check = validate_mod.validate(model, xodr_text, step=args.step)
+                lid = check.get("lane_in_drivable") or {}
+                frac = lid.get("fraction")
+                refine_meta["lane_in_drivable_refined"] = frac
+                refine_meta["surfaces_refined"] = {k: v for k, v in refined_stats.items()
+                                                   if not k.endswith("_wkt")}
+                if not check["topology"].get("loaded") or frac is None or frac < LANE_IN_DRIVABLE_MIN:
+                    log.warning("refine: rejected (lane_in_drivable %.4f < %.2f); keeping "
+                                "lane-graph surfaces", frac or 0.0, LANE_IN_DRIVABLE_MIN)
+                    build_surfaces(model)
+                    refine_meta["status"] = "rejected"
+                    build_meta["notes"].append("refine: rejected")
+                else:
+                    refine_meta["status"] = "accepted"
+                    log.info("refine: accepted (IoU %.3f -> %.3f, lane_in_drivable %.4f)",
+                             rstats.get("iou_before", 0), rstats.get("iou_after", 0), frac)
+        refine_meta["surfaces_unrefined"] = {k: v for k, v in unrefined_stats.items()
+                                             if not k.endswith("_wkt")}
+        model.metadata["refine"] = refine_meta
+    model.metadata["build"] = build_meta
+
+    # 5. exports ----------------------------------------------------------------------------
+    with timer.stage("export"):
+        twin_dir = out / f"{args.name}.twin"
+        model.save(twin_dir)
+        outputs["twin"] = str(twin_dir)
+        xodr_path = out / f"{args.name}.xodr"
+        xodr_text = export_xodr(model, xodr_path)
+        outputs["xodr"] = str(xodr_path)
+        obj_path = out / f"{args.name}.obj"
+        export_obj(model, obj_path)
+        outputs["obj"] = str(obj_path)
+        outputs["mtl"] = str(obj_path.with_suffix(".mtl"))
+    with timer.stage("preview"):
+        ortho_arr = ortho_ext = None
+        if ortho is not None:
+            ortho_arr = ortho.array[::-1]  # export_preview_png draws origin="upper"
+            ortho_ext = ortho.extent()
+        p = out / f"{args.name}_preview.png"
+        export_preview_png(model, p, ortho=ortho_arr, extent=ortho_ext)
+        outputs["preview_png"] = str(p)
+        if ortho is not None:
+            p = out / f"{args.name}_preview_plain.png"
+            export_preview_png(model, p)
+            outputs["preview_plain_png"] = str(p)
+        outputs["junction_png"] = {}
+        for j in _largest_junctions(model, args.junction_zooms):
+            win = _junction_window(j)
+            p = out / f"{args.name}_junction_{j.id}.png"
+            export_preview_png(model, p, ortho=ortho_arr, extent=ortho_ext, window=win,
+                               title=f"{args.name} junction {j.id} ({j.polygon.area:.0f} m2, "
+                                     f"{len(j.connections)} connections)")
+            outputs["junction_png"][j.id] = str(p)
+        if model.elevation is not None:
+            try:
+                from .ingest.elevation import save_quicklook
+                p = out / f"{args.name}_dem.png"
+                save_quicklook(model.elevation, p)
+                outputs["dem_png"] = str(p)
+            except Exception as exc:  # noqa: BLE001 - quicklook only
+                log.warning("dem quicklook failed: %s", exc)
+
+    # 6. validate ---------------------------------------------------------------------------
+    with timer.stage("validate"):
+        report = validate_mod.validate(model, xodr_text, step=args.step, out_dir=out)
+        report_path = validate_mod.write_report(report, out / "report.json")
+        outputs["report"] = str(report_path)
+        outputs["violations"] = str(out / "violations.geojson")
+
+    build_meta["finished"] = _dt.datetime.now().replace(microsecond=0).isoformat()
+    build_meta["total_seconds"] = round(sum(timer.timings.values()), 3)
+    loaded = bool(report["topology"].get("loaded"))
+    lid = report.get("lane_in_drivable")
+    ok = loaded and lid is not None and lid["fraction"] >= LANE_IN_DRIVABLE_MIN
+    build_meta["status"] = "ok" if ok else "failed"
+    _rewrite_metadata(twin_dir, model)
+    # report.json also carries the build metadata so a reader has everything in one file
+    report_slim = json.loads(report_path.read_text())
+    report_slim["build"] = _json_safe(build_meta)
+    report_slim["elevation"] = model.metadata.get("elevation")
+    report_slim["refine"] = _json_safe({k: v for k, v in model.metadata.get("refine", {}).items()})
+    report_path.write_text(json.dumps(report_slim, indent=2, default=str))
+
+    print(validate_mod.summary(report))
+    print("timings: " + ", ".join(f"{k} {v:.2f}s" for k, v in timer.timings.items())
+          + f" (total {build_meta['total_seconds']:.2f}s)")
+    print(f"outputs: {out}")
+    if not ok:
+        print("BUILD FAILED: " + ("xodr did not load in carla.Map" if not loaded else
+                                  f"lane_in_drivable {lid['fraction'] if lid else 'n/a'} < {LANE_IN_DRIVABLE_MIN}"))
+        return 1
+    return 0
+
+
+# --------------------------------------------------------------------------- entry point
+
+def _build_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(prog="twinmodel", description=__doc__.split("\n\n")[0])
+    ap.add_argument("-v", "--verbose", action="store_true", help="debug logging")
+    ap.add_argument("-q", "--quiet", action="store_true", help="warnings only")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    b = sub.add_parser("build", help="OSM -> twin model -> mesh + OpenDRIVE + report")
+    b.add_argument("--bbox", nargs=4, type=float, metavar=("S", "W", "N", "E"),
+                   help=f"WGS84 bbox (default from --fixture, else {DEFAULT_BBOX})")
+    b.add_argument("--name", default="eixample")
+    b.add_argument("--out", required=True, help="output directory")
+    b.add_argument("--fixture", help="cached Overpass JSON instead of a network fetch")
+    b.add_argument("--cache", default="data", help="Overpass/WMS/DEM cache directory")
+    b.add_argument("--no-imagery", action="store_true")
+    b.add_argument("--no-dem", action="store_true")
+    b.add_argument("--no-refine", action="store_true")
+    b.add_argument("--mask-method", default="classical", choices=["classical", "sam", "auto"])
+    b.add_argument("--step", type=float, default=1.0, help="waypoint step for validation (m)")
+    b.add_argument("--junction-zooms", type=int, default=3, help="zoom PNGs for the N largest junctions")
+    b.set_defaults(func=build)
+
+    sub.add_parser("validate", add_help=False,
+                   help="python -m twinmodel.validate <twin_dir> <xodr> [--out DIR] [--step S]")
+    return ap
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # `validate` is a pure proxy so its own argparse (and --help) stay authoritative
+    if argv and argv[0] == "validate":
+        from . import validate as validate_mod
+        return validate_mod.main(argv[1:])
+    ap = _build_parser()
+    args = ap.parse_args(argv)
+    level = logging.DEBUG if args.verbose else (logging.WARNING if args.quiet else logging.INFO)
+    logging.basicConfig(level=level, format="%(asctime)s %(name)s %(levelname)s %(message)s",
+                        datefmt="%H:%M:%S")
+    if args.cmd == "build" and not args.bbox and not args.fixture:
+        args.bbox = list(DEFAULT_BBOX)
+    return args.func(args)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(main())
