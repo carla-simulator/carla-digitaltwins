@@ -54,6 +54,8 @@ ue58 `carla` wheel for xodr parsing). Run everything from `TwinModel/`.
 - OpenDRIVE is written in model space unchanged (OpenDRIVE is also x-east/y-north, right-handed).
 - The `.obj` is written in model space too. Whoever loads it into Unreal does `(x, -y, z) * 100`.
 - Headings in radians, CCW from +x (OpenDRIVE `hdg` convention).
+- Raster grids (`Elevation`, `OrthoImage.array`) are **south-up**: row index increases with y. Flip
+  (`[::-1]`) before `imshow(origin="upper")`; `OrthoImage.extent()` is for `origin="lower"`.
 
 ## Test area
 
@@ -181,6 +183,12 @@ The output must parse with `carla.Map("twin", xodr_string)` (ue58 wheel, no serv
    captures. Note: this uses ue58's runtime `OpenDriveGenerator` mesh, which is *not* the twin
    mesh — it is only to prove the xodr topology is sound in CARLA. The OBJ overlay in Unreal is a
    stretch goal.
+
+## Tools
+
+- `tools/carla_load_check.py` — loads a `.xodr` into a running ue58-dev server (`generate_opendrive_world`), captures
+  the largest junctions, runs a TM fleet soak with collision sensors and writes `carla_report.json`.
+  Server recipe in the integrator section; check `ss -ltn` for a lingering port 3000 before relaunching.
 
 ## Rules for all workers
 
