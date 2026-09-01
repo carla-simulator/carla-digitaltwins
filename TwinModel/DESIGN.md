@@ -199,6 +199,36 @@ Three things follow from a pairing:
    leaves `median` lanes out of the "full" band, so the street crossing the arterial is not
    shortened for running over its median.
 
+### Service nodes: frontage roads, lot access, driveways
+
+A non-aisle `highway=service` way (a frontage road, a parking lot's access loop, a driveway, an
+alley) meets the street at an ordinary node, and every such node is an intersection node. Run
+through the generic clustering at `cluster_m` (40–60 m in the US profiles) they chain: a lot
+entrance pulls in the next one 10 m up the street, that one the frontage road, the frontage road
+the far side of the lot. Sunnyvale's W Olive Ave × S Taaffe St fused ten nodes and a 335 m parking
+loop into one 7100 m² "junction" with 160 m connecting roads. **Street junctions are made of street
+nodes only** (`JunctionRules.service_cluster_m`, US 40 ft — a 24 ft two-way driveway plus its
+curb returns; `EU_DENSE` keeps 0 = off, the Eixample graph is pinned):
+
+- a *service node* is an intersection node with at most one street running through it and a
+  non-aisle service way meeting it (`lanegraph._service_nodes`; aisle-only nodes keep the *minor
+  junction* rule above);
+- street nodes cluster as before, and a service node on the street *between* two street nodes
+  that fuse is inside that junction — the walk in `_cluster_service_nodes` looks through service
+  nodes, so a lot entrance never splits a median box in two;
+- a service node joins a street junction only when a chain shorter than `service_cluster_m` links
+  it *directly* to one of the junction's street nodes: it can join, it can never bridge from one
+  street node to the next;
+- two service nodes fuse (a frontage road crossing a lot access) only within `service_cluster_m`,
+  and never so that the service nodes of one junction span more than that — the throat of a
+  driveway is one junction, a row of driveways is a row of junctions.
+
+Every other service node is its own single-node T-junction. What the trims leave shorter than
+`sliver_m` between two of these is still merged by the clustering loop (below): that merge is
+bounded by real overlap, the crawl it replaces was not. Sunnyvale: 72 → 83 junctions, longest
+connecting road 163 → 90 m (the remainder is a chain of parking-aisle T-nodes merged by the
+sliver rule), roads over 40 m 93 → 49; SoMa 164 → 82 m and 104 → 44.
+
 ### Slivers and dead ends
 
 A road left between two junctions shorter than `junction.sliver_m` carries no lane link — CARLA's
