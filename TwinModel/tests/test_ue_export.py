@@ -228,6 +228,33 @@ def test_crossings_get_zebra_markings_and_road_material(tmp_path):
         a for a in man2["assets"] if a["kind"] == "marking_white")["triangles"]
 
 
+def test_buildings_clipped_against_the_drivable_network(tmp_path):
+    m = build_surfaces(synthetic.straight_road(length=120.0))
+    drivable = [s.geometry for s in m.surfaces if s.kind == "drivable"]
+    minx, miny, maxx, maxy = drivable[0].bounds
+    # one building square across the road, one canopy, one clear of the road
+    m.buildings = [
+        Building(id="onroad", footprint=box(50, miny - 2, 70, maxy + 2), levels=2),
+        Building(id="canopy", footprint=box(80, miny - 2, 90, maxy + 2), levels=1,
+                 tags={"building": "roof"}),
+        Building(id="clear", footprint=box(20, maxy + 5, 40, maxy + 15), levels=2),
+    ]
+    man = ue.export_ue(m, tmp_path / "ue", name="t", tile_m=0.0)
+    assert man["stats"]["buildings_skipped"] == 1
+    assert man["stats"]["buildings_clipped_by_roads"] == 1
+    a = next(a for a in man["assets"] if a["kind"] == "building")
+    d = ue.read_glb(tmp_path / "ue" / a["file"])
+    p = ue.gltf_to_model(d["positions"])
+    from shapely.geometry import MultiPoint
+    pts = p[:, :2]
+    # no building vertex inside the drivable band (0.25 m clearance)
+    import shapely as _sh
+    inside = _sh.contains_xy(drivable[0].buffer(0.2), pts[:, 0], pts[:, 1])
+    assert not inside.any()
+    # the clear building survives untouched
+    assert pts[:, 1].max() >= maxy + 14
+
+
 def test_profile_building_rules():
     assert profiles.EU_DENSE.building.level_height_m == 3.2
     assert profiles.US_SUBURBAN.building.default_levels == 2

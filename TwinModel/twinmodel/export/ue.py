@@ -355,11 +355,26 @@ def building_geometry(model: TwinModel, b: Building, level_height: float, defaul
     return base, base + b.effective_height(level_height, default_levels) + BUILDING_SINK
 
 
+def clip_building_footprint(b: Building, drivable) -> Optional[BaseGeometry]:
+    """Footprint minus the drivable network (OSM buildings and mapped roads/aisles overlap
+    routinely around malls — an extruded wall across a driving lane pins the traffic against
+    ``static.building``). Canopies (``building=roof``) are skipped outright. Returns None
+    when nothing worth extruding remains."""
+    if (b.tags or {}).get("building") == "roof":
+        return None
+    fp = b.footprint
+    if drivable is not None and fp.intersects(drivable):
+        fp = fp.difference(drivable)
+    if fp.is_empty or fp.area < 4.0:
+        return None
+    return fp
+
+
 def _add_building(mb: MeshBuilder, model: TwinModel, b: Building, level_height: float,
-                  default_levels: int) -> int:
+                  default_levels: int, footprint: Optional[BaseGeometry] = None) -> int:
     base, roof = building_geometry(model, b, level_height, default_levels)
     n = 0
-    for poly in _polygons(b.footprint):
+    for poly in _polygons(b.footprint if footprint is None else footprint):
         poly = shapely.force_2d(poly)
         if poly.area < 1.0:
             continue
@@ -518,11 +533,22 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
                 zz = np.asarray(model.sample_z(verts[:, 0], verts[:, 1]), dtype=np.float64)
                 base0 = b.add_vertices(np.column_stack([verts, zz - GROUND_PLANE_DROP]))
                 b.add_faces("groundplane", faces, base0)
+    n_clipped = n_skipped = 0
     if buildings:
+        from shapely.ops import unary_union
+        drivable = unary_union([s.geometry for s in model.surfaces
+                                if s.kind in ("drivable", "parking", "crossing")])
+        drivable = drivable.buffer(0.25) if not drivable.is_empty else None
         for b in model.buildings:
-            cen = b.footprint.centroid
+            fp = clip_building_footprint(b, drivable)
+            if fp is None:
+                n_skipped += 1
+                continue
+            if fp is not b.footprint:
+                n_clipped += 1
+            cen = fp.centroid
             _add_building(mb(0, "building", _tile_index(cen.x, cen.y, tile_m)), model, b,
-                          level_height, default_levels)
+                          level_height, default_levels, footprint=fp)
 
     assets = []
     for (layer, kind, tile), b in sorted(builders.items()):
@@ -570,6 +596,7 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
         "junctions": junctions,
         "stats": {"assets": len(assets), "triangles": int(sum(a["triangles"] for a in assets)),
                   "spawn_points": len(sp), "buildings": len(model.buildings) if buildings else 0,
+                  "buildings_clipped_by_roads": n_clipped, "buildings_skipped": n_skipped,
                   "layers": sorted({a["layer"] for a in assets})},
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1))

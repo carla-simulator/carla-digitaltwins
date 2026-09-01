@@ -387,7 +387,7 @@ second is editor Python run by `UnrealEditor-Cmd -run=pythonscript`.
   parameters mean metres.
 - `manifest.json`: assets (file, kind, layer, tile, material key, ATagger semantic folder, bbox
   in UE cm, tri count), `spawn_points` (UE cm / yaw°: every 30 m along each driving lane of every
-  non-junction road, 10 m clear of the ends, 0.3 m above the datum, heading in the lane's travel
+  non-junction road, 10 m clear of the ends, 0.5 m above the datum (less and try_spawn_actor hits the road), heading in the lane's travel
   direction), `junctions` (largest first, centre in UE and model space), origin lat/lon,
   geo_reference, xodr path, profile.
 
