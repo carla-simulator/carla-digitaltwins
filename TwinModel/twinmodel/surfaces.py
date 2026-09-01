@@ -29,7 +29,7 @@ from shapely.ops import linemerge, nearest_points, substring, unary_union
 
 from . import profiles, streetspace
 from .model import (CurbLine, Junction, Lane, Marking, Road, Signal, Surface, TwinModel,
-                    road_osm_layer)
+                    road_is_tunnel, road_osm_layer)
 
 log = logging.getLogger("twinmodel.surfaces")
 
@@ -882,6 +882,91 @@ def crossing_polygon(model: TwinModel, sig: Signal) -> Optional[Polygon]:
 
 # --------------------------------------------------------------------------- curbs
 
+def ground_layer_of(layers: Iterable[int]) -> int:
+    """The OSM layer the ground (and the islands, parking lots, ground fill) sits on: 0 when a
+    road is on it, else the lowest layer above ground (a bbox with only decks), else the
+    highest one (only tunnels). A tunnel (layer < 0) is *under* the ground, never the ground."""
+    ls = sorted(set(layers))
+    above = [l for l in ls if l >= 0]
+    return above[0] if above else (ls[-1] if ls else 0)
+
+
+def tunnel_trench(model: TwinModel, tunnel_roads: Iterable[Road],
+                  clearance: Optional[float] = None, step: float = 2.0) -> Polygon | MultiPolygon:
+    """The open cut of a tunnel: the street-space band of every tunnel road wherever the DEM
+    (the ground above) is less than ``clearance`` (default ``elevation.min_clearance_m``) above
+    the tunnel road — the ramp between the portal and the covered part, where the ground
+    surface must not be laid over the road. Empty without a DEM or without tunnel roads."""
+    if model.elevation is None:
+        return Polygon()
+    if clearance is None:
+        clearance = profiles.get().elevation.min_clearance_m
+    parts: list[BaseGeometry] = []
+    for r in tunnel_roads:
+        c = np.asarray(r.reference_line.coords, dtype=np.float64)
+        if c.shape[0] < 2 or c.shape[1] < 3:
+            continue
+        line = LineString(c[:, :2])
+        s_v = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(c[:, :2], axis=0).T))])
+        s = np.unique(np.concatenate([np.arange(0.0, s_v[-1], step), [s_v[-1]]]))
+        pts = shapely.line_interpolate_point(line, s)
+        z_dem = np.asarray(model.elevation.sample(shapely.get_x(pts), shapely.get_y(pts)), dtype=np.float64)
+        z_road = np.interp(s, s_v, c[:, 2])
+        open_ = (z_dem - z_road) < clearance
+        if not open_.any():
+            continue
+        wl, wr = _street_extent(r)
+        # runs of open samples -> substrings -> bands
+        i = 0
+        while i < len(s):
+            if not open_[i]:
+                i += 1
+                continue
+            j = i
+            while j + 1 < len(s) and open_[j + 1]:
+                j += 1
+            a, b = (s[max(i - 1, 0)], s[min(j + 1, len(s) - 1)])
+            if b - a > 0.1:
+                parts.append(_band(substring(line, a, b), wl + 0.5, wr + 0.5))
+            i = j + 1
+    return _clean(unary_union(parts)) if parts else Polygon()
+
+
+def tunnel_enclosure(model: TwinModel, tunnel_roads: Iterable[Road],
+                     trench: BaseGeometry | None = None) -> list[Surface]:
+    """The box the mesh draws over a tunnel road so it reads as a tunnel: a ``tunnel_ceiling``
+    over the road's street space (``elevation.tunnel_height_m`` above the tunnel datum) and a
+    ``tunnel_wall`` ring of ``tunnel_wall_m`` around it, one set per negative layer, tagged with
+    the layer so the exporter samples the tunnel datum. The ceiling is cut back where the
+    ``trench`` is open to the sky (the walls stay: they retain the cut)."""
+    E = profiles.get().elevation
+    by_layer: dict[int, list[BaseGeometry]] = {}
+    for r in tunnel_roads:
+        wl, wr = _street_extent(r)
+        band = _band(_ref2d(r), wl, wr)
+        if not band.is_empty:
+            by_layer.setdefault(road_osm_layer(r), []).append(band)
+    out: list[Surface] = []
+    k = 0
+    for lay in sorted(by_layer):
+        inner = _clean(unary_union(by_layer[lay]))
+        outer = _clean(inner.buffer(E.tunnel_wall_m, join_style="mitre", mitre_limit=MITRE_LIMIT))
+        ceiling = outer
+        if trench is not None and not trench.is_empty:
+            ceiling = _clean(outer.difference(trench), min_area=MIN_SURFACE_AREA)
+        for part in _parts(ceiling):
+            out.append(Surface(id=f"tunnel_ceiling_{k}", kind="tunnel_ceiling", geometry=part,
+                               z_offset=E.tunnel_height_m, source="osm_tags",
+                               tags={"layer": lay, "height": E.tunnel_height_m}))
+            k += 1
+        for part in _parts(_clean(outer.difference(inner), min_area=MIN_SURFACE_AREA)):
+            out.append(Surface(id=f"tunnel_wall_{k}", kind="tunnel_wall", geometry=part,
+                               z_offset=0.0, source="osm_tags",
+                               tags={"layer": lay, "height": E.tunnel_height_m}))
+            k += 1
+    return out
+
+
 def curb_lines(drivable: BaseGeometry, raised: BaseGeometry) -> list[LineString]:
     """Shared boundary between the drivable surface and the raised surfaces, merged and split
     into individual LineStrings."""
@@ -937,6 +1022,9 @@ def build_surfaces(model: TwinModel,
     for j in model.junctions:
         ls = [road_layer.get(c.incoming_road, 0) for c in j.connections]
         junction_layer[j.id] = max(set(ls), key=ls.count) if ls else 0
+    # tunnels: under the ground (and under the buildings), on their own negative layer
+    tunnel_roads = [r for r in model.roads if r.junction_id is None and road_is_tunnel(r)]
+    tunnel_ids = {r.id for r in tunnel_roads}
 
     # 1. carriageways -------------------------------------------------------------------------
     carriageways: dict[str, Polygon | MultiPolygon] = {}
@@ -1103,8 +1191,9 @@ def build_surfaces(model: TwinModel,
             return None
         ls = [road_layer[r] for r in rids if r in road_layer]
         ls += [junction_layer[j] for j in jids if j in junction_layer]
-        return max(set(ls), key=ls.count) if ls else min(layers)
+        return max(set(ls), key=ls.count) if ls else ground_layer
 
+    ground_layer = ground_layer_of(layers) if multi_layer else None
     n = 0
     for lay, geom in layer_groups:
         for part in _parts(geom):
@@ -1133,7 +1222,8 @@ def build_surfaces(model: TwinModel,
         ref = _ref2d(r)
         bands = lane_bands(r)
         faces = None
-        if not buildings.is_empty and any(b.lane.type == "sidewalk" for b in bands):
+        if not buildings.is_empty and r.id not in tunnel_ids \
+                and any(b.lane.type == "sidewalk" for b in bands):
             faces = _road_faces(r, buildings)
         forced = r.tags.get("cross_section_source") == "buildings"
         for b in bands:
@@ -1195,14 +1285,16 @@ def build_surfaces(model: TwinModel,
         kept: list[BaseGeometry] = []
         for lay, group in sorted(groups.items(), key=lambda kv: (kv[0] is not None, kv[0])):
             low = drivable_by_layer.get(lay, drivable) if multi_layer else drivable
+            # the buildings stand on the ground: a tunnel's sidewalk runs under them
+            cut_buildings = not buildings.is_empty and not (lay is not None and lay < 0)
             geom = _clean(unary_union([g for g, _ in group]))
             geom = _clean(geom.difference(low))
-            if not buildings.is_empty:
+            if cut_buildings:
                 geom = _clean(geom.difference(buildings))
             # close hairline gaps between neighbouring bands, then re-snap to the drivable boundary
             geom = _clean(geom.buffer(0.1, join_style="mitre").buffer(-0.1, join_style="mitre"))
             geom = _clean(geom.difference(low), min_area=MIN_SURFACE_AREA)
-            if not buildings.is_empty:
+            if cut_buildings:
                 geom = _clean(geom.difference(buildings), min_area=MIN_SURFACE_AREA)
             if kind == "verge" and not sidewalk_so_far.is_empty:
                 # sidewalk wins where the two meet (corner aprons): sidewalk ∩ verge = 0
@@ -1235,7 +1327,7 @@ def build_surfaces(model: TwinModel,
     for k, g in enumerate(island_geoms):
         model.surfaces.append(Surface(id=f"island_{k}", kind="island", geometry=g,
                                       z_offset=sidewalk_z, source=source,
-                                      tags={"layer": min(layers)} if multi_layer else {}))
+                                      tags={"layer": ground_layer} if multi_layer else {}))
     islands = island_geoms
 
     # 4. crossings ---------------------------------------------------------------------------
@@ -1246,11 +1338,12 @@ def build_surfaces(model: TwinModel,
         rect = crossing_polygon(model, sig)
         if rect is None:
             continue
-        geom = _clean(rect.intersection(drivable))
+        c_lay = part_layer([sig.road_id], [])
+        geom = _clean(rect.intersection(drivable_by_layer.get(c_lay, drivable) if multi_layer
+                                        else drivable))
         if geom.is_empty:
             continue
         c_tags = {"signal_id": sig.id}
-        c_lay = part_layer([sig.road_id], [])
         if c_lay is not None:
             c_tags["layer"] = c_lay
         model.surfaces.append(Surface(id=f"crossing_{k}", kind="crossing", geometry=geom,
@@ -1273,12 +1366,22 @@ def build_surfaces(model: TwinModel,
         for k, part in enumerate(_parts(parking)):
             model.surfaces.append(Surface(id=f"parking_{k}", kind="parking", geometry=part,
                                           z_offset=0.0, source="osm_tags",
-                                          tags={"layer": min(layers)} if multi_layer else {}))
+                                          tags={"layer": ground_layer} if multi_layer else {}))
 
     # 5. ground: the street void near the surfaces that is neither drivable nor raised nor
     #    parking lot nor building (open lots, courtyard mouths, the strip beyond a short
     #    sidewalk); block interiors are enclosed by their buildings and stay empty
     covered = _clean(unary_union([drivable, raised_all]))
+    trench = Polygon()
+    if tunnel_roads:
+        # a tunnel is under the ground: the ground above it is intact (unlike under a deck, the
+        # surface street over a tunnel keeps its ground), so the tunnel's own surfaces neither
+        # cover nor attract ground fill — except the open cut at the portals, which the ground
+        # must not roof over
+        surface_drivable = [g for lay, g in layer_groups if lay is None or lay >= 0]
+        surface_raised = [g for g, lay in walk_parts + verge_parts if lay is None or lay >= 0]
+        covered = _clean(unary_union(surface_drivable + surface_raised + islands))
+        trench = tunnel_trench(model, tunnel_roads)
     ground_area = 0.0
     if not covered.is_empty:
         minx, miny, maxx, maxy = unary_union([covered, buildings]).bounds
@@ -1291,18 +1394,24 @@ def build_surfaces(model: TwinModel,
         ground = _clean(void.intersection(reach).difference(covered), min_area=MIN_GROUND_AREA)
         if not parking.is_empty:
             ground = _clean(ground.difference(parking), min_area=MIN_GROUND_AREA)
+        if not trench.is_empty:
+            ground = _clean(ground.difference(trench), min_area=MIN_GROUND_AREA)
         ground = _keep_touching(ground, covered)
         for k, part in enumerate(_parts(ground)):
             model.surfaces.append(Surface(id=f"ground_{k}", kind="ground", geometry=part,
                                           z_offset=ground_z, source="osm_tags", confidence=0.5,
-                                          tags={"layer": min(layers)} if multi_layer else {}))
+                                          tags={"layer": ground_layer} if multi_layer else {}))
             ground_area += part.area
+    # 5b. tunnel enclosures: walls + ceiling over every tunnel road (their own surface kinds)
+    if tunnel_roads:
+        model.surfaces.extend(tunnel_enclosure(model, tunnel_roads, trench))
+        stats["tunnel_roads"] = len(tunnel_roads)
+        stats["tunnel_trench_area"] = float(trench.area)
 
     # 6. curbs (drivable <-> sidewalk/island/verge only), one pass per raised kind so a curb
     #    line is labelled by the surface it actually borders (an arm's verge curb and the
     #    sidewalk apron at the corner are separate lines)
     k = 0
-    ground_layer = min(layers) if multi_layer else None
     islands_l = [(g, ground_layer) for g in islands]
     for high_kind, parts in (("sidewalk", walk_parts), ("island", islands_l), ("verge", verge_parts)):
         if not parts:
