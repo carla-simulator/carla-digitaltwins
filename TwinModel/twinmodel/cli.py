@@ -170,6 +170,9 @@ def apply_elevation(model: TwinModel, elevation: Optional[Elevation] = None) -> 
             z = z0 + (z1 - z0) * t
         r.reference_line = _with_z(r.reference_line, z)
         n_conn += 1
+    # one plane per junction: contacts pulled onto it, connecting roads on it (twinmodel.datum)
+    from .datum import harmonize_junction_z
+    junction_stats = harmonize_junction_z(model)
     for s in model.signals:
         r = roads.get(s.road_id)
         if r is None:
@@ -187,6 +190,7 @@ def apply_elevation(model: TwinModel, elevation: Optional[Elevation] = None) -> 
         "road_z_min": float(zs.min()), "road_z_max": float(zs.max()),
         "smoothing": {"resample_m": RESAMPLE_M, "window_m": SMOOTH_WINDOW_M, "filter": "savgol1"},
         "max_abs_smoothing_residual_m": max_resid,
+        "junction_planes": junction_stats,
         "grid": {"shape": list(el.z.shape), "dx": el.dx, "dy": el.dy},
     })
     return stats
@@ -341,7 +345,7 @@ def build(args: argparse.Namespace) -> int:
         elif ortho is None:
             refine_meta["reason"] = "no ortho"
         else:
-            from .refine import road_mask, refine_drivable, save_overlay
+            from .refine import lane_keep_out, road_mask, refine_drivable, save_overlay
             prior = _drivable_union(model)
             if prior is None:
                 refine_meta["reason"] = "no drivable surfaces"
@@ -352,7 +356,7 @@ def build(args: argparse.Namespace) -> int:
                 refine_meta["mask_method"] = args.mask_method
                 refine_meta["mask_fraction"] = float(mask.mean())
                 t0 = time.perf_counter()
-                refined, rstats = refine_drivable(prior, mask, ortho)
+                refined, rstats = refine_drivable(prior, mask, ortho, keep=lane_keep_out(model))
                 refine_meta["refine_seconds"] = round(time.perf_counter() - t0, 2)
                 refine_meta["stats"] = _json_safe(rstats)
                 try:

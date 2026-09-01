@@ -198,6 +198,8 @@ def _write_mtl(path_mtl: Path) -> None:
 
 
 def _z(model: TwinModel, xy: np.ndarray, z_offset: float) -> np.ndarray:
+    """Vertex z = road datum z (``model.sample_z``: nearest reference-line z when the roads
+    carry elevation, else DEM, else 0) + the surface's ``z_offset``."""
     if len(xy) == 0:
         return np.zeros(0)
     z = model.sample_z(xy[:, 0], xy[:, 1])
@@ -271,7 +273,10 @@ def export_obj(model: TwinModel, path_obj: Path | str) -> None:
     """Write ``path_obj`` and a sibling ``.mtl`` with one material per group."""
     path_obj = Path(path_obj)
     path_mtl = path_obj.with_suffix(".mtl")
-    subdivide = model.elevation is not None
+    # every vertex (drivable/sidewalk/island/crossing/curb/marking) sits on the road datum so
+    # the mesh agrees with the xodr elevation profile; subdivide whenever z varies
+    datum = model.rebuild_datum()
+    subdivide = model.elevation is not None or datum is not None
     w = _ObjWriter()
     counts: dict[str, int] = {}
     for s in model.surfaces:
@@ -285,7 +290,9 @@ def export_obj(model: TwinModel, path_obj: Path | str) -> None:
     path_obj.parent.mkdir(parents=True, exist_ok=True)
     w.write(path_obj, path_mtl.name)
     _write_mtl(path_mtl)
-    log.info("wrote %s (%d vertices, faces per group: %s)", path_obj, len(w.vertices), counts)
+    log.info("wrote %s (%d vertices, z from %s, faces per group: %s)", path_obj, len(w.vertices),
+             "road datum" if datum is not None else ("dem" if model.elevation is not None else "0"),
+             counts)
 
 
 # --------------------------------------------------------------------------- preview

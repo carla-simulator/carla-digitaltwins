@@ -26,6 +26,12 @@ Mask methods (``road_mask(..., method=)``):
 The lane graph stays the authority on topology: ``refine_drivable`` moves boundary
 vertices along their outward normal by at most ``max_shift`` (2.5 m), never splits or
 merges polygons and never lets the local carriageway width drop below ``min_lane_width``.
+Per polygon part it additionally (a) reverts to the prior when the refined part would lose
+more than 30 % of its area or its minimum inscribed width (negative-buffer test) would fall
+below ``min_lane_width``, and (b) leaves parts with less than 40 % of their prior area under
+the mask untouched (``stats["low_coverage_parts"]``). Boundary shifts are smoothed with a
+5-vertex (2.5 m) moving average and the refined rings simplified to 0.1 m so the boundary
+stays smooth enough for ``surfaces.py`` to share edges with the sidewalk bands.
 """
 from __future__ import annotations
 
@@ -35,6 +41,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
+import shapely
 from scipy import ndimage
 from shapely.geometry import LineString, MultiPolygon, Polygon, shape
 from shapely.geometry.polygon import orient
@@ -47,6 +54,10 @@ log = logging.getLogger("twinmodel.refine")
 
 MIN_BLOB_M2 = 20.0
 MORPH_M = 1.0
+SMOOTH_K = 5             # moving-average window (vertices, 0.5 m apart) on the boundary shifts
+OUTPUT_SIMPLIFY_M = 0.1  # simplify tolerance on the refined rings
+MIN_AREA_RATIO = 0.7     # a part may not lose more than 30 % of its prior area
+MIN_COVERAGE = 0.4       # parts with less of their prior area under the mask are left untouched
 CORE_ERODE_M = 2.0
 BAND_M = (3.0, 6.0)
 SAM_CKPTS = {"vit_h": "sam_vit_h_4b8939.pth", "vit_l": "sam_vit_l_0b3195.pth",
@@ -533,13 +544,14 @@ def _smooth_closed(t: np.ndarray, k: int = 3) -> np.ndarray:
     return np.convolve(tp, kern, mode="valid")
 
 
-def _refine_ring(coords, mask, prior_raster, ortho, max_shift, min_lane_width, step, stats):
+def _refine_ring(coords, mask, prior_raster, ortho, max_shift, min_lane_width, step, stats,
+                 smooth_k: int = SMOOTH_K, keep=None):
     v = _densify_ring(np.asarray(coords, dtype=float)[:, :2], 0.5)
     if len(v) < 4:
         return v, np.zeros(len(v))
     n = _ring_normals(v)
     t, found = _edge_shifts(v, n, mask, ortho, max_shift, step)
-    t = _smooth_closed(t, 3)
+    t = _smooth_closed(t, max(1, smooth_k) | 1)
     t = np.clip(t, -max_shift, max_shift)
     # width guard: shrinking (t < 0) must keep local width >= min_lane_width
     w0 = _local_width(v, n, prior_raster, ortho, step)
@@ -547,9 +559,17 @@ def _refine_ring(coords, mask, prior_raster, ortho, max_shift, min_lane_width, s
     reject = shrink & (w0 + t < min_lane_width)
     # never grow more than 25 % of the local width either (keeps narrow lanes sane)
     t[reject] = 0.0
+    # keep-out guard: a shrinking vertex may not end up inside ``keep`` (lane centrelines)
+    n_keep = 0
+    if keep is not None and not keep.is_empty:
+        moved = v + n * t[:, None]
+        hit = (t < 0) & shapely.contains_xy(keep, moved[:, 0], moved[:, 1])
+        n_keep = int(hit.sum())
+        t[hit] = 0.0
     stats["n_vertices"] += len(v)
     stats["n_found"] += int(found.sum())
     stats["n_width_rejected"] += int(reject.sum())
+    stats["n_keep_rejected"] += n_keep
     return v + n * t[:, None], t
 
 
@@ -598,12 +618,48 @@ def _n_parts(g) -> tuple[int, int]:
     return len(polys), sum(len(p.interiors) for p in polys)
 
 
+def part_coverage(part, mask: np.ndarray, ortho: OrthoImage) -> float:
+    """Fraction of ``part``'s area (on the ortho grid) that is under the mask."""
+    r = rasterize(part, ortho)
+    n = int(r.sum())
+    return float((mask & r).sum() / n) if n else 0.0
+
+
+def min_width_ok(g, min_lane_width: float) -> bool:
+    """Approximate minimum-inscribed-width test: the part survives a negative buffer of half
+    the minimum lane width."""
+    return not g.buffer(-min_lane_width / 2.0).is_empty
+
+
+def _simplify_part(g, tol: float):
+    """Simplify a refined part's rings (keeps topology); None when it degenerates."""
+    if tol <= 0:
+        return g
+    out = g.simplify(tol, preserve_topology=True)
+    if out.is_empty or not out.is_valid:
+        return None
+    return out
+
+
 def refine_drivable(prior: Polygon | MultiPolygon, mask: np.ndarray, ortho: OrthoImage,
                     max_shift: float = 2.5, min_lane_width: float = 2.5,
-                    step: Optional[float] = None) -> tuple[Polygon | MultiPolygon, dict[str, Any]]:
+                    step: Optional[float] = None, min_area_ratio: float = MIN_AREA_RATIO,
+                    min_coverage: float = MIN_COVERAGE, smooth_k: int = SMOOTH_K,
+                    simplify_m: float = OUTPUT_SIMPLIFY_M, keep=None,
+                    ) -> tuple[Polygon | MultiPolygon, dict[str, Any]]:
     """Snap the prior's boundary to the mask edge (<= max_shift along the outward normal),
-    keeping topology. Returns (refined polygon, stats)."""
+    keeping topology. Returns (refined polygon, stats).
+
+    Per part: parts with mask coverage < ``min_coverage`` are left untouched
+    (``stats["low_coverage_parts"]``); a refined part that would drop below
+    ``min_area_ratio`` of its prior area or whose minimum inscribed width falls below
+    ``min_lane_width`` (negative-buffer test) reverts to the prior
+    (``stats["reverted_parts"]``). Shifts are smoothed over ``smooth_k`` vertices (0.5 m
+    apart) and the refined rings simplified to ``simplify_m``. ``keep`` (optional polygon,
+    see :func:`lane_keep_out`) is never entered by a shrinking boundary vertex."""
     step = step or ortho.dx / 2
+    if keep is not None and not keep.is_empty:
+        shapely.prepare(keep)
     prior = prior if prior.is_valid else prior.buffer(0)
     # normalise the prior: drop sliver parts / degenerate holes so the topology target is
     # well defined (unary_union + simplify of buffers can leave zero-area holes)
@@ -615,25 +671,42 @@ def refine_drivable(prior: Polygon | MultiPolygon, mask: np.ndarray, ortho: Orth
     prior_raster = rasterize(prior, ortho)
     mask_poly = mask_to_polygon(mask, ortho)
     stats: dict[str, Any] = {"n_vertices": 0, "n_found": 0, "n_width_rejected": 0,
+                             "n_keep_rejected": 0,
                              "n_topology_fallback": 0, "max_shift": max_shift,
                              "min_lane_width": min_lane_width,
+                             "n_parts": 0, "low_coverage_parts": 0, "reverted_parts": 0,
+                             "part_coverage": [], "part_reverted": [],
+                             "min_coverage": min_coverage, "min_area_ratio": min_area_ratio,
+                             "smooth_k": smooth_k, "simplify_m": simplify_m,
                              "iou_before": iou(prior, mask_poly)}
     polys = list(prior.geoms) if prior.geom_type == "MultiPolygon" else [prior]
     refined_polys = []
     all_t = []
     for p in polys:
         p = orient(p, sign=1.0)  # exterior CCW, holes CW -> interior always on the left
+        stats["n_parts"] += 1
+        # (b) sparse mask under this part (isolated street the classifier missed): untouched
+        cov = part_coverage(p, mask, ortho)
+        stats["part_coverage"].append(round(cov, 3))
+        if cov < min_coverage:
+            stats["low_coverage_parts"] += 1
+            stats["part_reverted"].append("low_coverage")
+            log.info("refine_drivable: part (%.0f m2) has mask coverage %.2f < %.2f; untouched",
+                     p.area, cov, min_coverage)
+            refined_polys.append(p)
+            continue
         rings = [p.exterior] + list(p.interiors)
         moved = []
         ts = []
         for ring in rings:
             v, t = _refine_ring(ring.coords, mask, prior_raster, ortho, max_shift, min_lane_width,
-                                step, stats)
+                                step, stats, smooth_k=smooth_k, keep=keep)
             moved.append((v, t))
             ts.append(t)
         # progressively damp the shifts until the polygon is valid and topology is kept
         target = _n_parts(p)
         result = None
+        used_scale = 0.0
         for scale in (1.0, 0.5, 0.25):
             shell_v = _densify_ring(np.asarray(p.exterior.coords)[:, :2], 0.5)
             shell_n = _ring_normals(shell_v)
@@ -644,15 +717,32 @@ def refine_drivable(prior: Polygon | MultiPolygon, mask: np.ndarray, ortho: Orth
                 holes.append(rv + _ring_normals(rv) * (ht * scale)[:, None])
             g = _rebuild([(shell, holes)])
             if g is not None and g.is_valid and _n_parts(g) == target and g.area > 0:
+                g2 = _simplify_part(g, simplify_m)
+                if g2 is not None and _n_parts(g2) == target and g2.area > 0:
+                    g = g2
                 result = g
-                all_t.extend(np.abs(np.concatenate(ts)) * scale)
+                used_scale = scale
                 if scale < 1.0:
                     stats["n_topology_fallback"] += 1
                 break
+        # (a) never collapse a part: area >= min_area_ratio * prior, inscribed width >= lane
+        reason = None
         if result is None:
+            reason = "topology"
             stats["n_topology_fallback"] += 1
+        elif result.area < min_area_ratio * p.area:
+            reason = "area"
+        elif not min_width_ok(result, min_lane_width):
+            reason = "width"
+        if reason is not None:
+            if reason != "topology":
+                stats["reverted_parts"] += 1
+                log.info("refine_drivable: part (%.0f m2) reverted to prior (%s: refined area "
+                         "%.0f m2)", p.area, reason, result.area)
             result = p
-            all_t.extend(np.zeros(sum(len(t) for t in ts)))
+            used_scale = 0.0
+        stats["part_reverted"].append(reason)
+        all_t.extend(np.abs(np.concatenate(ts)) * used_scale)
         refined_polys.extend(result.geoms if result.geom_type == "MultiPolygon" else [result])
     refined = unary_union(refined_polys)
     if _n_parts(refined)[0] != _n_parts(prior)[0]:
@@ -668,11 +758,35 @@ def refine_drivable(prior: Polygon | MultiPolygon, mask: np.ndarray, ortho: Orth
     stats["area_before"] = float(prior.area)
     stats["area_after"] = float(refined.area)
     log.info("refine_drivable: IoU %.3f -> %.3f, mean|shift| %.2f m, max %.2f m, %d/%d vertices "
-             "snapped, %d width-rejected, %d topology fallbacks",
+             "snapped, %d width-rejected, %d keep-out-rejected, %d topology fallbacks, %d parts "
+             "(%d low-coverage, %d reverted)",
              stats["iou_before"], stats["iou_after"], stats["mean_abs_shift"],
              stats["max_abs_shift"], stats["n_found"], stats["n_vertices"],
-             stats["n_width_rejected"], stats["n_topology_fallback"])
+             stats["n_width_rejected"], stats["n_keep_rejected"], stats["n_topology_fallback"],
+             stats["n_parts"], stats["low_coverage_parts"], stats["reverted_parts"])
     return refined, stats
+
+
+def lane_keep_out(model: TwinModel, margin: float = 1.0):
+    """Union of every driving-lane centreline (all roads, connecting ones included) buffered
+    by ``margin``: the refined drivable boundary must not enter it, so the xodr lane centres
+    stay inside the surface (``validate.lane_in_drivable``) by construction."""
+    from .surfaces import lane_bands
+    lines = []
+    for r in model.roads:
+        ref = shapely.force_2d(r.reference_line)
+        if ref.length <= 0:
+            continue
+        for b in lane_bands(r):
+            if b.lane.type != "driving":
+                continue
+            off = 0.5 * (b.inner + b.outer)
+            g = ref.offset_curve(off if b.left else -off, join_style="mitre", mitre_limit=2.0)
+            if g is not None and not g.is_empty:
+                lines.append(g)
+    if not lines:
+        return Polygon()
+    return unary_union(lines).buffer(margin, join_style="mitre", mitre_limit=2.0)
 
 
 def refine_surfaces(model: TwinModel, mask: np.ndarray, ortho: OrthoImage, **kw) -> TwinModel:

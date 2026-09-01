@@ -61,7 +61,8 @@ def validate(model: TwinModel, xodr_text: str, *, step: float = 1.0,
     report: dict[str, Any] = {
         "name": model.name, "step": step, "tolerance_m": tol,
         "topology": {"loaded": False}, "lane_in_drivable": None, "junction_containment": None,
-        "z_error": None, "sidewalk_coverage": None, "lane_coverage": None, "landmarks": None,
+        "z_error": None, "z_error_dem": None, "sidewalk_coverage": None, "lane_coverage": None,
+        "landmarks": None,
         "notes": [], "violations": [],
     }
     try:
@@ -192,15 +193,27 @@ def validate(model: TwinModel, xodr_text: str, *, step: float = 1.0,
             "pass": bool(n_tot and n_in / n_tot >= 0.98),
         }
 
-    # z error --------------------------------------------------------------------------
+    # z error: waypoint z (xodr elevation profile) vs the surface z the mesh is built on
+    # (road datum, see twinmodel.datum) -> measures xodr-vs-mesh consistency. The raw-DEM
+    # comparison is kept as z_error_dem for information (how far the road sits off terrain).
     if len(xyz):
+        datum = model.rebuild_datum()
         zs = np.asarray(model.sample_z(xyz[:, 0], xyz[:, 1]), dtype=np.float64)
         err = np.abs(xyz[:, 2] - zs)
+        el_name = "none" if model.elevation is None else (model.elevation.source or "grid")
         report["z_error"] = {
             "p50": float(np.percentile(err, 50)), "p95": float(np.percentile(err, 95)),
             "max": float(err.max()), "pass": bool(np.percentile(err, 95) <= Z_TOL),
-            "elevation": "none" if model.elevation is None else (model.elevation.source or "grid"),
+            "elevation": el_name,
+            "surface_z": "road_datum" if datum is not None else ("dem" if model.elevation is not None else "0"),
         }
+        if model.elevation is not None:
+            zd = np.asarray(model.sample_dem_z(xyz[:, 0], xyz[:, 1]), dtype=np.float64)
+            errd = np.abs(xyz[:, 2] - zd)
+            report["z_error_dem"] = {
+                "p50": float(np.percentile(errd, 50)), "p95": float(np.percentile(errd, 95)),
+                "max": float(errd.max()), "elevation": el_name,
+            }
 
     # sidewalk coverage -----------------------------------------------------------------
     sidewalk = _union([s.geometry for s in model.surfaces_of("sidewalk")])
@@ -263,7 +276,12 @@ def summary(report: dict[str, Any]) -> str:
         ze = report.get("z_error")
         lines.append("z_error: " + ("null" if ze is None else
                      f"p50 {ze['p50']:.3f} p95 {ze['p95']:.3f} max {ze['max']:.3f} "
-                     f"(elevation: {ze['elevation']}) {'PASS' if ze['pass'] else 'FAIL'}"))
+                     f"(surface z: {ze.get('surface_z', '?')}, elevation: {ze['elevation']}) "
+                     f"{'PASS' if ze['pass'] else 'FAIL'}"))
+        zd = report.get("z_error_dem")
+        if zd is not None:
+            lines.append(f"z_error_dem (info, vs raw DEM): p50 {zd['p50']:.3f} p95 {zd['p95']:.3f} "
+                         f"max {zd['max']:.3f}")
         sc = report.get("sidewalk_coverage")
         lines.append("sidewalk_coverage: " + ("null" if sc is None else
                      f"ratio {sc['ratio']:.3f} (sidewalk {sc['sidewalk_area']:.0f} m2 / "

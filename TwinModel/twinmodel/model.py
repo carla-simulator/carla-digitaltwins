@@ -247,6 +247,10 @@ class TwinModel:
     objects: list[PointObject] = field(default_factory=list)
     elevation: Optional[Elevation] = None
     metadata: dict[str, Any] = field(default_factory=dict)  # sources, timings, refine stats ...
+    # cached RoadDatum (twinmodel.datum) + fingerprint of the reference lines it was built from;
+    # rebuilt lazily by sample_z() when a reference line object changed, or on rebuild_datum()
+    _datum: Any = field(default=None, init=False, repr=False, compare=False)
+    _datum_key: Any = field(default=None, init=False, repr=False, compare=False)
 
     # -- lookups
     def road(self, road_id: str) -> Road:
@@ -264,7 +268,36 @@ class TwinModel:
     def surfaces_of(self, kind: SurfaceKind) -> list[Surface]:
         return [s for s in self.surfaces if s.kind == kind]
 
+    def _datum_fingerprint(self) -> tuple:
+        # LineStrings are immutable: a changed z means a new object (cli.apply_elevation)
+        return (self.elevation is not None, tuple(id(r.reference_line) for r in self.roads))
+
+    def rebuild_datum(self, **kw):
+        """(Re)build the cached ``RoadDatum`` from the current reference lines. Returns it, or
+        None when no road carries a non-zero z (``sample_z`` then falls back to the DEM / 0)."""
+        from .datum import RoadDatum, roads_have_z
+        self._datum_key = self._datum_fingerprint()
+        self._datum = RoadDatum(self.roads, self.elevation, **kw) if roads_have_z(self.roads) else None
+        return self._datum
+
+    def road_datum(self):
+        """The cached ``RoadDatum`` (rebuilt when reference lines changed); None without road z."""
+        if self._datum_key != self._datum_fingerprint():
+            self.rebuild_datum()
+        return self._datum
+
     def sample_z(self, x, y):
+        """Surface z at xy: the road datum (reference-line z, see ``twinmodel.datum``) when the
+        roads carry elevation, else the raw DEM, else 0."""
+        datum = self.road_datum()
+        if datum is not None:
+            return datum.z(x, y)
+        if self.elevation is None:
+            return np.zeros_like(np.asarray(x, dtype=np.float64)) if np.ndim(x) else 0.0
+        return self.elevation.sample(x, y)
+
+    def sample_dem_z(self, x, y):
+        """Raw DEM z at xy (0 without a DEM) — for information only, see ``validate.z_error_dem``."""
         if self.elevation is None:
             return np.zeros_like(np.asarray(x, dtype=np.float64)) if np.ndim(x) else 0.0
         return self.elevation.sample(x, y)
