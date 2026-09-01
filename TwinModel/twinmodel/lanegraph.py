@@ -33,7 +33,8 @@ from typing import Any, Iterable, Optional
 import numpy as np
 from shapely.geometry import LineString, MultiLineString, MultiPoint, Point, Polygon, MultiPolygon
 from shapely.geometry.base import BaseGeometry
-from shapely.ops import unary_union, polygonize
+from shapely.ops import unary_union, polygonize, substring
+from shapely.strtree import STRtree
 
 from .frame import LocalFrame
 from .ingest.osm import OsmData, OsmNode, OsmRelation, OsmWay
@@ -49,6 +50,8 @@ JUNCTION_INTERNAL_M = 2.0 * JUNCTION_CLUSTER_M  # roads with both ends in one cl
 TRIM_MARGIN_M = 2.0            # extra distance outside the cluster hull where roads are cut
 MIN_ROAD_LENGTH_M = 1.0
 STUB_M = 3.0                   # trimmed remnants shorter than this are absorbed into their neighbour
+DEAD_END_STUB_M = 10.0         # dead-end stubs off a junction shorter than this are absorbed too
+BAND_OVERLAP_M2 = 0.5          # a road's full band may not cover another road's carriageway more
 SERVICE_MIN_LENGTH_M = 30.0    # unnamed service ways shorter than this are not roads
 CONNECT_SAMPLE_M = 1.0         # connecting road sampling step
 THROUGH_DEG = 30.0             # |heading change| below this = through movement
@@ -58,6 +61,20 @@ SIGNAL_LATERAL_M = 0.5         # signal placed this far outside the carriageway 
 BIKE_LANE_WIDTH = 1.5
 PARKING_WIDTH = {"parallel": 2.0, "diagonal": 4.5, "perpendicular": 5.0}
 MIN_LANE_WIDTH, MAX_LANE_WIDTH = 2.5, 3.75
+CROSSING_KEEP_M = 2.5          # a crossing (4 m) stays whole on its road: cut >= this past the node
+CROSSING_NEAR_CUT_M = 5.0      # crossing nodes this close to a trim cut pull the cut back
+SIMPLIFY_M = 0.1               # Douglas-Peucker tolerance on trimmed reference lines
+JOG_MAX_M = 5.0                # a lateral jog: segment shorter than this ...
+JOG_MIN_TURN_DEG = 45.0        # ... turning at least this at both ends, same heading after
+JOG_TRANSITION_M = 10.0        # the jog is spread over this much line on either side
+SHORT_ROAD_M = 5.0             # non-junction roads shorter than this merge into a neighbour
+WIDTH_STEP_M = 1.0             # carriageway width jumps larger than this get reconciled/tapered
+TAPER_MAX_M = 15.0             # taper length split off the wider road
+TAPER_PIECES_MAX = 3           # ... in at most this many constant-width pieces
+SIDEWALK_SEARCH_M = 12.0       # sidewalk=separate: look for footway=sidewalk ways this far out
+SIDEWALK_PARALLEL_DEG = 15.0   # ... roughly parallel to the road
+SIDEWALK_SAMPLE_M = 5.0
+SIDEWALK_MIN_M, SIDEWALK_MAX_M = 1.5, 6.0
 
 DRIVABLE = {"motorway", "trunk", "primary", "secondary", "tertiary", "unclassified",
             "residential", "living_street", "service",
@@ -192,6 +209,133 @@ def _resample(coords: list[tuple[float, float]], step: float) -> list[tuple[floa
 
 def _line3d(coords: list[tuple[float, float]]) -> LineString:
     return LineString([(x, y, 0.0) for x, y in coords])
+
+
+def _line2d(line: LineString) -> LineString:
+    return LineString([(x, y) for x, y, *_ in line.coords])
+
+
+def _remove_jogs(coords: list[tuple[float, float]], max_len: float = JOG_MAX_M,
+                 min_turn_deg: float = JOG_MIN_TURN_DEG, transition: float = JOG_TRANSITION_M
+                 ) -> tuple[list[tuple[float, float]], int]:
+    """Replace lateral jogs (a segment shorter than ``max_len`` that turns sharply at both ends
+    and comes back to the previous heading — OSM mappers draw a 3 m sideways step this way) by a
+    gradual shift spread over ``transition`` m on either side. -> (coords, jogs removed)."""
+    pts = list(coords)
+    n_removed = 0
+    changed = True
+    while changed and len(pts) >= 4:
+        changed = False
+        for i in range(1, len(pts) - 2):
+            a, b, c, d = pts[i - 1], pts[i], pts[i + 1], pts[i + 2]
+            if math.dist(b, c) > max_len:
+                continue
+            h0, h1, h2 = _heading(a, b), _heading(b, c), _heading(c, d)
+            if (abs(_wrap(h1 - h0)) < math.radians(min_turn_deg)
+                    or abs(_wrap(h2 - h1)) < math.radians(min_turn_deg)
+                    or abs(_wrap(h2 - h0)) > math.radians(30.0)):
+                continue
+            ta = min(transition, 0.5 * math.dist(a, b))
+            td = min(transition, 0.5 * math.dist(c, d))
+            pa = (b[0] - math.cos(h0) * ta, b[1] - math.sin(h0) * ta)
+            pd = (c[0] + math.cos(h2) * td, c[1] + math.sin(h2) * td)
+            pts[i:i + 2] = [pa, pd]
+            n_removed += 1
+            changed = True
+            break
+    return _dedupe(pts), n_removed
+
+
+def _join_offset(a: list[tuple[float, float]], b: list[tuple[float, float]],
+                 max_reach: float = 10.0) -> list[tuple[float, float]]:
+    """Concatenate two reference lines that were offset separately from OSM lines meeting at a
+    corner: their end points sit on different normals, so a plain concatenation doubles back.
+    Replace the two end points by the mitre (intersection of the end segments), or by their
+    midpoint when the segments do not meet within ``max_reach``."""
+    if len(a) < 2 or len(b) < 2:
+        return _dedupe(a + b)
+    p1, p2 = np.asarray(a[-2]), np.asarray(a[-1])
+    q1, q2 = np.asarray(b[0]), np.asarray(b[1])
+    d1, d2 = p2 - p1, q2 - q1
+    den = d1[0] * d2[1] - d1[1] * d2[0]
+    joint = (p2 + q1) / 2.0
+    if abs(den) > 1e-9:
+        t = ((q1[0] - p1[0]) * d2[1] - (q1[1] - p1[1]) * d2[0]) / den
+        cand = p1 + t * d1
+        if np.hypot(*(cand - p2)) <= max_reach and np.hypot(*(cand - q1)) <= max_reach:
+            joint = cand
+    return _dedupe(a[:-1] + [(float(joint[0]), float(joint[1]))] + b[1:])
+
+
+_ALL_LANE_TYPES = ("driving", "parking", "biking", "shoulder", "sidewalk", "median", "none")
+
+
+def _road_band(road: Road, full: bool) -> BaseGeometry:
+    """Flat-capped polygon of the road: carriageway lanes only, or all lanes (``full``)."""
+    types = _ALL_LANE_TYPES if full else ("driving", "parking", "biking", "shoulder")
+    line2d = _line2d(road.reference_line)
+    parts = []
+    wl, wr = road.width_left(types), road.width_right(types)
+    if wl > 0:
+        parts.append(line2d.buffer(wl, single_sided=True))
+    if wr > 0:
+        parts.append(line2d.buffer(-wr, single_sided=True))
+    return unary_union(parts) if parts else Polygon()
+
+
+def _ring_coords(geom: BaseGeometry) -> list[tuple[float, float]]:
+    out: list[tuple[float, float]] = []
+    for g in getattr(geom, "geoms", [geom]):
+        if isinstance(g, Polygon):
+            out.extend((float(x), float(y)) for x, y in g.exterior.coords)
+        elif hasattr(g, "coords"):
+            out.extend((float(x), float(y)) for x, y in g.coords)
+    return out
+
+
+def _core_width(road: Road) -> float:
+    """Carriageway core: driving + shoulder lanes (parking/biking are add-ons that stay)."""
+    return sum(l.width for l in road.lanes if l.type in ("driving", "shoulder"))
+
+
+def _renumber(left_inner_out: list[Lane], right_inner_out: list[Lane]) -> list[Lane]:
+    for i, lane in enumerate(right_inner_out):
+        lane.id = -(i + 1)
+    for i, lane in enumerate(left_inner_out):
+        lane.id = i + 1
+    return left_inner_out[::-1] + right_inner_out
+
+
+def _set_core_width(road: Road, target: float) -> None:
+    """Resize the driving lanes (clamped to [MIN, MAX]) so the core carriageway is ``target`` m
+    wide; the remainder goes to the shoulder lane(s) (one is added on the right / removed when
+    < 0.5 m). Lane count and order are preserved; the reference line is re-centred."""
+    drive = [l for l in road.lanes if l.type == "driving"]
+    if not drive or target <= 0:
+        return
+    shift_before = (road.width_left() - road.width_right()) / 2.0
+    lane_w = min(MAX_LANE_WIDTH, max(MIN_LANE_WIDTH, target / len(drive)))
+    rem = max(0.0, target - lane_w * len(drive))
+    for l in drive:
+        l.width = lane_w
+    left, right = road.lanes_left(), road.lanes_right()
+    shoulders = [l for l in road.lanes if l.type == "shoulder"]
+    if rem >= 0.5:
+        if shoulders:
+            for l in shoulders:
+                l.width = rem / len(shoulders)
+        else:
+            idx = max(i for i, l in enumerate(right) if l.type == "driving") + 1 if any(
+                l.type == "driving" for l in right) else 0
+            right.insert(idx, Lane(id=0, type="shoulder", width=rem, direction="forward"))
+    else:
+        left = [l for l in left if l.type != "shoulder"]
+        right = [l for l in right if l.type != "shoulder"]
+    road.lanes = _renumber(left, right)
+    shift_after = (road.width_left() - road.width_right()) / 2.0
+    if abs(shift_after - shift_before) > 1e-6:
+        xy = [(x, y) for x, y, *_ in road.reference_line.coords]
+        road.reference_line = _line3d(_dedupe(_offset_polyline(xy, -(shift_after - shift_before))))
 
 
 # --------------------------------------------------------------------------- tag parsing
@@ -571,19 +715,28 @@ class _Approach:
 
 # --------------------------------------------------------------------------- selection / clipping
 
-def _way_is_road(w: OsmWay, length_m: float) -> bool:
+def _is_underground(tags: dict[str, str]) -> bool:
+    return tags.get("tunnel") in ("yes", "building_passage") or (_num(tags.get("layer")) or 0) < 0
+
+
+def _way_is_road(w: OsmWay, length_m: float, ramp_nodes: frozenset[int] | set[int] = frozenset()
+                 ) -> bool:
+    """``ramp_nodes``: end nodes of underground drivable ways; an unnamed service way ending on
+    one is the ramp into that car park and is dropped with it."""
     hw = w.tags.get("highway")
     if hw not in DRIVABLE:
         return False
     if w.tags.get("area") == "yes":
         return False
-    if w.tags.get("tunnel") in ("yes", "building_passage") or (_num(w.tags.get("layer")) or 0) < 0:
-        return False  # underground car-park ramps etc. are not part of the surface twin
+    if _is_underground(w.tags):
+        return False  # underground car-park aisles etc. are not part of the surface twin
     if hw == "service":
         if w.tags.get("service") in ("parking_aisle", "driveway", "drive-through", "emergency_access"):
             return False
         if not w.tags.get("name") and length_m < SERVICE_MIN_LENGTH_M:
             return False
+        if not w.tags.get("name") and w.nodes and (w.nodes[0] in ramp_nodes or w.nodes[-1] in ramp_nodes):
+            return False  # ramp down to an underground aisle
     return True
 
 
@@ -676,6 +829,11 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     # 1. drivable ways -> pieces inside the bbox
     pieces: list[_Piece] = []
     n_service_dropped = 0
+    n_ramps = 0
+    ramp_nodes: set[int] = set()  # ends of underground drivable ways: unnamed service ways there are ramps
+    for w in osm.ways:
+        if w.tags.get("highway") in DRIVABLE and _is_underground(w.tags) and len(w.nodes) >= 2:
+            ramp_nodes.update((w.nodes[0], w.nodes[-1]))
     for w in osm.ways:
         if w.tags.get("highway") not in DRIVABLE:
             continue
@@ -685,8 +843,9 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
         lons, lats = zip(*coords)
         x, y = frame.to_local(np.array(lons), np.array(lats))
         length = _polyline_length(list(zip(np.atleast_1d(x), np.atleast_1d(y))))
-        if not _way_is_road(w, length):
+        if not _way_is_road(w, length, ramp_nodes):
             n_service_dropped += w.tags.get("highway") == "service"
+            n_ramps += _way_is_road(w, length) and not _way_is_road(w, length, ramp_nodes)
             continue
         oneway, rev = _is_oneway(w.tags)
         if rev:  # normalise oneway=-1 by reversing the node order
@@ -845,9 +1004,11 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
         road_end_node: dict[str, dict[str, Optional[int]]] = {}
         road_nodes: dict[str, list[Optional[int]]] = {}
         n_internal = 0
+        n_jogs = 0
         for ch in chains:
             nodes = ch.nodes
-            xy = _dedupe(ch.xy)
+            xy, nj = _remove_jogs(_dedupe(ch.xy))
+            n_jogs += nj
             if len(xy) < 2:
                 continue
             head = ch.segments[0]
@@ -881,6 +1042,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                         center_marking=spec.center_marking,
                         tags={k: v for k, v in head.way.tags.items() if k in _ROAD_TAG_KEYS})
             road.tags["oneway_road"] = spec.oneway
+            road.tags["reversed"] = bool(ch.reversed_flags[0])  # runs against the head way
             # reference line between forward and backward carriageway lanes
             wl, wr = road.width_left(), road.width_right()
             shift = (wl - wr) / 2.0  # positive: move right (carriageway centre stays on the OSM line)
@@ -891,82 +1053,113 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             road_end_cluster[road.id] = {"start": c_start, "end": c_end}
             road_end_node[road.id] = {"start": nodes[0], "end": nodes[-1]}
             road_nodes[road.id] = nodes
-        return roads, road_end_cluster, road_end_node, road_nodes, n_internal
+        return roads, road_end_cluster, road_end_node, road_nodes, n_internal, n_jogs
 
-    # 7. trim roads at junctions (cluster hull buffered by half the road width + margin)
+    # 7. trim roads at junctions (cluster hull buffered by half the road width + margin). Trims
+    #    are s-intervals on the shifted, untrimmed line so an end can be re-cut (a neighbour
+    #    handed to a junction) or restored (a junction dissolved) later.
+    crossing_nodes = {nid for nid, n in osm.nodes.items() if n.tags.get("highway") == "crossing"}
+    orig_line: dict[str, LineString] = {}
+    max_half: dict[str, float] = defaultdict(float)
+
     def half_width(r: Road) -> float:
         return (r.width_left() + r.width_right()) / 2.0
 
-    def trim(line: LineString, cut: BaseGeometry, keep_end: str) -> Optional[LineString]:
-        """Remove the part of ``line`` inside ``cut``; keep the piece attached to ``keep_end``."""
-        rest = LineString([(x, y) for x, y, *_ in line.coords]).difference(cut)
+    def cut_interval(line2d: LineString, cut: BaseGeometry, keep_end: str
+                     ) -> Optional[tuple[float, float]]:
+        """s-interval of ``line2d`` outside ``cut``: the piece attached to ``keep_end``."""
+        rest = line2d.difference(cut)
         if rest.is_empty:
             return None
-        parts = list(rest.geoms) if isinstance(rest, MultiLineString) else [rest]
+        parts = list(rest.geoms) if hasattr(rest, "geoms") else [rest]
         parts = [pp for pp in parts if isinstance(pp, LineString) and pp.length > 1e-6]
         if not parts:
             return None
-        anchor = Point(line.coords[0][:2]) if keep_end == "start" else Point(line.coords[-1][:2])
+        anchor = Point(line2d.coords[0]) if keep_end == "start" else Point(line2d.coords[-1])
         parts.sort(key=lambda pp: (pp.distance(anchor), -pp.length))
         best = parts[0]
         if best.distance(anchor) > 0.5:  # anchor swallowed by another cut: keep the longest piece
             best = max(parts, key=lambda pp: pp.length)
-        return _line3d([(x, y) for x, y in best.coords])
+        s0 = line2d.project(Point(best.coords[0]))
+        s1 = line2d.project(Point(best.coords[-1]))
+        return (min(s0, s1), max(s0, s1))
+
+    def retrim(r: Road) -> bool:
+        """Cut ``r`` at the clusters on its ends, from the untrimmed line; False when nothing
+        drivable is left. A crossing node within CROSSING_NEAR_CUT_M of a cut pulls the cut back
+        to CROSSING_KEEP_M past the node so the crossing stays whole on the road (never into
+        the node cluster itself). The result is Douglas-Peucker simplified (SIMPLIFY_M)."""
+        line2d = orig_line[r.id]
+        L = line2d.length
+        lo, hi = 0.0, L
+        xnodes = [nid for nid in road_nodes[r.id] if nid in crossing_nodes and nid in node_xy]
+        for end in ("start", "end"):
+            c = road_end_cluster[r.id][end]
+            if c is None:
+                continue
+            # every arm of a cluster is cut at the same distance (the widest arm's half width):
+            # arms end on a common line, so the (convex) junction cover of a wide arm's end
+            # section cannot swallow the last metres, and the crossing, of a narrow parallel
+            # arm. Cutting each arm at the half width of the street it runs into would keep
+            # more crossings at their OSM node, but needs a concave junction cover first.
+            hw = max(half_width(r), max_half[c.id])
+            cut = c.hull.buffer(hw + TRIM_MARGIN_M, join_style="round")
+            c.area = cut if c.area is None else c.area.union(cut)
+            keep = "end" if end == "start" else "start"
+            iv = cut_interval(line2d, cut, keep)
+            if iv is None:
+                return False
+            core = cut_interval(line2d, c.hull.buffer(max(1.0, hw)), keep)
+            if end == "start":
+                s_cut = iv[0]
+                for nid in xnodes:
+                    s_n = line2d.project(Point(node_xy[nid]))
+                    if s_cut - CROSSING_NEAR_CUT_M < s_n < s_cut + CROSSING_KEEP_M:
+                        s_cut = min(s_cut, max(core[0] if core else 0.0, s_n - CROSSING_KEEP_M))
+                lo = max(lo, s_cut)
+            else:
+                s_cut = iv[1]
+                for nid in xnodes:
+                    s_n = line2d.project(Point(node_xy[nid]))
+                    if s_cut - CROSSING_KEEP_M < s_n < s_cut + CROSSING_NEAR_CUT_M:
+                        s_cut = max(s_cut, min(core[1] if core else L, s_n + CROSSING_KEEP_M))
+                hi = min(hi, s_cut)
+        if hi - lo < MIN_ROAD_LENGTH_M:
+            return False
+        piece = substring(line2d, lo, hi).simplify(SIMPLIFY_M, preserve_topology=False)
+        r.reference_line = _line3d([(x, y) for x, y in piece.coords])
+        return True
 
     n_iter = 0
+    dropped: list[Road] = []
     while True:
         n_iter += 1
         clusters, node_cluster = make_clusters()
-        roads, road_end_cluster, road_end_node, road_nodes, n_internal = roads_from_chains(node_cluster)
-        max_half_in_cluster: dict[str, float] = defaultdict(float)
+        roads, road_end_cluster, road_end_node, road_nodes, n_internal, n_jogs = roads_from_chains(node_cluster)
+        orig_line = {r.id: _line2d(r.reference_line) for r in roads}
+        max_half = defaultdict(float)
         for r in roads:
             for end in ("start", "end"):
                 c = road_end_cluster[r.id][end]
                 if c is not None:
-                    max_half_in_cluster[c.id] = max(max_half_in_cluster[c.id], half_width(r))
-
-        def cut_polygon(c: _Cluster, r: Road) -> BaseGeometry:
-            hw = half_width(r)
-            if c.hull.area < 1.0:  # single node / collinear pair: use the widest road at the node
-                hw = max(hw, max_half_in_cluster[c.id])
-            return c.hull.buffer(hw + TRIM_MARGIN_M, join_style="round")
+                    max_half[c.id] = max(max_half[c.id], half_width(r))
 
         kept: list[Road] = []
-        n_trim_dropped = 0
+        dropped = []
         merges: list[tuple[_Cluster, _Cluster]] = []
         for r in roads:
-            line = r.reference_line
-            ok = True
-            for end in ("start", "end"):
-                c = road_end_cluster[r.id][end]
-                if c is None:
-                    continue
-                cut = cut_polygon(c, r)
-                c.area = cut if c.area is None else c.area.union(cut)
-                keep = "end" if end == "start" else "start"
-                new = trim(line, cut, keep)
-                if new is None or new.length < MIN_ROAD_LENGTH_M:
-                    ok = False
-                    break
-                line = new
-            if not ok or line.length < MIN_ROAD_LENGTH_M:
-                cs, ce = road_end_cluster[r.id]["start"], road_end_cluster[r.id]["end"]
-                if cs is not None and ce is not None and cs is not ce:
-                    merges.append((cs, ce))  # the junctions overlap: merge them and redo
-                    continue
-                n_trim_dropped += 1
-                for c in (cs, ce):
-                    if c is not None:
-                        for wid in r.osm_way_ids:
-                            c.absorb(wid, road_nodes[r.id])
-                continue
-            r.reference_line = line
             cs, ce = road_end_cluster[r.id]["start"], road_end_cluster[r.id]["end"]
-            if cs is not None:
-                r.predecessor = RoadLink("junction", cs.id)
-            if ce is not None:
-                r.successor = RoadLink("junction", ce.id)
-            kept.append(r)
+            if retrim(r):
+                if cs is not None:
+                    r.predecessor = RoadLink("junction", cs.id)
+                if ce is not None:
+                    r.successor = RoadLink("junction", ce.id)
+                kept.append(r)
+                continue
+            if cs is not None and ce is not None and cs is not ce:
+                merges.append((cs, ce))  # the junctions overlap: merge them and redo
+                continue
+            dropped.append(r)
         if not merges or n_iter >= 10:
             if merges:
                 log.warning("cluster merging did not converge; %d roads still swallowed", len(merges))
@@ -979,65 +1172,282 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     stats["cluster_iterations"] = n_iter
     stats["junctions_clustered_nodes"] = {c.id: len(c.node_ids) for c in clusters if len(c.node_ids) > 1}
     stats["roads_internal_to_junctions"] = n_internal
-    stats["roads_dropped_by_trim"] = n_trim_dropped
+    stats["roads_dropped_by_trim"] = len(dropped)
+    stats["jogs_removed"] = n_jogs
+    stats["ramps_skipped"] = n_ramps
     by_id = {r.id: r for r in roads}
 
-    # road<->road links at degree-2 nodes that did not merge into one chain
-    ends_at_node: dict[int, list[tuple[Road, str]]] = defaultdict(list)
-    for r in roads:
-        for end in ("start", "end"):
-            nid = road_end_node[r.id][end]
-            if nid is not None and road_end_cluster[r.id][end] is None:
-                ends_at_node[nid].append((r, end))
-    # absorb trimmed stubs (< STUB_M, junction at one end) into the neighbour / the junction
-    n_stubs = 0
-    for nid, lst in list(ends_at_node.items()):
-        for r, end in list(lst):
-            other = "start" if end == "end" else "end"
-            c = road_end_cluster[r.id][other]
-            if r.length >= STUB_M or c is None:
-                continue
-            others = [(rb, eb) for rb, eb in lst if rb is not r]
-            if len(others) == 1:
-                rb, eb = others[0]
-                road_end_cluster[rb.id][eb] = c
-                if eb == "end":
-                    rb.successor = RoadLink("junction", c.id)
-                else:
-                    rb.predecessor = RoadLink("junction", c.id)
+    def set_link(r: Road, end: str, link: Optional[RoadLink]) -> None:
+        if end == "end":
+            r.successor = link
+        else:
+            r.predecessor = link
+
+    def attach(r: Road, end: str, c: Optional[_Cluster]) -> None:
+        road_end_cluster[r.id][end] = c
+        set_link(r, end, RoadLink("junction", c.id) if c is not None else None)
+
+    def free_ends() -> dict[int, list[tuple[Road, str]]]:
+        out: dict[int, list[tuple[Road, str]]] = defaultdict(list)
+        for r in roads:
+            for end in ("start", "end"):
+                nid = road_end_node[r.id][end]
+                if nid is not None and road_end_cluster[r.id][end] is None:
+                    out[nid].append((r, end))
+        return out
+
+    # 7b. roads swallowed by the trim, and stubs (< STUB_M with a junction at one end only),
+    #     are absorbed into that junction; the road continuing from their free end is handed
+    #     over to the junction so a street reached through a short lateral does not dangle
+    for r in list(roads):
+        ends = road_end_cluster[r.id]
+        if (ends["start"] is None) == (ends["end"] is None):
+            continue
+        free_end = "end" if ends["start"] is not None else "start"
+        nid = road_end_node[r.id][free_end]
+        others = [rb for rb, _e in free_ends().get(nid, []) if rb is not r] if nid is not None else []
+        # a stub: shorter than STUB_M, or a dead end shorter than DEAD_END_STUB_M that no
+        # other road continues (the entrance to a pedestrian passage): cars go nowhere there
+        if r.length < STUB_M or (r.length < DEAD_END_STUB_M and nid is not None and not others):
+            dropped.append(r)
+            roads.remove(r)
+            del by_id[r.id]
+    n_reattached = 0
+    for r in dropped:
+        ends = road_end_cluster[r.id]
+        for c in (ends["start"], ends["end"]):
+            if c is not None:
                 for wid in r.osm_way_ids:
                     c.absorb(wid, road_nodes[r.id])
-                roads.remove(r)
-                del by_id[r.id]
-                ends_at_node[nid] = [(rb2, eb2) for rb2, eb2 in lst if rb2 is not r and rb2 is not rb]
-                n_stubs += 1
-    for r in list(roads):
-        if r.length < STUB_M and r.junction_id is None:
-            ends = road_end_cluster[r.id]
-            if (ends["start"] is None) != (ends["end"] is None):
-                c = ends["start"] or ends["end"]
-                other = "end" if ends["start"] is not None else "start"
-                if len(ends_at_node.get(road_end_node[r.id][other], [])) <= 1:  # dead-end stub
-                    for wid in r.osm_way_ids:
-                        c.absorb(wid, road_nodes[r.id])
-                    roads.remove(r)
-                    del by_id[r.id]
-                    n_stubs += 1
-    stats["stubs_absorbed"] = n_stubs
-    for nid, lst in ends_at_node.items():
+        if (ends["start"] is None) == (ends["end"] is None):
+            continue
+        c = ends["start"] or ends["end"]
+        free_end = "end" if ends["start"] is not None else "start"
+        nid = road_end_node[r.id][free_end]
+        others = free_ends().get(nid, []) if nid is not None else []
+        if len(others) != 1:
+            continue
+        rb, eb = others[0]
+        attach(rb, eb, c)
+        max_half[c.id] = max(max_half[c.id], half_width(rb))
+        if not retrim(rb):
+            log.warning("%s: %s would vanish when re-cut at the junction; kept untrimmed", c.id, rb.id)
+        n_reattached += 1
+    stats["stubs_absorbed"] = len(dropped)
+    stats["roads_reattached"] = n_reattached
+
+    # 7c. clusters that are not junctions: no arm, one arm, or two arms that continue each
+    #     other (the lateral / ramp stub that made the node an intersection is gone). Their
+    #     roads are restored to the node and linked road<->road in 7d.
+    def arms_of(c: _Cluster) -> list[tuple[Road, str]]:
+        return [(r, end) for r in roads for end in ("start", "end") if road_end_cluster[r.id][end] is c]
+
+    def end_lanes(r: Road, end: str) -> tuple[int, int]:
+        """(driving lanes leaving the road through this end, lanes entering through it)."""
+        fwd = sum(1 for l in r.lanes if l.type == "driving" and l.id < 0)
+        bwd = sum(1 for l in r.lanes if l.type == "driving" and l.id > 0)
+        return (fwd, bwd) if end == "end" else (bwd, fwd)
+
+    def out_heading(r: Road, end: str) -> float:
+        line = orig_line[r.id]
+        h = _heading_along(line, line.length if end == "end" else 0.0)
+        return h if end == "end" else _wrap(h + math.pi)
+
+    n_dissolved = 0
+    for c in list(clusters):
+        arms = arms_of(c)
+        if len(arms) > 2:
+            continue
+        if len(arms) == 2:
+            (ra, ea), (rb, eb) = arms
+            na, nb = road_end_node[ra.id][ea], road_end_node[rb.id][eb]
+            if na is None or na != nb:
+                continue
+            if abs(_wrap(out_heading(ra, ea) - out_heading(rb, eb) - math.pi)) > math.radians(45.0):
+                continue  # a real turn (e.g. the other arms are clipped by the bbox): junction
+            la, lb = end_lanes(ra, ea), end_lanes(rb, eb)
+            if la != (lb[1], lb[0]):
+                continue
+        log.info("%s: %d arm(s), not a junction — dissolved", c.id, len(arms))
+        for r, end in arms:
+            attach(r, end, None)
+            retrim(r)
+        clusters.remove(c)
+        n_dissolved += 1
+    stats["junctions_dissolved"] = n_dissolved
+
+    # 7d. road<->road links at degree-2 nodes that did not merge into one chain
+    for nid, lst in free_ends().items():
         if len(lst) != 2:
             continue
         (ra, ea), (rb, eb) = lst
-        link_a = RoadLink("road", rb.id, eb)
-        link_b = RoadLink("road", ra.id, ea)
-        if ea == "end":
-            ra.successor = link_a
-        else:
-            ra.predecessor = link_a
-        if eb == "end":
-            rb.successor = link_b
-        else:
-            rb.predecessor = link_b
+        set_link(ra, ea, RoadLink("road", rb.id, eb))
+        set_link(rb, eb, RoadLink("road", ra.id, ea))
+
+    # 7e. sidewalk=separate: width from the parallel footway=sidewalk ways
+    stats.update(_sidewalk_widths_from_footways(roads, osm, frame))
+
+    # 7f. a road's full band (carriageway + sidewalks) must not cover another road's carriageway
+    #     at a junction: with 6 m sidewalks the carriageway-only trim leaves a raised sidewalk
+    #     slab across the crossing street's lanes. Shorten the offending arm by exactly the
+    #     overlap (not every arm by the full width, which would pave the chamfer corners).
+    n_band_cuts = 0
+    for _pass in range(3):
+        changed = False
+        for c in clusters:
+            arms = arms_of(c)
+            carriage = {r.id: _road_band(r, full=False) for r, _e in arms}
+            for r, end in arms:
+                band = _road_band(r, full=True)
+                line2d = _line2d(r.reference_line)
+                s_cut: Optional[float] = None
+                for rb, _eb in arms:
+                    if rb is r:
+                        continue
+                    ov = band.intersection(carriage[rb.id])
+                    if ov.is_empty or ov.area <= BAND_OVERLAP_M2:
+                        continue
+                    ss = [line2d.project(Point(x, y)) for x, y in _ring_coords(ov)]
+                    reach = (max(ss) if end == "start" else min(ss))
+                    s_cut = reach if s_cut is None else (max(s_cut, reach) if end == "start" else min(s_cut, reach))
+                if s_cut is None:
+                    continue
+                # stop TRIM_MARGIN_M short of the corner: two arms cut exactly to the corner
+                # where their sidewalks meet leave a zero-length turn between them
+                if end == "start":
+                    lo, hi = min(line2d.length - MIN_ROAD_LENGTH_M, s_cut + TRIM_MARGIN_M), line2d.length
+                else:
+                    lo, hi = 0.0, max(MIN_ROAD_LENGTH_M, s_cut - TRIM_MARGIN_M)
+                if hi - lo < MIN_ROAD_LENGTH_M or (end == "start" and lo <= 1e-6) or (end == "end" and hi >= line2d.length - 1e-6):
+                    log.warning("%s: %s cannot be shortened enough to clear a neighbour's carriageway", c.id, r.id)
+                    continue
+                r.reference_line = _line3d([(x, y) for x, y in substring(line2d, lo, hi).coords])
+                n_band_cuts += 1
+                changed = True
+        if not changed:
+            break
+    stats["band_overlap_cuts"] = n_band_cuts
+
+    # 7g. non-junction roads shorter than SHORT_ROAD_M merge into the road-linked neighbour
+    #     they continue when the lane configuration matches
+    n_short = 0
+    for r in list(roads):
+        if r.length >= SHORT_ROAD_M:
+            continue
+        for link, end in ((r.predecessor, "start"), (r.successor, "end")):
+            if link is None or link.element != "road" or link.id not in by_id:
+                continue
+            nb = by_id[link.id]
+            same_dir = (end == "start" and link.contact == "end") or (end == "end" and link.contact == "start")
+            if not same_dir or _lane_signature(nb.lanes) != _lane_signature(r.lanes):
+                continue
+            far = "end" if end == "start" else "start"  # r's other end becomes nb's
+            a = [c[:2] for c in nb.reference_line.coords]
+            b = [c[:2] for c in r.reference_line.coords]
+            nb.reference_line = _line3d(_join_offset(a, b) if end == "start" else _join_offset(b, a))
+            nb.osm_way_ids = sorted(set(nb.osm_way_ids) | set(r.osm_way_ids))
+            far_link = r.successor if far == "end" else r.predecessor
+            set_link(nb, far, far_link)
+            road_end_cluster[nb.id][far] = road_end_cluster[r.id][far]
+            road_end_node[nb.id][far] = road_end_node[r.id][far]
+            road_nodes[nb.id] = (road_nodes[nb.id] + road_nodes[r.id][1:] if end == "start"
+                                 else road_nodes[r.id] + road_nodes[nb.id][1:])
+            if far_link is not None and far_link.element == "road" and far_link.id in by_id:
+                set_link(by_id[far_link.id], far_link.contact, RoadLink("road", nb.id, far))
+            orig_line[nb.id] = _line2d(nb.reference_line)
+            roads.remove(r)
+            del by_id[r.id]
+            n_short += 1
+            log.info("merged %.1f m road %s into %s", r.length, r.id, nb.id)
+            break
+    stats["short_roads_merged"] = n_short
+
+    # 7h. carriageway width steps (> WIDTH_STEP_M) at road<->road links: a road without
+    #     width/lanes tags adopts the narrowest tagged neighbour's core width; a step between
+    #     tagged roads gets a taper split off the wider road (<= TAPER_MAX_M, in at most
+    #     TAPER_PIECES_MAX constant-width pieces, each lane constant per piece)
+    def road_links(r: Road):
+        for link, end in ((r.predecessor, "start"), (r.successor, "end")):
+            if link is not None and link.element == "road" and link.id in by_id:
+                yield by_id[link.id], link.contact, end
+
+    def has_width_tags(r: Road) -> bool:
+        return "width" in r.tags or "lanes" in r.tags
+
+    n_reconciled = 0
+    for r in roads:
+        if has_width_tags(r):
+            continue
+        targets = [_core_width(nb) for nb, _c, _e in road_links(r)
+                   if has_width_tags(nb) and abs(_core_width(nb) - _core_width(r)) > WIDTH_STEP_M]
+        if targets:
+            log.info("%s: no width tags, adopting %.1f m from its tagged neighbour", r.id, min(targets))
+            _set_core_width(r, min(targets))
+            orig_line[r.id] = _line2d(r.reference_line)
+            r.tags["width_source"] = "neighbour"
+            n_reconciled += 1
+    stats["widths_reconciled"] = n_reconciled
+
+    n_taper = 0
+    next_num = max((int(r.id[1:]) for r in roads if r.id[1:].isdigit()), default=0) + 1
+    seen_pairs: set[tuple] = set()
+    pairs: list[tuple[Road, str, Road, str]] = []
+    for r in list(roads):
+        for nb, contact, end in road_links(r):
+            key = tuple(sorted([(r.id, end), (nb.id, contact)]))
+            if key not in seen_pairs:
+                seen_pairs.add(key)
+                pairs.append((r, end, nb, contact))
+    for ra, ea, rb, eb in pairs:
+        wa, wb = _core_width(ra), _core_width(rb)
+        delta = abs(wa - wb)
+        if delta <= WIDTH_STEP_M:
+            continue
+        wide, wend, narrow, nend = (ra, ea, rb, eb) if wa > wb else (rb, eb, ra, ea)
+        if wide.length < 3 * MIN_ROAD_LENGTH_M:
+            continue
+        taper_len = min(TAPER_MAX_M, wide.length / 2.0)
+        k = max(1, min(TAPER_PIECES_MAX, math.ceil(delta / WIDTH_STEP_M - 1e-9)))
+        step = delta / (k + 1)
+        line2d = _line2d(wide.reference_line)
+        L = line2d.length
+        pieces: list[Road] = []
+        for i in range(1, k + 1):
+            if wend == "end":
+                s0, s1 = L - taper_len + (i - 1) * taper_len / k, L - taper_len + i * taper_len / k
+            else:
+                s0, s1 = taper_len - i * taper_len / k, taper_len - (i - 1) * taper_len / k
+            seg = substring(line2d, s0, s1)
+            piece = Road(id=f"r{next_num}", reference_line=_line3d([(x, y) for x, y in seg.coords]),
+                         lanes=[Lane(id=l.id, type=l.type, width=l.width, direction=l.direction,
+                                     marking=l.marking, speed_limit=l.speed_limit, tags=dict(l.tags))
+                                for l in wide.lanes],
+                         name=wide.name, highway=wide.highway, osm_way_ids=list(wide.osm_way_ids),
+                         center_marking=wide.center_marking,
+                         tags={**wide.tags, "taper": True, "width_source": "taper"})
+            next_num += 1
+            _set_core_width(piece, max(wa, wb) - step * i)
+            pieces.append(piece)
+            roads.append(piece)
+            by_id[piece.id] = piece
+            road_end_cluster[piece.id] = {"start": None, "end": None}
+            road_end_node[piece.id] = {"start": None, "end": None}
+            road_nodes[piece.id] = []
+        kept_seg = substring(line2d, 0.0, L - taper_len) if wend == "end" else substring(line2d, taper_len, L)
+        wide.reference_line = _line3d([(x, y) for x, y in kept_seg.coords])
+        seq: list[Road] = [wide] + pieces + [narrow]
+        for a, b in zip(seq, seq[1:]):
+            if wend == "end":
+                ea_, eb_ = "end", ("start" if b is not narrow else nend)
+            else:
+                ea_, eb_ = "start", ("end" if b is not narrow else nend)
+            set_link(a, ea_, RoadLink("road", b.id, eb_))
+            set_link(b, eb_, RoadLink("road", a.id, ea_))
+        log.info("taper %s (%.1f m) -> %s (%.1f m): %d piece(s) over %.1f m",
+                 wide.id, max(wa, wb), narrow.id, min(wa, wb), k, taper_len)
+        n_taper += 1
+    stats["tapers_inserted"] = n_taper
+
 
     # 8. junctions with connecting roads
     junctions: list[Junction] = []
@@ -1071,7 +1481,10 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                             osm_way_ids=sorted(c.way_ids),
                             tags={"centre": [float(np.mean([p[0] for p in c.xy])),
                                              float(np.mean([p[1] for p in c.xy]))],
-                                  "hull_wkt": c.hull.wkt,
+                                  # a hull smaller than the widest arm's width squared (single
+                                  # node, collinear nodes) is widened to that arm's half width
+                                  "hull_wkt": (c.hull if c.hull.area >= (2 * max_half[c.id]) ** 2
+                                               else c.hull.buffer(max(1.0, max_half[c.id]))).wkt,
                                   "area_wkt": (c.area.wkt if c.area is not None else None),
                                   "n_incoming": len(incoming), "n_outgoing": len(outgoing)})
         m = 0
@@ -1360,17 +1773,22 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
                 if nid is not None:
                     node_roads[nid].append(rid)
     n_unplaced = 0
+    n_clamped = 0
+    n_in_junction = 0
     for nid, n in tagged.items():
         hw = n.tags.get("highway")
         if hw not in ("crossing", "stop", "give_way"):
             continue
         pt = Point(xy_of[nid])
-        cands = [by_id[r] for r in node_roads.get(nid, [])] or plain_roads
-        if not cands:
-            n_unplaced += 1
-            continue
-        road = min(cands, key=lambda r: r.reference_line.distance(pt))
-        if road.reference_line.distance(pt) > 15.0:
+        cands = [by_id[r] for r in node_roads.get(nid, []) if r in by_id]
+        road = min(cands, key=lambda r: r.reference_line.distance(pt)) if cands else None
+        if (road is None or road.reference_line.distance(pt) > 1.0) and plain_roads:
+            # the node's own road was shortened past it (taper split, merge): the road that
+            # now runs through the node takes it; otherwise the node keeps its own road
+            alt = min(plain_roads, key=lambda r: r.reference_line.distance(pt))
+            if road is None or alt.reference_line.distance(pt) < 1.0:
+                road = alt
+        if road is None or road.reference_line.distance(pt) > 15.0:
             n_unplaced += 1
             continue
         line2d = LineString([(x, y) for x, y, *_ in road.reference_line.coords])
@@ -1378,10 +1796,27 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
         h = _heading_along(line2d, s)
         base = line2d.interpolate(s)
         t = float(-(pt.x - base.x) * math.sin(h) + (pt.y - base.y) * math.cos(h))
+        # crossings mapped inside the junction box (typically a cycle lane crossing the
+        # carriageway at the intersection node, beyond the trimmed road end): kept, flagged
+        # for the surface builder
+        along = abs((pt.x - base.x) * math.cos(h) + (pt.y - base.y) * math.sin(h))
+        in_junction = [c.id for c in clusters if c.area is not None and c.area.contains(pt)]
+        if hw == "crossing" and in_junction and along > CROSSING_KEEP_M:
+            n_in_junction += 1
+        else:
+            in_junction = []
         if hw == "crossing":
+            # the 4 m rectangle must stay on the road (not overlap the junction polygon that
+            # starts at the road end): clamp s away from the ends
+            keep = min(CROSSING_KEEP_M, line2d.length / 2.0)
+            s_c = min(max(s, keep), line2d.length - keep)
+            if abs(s_c - s) > 1e-6:
+                n_clamped += 1
+                s = s_c
             signals.append(_make_signal(next_id(), "crosswalk", road, s, t, True, osm_node_id=nid,
                                         tags={k: v for k, v in n.tags.items() if k.startswith("crossing")}
-                                        | {"node_xy": [pt.x, pt.y]}))
+                                        | {"node_xy": [pt.x, pt.y]}
+                                        | ({"in_junction": in_junction[0]} if in_junction else {})))
         else:
             direction = n.tags.get("direction", "").lower()
             forward = direction != "backward"
@@ -1392,6 +1827,8 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
                                         _signal_side(road, forward), forward, osm_node_id=nid,
                                         tags={"node_xy": [pt.x, pt.y]}))
     stats["signal_nodes_unplaced"] = n_unplaced
+    stats["crossings_clamped"] = n_clamped
+    stats["crossings_in_junction"] = n_in_junction
 
     # speed limits at road start (forward) / end (backward)
     for r in plain_roads:
@@ -1412,6 +1849,98 @@ def _frame_xy(model: TwinModel, n: OsmNode) -> tuple[float, float]:
     fr = LocalFrame(model.origin_lat, model.origin_lon)
     x, y = fr.to_local(n.lon, n.lat)
     return float(x), float(y)
+
+
+# --------------------------------------------------------------------------- sidewalk widths
+
+def _separate_sides(tags: dict[str, Any]) -> tuple[bool, bool]:
+    """(left, right) sides tagged ``sidewalk=separate`` (in road direction; the road's
+    ``reversed`` tag says it runs against its OSM way)."""
+    both = str(tags.get("sidewalk") or tags.get("sidewalk:both") or "").lower() == "separate"
+    left = right = both
+    for side in ("left", "right"):
+        v = str(tags.get(f"sidewalk:{side}") or "").lower()
+        if v:
+            if side == "left":
+                left = v == "separate"
+            else:
+                right = v == "separate"
+    if tags.get("reversed"):
+        left, right = right, left
+    return left, right
+
+
+def _sidewalk_widths_from_footways(roads: list[Road], osm: OsmData, frame: LocalFrame) -> dict[str, Any]:
+    """``sidewalk=separate`` means the sidewalk is mapped as its own ``highway=footway`` +
+    ``footway=sidewalk`` way, drawn down the *middle* of the sidewalk. Per side, sample the
+    carriageway edge every SIDEWALK_SAMPLE_M, take the perpendicular distance to the nearest
+    roughly parallel (SIDEWALK_PARALLEL_DEG) sidewalk way within SIDEWALK_SEARCH_M, and set
+    the sidewalk lane width to twice the median of it, clamped to [SIDEWALK_MIN_M,
+    SIDEWALK_MAX_M]. Sides without a match keep the default. Mutates the lanes in place."""
+    lines: list[LineString] = []
+    for w in osm.ways:
+        if w.tags.get("highway") != "footway" or w.tags.get("footway") != "sidewalk":
+            continue
+        coords = osm.way_coords(w)
+        if len(coords) < 2:
+            continue
+        lons, lats = zip(*coords)
+        x, y = frame.to_local(np.array(lons), np.array(lats))
+        lines.append(LineString(list(zip(np.atleast_1d(x), np.atleast_1d(y)))))
+    n_set = n_sides = 0
+    widths: list[float] = []
+    if lines:
+        tree = STRtree(lines)
+        par = math.radians(SIDEWALK_PARALLEL_DEG)
+        for r in roads:
+            if r.junction_id is not None:
+                continue
+            sep_l, sep_r = _separate_sides(r.tags)
+            line2d = _line2d(r.reference_line)
+            L = line2d.length
+            ss = [float(s) for s in np.arange(2.0, L - 2.0, SIDEWALK_SAMPLE_M)] or [L / 2.0]
+            for side, sep in (("left", sep_l), ("right", sep_r)):
+                if not sep:
+                    continue
+                lanes = [l for l in r.lanes if l.type == "sidewalk" and (l.id > 0) == (side == "left")]
+                if not lanes:
+                    continue
+                n_sides += 1
+                sign = 1.0 if side == "left" else -1.0
+                t_edge = r.width_left() if side == "left" else -r.width_right()
+                ds: list[float] = []
+                for s in ss:
+                    p = line2d.interpolate(s)
+                    h = _heading_along(line2d, s)
+                    nx, ny = -math.sin(h), math.cos(h)  # left normal
+                    ex, ey = p.x + t_edge * nx, p.y + t_edge * ny  # carriageway edge
+                    ox, oy = sign * nx, sign * ny  # outward
+                    best: Optional[float] = None
+                    for k in tree.query(Point(ex, ey).buffer(SIDEWALK_SEARCH_M)):
+                        f = lines[int(k)]
+                        sf = f.project(Point(ex, ey))
+                        q = f.interpolate(sf)
+                        d = (q.x - ex) * ox + (q.y - ey) * oy
+                        along = abs(-(q.x - ex) * oy + (q.y - ey) * ox)
+                        if d < 0.3 or d > SIDEWALK_SEARCH_M or along > 2.0:
+                            continue  # behind us, too far, or only its end is near
+                        dh = abs(_wrap(_heading_along(f, sf) - h))
+                        if min(dh, math.pi - dh) > par:
+                            continue
+                        if best is None or d < best:
+                            best = d
+                    if best is not None:
+                        ds.append(best)
+                if len(ds) >= max(1, len(ss) // 2):
+                    w = min(SIDEWALK_MAX_M, max(SIDEWALK_MIN_M, 2.0 * float(np.median(ds))))
+                    lanes[0].width = round(w, 2)
+                    lanes[0].tags["width_source"] = "footway"
+                    widths.append(lanes[0].width)
+                    n_set += 1
+    if widths:
+        log.info("sidewalk widths from %d footway-mapped sides: p10/p50/p90 = %s m", n_set,
+                 np.round(np.percentile(widths, [10, 50, 90]), 2).tolist())
+    return {"sidewalk_separate_sides": n_sides, "sidewalks_from_footways": n_set}
 
 
 # --------------------------------------------------------------------------- buildings / objects

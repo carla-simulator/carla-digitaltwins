@@ -285,3 +285,172 @@ def test_save_load_round_trip(model, tmp_path):
                [(c.id, c.incoming_road, c.connecting_road, [(l.from_lane, l.to_lane) for l in c.lane_links])
                 for c in b.connections]
     assert m2.metadata["lanegraph"]["junctions"] == len(model.junctions)
+
+
+# --------------------------------------------------------------------------- fix round (review items)
+
+def test_remove_jogs_and_join_offset():
+    from twinmodel.lanegraph import _remove_jogs, _join_offset
+    # a 3 m sideways step over a 3.4 m segment on an otherwise straight line
+    jog = [(0.0, 0.0), (40.0, 0.0), (42.0, -3.0), (70.0, -3.0), (100.0, -3.0)]
+    out, n = _remove_jogs(jog)
+    assert n == 1
+    assert out[0] == (0.0, 0.0) and out[-1] == (100.0, -3.0)
+    hd = [math.degrees(math.atan2(b[1] - a[1], b[0] - a[0])) for a, b in zip(out, out[1:])]
+    assert max(abs(h) for h in hd) < 12.0  # the step became a gentle shift
+    # a real corner is left alone
+    corner = [(0.0, 0.0), (40.0, 0.0), (40.0, 40.0)]
+    assert _remove_jogs(corner) == (corner, 0)
+    # two lines offset separately around a 90 degree corner meet at the mitre, no doubling back
+    a = [(0.0, 3.0), (10.0, 3.0)]
+    b = [(13.0, 0.0), (13.0, 10.0)]
+    joined = _join_offset(a, b)
+    assert joined == pytest.approx([(0.0, 3.0), (13.0, 3.0), (13.0, 10.0)])
+
+
+def test_set_core_width_keeps_lane_order_and_recentres():
+    from twinmodel.lanegraph import _set_core_width, _core_width
+    from twinmodel.model import Road
+    spec = lanes_for_way({"oneway": "yes", "width": "6"}, "living_street")
+    r = Road(id="x", reference_line=LineString([(0, 0, 0), (50, 0, 0)]), lanes=spec.lanes)
+    assert _core_width(r) == pytest.approx(6.0)
+    _set_core_width(r, 3.0)
+    assert _core_width(r) == pytest.approx(3.0)
+    assert [l.type for l in r.lanes_right()] == ["driving", "sidewalk"]  # shoulder removed
+    ids = [l.id for l in r.lanes]
+    assert ids == sorted(ids, reverse=True) and 0 not in ids
+    assert r.reference_line.coords[0][1] == pytest.approx(-1.5)  # carriageway centre stays put
+
+
+def test_crossings_stay_on_their_road(model):
+    roads = {r.id: r for r in model.roads}
+    n_in_junction = 0
+    for s in model.signals:
+        if s.kind != "crosswalk":
+            continue
+        r = roads[s.road_id]
+        if s.tags.get("in_junction"):
+            n_in_junction += 1
+            continue
+        keep = min(2.5, r.length / 2)
+        assert keep - 1e-6 <= s.s <= r.length - keep + 1e-6, (s.id, s.s, r.length)
+    assert n_in_junction <= 6  # cycle crossings mapped inside the intersection box
+
+
+def test_no_width_steps_between_linked_roads(model):
+    from twinmodel.lanegraph import _core_width, WIDTH_STEP_M, TAPER_MAX_M
+    roads = {r.id: r for r in model.roads}
+    tapers = [r for r in model.roads if r.tags.get("taper")]
+    assert tapers and all(r.length <= TAPER_MAX_M + 1e-6 for r in tapers)
+    for r in model.roads:
+        if r.junction_id is not None:
+            continue
+        for link in (r.predecessor, r.successor):
+            if link and link.element == "road":
+                assert abs(_core_width(r) - _core_width(roads[link.id])) <= WIDTH_STEP_M + 1e-6, (r.id, link.id)
+    assert model.metadata["lanegraph"]["widths_reconciled"] >= 1
+    assert model.metadata["lanegraph"]["tapers_inserted"] >= 1
+
+
+def test_every_junction_has_at_least_two_arms_and_no_through_pairs(model):
+    arms = {j.id: set() for j in model.junctions}
+    for r in model.roads:
+        if r.junction_id is not None:
+            continue
+        for link in (r.predecessor, r.successor):
+            if link and link.element == "junction":
+                arms[link.id].add(r.id)
+    for j in model.junctions:
+        assert len(arms[j.id]) >= 2, j.id
+        assert len(j.connections) >= 1, j.id
+        hull = wkt.loads(j.tags["hull_wkt"])
+        assert hull.geom_type == "Polygon" and hull.area >= 1.0  # widened to the widest arm
+
+
+def test_car_park_ramps_and_lateral_stubs(model):
+    """Ramps into the tunnelled Passeig de Gracia car park are dropped with the aisle; the
+    Consell de Cent living street reached through a 6 m lateral stub is attached to its
+    junction instead of dangling."""
+    st = model.metadata["lanegraph"]
+    assert st["ramps_skipped"] == 2
+    assert st["roads_reattached"] >= 1
+    assert not any(r.highway == "service" and not r.name for r in model.roads if r.junction_id is None)
+    consell = [r for r in model.roads if r.junction_id is None and "Consell de Cent" in r.name]
+    unlinked = [r.id for r in consell if r.predecessor is None and r.successor is None]
+    assert unlinked == []
+
+
+def test_interior_dead_ends_are_genuine(model):
+    """No road may end mid-block without a link (TM would destroy vehicles there)."""
+    from shapely.geometry import box
+    frame = LocalFrame.from_bbox(*BBOX)
+    xa, ya = frame.to_local(BBOX[1], BBOX[0])
+    xb, yb = frame.to_local(BBOX[3], BBOX[2])
+    border = box(float(xa), float(ya), float(xb), float(yb)).exterior
+    dead = []
+    for r in model.roads:
+        if r.junction_id is not None:
+            continue
+        c = list(r.reference_line.coords)
+        hw = (r.width_left() + r.width_right()) / 2 + 1.5
+        for link, p in ((r.successor, c[-1]), (r.predecessor, c[0])):
+            if link is None and border.distance(Point(p[:2])) > hw:
+                dead.append(r)
+    # the 5 m two-way entrance stub to the pedestrian Passatge de Mendez Vigo is absorbed into
+    # its junction (DEAD_END_STUB_M): nothing ends mid-block any more
+    assert dead == []
+
+
+def test_reference_lines_are_simplified(model):
+    from twinmodel.lanegraph import SHORT_ROAD_M
+    for r in model.roads:
+        if r.junction_id is not None:
+            continue
+        c = [p[:2] for p in r.reference_line.coords]
+        for a, b, d in zip(c, c[1:], c[2:]):
+            h0, h1 = math.atan2(b[1] - a[1], b[0] - a[0]), math.atan2(d[1] - b[1], d[0] - b[0])
+            turn = abs((h1 - h0 + math.pi) % (2 * math.pi) - math.pi)
+            seg = min(math.dist(a, b), math.dist(b, d))
+            assert not (turn > math.radians(60) and seg < 3.0), (r.id, b)  # no zig-zags
+        if r.length < SHORT_ROAD_M:
+            assert r.tags.get("taper"), r.id  # short pieces only as tapers
+    assert model.metadata["lanegraph"]["jogs_removed"] >= 1
+    assert model.metadata["lanegraph"]["short_roads_merged"] >= 1
+
+
+def test_sidewalk_widths_from_separate_footways(model):
+    from twinmodel.lanegraph import _separate_sides
+    assert _separate_sides({"sidewalk": "separate"}) == (True, True)
+    assert _separate_sides({"sidewalk:left": "yes", "sidewalk:right": "separate"}) == (False, True)
+    assert _separate_sides({"sidewalk:right": "separate", "reversed": True}) == (True, False)
+    est = [l.width for r in model.roads if r.junction_id is None
+           for l in r.lanes if l.type == "sidewalk" and l.tags.get("width_source") == "footway"]
+    assert len(est) >= 25
+    assert all(1.5 <= w <= 6.0 for w in est)
+    import numpy as np
+    p10, p50, p90 = np.percentile(est, [10, 50, 90])
+    assert 3.5 <= p10 and 4.5 <= p50 <= 6.0 and p90 == 6.0
+    st = model.metadata["lanegraph"]
+    assert st["sidewalks_from_footways"] == len(est) <= st["sidewalk_separate_sides"]
+
+
+def test_no_road_band_covers_another_carriageway(model):
+    """A road's full band (carriageway + sidewalks) must not cover another road's carriageway:
+    a raised sidewalk slab across the crossing street's lanes makes CARLA vehicles collide."""
+    from twinmodel.lanegraph import _road_band
+    plain = [r for r in model.roads if r.junction_id is None]
+    full = {r.id: _road_band(r, full=True) for r in plain}
+    carriage = {r.id: _road_band(r, full=False) for r in plain}
+    def linked(a, b):  # consecutive roads of one street: their flat end caps overlap in a
+        return any(l and l.element == "road" and l.id == b.id  # small wedge at every bend
+                   for l in (a.predecessor, a.successor))
+    worst = []
+    for a in plain:
+        for b in plain:
+            if a is b or linked(a, b) or not full[a.id].intersects(carriage[b.id]):
+                continue
+            area = full[a.id].intersection(carriage[b.id]).area
+            if area >= 1.0:
+                worst.append((a.id, b.id, round(area, 1)))
+    assert worst == []
+    assert model.metadata["lanegraph"]["band_overlap_cuts"] >= 1
