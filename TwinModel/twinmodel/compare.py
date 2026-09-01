@@ -387,7 +387,7 @@ def write_side_by_side(path: Path, grid: GridSpec, osm: np.ndarray, ortho: np.nd
     fig, axes = plt.subplots(2, 2, figsize=(w, w * aspect + 1.2), sharex=True, sharey=True)
     panels = [
         ("OSM tiles (carto z19)", osm, None),
-        ("ICGC ortho", ortho, None),
+        (f"ortho ({getattr(ortho, 'source', 'n/a')})", ortho, None),
         ("mesh top view (.obj)", np.dstack([mesh_rgb, mesh_alpha]), "#f2efe6"),
         ("diff: grey agree · red mesh-only · blue OSM-only", np.dstack([diff_rgb, diff_alpha]), "#ffffff"),
     ]
@@ -470,7 +470,11 @@ def compare_build(build_dir: Path | str, name: str, out_dir: Path | str | None =
     from .ingest.osmtiles import fetch_osm_tiles, road_mask_from_tiles
     from .ingest.imagery import fetch_ortho
     tiles = fetch_osm_tiles(frame, bbox, zoom=zoom, resolution=resolution, cache_dir=cache_dir)
-    ortho = fetch_ortho(frame, bbox, resolution=resolution, cache_dir=cache_dir)
+    from . import profiles
+    prof_name = (model.metadata.get("profile") or {}).get("name")
+    prof = profiles.by_name(prof_name) if prof_name in profiles.PROFILES else profiles.get()
+    log.info("compare: imagery sources from profile %s: %s", prof.name, prof.sources.ortho)
+    ortho = fetch_ortho(frame, bbox, resolution=resolution, cache_dir=cache_dir, sources=prof.sources.ortho)
     files: dict[str, str] = {}
     layers: dict[str, Any] = {}
 
@@ -586,7 +590,7 @@ def compare_build(build_dir: Path | str, name: str, out_dir: Path | str | None =
         "origin_lon": model.origin_lon, "geo_reference": frame.proj4,
         "x0": grid.x0, "y0": grid.y0, "dx": grid.dx, "dy": grid.dy,
         "width": grid.width, "height": grid.height, "resolution": resolution,
-        "bounds": [xmin, ymin, xmax, ymax], "north_up": True,
+        "bounds": [xmin, ymin, xmax, ymax], "north_up": True, "ortho_source": getattr(ortho, "source", None), "zoom": zoom,
         "note": "PNG/JPG row 0 is the north edge (y = bounds[3]); model arrays are south-up",
         "zoom": zoom, "osm_tiles": tiles is not None, "ortho": ortho is not None,
         "stats": stats, "files": files, "junctions": jinfo,
