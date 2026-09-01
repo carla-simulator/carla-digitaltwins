@@ -45,11 +45,36 @@ MATERIAL_PARENTS = {
     "marking_white": "/Game/Carla/Static/GenericMaterials/Roads/MI_Road_Asphalt_B_LaneMarkingWhite.MI_Road_Asphalt_B_LaneMarkingWhite",
     "marking_yellow": "/Game/Carla/Static/GenericMaterials/Roads/MI_Road_Asphalt_B_LaneMarkingYellow.MI_Road_Asphalt_B_LaneMarkingYellow",
     "grass": "/Game/Carla/Static/GenericMaterials/Ground/MI_LargeLandscape_Grass.MI_LargeLandscape_Grass",
-    "ground": "/Game/Carla/Static/GenericMaterials/Ground/MI_Grass_Park.MI_Grass_Park",
+    # Grass for the ground slab. Town15's own ground meshes use MI_VertexPaintGround01
+    # (M_VertexPaintCB), but that is a vertex-colour layer blend whose unpainted base layer is
+    # brown dirt -- on a baked slab with default (white) vertex colours it reads as a flat tan
+    # plane (verified in out/look_eixample/iter1). MI_LargeLandscape_Grass (T_Ground_Grass_*,
+    # the grass the big UE5-native landscapes use) samples plain UVs and works on a static mesh.
+    "ground": "/Game/Carla/Static/GenericMaterials/Ground/MI_LargeLandscape_Grass.MI_LargeLandscape_Grass",
     "building": "/Game/Carla/Static/GenericMaterials/Facade/MI_Facade01.MI_Facade01",
 }
-# a few facade variants so neighbouring tiles do not all look the same
-BUILDING_VARIANTS = ["MI_Facade01", "MI_Facade03", "MI_Facade05", "MI_Brick01", "MI_Facade07"]
+
+# Scalar overrides applied on our MICs. The bake's UVs are metric planar (1 uv unit = 1 m)
+# while the CARLA masters are tuned for meshes whose UVs are roughly UE-cm sized, so tiling
+# ("Scale"/"Tiling") parameters need ~100x the parent's value for the same texel density:
+# MI_LargeLandscape_Grass ships Scale X/Y 0.005 (one tile per ~2 m of cm-UV), so metric UVs
+# need 0.5. Values are either a float (global parameter) or (float, layer_index) for
+# M_VertexPaintCB-style material-layer parameters (Bottom=0, MidLower=1, MidUpper=2, Top=3),
+# which need association=LAYER_PARAMETER to resolve.
+MATERIAL_SCALARS = {
+    "ground": {"Scale X": 0.5, "Scale Y": 0.5},    # grass tile every ~2 m, like the landscapes
+    "grass": {"Scale X": 0.5, "Scale Y": 0.5},
+    # the road master's base albedo layers ship Base Scale 0.05/0.06 (cm UVs); x100 for the
+    # metric bake so the asphalt grain reads at Town15 density instead of pale stretched patches
+    "road": {"Base Scale": 5.0, "Base Scale 2": 6.0},
+    # facades/curbs keep their shipped tiling: with metric UVs the facade textures already
+    # repeat about every metre, which reads fine (scaling them down just made walls featureless
+    # -- out/look_eixample/iter3)
+}
+# a few facade variants so neighbouring tiles do not all look the same. MI_Facade05/07 were
+# dropped: on the big flat twin walls they render as near-black glossy slabs (dark curtain-wall
+# textures with nothing to reflect -- out/look_eixample/iter4)
+BUILDING_VARIANTS = ["MI_Facade01", "MI_Facade03", "MI_Brick01"]
 SKY_BP = "/Game/Carla/Blueprints/LevelDesign/BP_Carla_Sky.BP_Carla_Sky_C"
 NO_COLLISION_KINDS = {"marking_white", "marking_yellow"}
 
@@ -104,6 +129,29 @@ def make_material_instances(name, materials, mat_dir):
                 mic = tools.create_asset(mi_name, mat_dir, unreal.MaterialInstanceConstant,
                                          unreal.MaterialInstanceConstantFactoryNew())
             unreal.MaterialEditingLibrary.set_material_instance_parent(mic, parent)
+            scalars = MATERIAL_SCALARS.get(key, {})
+            if scalars:
+                # MaterialEditingLibrary.set_material_instance_scalar_parameter_value refuses
+                # names it cannot resolve on the parent (these masters route parameters
+                # through material functions/layers), so write the override array directly --
+                # the same thing the details panel serializes.
+                entries = []
+                for pname, val in scalars.items():
+                    if isinstance(val, tuple):
+                        value, layer = val
+                        info = unreal.MaterialParameterInfo(
+                            name=pname,
+                            association=unreal.MaterialParameterAssociation.LAYER_PARAMETER,
+                            index=int(layer))
+                    else:
+                        value = val
+                        info = unreal.MaterialParameterInfo(name=pname)
+                    e = unreal.ScalarParameterValue()
+                    e.set_editor_property("parameter_info", info)
+                    e.set_editor_property("parameter_value", float(value))
+                    entries.append(e)
+                mic.set_editor_property("scalar_parameter_values", entries)
+                unreal.MaterialEditingLibrary.update_material_instance(mic)
             unreal.EditorAssetLibrary.save_asset(mi_path, only_if_is_dirty=False)
             out.setdefault(key, []).append(mic)
     return out
@@ -232,6 +280,21 @@ def finish_mesh(mesh, mic, kind, nanite=True):
     else:
         mesh.set_editor_property("nanite_settings", ns)
         info["nanite"] = bool(mesh.get_editor_property("nanite_settings").get_editor_property("enabled"))
+    # Lumen: a twin tile is one huge merged Nanite mesh; with the default card budget (12)
+    # and default distance-field resolution the Lumen surface cache barely covers it, so
+    # shadow-side faces get no indirect light at all and render pitch black (the iter2/iter3
+    # captures). More cards + a denser mesh distance field give the software-Lumen path
+    # (r.Lumen.TraceMeshSDFs, see DefaultEngine.ini) something to work with.
+    # (StaticMesh.MaxLumenMeshCards is not exposed to editor Python in UE 5.8; the distance
+    # field bump below is what actually fixed the black faces.)
+    if sms is not None:
+        try:
+            bsettings = sms.get_lod_build_settings(mesh, 0)
+            bsettings.set_editor_property("distance_field_resolution_scale", 8.0)
+            sms.set_lod_build_settings(mesh, 0, bsettings)
+            info["distance_field_scale"] = 8.0
+        except Exception as exc:
+            warn("distance field scale: %s" % exc)
     # collision
     bs = mesh.get_editor_property("body_setup")
     if bs is not None:
@@ -251,6 +314,179 @@ def finish_mesh(mesh, mic, kind, nanite=True):
     except Exception:
         pass
     return info
+
+
+# --------------------------------------------------------------------------- Town10 look
+# Recipe extracted from Town10HD_Opt (T3D export + component dump, 2026-09-01; see
+# out/look_eixample/town10_dump/). Three pieces make Town10 read the way it does:
+#   1. Content/Carla/Config/Weather/MapDefaults.json: an inline weather snapshot (sun 30 deg up
+#      at azimuth 320, cloudiness 30, fog 2/0.75/0.1). Maps WITHOUT an entry get the all -1
+#      carla::rpc::WeatherParameters::Default sentinel at BeginPlay -- sun ON the horizon, which
+#      is exactly why baked twins had black unlit building sides.
+#   2. BP_Carla_Sky instance overrides: sun IndirectLightingIntensity 3, fog density 0.002 /
+#      falloff 0.1 / start 75 / SkyAtmosphereAmbientContributionColorScale 0.14, and the
+#      CameraParameters/PostProcessComponent grading block (6200K, sat .6, contrast 1.4,
+#      gamma 1.2, exposure bias 1.2 in EV 10-12, AO .5/r200, sharpen 3, vignette .7).
+#   3. There is no PostProcessVolume actor in Town10HD_Opt, but sensors only absorb world PP
+#      from an *unbound enabled APostProcessVolume* (SceneCaptureSensor BeginPlay), so baked
+#      twins additionally get PPV_Town10Look carrying the same grading -- that is what makes
+#      the look reach sensor.camera.* too.
+
+TOWN10_WEATHER = {  # MapDefaults.json inline snapshot (camelCase = FJsonObjectConverter names)
+    "cloudiness": 30, "precipitation": 0, "precipitationDeposits": 0, "windIntensity": 10,
+    "sunAzimuthAngle": 320, "sunAltitudeAngle": 30, "fogDensity": 2, "fogDistance": 0.75,
+    "fogFalloff": 0.10000000149011612, "wetness": 0, "scatteringIntensity": 1,
+    "mieScatteringScale": 0.029999999329447746,
+    "rayleighScatteringScale": 0.033100001513957977, "dustStorm": 0,
+}
+
+# FPostProcessSettings fields Town10HD_Opt's sky claims (bOverride_* True), by exact
+# UPROPERTY name; the setter below claims the matching bOverride_ flag for each.
+TOWN10_PP = {
+    "WhiteTemp": 6200.0, "WhiteTint": -0.15,
+    "ColorSaturation": (0.6, 0.6, 0.6, 1.1),
+    "ColorContrast": (1.4, 1.4, 1.4, 0.8),
+    "ColorGamma": (1.2, 1.2, 1.2, 1.0),
+    "ColorGammaHighlights": (0.5, 0.5, 0.5, 1.0),
+    "SceneColorTint": (0.785339, 0.879092, 0.93125, 1.0),
+    "SceneFringeIntensity": 0.15,
+    "CameraShutterSpeed": 100.0, "CameraISO": 100.0,
+    "AutoExposureBias": 1.2, "AutoExposureMinBrightness": 10.0,
+    "AutoExposureMaxBrightness": 12.0, "AutoExposureSpeedUp": 3.0,
+    "AutoExposureSpeedDown": 1.0, "AutoExposureApplyPhysicalCameraExposure": True,
+    "LocalExposureHighlightContrastScale": 1.0, "LocalExposureShadowContrastScale": 0.89,
+    "VignetteIntensity": 0.7, "Sharpen": 3.0,
+    "AmbientOcclusionIntensity": 0.5, "AmbientOcclusionRadius": 200.0,
+    "IndirectLightingColor": (1.0, 1.0, 1.0, 1.0), "IndirectLightingIntensity": 1.0,
+    "DepthOfFieldFocalDistance": 250.0, "DepthOfFieldFstop": 8.0,
+    "DepthOfFieldSensorWidth": 24.576,
+    "LumenSceneLightingQuality": 1.0, "LumenSceneDetail": 1.0,
+    "LumenSceneViewDistance": 20000.0, "LumenSceneLightingUpdateSpeed": 1.0,
+    "LumenFinalGatherQuality": 1.0, "LumenFinalGatherLightingUpdateSpeed": 1.0,
+    "LumenMaxTraceDistance": 50000.0, "LumenDiffuseColorBoost": 1.0,
+    "LumenSkylightLeaking": 0.35, "LumenFullSkylightLeakingDistance": 1000.0,
+    "LumenReflectionQuality": 1.0, "LumenFrontLayerTranslucencyReflections": True,
+    "LumenMaxReflectionBounces": 3, "LumenSurfaceCacheResolution": 1.0,
+    "ScreenSpaceReflectionIntensity": 100.0, "ScreenSpaceReflectionQuality": 100.0,
+    "ScreenSpaceReflectionMaxRoughness": 0.6,
+}
+
+
+def _snake(name):
+    out = ""
+    for i, ch in enumerate(name):
+        if ch.isupper() and i and (not name[i - 1].isupper() or (i + 1 < len(name) and name[i + 1].islower())):
+            out += "_"
+        out += ch.lower()
+    return out
+
+
+VEC4_FIELDS = {"ColorSaturation", "ColorContrast", "ColorGamma", "ColorGammaHighlights"}
+LINEAR_FIELDS = {"SceneColorTint", "IndirectLightingColor"}
+
+
+def set_prop(obj, name, value):
+    """set_editor_property tolerant of exact-UPROPERTY vs snake_case naming; returns success."""
+    if isinstance(value, tuple):
+        value = unreal.Vector4(*value) if name in VEC4_FIELDS else unreal.LinearColor(*value)
+    for cand in (name, _snake(name)):
+        try:
+            obj.set_editor_property(cand, value)
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def town10_pp_settings():
+    s = unreal.PostProcessSettings()
+    for field, value in TOWN10_PP.items():
+        ok_flag = set_prop(s, "bOverride_" + field, True) or set_prop(s, "override_" + _snake(field), True)
+        ok_val = set_prop(s, field, value)
+        if not (ok_flag and ok_val):
+            warn("post process field %s: flag=%s value=%s" % (field, ok_flag, ok_val))
+    # enums (best effort; project defaults are Lumen GI/reflections already)
+    try:
+        set_prop(s, "bOverride_AutoExposureMethod", True)
+        set_prop(s, "AutoExposureMethod", unreal.AutoExposureMethod.AEM_HISTOGRAM)
+    except Exception as exc:
+        warn("exposure method: %s" % exc)
+    return s
+
+
+def apply_town10_sky(sky):
+    """Push the Town10HD_Opt BP_Carla_Sky instance overrides onto a freshly spawned sky."""
+    applied = {}
+    comps = {
+        "sun": (unreal.DirectionalLightComponent, {"intensity": 100000.0,
+                                                   "indirect_lighting_intensity": 3.0}),
+        "fog": (unreal.ExponentialHeightFogComponent, {
+            "fog_density": 0.002, "fog_height_falloff": 0.1, "start_distance": 75.0,
+            "sky_atmosphere_ambient_contribution_color_scale":
+                unreal.LinearColor(0.140625, 0.140625, 0.140625, 1.0)}),
+    }
+    for key, (cls, props) in comps.items():
+        for comp in sky.get_components_by_class(cls):
+            if key == "sun" and "Moon" in comp.get_name():
+                continue
+            for pname, val in props.items():
+                applied["%s.%s" % (key, pname)] = set_prop(comp, pname, val)
+    # instance WeatherParameters (BP-added variable, matched by exact name) + CameraParameters
+    try:
+        wp = unreal.WeatherParameters()
+        for pname, val in [("cloudiness", 30.0), ("wind_intensity", 10.0),
+                           ("sun_azimuth_angle", 320.0), ("sun_altitude_angle", 30.0),
+                           ("fog_density", 2.0), ("fog_distance", 0.75), ("fog_falloff", 0.1),
+                           ("scattering_intensity", 1.0), ("mie_scattering_scale", 0.03)]:
+            set_prop(wp, pname, val)
+        applied["WeatherParameters"] = set_prop(sky, "WeatherParameters", wp)
+    except Exception as exc:
+        warn("WeatherParameters: %s" % exc)
+    try:
+        cam = unreal.CameraParameters()
+        for pname, val in [("shadow_contrast", 0.89), ("shutter_speed", 100.0),
+                           ("aperture", 8.0), ("focal_distance", 250.0),
+                           ("temperature", 6200.0), ("tint", -0.15),
+                           ("scene_color_tint", unreal.LinearColor(0.785339, 0.879092, 0.93125, 1.0)),
+                           ("global_saturation", 0.6), ("global_contrast", 1.4),
+                           ("global_gamma", 1.2), ("vignette_intensity", 0.7)]:
+            set_prop(cam, pname, val)
+        applied["CameraParameters"] = set_prop(sky, "CameraParameters", cam)
+    except Exception as exc:
+        warn("CameraParameters: %s" % exc)
+    # the same grading on the sky's own (unbound) PostProcessComponent -- what the -game
+    # viewport blends; PPV_Town10Look (spawned by place()) is what sensors absorb
+    for pc in sky.get_components_by_class(unreal.PostProcessComponent):
+        applied["PostProcessComponent"] = set_prop(pc, "settings", town10_pp_settings())
+    bad = [k for k, v in applied.items() if not v]
+    if bad:
+        warn("town10 sky overrides not applied: %s" % ", ".join(bad))
+    log("town10 sky overrides applied (%d ok, %d failed)" %
+        (sum(1 for v in applied.values() if v), len(bad)))
+    return applied
+
+
+def write_map_default_weather(name):
+    """Give the baked map a MapDefaults.json entry (Town10HD_Opt's weather); without one
+    ACarlaGameModeBase applies the all -1 sentinel and the sun sits on the horizon."""
+    path = os.path.join(unreal.Paths.project_content_dir(), "Carla", "Config", "Weather",
+                        "MapDefaults.json")
+    data = {}
+    if os.path.exists(path):
+        try:
+            with open(path) as f:
+                data = json.load(f)
+        except Exception as exc:
+            warn("MapDefaults.json unreadable (%s); leaving it alone" % exc)
+            return False
+    if data.get(name) == TOWN10_WEATHER:
+        log("MapDefaults.json already has %s" % name)
+        return True
+    data[name] = dict(TOWN10_WEATHER)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=1)
+    log("MapDefaults.json: %s -> Town10 weather (sun alt 30, az 320)" % name)
+    return True
 
 
 # --------------------------------------------------------------------------- level
@@ -349,8 +585,17 @@ def place(world, manifest, mesh_paths, name):
                 sky.set_editor_property("is_spatially_loaded", False)
             except Exception:
                 pass
+            apply_town10_sky(sky)
     else:
         warn("sky blueprint %s not found; the game mode will spawn one at runtime" % SKY_BP)
+    # Deliberately NO PostProcessVolume actor: Town10HD_Opt has none either. Its grading lives
+    # on the sky's own unbound PostProcessComponent (replicated above), which the -game
+    # viewport blends but sensors never see -- CARLA sensors only absorb an enabled unbound
+    # *APostProcessVolume* at BeginPlay (SceneCaptureSensor.cpp). Baking one was tried
+    # (out/look_eixample/iter1): the absorbed grading + exposure stacked on the camera
+    # defaults and blew the sensor images out, making twins *diverge* from Town10's sensor
+    # look instead of matching it. No volume = both viewport and sensors behave exactly as
+    # they do on Town10HD_Opt.
     return placed, n_sp
 
 
@@ -430,6 +675,7 @@ def main(argv):
     report["spawn_points_placed"] = n_sp
     xodr = copy_xodr(manifest, name)
     report["xodr"] = xodr
+    report["map_default_weather"] = write_map_default_weather(name)
 
     les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
     ok = les.save_current_level()
