@@ -74,13 +74,21 @@ def _bbox_inside(model: TwinModel, margin: float) -> Optional[BaseGeometry]:
 
 def _junction_arm_lanes(model: TwinModel, junction) -> dict[str, set[int]]:
     """{road id: driving lane ids that travel INTO ``junction``} for every arm of it. Lanes with
-    a negative id run along +s (they enter through the road's end), positive ones along -s."""
+    a negative id run along +s (they enter through the road's end), positive ones along -s.
+
+    A road end the lane graph marked ``dead_end_<end>`` is skipped: OSM says no legal departure
+    exists there (a cul-de-sac, or a junction every other arm of which is a one-way arriving —
+    Jessie Street into Mint Street in SoMa). Those lanes are the same documented exception the
+    ``terminal_lanes`` check makes, and a connection out of them would be an invented movement.
+    """
     out: dict[str, set[int]] = {}
     for r in model.roads:
         if r.junction_id is not None:
             continue
-        for link, sign in ((r.successor, -1), (r.predecessor, 1)):
+        for link, sign, end in ((r.successor, -1, "end"), (r.predecessor, 1, "start")):
             if link is None or link.element != "junction" or link.id != junction.id:
+                continue
+            if r.tags.get(f"dead_end_{end}"):
                 continue
             lanes = {l.id for l in r.lanes if l.type == "driving" and (l.id < 0) == (sign < 0)}
             if lanes:

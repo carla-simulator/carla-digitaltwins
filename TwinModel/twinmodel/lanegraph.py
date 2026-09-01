@@ -932,11 +932,13 @@ def is_parking_aisle(tags: dict[str, str]) -> bool:
 
 
 def _way_is_road(w: OsmWay, length_m: float, ramp_nodes: frozenset[int] | set[int] = frozenset(),
-                 aisle_nodes: frozenset[int] | set[int] = frozenset()) -> bool:
+                 aisle_nodes: frozenset[int] | set[int] = frozenset(),
+                 shared_nodes: frozenset[int] | set[int] = frozenset()) -> bool:
     """``ramp_nodes``: end nodes of underground drivable ways; an unnamed service way ending on
     one is the ramp into that car park and is dropped with it.
     ``aisle_nodes``: nodes of the parking aisles; a short unnamed service way touching one is
-    the lot's link to the street and is kept (the aisles would be an island without it)."""
+    the lot's link to the street and is kept (the aisles would be an island without it).
+    ``shared_nodes``: nodes used by more than one drivable way (see build_lanegraph step 1)."""
     P = profiles.get()
     hw = w.tags.get("highway")
     if hw not in P.lane.drivable_classes:
@@ -949,7 +951,13 @@ def _way_is_road(w: OsmWay, length_m: float, ramp_nodes: frozenset[int] | set[in
         if is_parking_aisle(w.tags):
             # a lot aisle is a road of its own (profiles.ParkingAisleRules), never subject to
             # the unnamed-service-way length rule for through streets
-            return length_m >= P.parking_aisle.min_length
+            if length_m >= P.parking_aisle.min_length:
+                return True
+            # ... but a short aisle whose *both* ends are shared with another drivable way is a
+            # connector inside the lot, not a spur. Dropping it severs the lot's circulation:
+            # the aisles on either side keep their (now unreachable) junction node and the arm
+            # arriving there gets no legal departure at all (Sunnyvale way 1374794719, 4.9 m).
+            return bool(w.nodes) and w.nodes[0] in shared_nodes and w.nodes[-1] in shared_nodes
         if w.tags.get("service") in ("parking_aisle", "driveway", "drive-through", "emergency_access"):
             return False
         if (not w.tags.get("name") and length_m < P.lane.service_min_length
@@ -1060,11 +1068,18 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     n_ramps = 0
     ramp_nodes: set[int] = set()  # ends of underground drivable ways: unnamed service ways there are ramps
     aisle_nodes: set[int] = set()  # nodes of the parking aisles: short service ways there are lot links
+    ways_at_node: dict[int, int] = defaultdict(int)  # drivable ways touching each node
     for w in osm.ways:
         if w.tags.get("highway") in P.lane.drivable_classes and _is_underground(w.tags) and len(w.nodes) >= 2:
             ramp_nodes.update((w.nodes[0], w.nodes[-1]))
         if is_parking_aisle(w.tags):
             aisle_nodes.update(w.nodes)
+        if w.tags.get("highway") in P.lane.drivable_classes and not _is_underground(w.tags):
+            for nid in set(w.nodes):
+                ways_at_node[nid] += 1
+    # a node more than one drivable way uses: a way between two of them carries traffic through,
+    # a way with a free end is a spur (see _way_is_road)
+    shared_nodes = {nid for nid, n in ways_at_node.items() if n >= 2}
     for w in osm.ways:
         if w.tags.get("highway") not in P.lane.drivable_classes:
             continue
@@ -1074,10 +1089,10 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
         lons, lats = zip(*coords)
         x, y = frame.to_local(np.array(lons), np.array(lats))
         length = _polyline_length(list(zip(np.atleast_1d(x), np.atleast_1d(y))))
-        if not _way_is_road(w, length, ramp_nodes, aisle_nodes):
+        if not _way_is_road(w, length, ramp_nodes, aisle_nodes, shared_nodes):
             n_service_dropped += w.tags.get("highway") == "service"
-            n_ramps += (_way_is_road(w, length, aisle_nodes=aisle_nodes)
-                        and not _way_is_road(w, length, ramp_nodes, aisle_nodes))
+            n_ramps += (_way_is_road(w, length, aisle_nodes=aisle_nodes, shared_nodes=shared_nodes)
+                        and not _way_is_road(w, length, ramp_nodes, aisle_nodes, shared_nodes))
             continue
         oneway, rev = _is_oneway(w.tags)
         if rev:  # normalise oneway=-1 by reversing the node order
@@ -1300,6 +1315,16 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
         nodes = ch.nodes
         a, b = nodes[0], nodes[-1]
         if a in minor_nodes or b in minor_nodes:
+            # A lot entrance never merges with the intersection up the street — that would pull
+            # the block between them into one cluster and pave it. Two nodes joined by a chain
+            # shorter than junction.sliver_m are a different matter: whatever is left of that
+            # chain after the trims can carry no lane link at all, so it is one junction (the
+            # 8 m aisle crossing an aisle entrance in SoMa, whose two halves are otherwise both
+            # swallowed by the trim and leave the entrance with no exit).
+            if (P.junction.sliver_m > 0 and a in intersection and b in intersection and a != b
+                    and _polyline_length(ch.xy) < P.junction.sliver_m
+                    and math.dist(node_xy[a], node_xy[b]) < P.junction.sliver_m):
+                uf.union(a, b)
             continue
         if a in intersection and b in intersection and a != b:
             # a chain of grade-separated (freeway) ways links two gores, not two halves of one
@@ -1392,8 +1417,13 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             # the deck on the junction's plane, i.e. on the road it crosses over
             on_bridge = any(is_bridge(sg.way.tags) or osm_layer(sg.way.tags) != 0
                             for sg in ch.segments)
+            # a chain that starts and ends on the *same* OSM node is a ring (a parking-lot
+            # loop off one entrance), not a link between two nodes of one cluster: absorbing
+            # it paves the loop and leaves the entrance with a single arm, so the road that
+            # reaches the lot dead-ends there. 7j splits such a ring into two roads instead.
+            ring = nodes[0] is not None and nodes[0] == nodes[-1]
             if (c_start is not None and c_start is c_end and length < junction_internal_m
-                    and not on_bridge):
+                    and not on_bridge and not ring):
                 for sg in ch.segments:
                     c_start.absorb(sg.way.id, sg.nodes)
                 n_internal += 1
@@ -1637,6 +1667,65 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             dropped.append(r)
             roads.remove(r)
             del by_id[r.id]
+    # 7b-bis. a junction must keep at least one departure. The roads dropped above are the
+    #     remnants of a way that continues outside the bbox, of a short link inside a parking
+    #     lot, or of an arm the trim swallowed whole. When such a road carried the only lanes
+    #     *leaving* one of its junctions, dropping it turns every arrival there into a dead end:
+    #     step 8 finds no departure to connect the arriving lanes to, the xodr lane gets no
+    #     link, and the traffic manager deletes whatever it routed onto it. Put the road back —
+    #     re-cut if that leaves something drivable, untrimmed if it does not (a 2 m stub at the
+    #     bbox edge is still a legal exit; the validator excludes lanes that end at the edge).
+    def _end_lanes_leaving(r: Road, end: str) -> int:
+        """Driving lanes of ``r`` that travel *away* from a junction attached at ``end``."""
+        return sum(1 for l in r.lanes if l.type == "driving" and (l.id < 0) == (end == "start"))
+
+    def starves_an_arrival(c: _Cluster, ignore: Optional[Road] = None) -> bool:
+        """True when some arm arriving at ``c`` would have nowhere to go but back down itself
+        (step 8 never connects an arrival to its own road: that is a u-turn). ``ignore`` is a
+        road about to be removed."""
+        outs, ins = set(), set()
+        for r in roads:
+            if r is ignore:
+                continue
+            for end in ("start", "end"):
+                if road_end_cluster[r.id][end] is not c:
+                    continue
+                if _end_lanes_leaving(r, end):
+                    outs.add(r.id)
+                if any(l.type == "driving" and (l.id < 0) == (end == "end") for l in r.lanes):
+                    ins.add(r.id)
+        return any(not (outs - {rid}) for rid in ins)
+
+    n_outlets_restored = 0
+    for r in list(dropped):
+        # only a road the *bbox* cut short is put back: it is the stub of a way that carries on
+        # outside the map, so the network leaves the map there instead of dead-ending inside it.
+        # An arm the trim swallowed between two interior nodes really is smaller than the
+        # junction (an 8 m cross aisle between two private driveways) — restoring it would only
+        # add two lanes that start and end on the junction node; step 8 tags that dead end.
+        clipped = any(road_end_cluster[r.id][end] is None and road_end_node[r.id][end] is None
+                      for end in ("start", "end"))
+        if not clipped or orig_line[r.id].length < P.geometry.min_road_length:
+            continue
+        starved = [c for end in ("start", "end")
+                   for c in (road_end_cluster[r.id][end],)
+                   if c is not None and c in clusters and _end_lanes_leaving(r, end)
+                   and starves_an_arrival(c)]
+        if not starved:
+            continue
+        dropped.remove(r)
+        roads.append(r)
+        by_id[r.id] = r
+        r.tags["junction_outlet"] = True  # never absorbed again by the sliver rules below
+        for end in ("start", "end"):
+            attach(r, end, road_end_cluster[r.id][end])
+        if not retrim(r):
+            r.reference_line = _line3d([(x, y) for x, y in orig_line[r.id].coords])
+        n_outlets_restored += 1
+        log.info("%s: %.1f m arm restored — the only exit from %s",
+                 r.id, r.length, ", ".join(sorted(c.id for c in starved)))
+    stats["junction_outlets_restored"] = n_outlets_restored
+
     n_reattached = 0
     for r in dropped:
         ends = road_end_cluster[r.id]
@@ -1695,6 +1784,14 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                 continue
         log.info("%s: %d arm(s), not a junction — dissolved", c.id, len(arms))
         for r, end in arms:
+            if len(arms) == 1 and any(l.type == "driving" and (l.id < 0) == (end == "end")
+                                      for l in r.lanes):
+                # nothing else is left at this OSM node: every other way there is outside the
+                # twin's scope (a private driveway, an underground ramp) or was clipped away.
+                # The lanes arriving here have nowhere to go — a dead end of the modelled
+                # network, the same documented kind as a degree-1 cul-de-sac (step 6).
+                r.tags[f"dead_end_{end}"] = True
+                r.tags[f"dead_end_{end}_reason"] = "no_continuation"
             attach(r, end, None)
             retrim(r)
         clusters.remove(c)
@@ -1855,6 +1952,9 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             continue
         c = ends["start"] or ends["end"]
         free_end = "end" if ends["start"] is not None else "start"
+        if r.tags.get("junction_outlet") or (road_end_node[r.id][free_end] is None
+                                             and starves_an_arrival(c, ignore=r)):
+            continue  # the stub the bbox cut short is this junction's only exit (7b-bis)
         nid = road_end_node[r.id][free_end]
         others = [(rb, eb) for rb, eb in free_ends().get(nid, []) if rb is not r] if nid is not None else []
         if len(others) > 1:
@@ -1871,6 +1971,26 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             max_half[c.id] = max(max_half[c.id], half_width(rb))
             if not retrim(rb):
                 log.warning("%s: %s would vanish when re-cut at the junction; kept untrimmed", c.id, rb.id)
+    # every pass since the clustering loop (7b's re-cuts, the band-overlap cuts, the sliver
+    # merges themselves) can shorten an arm; sweep once more so no road between two junctions
+    # is left below sliver_m (validate.junction_slivers)
+    if P.junction.sliver_m > 0:
+        for _round in range(3):
+            left = [r for r in roads
+                    if r.length < P.junction.sliver_m
+                    and road_end_cluster[r.id]["start"] is not None
+                    and road_end_cluster[r.id]["end"] is not None
+                    and road_end_cluster[r.id]["start"] is not road_end_cluster[r.id]["end"]]
+            if not left:
+                break
+            for r in left:
+                ca, cb = road_end_cluster[r.id]["start"], road_end_cluster[r.id]["end"]
+                if ca is cb or ca not in clusters or cb not in clusters:
+                    continue
+                log.info("%s: %.1f m sliver left between %s and %s: merging the junctions",
+                         r.id, r.length, ca.id, cb.id)
+                merge_clusters(ca, cb)
+                n_sliver_merges += 1
     stats["band_overlap_cuts"] = n_band_cuts[0]
     stats["sliver_junction_merges"] = n_sliver_merges
     stats["slivers_absorbed"] = n_sliver_absorbed
@@ -2076,6 +2196,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     n_parallel_dropped = 0
     n_lane_fallbacks = 0
     n_dead_arms_rescued = 0
+    n_funnel_dead_ends = 0
     plain_roads = list(roads)
     for c in clusters:
         approaches: list[_Approach] = []
@@ -2143,6 +2264,21 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                 id=cid, incoming_road=inc.road.id, connecting_road=cid, contact_point="start",
                 lane_links=[LaneLink(from_lane=in_lane.id, to_lane=-1)]))
             return True
+
+        # a junction whose other arms only *arrive* (a one-way funnel: Jessie Street into Mint
+        # Street, two one-way service ways converging on a two-way one) offers an arrival on
+        # the remaining arm no departure at all. That is a dead end in the OSM data, the same
+        # kind as a cul-de-sac at a degree-1 node, not a defect of the twin: tag the road end
+        # so validate.terminal_lanes / junction_lane_links treat it like one instead of
+        # reporting a lane the traffic manager must not be routed onto.
+        for inc in (() if c.kind == "gore" else incoming):
+            if any(out.road is not inc.road for out in outgoing):
+                continue
+            inc.road.tags[f"dead_end_{inc.contact}"] = True
+            inc.road.tags[f"dead_end_{inc.contact}_reason"] = "oneway_funnel"
+            n_funnel_dead_ends += 1
+            log.info("%s: %s arrives where every other arm is a one-way into the junction; "
+                     "its approach is a dead end", c.id, inc.road.id)
 
         for inc in (() if c.kind == "gore" else incoming):
             rules = []
@@ -2234,6 +2370,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     stats["parallel_throughs_dropped"] = n_parallel_dropped
     stats["lane_link_fallbacks"] = n_lane_fallbacks
     stats["dead_arms_rescued"] = n_dead_arms_rescued
+    stats["oneway_funnel_dead_ends"] = n_funnel_dead_ends
 
     model.roads = roads
     model.junctions = junctions

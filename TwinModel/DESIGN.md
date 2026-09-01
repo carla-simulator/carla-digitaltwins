@@ -116,12 +116,17 @@ An OSM `amenity=parking` way/relation becomes a `parking` surface (`metadata["pa
 - **Connection to the street**: the shared OSM node makes an ordinary junction, but an aisle node
   is a *minor junction* — it never merges into a neighbouring node cluster (`minor_nodes` in
   `build_lanegraph`), so two lot entrances 50 m apart on the same street cannot pull the street
-  between them into one 60 m cluster. Aisle–aisle junctions inside a lot are single-node clusters
+  between them into one 60 m cluster. The one exception is `junction.sliver_m`: two nodes joined
+  by a chain shorter than that are one junction whatever they are, because nothing usable is left
+  between them after the trims. Aisle–aisle junctions inside a lot are single-node clusters
   (~70–200 m² with the `bounded` cover); the only large junction with an aisle arm is a large
   street intersection that the aisle happens to join.
 - **Lot links**: a short unnamed `highway=service` way (below `lane.service_min_length`, normally
   dropped as noise) that touches an aisle is the lot's link to the street and is kept — without it
-  the aisles are an unreachable island.
+  the aisles are an unreachable island. Likewise an aisle shorter than
+  `ParkingAisleRules.min_length` is kept when *both* its end nodes are shared with another
+  drivable way: it is a connector between two parts of the lot, not a spur, and dropping it cuts
+  the circulation in two.
 - **Surfaces**: the aisle is a normal road, so its carriageway is part of `drivable`; the lot's
   `parking` surface is the lot polygon **minus** `drivable` (and minus raised surfaces and
   buildings), as it already was for the streets. One surface per square metre, both at
@@ -196,15 +201,54 @@ Three things follow from a pairing:
 
 ### Slivers and dead ends
 
-A road left between two junctions shorter than `junction.sliver_m` (≈ one lane width; 0 = off,
-`EU_DENSE`) carries no lane link — CARLA's traffic manager routes a vehicle onto it and then
-deletes it. Three passes remove them: the clustering loop merges the two junctions when a *trim*
-leaves a sliver; the band-overlap pass merges them when a *band cut* would (only when the two
-hulls are within `cluster_m` — two junctions a block apart are not one junction, so there the
-band overlap is kept instead and logged); and a sliver with a junction at one end only is
-absorbed into it. A road with the *same* junction at both ends (a parking-lot ring off one
-driveway) is split in the middle: OpenDRIVE's `<connection>` names the incoming road by id alone,
-so CARLA cannot tell its two ends apart and half the movements dead-end.
+A road left between two junctions shorter than `junction.sliver_m` carries no lane link — CARLA's
+traffic manager routes a vehicle onto it and then deletes it. `sliver_m` must be **at least
+`validate.SLIVER_M` (5 m, one passenger car plus a gap)**, the length the validator flags: the US
+profiles use 20 ft, `EU_DENSE` keeps 0 (off, the 2026-09-01 behaviour). Five passes remove them:
+
+1. the node clustering joins two *minor* (aisle-only) nodes when the chain between them is
+   shorter than `sliver_m` — a lot entrance still never merges with the intersection up the
+   street, but two nodes that close cannot be told apart at all;
+2. the clustering loop merges the two junctions when a *trim* leaves a sliver;
+3. the band-overlap pass merges them when a *band cut* would (only when the two hulls are within
+   `cluster_m` — two junctions a block apart are not one junction, so there the band overlap is
+   kept instead and logged);
+4. a sliver with a junction at one end only is absorbed into it; and
+5. a final sweep merges whatever the passes after the clustering loop (re-cuts, band cuts, the
+   merges themselves) shortened below `sliver_m`.
+
+A road with the *same* junction at both ends (a parking-lot ring off one driveway) is split in the
+middle: OpenDRIVE's `<connection>` names the incoming road by id alone, so CARLA cannot tell its
+two ends apart and half the movements dead-end. A chain that *starts and ends on the same OSM
+node* is such a ring and is never absorbed as "internal to the junction", however short it is:
+absorbing it paves the loop and leaves the lot entrance with a single arm.
+
+**A junction must keep an exit.** The trim, the stub rule and the sliver absorption all remove
+short arms, and removing the wrong one leaves a junction every remaining arm only *arrives* at:
+step 8 then finds no departure, the arriving lanes get no lane link, and the traffic manager
+deletes whatever it routed there. Two guards:
+
+- an arm the **bbox** cut short (its free end is a clip point, not an OSM node) is put back —
+  re-cut if that leaves something drivable, untrimmed if not — when dropping it would leave some
+  arrival at that junction with nowhere to go but back down itself (`junction_outlets_restored`);
+  it is then exempt from the sliver absorption. Shipley Street and 5th Street in the SoMa fixture
+  and the South Mathilda Avenue carriageway in Sunnyvale leave the map that way.
+- a short **parking aisle** (below `ParkingAisleRules.min_length`) whose *both* ends are nodes
+  another drivable way also uses is a connector inside the lot, not a spur, and is kept: dropping
+  it severs the lot's circulation (Sunnyvale way 1374794719, 4.9 m).
+
+What is left after those guards is a dead end in the data, not a defect of the twin, and the lane
+graph tags the road end `dead_end_<end>` (with a `dead_end_<end>_reason`) so `terminal_lanes` and
+`junction_lane_links` treat it exactly like a degree-1 cul-de-sac:
+
+- `oneway_funnel` — every other arm of the junction is a one-way *into* it, so an arrival on the
+  remaining two-way arm has no legal departure at all (Mint Street into Jessie Street in SoMa,
+  two one-way service ways converging on a two-way one at US-101/Mathilda);
+- `no_continuation` — the junction was dissolved because it had a single arm: every other way at
+  that OSM node is outside the twin's scope (a private `service=driveway`, an underground ramp) or
+  was clipped away by the bbox.
+
+Across the three US fixtures that is four road ends in total; every other lane leads somewhere.
 
 Two more lane-level rules keep every lane leading somewhere:
 
@@ -270,10 +314,14 @@ The output must parse with `carla.Map("twin", xodr_string)` (ue58 wheel, no serv
 - `terminal_lanes`: driving lanes whose last waypoint has no `next()` **more than 30 m inside the
   bbox** — the dead ends a traffic-manager soak deletes vehicles on. Lanes that stop at the bbox
   edge, and roads the lane graph tagged `dead_end_start`/`dead_end_end` (an OSM degree-1 node: a
-  real cul-de-sac), do not count. Target 0.
-- `junction_slivers`: non-junction roads shorter than 5 m between two junctions. Target 0.
-- `junction_lane_links`: arms with a driving lane that is the incoming lane of no connection.
+  real cul-de-sac; a one-way funnel; a node where nothing continues — see "Slivers and dead ends"),
+  do not count. Target 0.
+- `junction_slivers`: non-junction roads shorter than `SLIVER_M` = 5 m between two junctions. Every
+  profile's `junction.sliver_m` must be at least that, or the lane graph leaves failures behind.
   Target 0.
+- `junction_lane_links`: arms with a driving lane that is the incoming lane of no connection. An
+  arm the lane graph tagged `dead_end_<end>` is excluded — the same documented exception
+  `terminal_lanes` makes, and inventing a movement out of it would be worse. Target 0.
 
 `tools/junction_metrics.py <build_dir> <name> <profile>` prints the junction-quality numbers
 (count, connecting-road length distribution, worst junction area / widest-arm street width²) next
