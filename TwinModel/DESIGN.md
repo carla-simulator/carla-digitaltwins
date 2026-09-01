@@ -82,7 +82,7 @@ is exactly what breaks netconvert. Default bbox (S W N E): `41.3905 2.1630 41.39
 - `Signal`: traffic light / stop / yield / speed limit / crosswalk, positioned on a road by
   `(road_id, s, t)` plus an absolute xy for convenience; traffic lights carry `controller_id`
   (one controller per junction).
-- `Surface`: polygon(s) with `kind` (`drivable|sidewalk|island|crossing|median|parking`),
+- `Surface`: polygon(s) with `kind` (`drivable|sidewalk|island|crossing|median|parking|ground`),
   `z_offset` above the road datum (sidewalk = 0.15 m), `source`
   (`osm_tags|area_highway|imagery`), `confidence` 0–1.
 - `CurbLine`: linestring where a `sidewalk`/`island` meets `drivable`, height 0.15 m.
@@ -132,7 +132,7 @@ tangent-continuous, sampled every 1 m. Its centreline must stay inside the junct
 Per Surface polygon: constrained triangulation (mapbox-earcut on polygon rings, or shapely
 `delaunay_triangles` + inside filter), z from `Elevation.sample` + `z_offset` (sidewalks and
 islands 0.15 m up), curb = quad strip between drivable edge z and sidewalk edge z along each
-`CurbLine`. `.obj` groups: `drivable`, `sidewalk`, `island`, `crossing`, `curb`, plus a `.mtl` with
+`CurbLine`. `.obj` groups: `drivable`, `sidewalk`, `island`, `crossing`, `ground`, `curb`, plus a `.mtl` with
 one material per group. Also emit lane markings as thin quads (0.12 m wide, +2 mm) in group
 `marking_white`/`marking_yellow`.
 

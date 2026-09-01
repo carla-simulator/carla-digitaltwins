@@ -103,7 +103,7 @@ def test_export_obj_with_elevation(tmp_path):
     v = mesh.vertices
     # z follows the plane (+ offsets up to 0.15)
     resid = v[:, 2] - 0.02 * v[:, 0]
-    assert resid.min() >= -1e-6 and resid.max() <= 0.15 + 1e-6
+    assert resid.min() >= -1e-4 and resid.max() <= 0.15 + 1e-4  # .obj is written to 0.1 mm
     # subdivided: many more triangles than the flat export
     flat = tmp_path / "flat.obj"
     model.elevation = None

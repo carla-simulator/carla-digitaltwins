@@ -8,8 +8,13 @@ Pipeline (all pure functions over :mod:`twinmodel.model` dataclasses):
    than that) into junctions — the Eixample chamfer octagons collapse into one junction each
 4. split ways at intersection nodes, chain compatible pieces through degree-2 nodes -> roads
 5. lanes from the DEFAULTS table + tag overrides; reference line = OSM centreline shifted so
-   that it sits between forward and backward carriageway lanes (oneway: left carriageway edge)
-6. trim roads at the junction area (cluster hull buffered by half the road width + 2 m)
+   that it sits between forward and backward carriageway lanes (oneway: left carriageway edge).
+   In a street canyon (building faces on both sides, ``streetspace``) the cross section comes
+   from the faces instead: sidewalks along the faces, the carriageway centred in between,
+   driving lanes widened, leftover width as parking lanes
+6. trim roads at the junction area: canyon arms at the chamfer line (where their faces end),
+   the others at the cluster hull buffered by half the road width + 2 m; every junction gets
+   a plaza polygon (the corner void clipped to the arms' street corridors)
 7. connecting roads: cubic Hermite per legal (incoming lane -> outgoing lane) pair, respecting
    ``oneway``, ``turn:lanes`` and ``type=restriction`` relations (no u-turns)
 8. signals (traffic lights + one controller per junction, crossings, stop/yield, speed limits)
@@ -36,6 +41,7 @@ from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union, polygonize, substring
 from shapely.strtree import STRtree
 
+from . import streetspace
 from .frame import LocalFrame
 from .ingest.osm import OsmData, OsmNode, OsmRelation, OsmWay
 from .model import (Building, Connection, Controller, Junction, Lane, LaneLink, Marking,
@@ -60,7 +66,7 @@ SIGNAL_SEARCH_M = 25.0         # traffic_signals node within this of a junction 
 SIGNAL_LATERAL_M = 0.5         # signal placed this far outside the carriageway edge
 BIKE_LANE_WIDTH = 1.5
 PARKING_WIDTH = {"parallel": 2.0, "diagonal": 4.5, "perpendicular": 5.0}
-MIN_LANE_WIDTH, MAX_LANE_WIDTH = 2.5, 3.75
+MIN_LANE_WIDTH, MAX_LANE_WIDTH = 2.75, 3.75
 CROSSING_KEEP_M = 2.5          # a crossing (4 m) stays whole on its road: cut >= this past the node
 CROSSING_NEAR_CUT_M = 5.0      # crossing nodes this close to a trim cut pull the cut back
 SIMPLIFY_M = 0.1               # Douglas-Peucker tolerance on trimmed reference lines
@@ -75,6 +81,13 @@ SIDEWALK_SEARCH_M = 12.0       # sidewalk=separate: look for footway=sidewalk wa
 SIDEWALK_PARALLEL_DEG = 15.0   # ... roughly parallel to the road
 SIDEWALK_SAMPLE_M = 5.0
 SIDEWALK_MIN_M, SIDEWALK_MAX_M = 1.5, 6.0
+CANYON_MIN_FRACTION = 0.6      # building face hit on >= this fraction of samples, both sides
+SIDEWALK_FRACTION = 0.22       # canyon sidewalk per side when no footway is mapped: this x width
+CANYON_LANE_MAX_M = 3.5        # canyon driving lanes widen up to this ...
+PARKING_MIN_M, PARKING_MAX_M = 2.0, 2.5  # ... the rest becomes parking lanes of this width
+CHAMFER_SCAN_M = 60.0          # look for the end of the faces this far from a junction end
+PLAZA_RADIUS_M = 45.0          # corner void radius around a junction centre
+THROUGH_ALIGN_M = 1.0          # a through departure must overlap the arrival laterally (+ this)
 
 DRIVABLE = {"motorway", "trunk", "primary", "secondary", "tertiary", "unclassified",
             "residential", "living_street", "service",
@@ -680,6 +693,7 @@ class _Cluster:
     hull: BaseGeometry
     way_ids: set[int] = field(default_factory=set)
     area: Optional[BaseGeometry] = None
+    plaza: Optional[BaseGeometry] = None  # open space between the corner buildings (streetspace)
     way_nodes: dict[int, set[int]] = field(default_factory=dict)  # internal way -> its node ids
 
     def absorb(self, way_id: int, nodes: Iterable[Optional[int]]) -> None:
@@ -711,6 +725,27 @@ class _Approach:
         t = inner if lane.id > 0 else -inner
         p = point_on_road(self.road, s, t)
         return (p.x, p.y)
+
+    @property
+    def group_width(self) -> float:
+        return sum(l.width for l in self.lanes)
+
+    def group_centre(self) -> tuple[float, float]:
+        """Centre of the lane group at the junction end (lanes are left->right in travel)."""
+        x, y = self.lane_inner_edge(self.lanes[0])
+        h = self.heading
+        w = self.group_width / 2.0
+        return (x + math.sin(h) * w, y - math.cos(h) * w)  # right of travel
+
+    def lateral_gap(self, other: "_Approach") -> float:
+        """Lateral clearance between this arrival's lane group axis and ``other``'s group at its
+        start: <= 0 when the groups overlap laterally (a genuine continuation), large when the
+        departure is a parallel road (lateral vs. main carriageway)."""
+        px, py = self.group_centre()
+        qx, qy = other.group_centre()
+        h = self.heading
+        offset = -(qx - px) * math.sin(h) + (qy - py) * math.cos(h)
+        return abs(offset) - (self.group_width + other.group_width) / 2.0
 
 
 # --------------------------------------------------------------------------- selection / clipping
@@ -825,6 +860,11 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                       bbox_wgs84=tuple(bbox))
     meta: dict[str, Any] = {"source": "osm", "lanegraph": {}}
     stats = meta["lanegraph"]
+
+    # 0. buildings first: they delimit the street space (widths, chamfer trims, plazas)
+    model.buildings = _buildings(osm, frame)
+    bld = streetspace.building_union(model)
+    footways = _footway_index(osm, frame)
 
     # 1. drivable ways -> pieces inside the bbox
     pieces: list[_Piece] = []
@@ -961,6 +1001,25 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
         if all(ch.reversed_flags) and any(spec_for(s).oneway for s in ch.segments):
             ch.segments.reverse()
             ch.reversed_flags = [not r for r in reversed(ch.reversed_flags)]
+    # other roads' centrelines occlude the building face (the laterals of Passeig de Gracia
+    # sit between the main carriageway and the buildings: the main road is not a canyon)
+    chain_lines: list[LineString] = []
+    chain_index: dict[int, int] = {}
+    for ch in chains:
+        xy_c = _dedupe(ch.xy)
+        if len(xy_c) >= 2:
+            chain_index[id(ch)] = len(chain_lines)
+            chain_lines.append(LineString(xy_c))
+    chain_tree = STRtree(chain_lines) if chain_lines else None
+
+    def blockers_for(ch: _Chain, xy: list[tuple[float, float]]) -> Optional[BaseGeometry]:
+        if chain_tree is None:
+            return None
+        own = LineString(xy)
+        own_i = chain_index.get(id(ch), -1)
+        others = [chain_lines[int(k)] for k in chain_tree.query(own.buffer(streetspace.MAX_FACE_DIST_M))
+                  if int(k) != own_i]
+        return unary_union(others) if others else None
 
     # 5. cluster intersection nodes -> junctions. Two intersection nodes join one cluster when a
     #    chain shorter than JUNCTION_CLUSTER_M links them and they are closer than that. Clusters
@@ -1005,6 +1064,10 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
         road_nodes: dict[str, list[Optional[int]]] = {}
         n_internal = 0
         n_jogs = 0
+        n_canyon = 0
+        canyon_faces: dict[str, tuple[float, float]] = {}
+        canyon_key: dict[str, tuple] = {}
+        canyon_tags: dict[str, dict[str, str]] = {}
         for ch in chains:
             nodes = ch.nodes
             xy, nj = _remove_jogs(_dedupe(ch.xy))
@@ -1049,10 +1112,23 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             if abs(shift) > 1e-3:
                 xy = _dedupe(_offset_polyline(xy, -shift))
                 road.reference_line = _line3d(xy)
+            faces = _measure_faces(road, bld, blockers_for(ch, xy))
+            if faces is not None:
+                canyon_faces[road.id] = faces
+                canyon_key[road.id] = (road.name, road.highway, spec.oneway,
+                                       sum(1 for l in lanes if l.type == "driving"))
+                canyon_tags[road.id] = head.way.tags
             roads.append(road)
             road_end_cluster[road.id] = {"start": c_start, "end": c_end}
             road_end_node[road.id] = {"start": nodes[0], "end": nodes[-1]}
             road_nodes[road.id] = nodes
+        # street canyon: cross section from the building faces (widths guarded per street)
+        for rid, (fl, fr, guarded) in _street_width_guard(canyon_faces, canyon_key).items():
+            r = next(r for r in roads if r.id == rid)
+            n_canyon += _building_cross_section(r, canyon_tags[rid], (fl, fr), footways)
+            if guarded:
+                r.tags["street_width_guarded"] = True
+        stats["canyon_roads"] = n_canyon
         return roads, road_end_cluster, road_end_node, road_nodes, n_internal, n_jogs
 
     # 7. trim roads at junctions (cluster hull buffered by half the road width + margin). Trims
@@ -1084,15 +1160,26 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
         s1 = line2d.project(Point(best.coords[-1]))
         return (min(s0, s1), max(s0, s1))
 
+    n_chamfer = [0]
+
     def retrim(r: Road) -> bool:
         """Cut ``r`` at the clusters on its ends, from the untrimmed line; False when nothing
-        drivable is left. A crossing node within CROSSING_NEAR_CUT_M of a cut pulls the cut back
-        to CROSSING_KEEP_M past the node so the crossing stays whole on the road (never into
-        the node cluster itself). The result is Douglas-Peucker simplified (SIMPLIFY_M)."""
+        drivable is left. A canyon arm is cut at the chamfer line (where its building faces
+        end, ``streetspace.canyon_extent``), the others at the hull-based cut. A crossing node
+        within CROSSING_NEAR_CUT_M of a cut pulls the cut back to CROSSING_KEEP_M past the
+        node so the crossing stays whole on the road (never into the node cluster itself).
+        The result is Douglas-Peucker simplified (SIMPLIFY_M)."""
         line2d = orig_line[r.id]
         L = line2d.length
         lo, hi = 0.0, L
         xnodes = [nid for nid in road_nodes[r.id] if nid in crossing_nodes and nid in node_xy]
+        chamfer: tuple[Optional[float], Optional[float]] = (None, None)
+        if r.tags.get("cross_section_source") == "buildings" and any(
+                road_end_cluster[r.id][e] is not None for e in ("start", "end")):
+            chamfer = streetspace.canyon_extent(
+                line2d, bld, (float(r.tags["face_left_m"]), float(r.tags["face_right_m"])),
+                scan=CHAMFER_SCAN_M)
+        r.tags.pop("trim_source", None)
         for end in ("start", "end"):
             c = road_end_cluster[r.id][end]
             if c is None:
@@ -1110,6 +1197,14 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             if iv is None:
                 return False
             core = cut_interval(line2d, c.hull.buffer(max(1.0, hw)), keep)
+            s_ch = chamfer[0] if end == "start" else chamfer[1]
+            if s_ch is not None and core is not None:
+                # the faces end at the chamfer: cut there (never inside the hull core)
+                s_ch = max(s_ch, core[0]) if end == "start" else min(s_ch, core[1])
+                if (end == "start" and s_ch < L - MIN_ROAD_LENGTH_M) or (end == "end" and s_ch > MIN_ROAD_LENGTH_M):
+                    iv = (s_ch, iv[1]) if end == "start" else (iv[0], s_ch)
+                    r.tags["trim_source"] = "chamfer"
+                    n_chamfer[0] += 1
             if end == "start":
                 s_cut = iv[0]
                 for nid in xnodes:
@@ -1175,6 +1270,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     stats["roads_dropped_by_trim"] = len(dropped)
     stats["jogs_removed"] = n_jogs
     stats["ramps_skipped"] = n_ramps
+    stats["chamfer_trims"] = n_chamfer[0]
     by_id = {r.id: r for r in roads}
 
     def set_link(r: Road, end: str, link: Optional[RoadLink]) -> None:
@@ -1284,8 +1380,10 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
         set_link(ra, ea, RoadLink("road", rb.id, eb))
         set_link(rb, eb, RoadLink("road", ra.id, ea))
 
-    # 7e. sidewalk=separate: width from the parallel footway=sidewalk ways
-    stats.update(_sidewalk_widths_from_footways(roads, osm, frame))
+    # 7e. sidewalk=separate: width from the parallel footway=sidewalk ways (canyon roads
+    #     already took theirs from the faces)
+    stats.update(_sidewalk_widths_from_footways(
+        [r for r in roads if r.tags.get("cross_section_source") != "buildings"], footways))
 
     # 7f. a road's full band (carriageway + sidewalks) must not cover another road's carriageway
     #     at a junction: with 6 m sidewalks the carriageway-only trim leaves a raised sidewalk
@@ -1372,7 +1470,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                 yield by_id[link.id], link.contact, end
 
     def has_width_tags(r: Road) -> bool:
-        return "width" in r.tags or "lanes" in r.tags
+        return "width" in r.tags or "lanes" in r.tags or r.tags.get("cross_section_source") == "buildings"
 
     n_reconciled = 0
     for r in roads:
@@ -1449,6 +1547,38 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     stats["tapers_inserted"] = n_taper
 
 
+    # 7i. junction plazas: the open space between the corner buildings, clipped to the hull of
+    #     the arms' street corridors (each from its trimmed end into the junction)
+    n_plaza = 0
+    for c in clusters:
+        centre = (float(np.mean([p[0] for p in c.xy])), float(np.mean([p[1] for p in c.xy])))
+        corridors = []
+        reach = 0.0
+        for r, end in arms_of(c):
+            line2d = _line2d(r.reference_line)
+            p = line2d.coords[-1] if end == "end" else line2d.coords[0]
+            h = _heading_along(line2d, line2d.length if end == "end" else 0.0)
+            h_in = h if end == "end" else _wrap(h + math.pi)
+            if r.tags.get("cross_section_source") == "buildings":
+                width = float(r.tags["street_width_m"])
+                t_c = (float(r.tags["face_left_m"]) - float(r.tags["face_right_m"])) / 2.0
+            else:
+                wl, wr = r.width_left(_ALL_LANE_TYPES), r.width_right(_ALL_LANE_TYPES)
+                width, t_c = wl + wr, (wl - wr) / 2.0
+            d = math.dist(p, centre)
+            reach = max(reach, d)
+            corridors.append(streetspace.arm_corridor(
+                (p[0], p[1]), h_in, width / 2.0, d + max_half[c.id] + TRIM_MARGIN_M,
+                offset=t_c if end == "end" else -t_c))
+        if not corridors:
+            continue
+        plaza = streetspace.junction_plaza(Point(centre), bld, corridors,
+                                           radius=max(PLAZA_RADIUS_M, reach + 5.0))
+        if plaza is not None and not plaza.is_empty:
+            c.plaza = plaza
+            n_plaza += 1
+    stats["plazas"] = n_plaza
+
     # 8. junctions with connecting roads
     junctions: list[Junction] = []
     restrictions = _restriction_index(osm)
@@ -1456,6 +1586,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     n_conn_total = 0
     n_restricted = 0
     n_rules_unresolved = 0
+    n_parallel_dropped = 0
     plain_roads = list(roads)
     for c in clusters:
         approaches: list[_Approach] = []
@@ -1485,7 +1616,13 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                                   # node, collinear nodes) is widened to that arm's half width
                                   "hull_wkt": (c.hull if c.hull.area >= (2 * max_half[c.id]) ** 2
                                                else c.hull.buffer(max(1.0, max_half[c.id]))).wkt,
-                                  "area_wkt": (c.area.wkt if c.area is not None else None),
+                                  # area_wkt: the plaza (open space between the corner
+                                  # buildings) when buildings delimit it, else the trim area
+                                  "area_wkt": (c.plaza.wkt if c.plaza is not None else
+                                               c.area.wkt if c.area is not None else None),
+                                  "area_source": "plaza" if c.plaza is not None else "trim",
+                                  "plaza_wkt": (c.plaza.wkt if c.plaza is not None else None),
+                                  "trim_area_wkt": (c.area.wkt if c.area is not None else None),
                                   "n_incoming": len(incoming), "n_outgoing": len(outgoing)})
         m = 0
         for inc in incoming:
@@ -1511,6 +1648,15 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                     n_restricted += 1
                     continue
                 legal.append((out, turn, forced))
+            # several through departures (a lateral beside the main carriageway): only the
+            # laterally aligned one(s) continue this arrival; the lane fan into the parallel
+            # road is not a movement
+            throughs = [t for t in legal if t[1] == "through"]
+            if len(throughs) > 1:
+                aligned = [t for t in throughs if t[2] or inc.lateral_gap(t[0]) <= THROUGH_ALIGN_M]
+                if aligned and len(aligned) < len(throughs):
+                    n_parallel_dropped += len(throughs) - len(aligned)
+                    legal = [t for t in legal if t[1] != "through" or t in aligned]
             for out, turn, forced in legal:
                 # a single legal departure is a continuation: every lane feeds it
                 mapping_turn = "through" if len(legal) == 1 else turn
@@ -1543,6 +1689,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     stats["connections"] = n_conn_total
     stats["restricted_pairs"] = n_restricted
     stats["restrictions_unresolved"] = n_rules_unresolved
+    stats["parallel_throughs_dropped"] = n_parallel_dropped
 
     model.roads = roads
     model.junctions = junctions
@@ -1550,8 +1697,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     # 9. signals + controllers
     _build_signals(model, osm, node_xy, clusters, road_end_cluster, road_nodes, by_id, stats)
 
-    # 10. buildings and point objects
-    model.buildings = _buildings(osm, frame)
+    # 10. point objects (buildings were built first)
     model.objects = _objects(osm, frame)
 
     stats.update({
@@ -1560,8 +1706,12 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
         "junctions": len(junctions), "signals": len(model.signals),
         "controllers": len(model.controllers), "buildings": len(model.buildings),
         "objects": len(model.objects),
+        "parking_lanes": sum(1 for r in roads if r.junction_id is None
+                             for l in r.lanes if l.type == "parking"),
         "params": {"JUNCTION_CLUSTER_M": JUNCTION_CLUSTER_M, "TRIM_MARGIN_M": TRIM_MARGIN_M,
-                   "SERVICE_MIN_LENGTH_M": SERVICE_MIN_LENGTH_M, "CONNECT_SAMPLE_M": CONNECT_SAMPLE_M},
+                   "SERVICE_MIN_LENGTH_M": SERVICE_MIN_LENGTH_M, "CONNECT_SAMPLE_M": CONNECT_SAMPLE_M,
+                   "CANYON_MIN_FRACTION": CANYON_MIN_FRACTION, "SIDEWALK_FRACTION": SIDEWALK_FRACTION,
+                   "MIN_LANE_WIDTH": MIN_LANE_WIDTH, "CANYON_LANE_MAX_M": CANYON_LANE_MAX_M},
         "seconds": round(time.perf_counter() - t0, 2),
     })
     model.metadata.update(meta)
@@ -1788,7 +1938,12 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
             alt = min(plain_roads, key=lambda r: r.reference_line.distance(pt))
             if road is None or alt.reference_line.distance(pt) < 1.0:
                 road = alt
-        if road is None or road.reference_line.distance(pt) > 15.0:
+        in_junction = [c.id for c in clusters
+                       if (c.plaza if c.plaza is not None else c.area) is not None
+                       and (c.plaza if c.plaza is not None else c.area).contains(pt)]
+        # inside a junction plaza (arms cut at the chamfer line) a crossing can be well past
+        # its road's end; it stays attached to that road, flagged for the surface builder
+        if road is None or road.reference_line.distance(pt) > (45.0 if in_junction else 15.0):
             n_unplaced += 1
             continue
         line2d = LineString([(x, y) for x, y, *_ in road.reference_line.coords])
@@ -1800,7 +1955,6 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
         # carriageway at the intersection node, beyond the trimmed road end): kept, flagged
         # for the surface builder
         along = abs((pt.x - base.x) * math.cos(h) + (pt.y - base.y) * math.sin(h))
-        in_junction = [c.id for c in clusters if c.area is not None and c.area.contains(pt)]
         if hw == "crossing" and in_junction and along > CROSSING_KEEP_M:
             n_in_junction += 1
         else:
@@ -1870,13 +2024,14 @@ def _separate_sides(tags: dict[str, Any]) -> tuple[bool, bool]:
     return left, right
 
 
-def _sidewalk_widths_from_footways(roads: list[Road], osm: OsmData, frame: LocalFrame) -> dict[str, Any]:
-    """``sidewalk=separate`` means the sidewalk is mapped as its own ``highway=footway`` +
-    ``footway=sidewalk`` way, drawn down the *middle* of the sidewalk. Per side, sample the
-    carriageway edge every SIDEWALK_SAMPLE_M, take the perpendicular distance to the nearest
-    roughly parallel (SIDEWALK_PARALLEL_DEG) sidewalk way within SIDEWALK_SEARCH_M, and set
-    the sidewalk lane width to twice the median of it, clamped to [SIDEWALK_MIN_M,
-    SIDEWALK_MAX_M]. Sides without a match keep the default. Mutates the lanes in place."""
+@dataclass
+class _FootwayIndex:
+    lines: list[LineString]
+    tree: Optional[STRtree]
+
+
+def _footway_index(osm: OsmData, frame: LocalFrame) -> _FootwayIndex:
+    """Spatial index of the ``highway=footway`` + ``footway=sidewalk`` ways (model space)."""
     lines: list[LineString] = []
     for w in osm.ways:
         if w.tags.get("highway") != "footway" or w.tags.get("footway") != "sidewalk":
@@ -1887,11 +2042,56 @@ def _sidewalk_widths_from_footways(roads: list[Road], osm: OsmData, frame: Local
         lons, lats = zip(*coords)
         x, y = frame.to_local(np.array(lons), np.array(lats))
         lines.append(LineString(list(zip(np.atleast_1d(x), np.atleast_1d(y)))))
+    return _FootwayIndex(lines, STRtree(lines) if lines else None)
+
+
+def _footway_offsets(line2d: LineString, side: str, t_from: float, fw: _FootwayIndex,
+                     search: float = SIDEWALK_SEARCH_M, ss: Optional[list[float]] = None) -> list[float]:
+    """Outward distance from ``t_from`` (an offset of ``line2d``, +left) to the nearest roughly
+    parallel (SIDEWALK_PARALLEL_DEG) sidewalk footway within ``search`` m, per sample."""
+    if fw.tree is None:
+        return []
+    L = line2d.length
+    if ss is None:
+        ss = [float(v) for v in np.arange(2.0, L - 2.0, SIDEWALK_SAMPLE_M)] or [L / 2.0]
+    par = math.radians(SIDEWALK_PARALLEL_DEG)
+    sign = 1.0 if side == "left" else -1.0
+    out: list[float] = []
+    for s in ss:
+        p = line2d.interpolate(s)
+        h = _heading_along(line2d, s)
+        nx, ny = -math.sin(h), math.cos(h)  # left normal
+        ex, ey = p.x + t_from * nx, p.y + t_from * ny
+        ox, oy = sign * nx, sign * ny  # outward
+        best: Optional[float] = None
+        for k in fw.tree.query(Point(ex, ey).buffer(search)):
+            f = fw.lines[int(k)]
+            sf = f.project(Point(ex, ey))
+            q = f.interpolate(sf)
+            d = (q.x - ex) * ox + (q.y - ey) * oy
+            along = abs(-(q.x - ex) * oy + (q.y - ey) * ox)
+            if d < 0.3 or d > search or along > 2.0:
+                continue  # behind us, too far, or only its end is near
+            dh = abs(_wrap(_heading_along(f, sf) - h))
+            if min(dh, math.pi - dh) > par:
+                continue
+            if best is None or d < best:
+                best = d
+        if best is not None:
+            out.append(best)
+    return out
+
+
+def _sidewalk_widths_from_footways(roads: list[Road], fw: _FootwayIndex) -> dict[str, Any]:
+    """``sidewalk=separate`` means the sidewalk is mapped as its own ``highway=footway`` +
+    ``footway=sidewalk`` way, drawn down the *middle* of the sidewalk. Per side, sample the
+    carriageway edge every SIDEWALK_SAMPLE_M, take the perpendicular distance to the nearest
+    roughly parallel (SIDEWALK_PARALLEL_DEG) sidewalk way within SIDEWALK_SEARCH_M, and set
+    the sidewalk lane width to twice the median of it, clamped to [SIDEWALK_MIN_M,
+    SIDEWALK_MAX_M]. Sides without a match keep the default. Mutates the lanes in place."""
     n_set = n_sides = 0
     widths: list[float] = []
-    if lines:
-        tree = STRtree(lines)
-        par = math.radians(SIDEWALK_PARALLEL_DEG)
+    if fw.tree is not None:
         for r in roads:
             if r.junction_id is not None:
                 continue
@@ -1906,31 +2106,8 @@ def _sidewalk_widths_from_footways(roads: list[Road], osm: OsmData, frame: Local
                 if not lanes:
                     continue
                 n_sides += 1
-                sign = 1.0 if side == "left" else -1.0
                 t_edge = r.width_left() if side == "left" else -r.width_right()
-                ds: list[float] = []
-                for s in ss:
-                    p = line2d.interpolate(s)
-                    h = _heading_along(line2d, s)
-                    nx, ny = -math.sin(h), math.cos(h)  # left normal
-                    ex, ey = p.x + t_edge * nx, p.y + t_edge * ny  # carriageway edge
-                    ox, oy = sign * nx, sign * ny  # outward
-                    best: Optional[float] = None
-                    for k in tree.query(Point(ex, ey).buffer(SIDEWALK_SEARCH_M)):
-                        f = lines[int(k)]
-                        sf = f.project(Point(ex, ey))
-                        q = f.interpolate(sf)
-                        d = (q.x - ex) * ox + (q.y - ey) * oy
-                        along = abs(-(q.x - ex) * oy + (q.y - ey) * ox)
-                        if d < 0.3 or d > SIDEWALK_SEARCH_M or along > 2.0:
-                            continue  # behind us, too far, or only its end is near
-                        dh = abs(_wrap(_heading_along(f, sf) - h))
-                        if min(dh, math.pi - dh) > par:
-                            continue
-                        if best is None or d < best:
-                            best = d
-                    if best is not None:
-                        ds.append(best)
+                ds = _footway_offsets(line2d, side, t_edge, fw, ss=ss)
                 if len(ds) >= max(1, len(ss) // 2):
                     w = min(SIDEWALK_MAX_M, max(SIDEWALK_MIN_M, 2.0 * float(np.median(ds))))
                     lanes[0].width = round(w, 2)
@@ -1941,6 +2118,193 @@ def _sidewalk_widths_from_footways(roads: list[Road], osm: OsmData, frame: Local
         log.info("sidewalk widths from %d footway-mapped sides: p10/p50/p90 = %s m", n_set,
                  np.round(np.percentile(widths, [10, 50, 90]), 2).tolist())
     return {"sidewalk_separate_sides": n_sides, "sidewalks_from_footways": n_set}
+
+
+# --------------------------------------------------------------------------- street canyon
+
+def _clone_lane(l: Lane, **kw) -> Lane:
+    d = dict(id=l.id, type=l.type, width=l.width, direction=l.direction, marking=l.marking,
+             speed_limit=l.speed_limit, tags=dict(l.tags))
+    d.update(kw)
+    return Lane(**d)
+
+
+def _measure_faces(road: Road, bld, blockers) -> Optional[tuple[float, float]]:
+    """(left, right) building-face distance from the reference line when the road runs in a
+    street canyon (``canyon_fraction`` >= CANYON_MIN_FRACTION on both sides), else None.
+    Tags ``canyon_fraction`` either way."""
+    line2d = _line2d(road.reference_line)
+    _, dl = streetspace.face_distances(line2d, bld, "left", blockers=blockers)
+    _, dr = streetspace.face_distances(line2d, bld, "right", blockers=blockers)
+    cf_l, cf_r = streetspace.canyon_fraction(dl), streetspace.canyon_fraction(dr)
+    road.tags["canyon_fraction"] = [round(cf_l, 2), round(cf_r, 2)]
+    road.tags["cross_section_source"] = "tags"
+    if min(cf_l, cf_r) < CANYON_MIN_FRACTION:
+        return None
+    fl, fr = streetspace.robust_width(dl, math.nan), streetspace.robust_width(dr, math.nan)
+    if not (math.isfinite(fl) and math.isfinite(fr)):
+        return None
+    return fl, fr
+
+
+STREET_WIDTH_OUTLIER = 0.25  # a piece's street width may deviate this much from its street's median
+
+
+def _street_width_guard(faces: dict[str, tuple[float, float]], key_of: dict[str, tuple]
+                        ) -> dict[str, tuple[float, float, bool]]:
+    """Pieces of one street (same name, lane count, direction) share a width in a planned
+    grid: a piece whose W deviates more than STREET_WIDTH_OUTLIER from the street's median
+    (a set-back building, a garden, a corner piece at the bbox edge) is scaled to it."""
+    groups: dict[tuple, list[float]] = defaultdict(list)
+    for rid, (fl, fr) in faces.items():
+        groups[key_of[rid]].append(fl + fr)
+    out = {}
+    for rid, (fl, fr) in faces.items():
+        ws = groups[key_of[rid]]
+        if len(ws) >= 2 and key_of[rid][0]:
+            med = float(np.median(ws))
+            w = fl + fr
+            if abs(w - med) > STREET_WIDTH_OUTLIER * med:
+                k = med / w
+                log.info("%s: street width %.1f m is off its street's median %.1f m; scaled", rid, w, med)
+                out[rid] = (fl * k, fr * k, True)
+                continue
+        out[rid] = (fl, fr, False)
+    return out
+
+
+def _building_cross_section(road: Road, way_tags: dict[str, str], faces: tuple[float, float],
+                            fw: _FootwayIndex) -> bool:
+    """Street-canyon cross section: when building faces flank the road on both sides
+    (``canyon_fraction`` >= CANYON_MIN_FRACTION, nothing in between), the street width W is
+    the sum of the two face distances. Sidewalk per side = 2 x (face - footway centreline) when
+    a ``sidewalk=separate`` footway runs along it, else SIDEWALK_FRACTION x W (clamped to
+    [SIDEWALK_MIN_M, SIDEWALK_MAX_M]); the carriageway C = W - sidewalks is centred between the
+    faces: driving lanes keep their count and widen to min(CANYON_LANE_MAX_M, C / n) (floor
+    MIN_LANE_WIDTH), what is left becomes parking lanes (PARKING_MIN_M..PARKING_MAX_M) on the
+    sides OSM allows (``parking:*`` tags; else both sides when >= 2 x PARKING_MIN_M, else the
+    right side of a oneway), any remainder widens the sidewalks. Tags the road; True when the
+    canyon regime applied. Roads with ``sidewalk=no`` keep no sidewalk lane (living streets)."""
+    xy = [(x, y) for x, y, *_ in road.reference_line.coords]
+    line2d = LineString(xy)
+    fl, fr = faces
+    width = fl + fr
+    drive = [l for l in road.lanes if l.type == "driving"]
+    if not drive:
+        return False
+    oneway = bool(road.tags.get("oneway_road"))
+    no_sidewalk = str(way_tags.get("sidewalk", "")).lower() in ("no", "none")
+
+    # sidewalks along the faces
+    sep = _separate_sides(road.tags)
+    sw: dict[str, float] = {}
+    sw_src: dict[str, str] = {}
+    for side, face, has_sep in (("left", fl, sep[0]), ("right", fr, sep[1])):
+        est = None
+        if has_sep:
+            ds = _footway_offsets(line2d, side, 0.0, fw, search=face)
+            if len(ds) >= 3:
+                est = 2.0 * (face - float(np.median(ds)))
+                sw_src[side] = "footway"
+        if est is None:
+            est = SIDEWALK_FRACTION * width
+            sw_src[side] = "fraction"
+        sw[side] = 0.0 if no_sidewalk else min(SIDEWALK_MAX_M, max(SIDEWALK_MIN_M, est))
+    carriage = width - sw["left"] - sw["right"]
+
+    # carriageway: keep biking + tagged parking lanes, drop shoulders, widen the driving lanes
+    keep_left = [l for l in road.lanes_left() if l.type in ("biking", "parking")]
+    keep_right = [l for l in road.lanes_right() if l.type in ("biking", "parking")]
+    fixed = sum(l.width for l in keep_left + keep_right)
+    n = len(drive)
+    lane_w = min(CANYON_LANE_MAX_M, (carriage - fixed) / n)
+    # driving lanes get at least their class width before the sidewalks: a footway drawn
+    # close to the face must not squeeze the carriageway
+    floor = max(MIN_LANE_WIDTH, float(DEFAULTS.get(road.highway, _FALLBACK_DEFAULT)["lane_width"]))
+    tagged_w = parse_length(way_tags.get("width"))
+    if tagged_w and road.highway in ("living_street", "pedestrian", "service"):
+        # a level living street keeps its tagged carriageway (Barcelona superblock axes)
+        cap = max(MIN_LANE_WIDTH, (tagged_w - fixed) / n)
+        lane_w, floor = min(lane_w, cap), min(floor, cap)
+    if lane_w < floor:
+        need = (floor - lane_w) * n
+        excess = {k: max(0.0, v - SIDEWALK_MIN_M) for k, v in sw.items()}
+        avail = sum(excess.values())
+        give = min(need, avail)
+        if give > 0:
+            for k in sw:
+                sw[k] -= give * excess[k] / avail
+            carriage += give
+        lane_w = max(MIN_LANE_WIDTH, min(floor, (carriage - fixed) / n))
+    rem = max(0.0, carriage - fixed - lane_w * n)
+    # parking lanes from the leftover width
+    tagged_parking = any(k.startswith("parking") for k in way_tags)
+    new_park: list[str] = []
+    if (not tagged_parking and rem >= PARKING_MIN_M
+            and road.highway not in ("living_street", "pedestrian")):  # level streets: no bays
+        if rem >= 2 * PARKING_MIN_M:
+            new_park = ["left", "right"]
+        elif oneway:
+            new_park = ["right"]
+    park_w = 0.0
+    if new_park:
+        park_w = min(PARKING_MAX_M, rem / len(new_park))
+        rem -= park_w * len(new_park)
+    else:
+        existing = [l for l in keep_left + keep_right if l.type == "parking"]
+        if existing and rem > 0:
+            add = min(rem / len(existing), PARKING_MAX_M - min(l.width for l in existing))
+            if add > 0:
+                for l in existing:
+                    l.width += add
+                rem -= add * len(existing)
+    if rem > 0 and not no_sidewalk:  # the rest widens the sidewalks (up to SIDEWALK_MAX_M;
+        for k in sw:                  # beyond that the space to the face stays unassigned)
+            add = min(rem / 2.0, max(0.0, SIDEWALK_MAX_M - sw[k]))
+            sw[k] += add
+            rem -= add
+
+    def build_side(side: str) -> list[Lane]:
+        out: list[Lane] = []
+        for l in (road.lanes_left() if side == "left" else road.lanes_right()):
+            if l.type == "driving":
+                out.append(_clone_lane(l, width=lane_w))
+        out.extend(_clone_lane(l) for l in (keep_left if side == "left" else keep_right))
+        if side in new_park:
+            out.append(Lane(id=0, type="parking", width=park_w,
+                            direction="forward" if (oneway or side == "right") else "backward",
+                            tags={"width_source": "buildings"}))
+        if sw[side] > 0:
+            old = [l for l in road.lanes if l.type == "sidewalk" and (l.id > 0) == (side == "left")]
+            lane = _clone_lane(old[0], width=round(sw[side], 2)) if old else Lane(
+                id=0, type="sidewalk", width=round(sw[side], 2),
+                direction="forward" if (oneway or side == "right") else "backward")
+            lane.tags["width_source"] = sw_src[side]
+            out.append(lane)
+        return out
+
+    left, right = build_side("left"), build_side("right")
+    road.lanes = _renumber(left, right)
+    # centre the carriageway between the faces (the reference line keeps its lane convention)
+    t_centre = (fl - fr) / 2.0
+    delta = t_centre - (road.width_left() - road.width_right()) / 2.0
+    if abs(delta) > 1e-3:
+        xy = _dedupe(_offset_polyline(xy, delta))
+        road.reference_line = _line3d(xy)
+    # the sidewalk lanes fill from the carriageway edge to the face (the footway estimate only
+    # decided how much of the street the carriageway takes)
+    for l in road.lanes:
+        if l.type == "sidewalk":
+            face = (fl - delta) if l.id > 0 else (fr + delta)
+            edge = road.width_left() if l.id > 0 else road.width_right()
+            l.width = round(min(SIDEWALK_MAX_M, max(SIDEWALK_MIN_M, face - edge)), 2)
+    road.tags.update({
+        "cross_section_source": "buildings", "street_width_m": round(width, 2),
+        "face_left_m": round(fl - delta, 2), "face_right_m": round(fr + delta, 2),
+        "carriageway_m": round(road.width_left() + road.width_right(), 2),
+        "width_source": "buildings",
+    })
+    return True
 
 
 # --------------------------------------------------------------------------- buildings / objects

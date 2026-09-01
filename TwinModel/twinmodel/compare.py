@@ -10,7 +10,7 @@ Internally every raster is kept **south-up** (``array[j, i]`` at ``x0 + i*dx, y0
 the ``OrthoImage``/``Elevation`` convention) and flipped only when written to disk.
 
 Agreement stats compare the mesh *road* pixels (``drivable`` ∪ ``crossing`` ∪ ``parking``
-groups) against ``osmtiles.road_mask_from_tiles``. Caveat: the carto fill width at z19 is a
+groups; ``ground`` and the raised groups are never road) against ``osmtiles.road_mask_from_tiles``. Caveat: the carto fill width at z19 is a
 style width, not the real carriageway width — the IoU is a registration/shape indicator, not
 a width metric. ``estimate_shift`` gives the translation (metres) that best aligns two masks
 (FFT cross-correlation), which is what you want when something looks mis-registered.
@@ -40,12 +40,13 @@ JUNCTION_WINDOW_M = 120.0
 N_JUNCTIONS = 3
 ROAD_GROUPS = ("drivable", "crossing", "parking")
 # rasterisation order: later groups paint over earlier ones
-DRAW_ORDER = ("drivable", "parking", "sidewalk", "island", "median", "crossing", "curb",
+DRAW_ORDER = ("ground", "drivable", "parking", "sidewalk", "island", "median", "crossing", "curb",
               "marking_white", "marking_yellow")
 FALLBACK_COLORS: dict[str, tuple[int, int, int]] = {
     "drivable": (56, 56, 59), "sidewalk": (158, 156, 148), "island": (140, 158, 128),
     "crossing": (217, 217, 209), "median": (133, 148, 122), "parking": (77, 77, 79),
     "curb": (128, 128, 128), "marking_white": (242, 242, 242), "marking_yellow": (242, 204, 38),
+    "ground": (120, 133, 107),
 }
 DIFF_COLORS = {"agree": (150, 150, 150), "mesh_only": (230, 40, 40), "osm_only": (40, 80, 230)}
 

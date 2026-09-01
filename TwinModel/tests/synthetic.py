@@ -1,12 +1,15 @@
 """Synthetic TwinModels for tests (no network, no OSM).
 
-Three cases:
+Four cases:
 
-* ``straight_road()``      - one two-way road with sidewalks, a crosswalk and a building.
-* ``four_way_junction()``  - four two-way arms ending at a small junction (12 m across),
-                             connecting roads as cubic Hermite curves for every in->out pair.
-* ``eixample_junction()``  - two one-way streets (3 lanes + parking, 5 m sidewalks) crossing at a
-                             ~40 m octagonal cluster, chamfered buildings on the corners.
+* ``straight_road()``        - one two-way road with sidewalks, a crosswalk and a building.
+* ``four_way_junction()``    - four two-way arms ending at a small junction (12 m across),
+                               connecting roads as cubic Hermite curves for every in->out pair.
+* ``eixample_junction()``    - two one-way streets (3 lanes + parking, 5 m sidewalks) crossing at a
+                               ~40 m octagonal cluster, chamfered buildings on the corners.
+* ``eixample_single_node()`` - the same corner as OSM maps it: one node, arms ending at the
+                               crossing carriageway, 20 m streets between four blocks with 45°
+                               15 m chamfers — the plaza has to come from the buildings.
 
 All arms are oriented so that *incoming* arms point into the junction (successor = junction) and
 *outgoing* arms point away from it (predecessor = junction). Connecting roads carry one driving
@@ -186,12 +189,19 @@ def four_way_junction(arm_length: float = 60.0, half: float = 6.0, lane_w: float
 
 def eixample_junction(arm_length: float = 60.0, half: float = 20.0, lane_w: float = 3.2,
                       parking_w: float = 2.2, sidewalk_w: float = 5.0,
-                      n_driving: int = 3) -> TwinModel:
-    """Two one-way streets (E-bound and N-bound) crossing at a 40 m cluster.
+                      n_driving: int = 3, chamfer: float | None = None,
+                      face_setback: float | None = None, intrude: float = 0.3,
+                      name: str = "synthetic_eixample") -> TwinModel:
+    """Two one-way streets (E-bound and N-bound) crossing at a cluster of radius ``half``.
 
     Reference lines are the left carriageway edge (all lanes right of it), so the carriageway is
-    off-centre with respect to the reference line — exercises asymmetric buffering."""
-    m = _empty("synthetic_eixample")
+    off-centre with respect to the reference line — exercises asymmetric buffering.
+
+    ``chamfer``: length of the 45° chamfer edge of the corner blocks (default: parallel to the
+    junction octagon's diagonal, one sidewalk width out). ``face_setback``: distance from the
+    street axis to the building face (default: street half width minus ``intrude``, i.e. the
+    footprints poke ``intrude`` m into the sidewalk band)."""
+    m = _empty(name)
     jid = "j1"
     cw = n_driving * lane_w + parking_w  # carriageway width, right of the reference line
     off = cw / 2.0                      # street centred on the axis -> ref line at +off (left)
@@ -258,8 +268,11 @@ def eixample_junction(arm_length: float = 60.0, half: float = 20.0, lane_w: floa
     # chamfered building blocks on the four corners (Eixample style), 0.3 m into the sidewalk;
     # the chamfer line is parallel to the junction octagon's diagonal edge (x + y = half + off)
     # offset outward by the sidewalk width minus the 0.3 m intrusion.
-    e = off + sidewalk_w - 0.3
-    ch = (half + off + (sidewalk_w - 0.3) * math.sqrt(2.0)) - 2 * e
+    e = (off + sidewalk_w - intrude) if face_setback is None else face_setback
+    if chamfer is None:
+        ch = (half + off + (sidewalk_w - 0.3) * math.sqrt(2.0)) - 2 * e
+    else:
+        ch = chamfer / math.sqrt(2.0)  # chamfer edge length -> offset along each axis
     for sx in (1, -1):
         for sy in (1, -1):
             fp = Polygon([(sx * (e + ch), sy * e), (sx * (e + 60), sy * e), (sx * (e + 60), sy * (e + 60)),
@@ -268,8 +281,24 @@ def eixample_junction(arm_length: float = 60.0, half: float = 20.0, lane_w: floa
     return m
 
 
+def eixample_single_node(arm_length: float = 60.0, lane_w: float = 3.0, parking_w: float = 2.0,
+                         sidewalk_w: float = 4.5, n_driving: int = 3, chamfer: float = 15.0,
+                         face_setback: float | None = None) -> TwinModel:
+    """Eixample corner as a single OSM node: 20 m streets (11 m carriageway = 3 x 3 m + 2 m
+    parking, 4.5 m sidewalks), the arms end 2 m short of the crossing carriageway so the convex
+    cover of the arm ends is a plain cross; four blocks with 45° chamfers of ``chamfer`` m
+    surround it. ``face_setback`` (axis -> building face) lets the buildings sit further away
+    than the lane graph's sidewalk width (sidewalks must then grow to the face)."""
+    cw = n_driving * lane_w + parking_w
+    return eixample_junction(arm_length=arm_length, half=cw / 2.0 + 2.0, lane_w=lane_w,
+                             parking_w=parking_w, sidewalk_w=sidewalk_w, n_driving=n_driving,
+                             chamfer=chamfer, face_setback=face_setback,
+                             name="synthetic_eixample_node")
+
+
 ALL_CASES = {
     "straight": straight_road,
     "fourway": four_way_junction,
     "eixample": eixample_junction,
+    "eixample_node": eixample_single_node,
 }

@@ -17,11 +17,13 @@ from typing import Iterable, Optional
 
 import numpy as np
 import shapely
+from shapely import wkt as shapely_wkt
 from shapely.geometry import (GeometryCollection, LineString, MultiLineString, MultiPolygon,
-                              Point, Polygon)
+                              Point, Polygon, box)
 from shapely.geometry.base import BaseGeometry
-from shapely.ops import linemerge, unary_union
+from shapely.ops import linemerge, substring, unary_union
 
+from . import streetspace
 from .model import CurbLine, Junction, Lane, Marking, Road, Signal, Surface, TwinModel
 
 log = logging.getLogger("twinmodel.surfaces")
@@ -39,6 +41,21 @@ MIN_SURFACE_AREA = 0.5  # m^2, drop slivers below this
 MIN_ISLAND_AREA = 2.0   # m^2, smaller drivable holes are filled instead of becoming islands
 MAX_ISLAND_AREA = 400.0  # m^2, larger holes are city blocks (kept as holes, no island surface)
 EDGE_MARKING_INSET = 0.10  # outermost edge lines are drawn this far inside the carriageway
+
+# building-aware surfaces (DESIGN.md §Surfaces, worker H): the buildings delimit the street
+PLAZA_RADIUS = 45.0            # corner void searched around a junction centre
+PLAZA_CANYON_MIN = 0.5         # mean canyon fraction of the arms needed to trust the buildings
+SIDE_CANYON_MIN = 0.6          # per road side: canyon fraction to run the sidewalk to the face
+DEFAULT_PLAZA_SIDEWALK = 4.5   # sidewalk band along the corner buildings when no arm has one
+MAX_SIDEWALK_REACH = 12.0      # a sidewalk never reaches further than this from the carriageway
+CHAMFER_ALLOWANCE = 15.0       # how far beyond an arm's face line a corner chamfer may open
+ARM_PROBE_LENGTH = 60.0        # arm length inspected for canyon / chamfer detection
+ARM_PROBE_STEP = 1.0
+FACE_TOL = 1.5                 # a face sample within (median + tol) counts as canyon
+GROUND_REACH = 12.0            # ground fill: street void within this distance of a surface
+GROUND_Z = SIDEWALK_Z
+MIN_GROUND_AREA = 2.0
+PLAZA_OPENING = 3.0            # drivable plaza features thinner than 2x this become sidewalk
 
 
 # --------------------------------------------------------------------------- small helpers
@@ -185,6 +202,242 @@ def _sidewalk_widths(road: Road) -> tuple[float, float]:
     return wl, wr
 
 
+def _street_extent(road: Road) -> tuple[float, float]:
+    """Total lane-graph street width per side (left, right), every lane type."""
+    wl = sum(l.width for l in road.lanes if l.id > 0)
+    wr = sum(l.width for l in road.lanes if l.id < 0)
+    return wl, wr
+
+
+def _keep_touching(geom: BaseGeometry, seed: BaseGeometry, tol: float = 0.05) -> Polygon | MultiPolygon:
+    """Parts of ``geom`` that touch ``seed`` (within ``tol``)."""
+    if geom.is_empty or seed is None or seed.is_empty:
+        return Polygon()
+    parts = [p for p in _parts(geom) if p.distance(seed) <= tol]
+    return _clean(unary_union(parts)) if parts else Polygon()
+
+
+def _model_bbox(model: TwinModel) -> Optional[Polygon]:
+    """The model's WGS84 bbox as a model-space box (None when it cannot be projected)."""
+    try:
+        from .frame import LocalFrame
+        south, west, north, east = model.bbox_wgs84
+        frame = LocalFrame(model.origin_lat, model.origin_lon)
+        x0, y0 = frame.to_local(west, south)
+        x1, y1 = frame.to_local(east, north)
+        return box(float(x0), float(y0), float(x1), float(y1))
+    except Exception:  # pragma: no cover - pyproj missing / odd bbox
+        return None
+
+
+# --------------------------------------------------------------------------- street space
+
+@dataclass
+class _Arm:
+    """One road entering/leaving a junction, seen from the junction outward. Per-side tuples
+    are (left, right) of ``line_out``."""
+    road: Road
+    at_end: bool
+    line_out: LineString           # oriented away from the junction
+    p: np.ndarray                  # junction end (xy)
+    u: np.ndarray                  # outward unit tangent at p
+    half: tuple[float, float]      # lane-graph street half width per side
+    cw: tuple[float, float]        # lane-graph carriageway edge offset per side
+    face: tuple[float, float]      # median building-face distance per side (nan: no canyon)
+    fraction: tuple[float, float]  # canyon fraction per side
+    sidewalk: tuple[float, float]  # effective sidewalk width per side (carriageway edge -> face,
+                                   # unclamped: a boulevard corner keeps its wide sidewalk)
+    s_chamfer: float               # distance from p where the street canyon begins
+
+    @property
+    def bearing(self) -> float:
+        return math.atan2(float(self.u[1]), float(self.u[0]))
+
+
+def _road_faces(road: Road, buildings: BaseGeometry, step: float = streetspace.FACE_SAMPLE_STEP_M
+                ) -> dict[bool, tuple[float, float]]:
+    """{left: (canyon fraction, median face distance from the reference line)} per side."""
+    out: dict[bool, tuple[float, float]] = {}
+    ref = _ref2d(road)
+    for left, side in ((True, "left"), (False, "right")):
+        if buildings is None or buildings.is_empty or ref.length < 1e-6:
+            out[left] = (0.0, float("nan"))
+            continue
+        _, d = streetspace.face_distances(ref, buildings, side, step=step)
+        out[left] = (streetspace.canyon_fraction(d), streetspace.robust_width(d, float("nan")))
+    return out
+
+
+def effective_sidewalk(face: float, cw_edge: float, lane_width: float,
+                       clamp: float | None = MAX_SIDEWALK_REACH) -> float:
+    """Sidewalk width from the carriageway edge to the building face, never narrower than the
+    lane graph's sidewalk lane and (``clamp``) never wider than ``MAX_SIDEWALK_REACH``."""
+    if not np.isfinite(face):
+        return max(lane_width, DEFAULT_PLAZA_SIDEWALK)
+    w = max(lane_width, face - cw_edge)
+    return float(min(clamp, w)) if clamp is not None else float(w)
+
+
+def arm_info(road: Road, at_end: bool, buildings: BaseGeometry) -> _Arm:
+    """Measure one junction arm against the buildings: lane-graph street widths, building-face
+    distances per side over its first ``ARM_PROBE_LENGTH`` m, and the distance from the
+    junction end at which both faces settle at their canyon width (the chamfer end)."""
+    ref = _ref2d(road)
+    line_out = LineString(list(ref.coords)[::-1]) if at_end else ref
+    c = np.asarray(line_out.coords, dtype=np.float64)
+    p = c[0]
+    d = c[1] - c[0]
+    nrm = float(np.linalg.norm(d))
+    u = d / nrm if nrm > 1e-9 else np.array([1.0, 0.0])
+    L = float(line_out.length)
+    probe = substring(line_out, 0.0, min(L, ARM_PROBE_LENGTH)) if L > ARM_PROBE_LENGTH else line_out
+    tl, tr = _street_extent(road)
+    cl, cr = carriageway_extent(road)
+    sl, sr = _sidewalk_widths(road)
+    half = (tr, tl) if at_end else (tl, tr)
+    cw = (cr, cl) if at_end else (cl, cr)
+    lane_sw = (sr, sl) if at_end else (sl, sr)
+    face, frac, dists, s = [], [], [], None
+    for side in ("left", "right"):
+        if buildings is None or buildings.is_empty:
+            s = streetspace._samples(probe, ARM_PROBE_STEP)[0]
+            dd = np.full(len(s), np.nan)
+        else:
+            s, dd = streetspace.face_distances(probe, buildings, side, step=ARM_PROBE_STEP)
+        fr = streetspace.canyon_fraction(dd)
+        w = streetspace.robust_width(dd, float("nan")) if fr >= SIDE_CANYON_MIN else float("nan")
+        face.append(w)
+        frac.append(fr)
+        dists.append(dd)
+    canyon_sides = [i for i in (0, 1) if np.isfinite(face[i])]
+    s_chamfer = 0.0
+    if canyon_sides:
+        ok = np.ones(len(s), dtype=bool)
+        for i in canyon_sides:
+            ok &= np.isfinite(dists[i]) & (dists[i] <= face[i] + FACE_TOL)
+        s_chamfer = min(L, PLAZA_RADIUS)
+        for k in range(len(ok)):
+            if ok[k:k + 3].all():
+                s_chamfer = float(s[k])
+                break
+    sidewalk = tuple(effective_sidewalk(face[i], cw[i], lane_sw[i], clamp=None) for i in (0, 1))
+    return _Arm(road, at_end, line_out, p, u, half, cw, (face[0], face[1]), (frac[0], frac[1]),
+                sidewalk, s_chamfer)
+
+
+def _parallel_groups(arms: list[_Arm], tol_deg: float = 30.0) -> list[list[_Arm]]:
+    """Arms leaving the junction in (nearly) the same direction — a boulevard's central
+    carriageway and its laterals."""
+    groups: list[list[_Arm]] = []
+    tol = math.radians(tol_deg)
+    for a in arms:
+        for g in groups:
+            d = abs((a.bearing - g[0].bearing + math.pi) % (2 * math.pi) - math.pi)
+            if d <= tol:
+                g.append(a)
+                break
+        else:
+            groups.append([a])
+    return groups
+
+
+def _band(line: LineString, w_left: float, w_right: float) -> BaseGeometry:
+    kw = dict(single_sided=True, join_style="mitre", mitre_limit=MITRE_LIMIT)
+    parts = []
+    if w_left > 1e-6:
+        parts.append(line.buffer(w_left, **kw))
+    if w_right > 1e-6:
+        parts.append(line.buffer(-w_right, **kw))
+    return _clean(unary_union(parts)) if parts else Polygon()
+
+
+def junction_plaza(model: TwinModel, j: Junction, arms: list[_Arm], buildings: BaseGeometry,
+                   seed: BaseGeometry, connecting_ids: set[str]
+                   ) -> Optional[tuple[Polygon | MultiPolygon, BaseGeometry]]:
+    """The open space between the corner buildings of a junction (Eixample: the chamfered
+    octagon) and the sidewalk keep-out inside it, or None when the arms are not in a canyon.
+
+    Plaza = ``streetspace.corner_void`` (disc minus buildings) clipped to the arms' corridors —
+    each arm's junction end extended through the centre and outward to its chamfer end,
+    buffered generously on canyon sides (face + ``CHAMFER_ALLOWANCE``) and by the lane-graph
+    width on open sides — minus every arm's street canyon beyond its chamfer end, minus the
+    envelope of near-parallel arm groups (boulevard laterals: the plaza stops at their ends),
+    minus the streets of any other road nearby; only the parts connected to ``seed`` (the
+    convex cover of the arm ends).
+
+    Keep-out = along every building face, a band as wide as the effective sidewalk of the arm
+    side facing it (carriageway edge to face, clamped); the plaza minus the keep-out is the
+    drivable octagon, plaza ∩ keep-out the chamfer sidewalks."""
+    if len(arms) < 3 or buildings is None or buildings.is_empty:
+        return None  # a bend / road change has no corner to open up
+    fractions = [f for a in arms for f in a.fraction]
+    if float(np.mean(fractions)) < PLAZA_CANYON_MIN:
+        return None
+    ctr = j.tags.get("centre")
+    centre = (Point(float(ctr[0]), float(ctr[1])) if ctr
+              else Point(*np.mean([a.p for a in arms], axis=0)))
+    void = streetspace.corner_void(centre, buildings, PLAZA_RADIUS)
+    near = buildings.intersection(centre.buffer(PLAZA_RADIUS + MAX_SIDEWALK_REACH + 1.0))
+    corridors: list[BaseGeometry] = []
+    bands: list[BaseGeometry] = []
+    keep: list[BaseGeometry] = []
+    for a in arms:
+        d_in = centre.distance(Point(a.p)) + 3.0
+        seg = LineString([a.p - a.u * d_in, a.p + a.u * (a.s_chamfer + 1.0)])
+        for i, sign in ((0, 1.0), (1, -1.0)):
+            w = a.face[i] + CHAMFER_ALLOWANCE if np.isfinite(a.face[i]) else a.half[i] + 1.0
+            corr = seg.buffer(sign * w, single_sided=True)
+            corridors.append(corr)
+            if not near.is_empty:
+                keep.append(near.buffer(a.sidewalk[i], join_style="mitre", mitre_limit=MITRE_LIMIT)
+                            .intersection(corr))
+        L = a.line_out.length
+        if a.s_chamfer < L - 0.5:
+            tail = substring(a.line_out, a.s_chamfer, L)
+            bands.append(_band(tail, *[a.face[i] + 1.0 if np.isfinite(a.face[i]) else a.half[i] + 1.0
+                                       for i in (0, 1)]))
+    # corners: between two adjacent arms (by bearing) the sidewalk along the buildings is as
+    # wide as the wider of the two facing sidewalks (a boulevard's corner wraps around)
+    order = sorted(arms, key=lambda a: a.bearing)
+    if len(order) >= 2 and not near.is_empty:
+        for k, a in enumerate(order):
+            b = order[(k + 1) % len(order)]
+            gap = (b.bearing - a.bearing) % (2 * math.pi)
+            if not (math.radians(30) <= gap <= math.radians(150)):
+                continue
+            e = max(a.sidewalk[0], b.sidewalk[1])  # a's left faces b, b's right faces a
+            rr = PLAZA_RADIUS + CHAMFER_ALLOWANCE
+            fan = [(centre.x, centre.y)] + [
+                (centre.x + rr * math.cos(a.bearing + gap * t), centre.y + rr * math.sin(a.bearing + gap * t))
+                for t in (0.0, 0.25, 0.5, 0.75, 1.0)]
+            wedge = Polygon(fan)
+            if wedge.is_valid and wedge.area > 0:
+                keep.append(near.buffer(e, join_style="mitre", mitre_limit=MITRE_LIMIT).intersection(wedge))
+    for group in _parallel_groups(arms):
+        if len(group) < 2:
+            continue
+        env = shapely.convex_hull(unary_union([_band(a.line_out, a.half[0] + 1.0, a.half[1] + 1.0)
+                                               for a in group]))
+        bands.append(env)
+    arm_ids = {a.road.id for a in arms}
+    for r in model.roads:
+        if r.id in arm_ids or r.id in connecting_ids or r.junction_id is not None:
+            continue
+        ref = _ref2d(r)
+        if ref.is_empty or ref.distance(centre) > PLAZA_RADIUS:
+            continue
+        tl, tr = _street_extent(r)
+        bands.append(_band(ref, tl + 1.0, tr + 1.0))
+    plaza = _clean(void.intersection(_clean(unary_union(corridors))))
+    if bands:
+        plaza = _clean(plaza.difference(_clean(unary_union(bands))), min_area=MIN_SURFACE_AREA)
+    plaza = _keep_touching(plaza, seed.buffer(0.5))
+    if plaza.is_empty:
+        return None
+    keep_out = _clean(unary_union(keep)) if keep else Polygon()
+    return plaza, keep_out
+
+
 # --------------------------------------------------------------------------- junctions
 
 def _junction_roads(model: TwinModel, j: Junction) -> tuple[list[Road], list[tuple[Road, bool]]]:
@@ -230,9 +483,9 @@ def _junction_roads(model: TwinModel, j: Junction) -> tuple[list[Road], list[tup
     return connecting, out
 
 
-def junction_polygon(model: TwinModel, j: Junction,
-                     carriageways: dict[str, Polygon | MultiPolygon],
-                     cover: str = "convex") -> Optional[Polygon]:
+def junction_cover_polygon(model: TwinModel, j: Junction,
+                   carriageways: dict[str, Polygon | MultiPolygon],
+                   cover: str = "convex") -> Optional[Polygon]:
     """Union of the connecting roads' carriageways and a cover of the incoming roads' end
     cross-sections so the polygon fully spans the space between the road ends.
 
@@ -290,6 +543,43 @@ def junction_polygon(model: TwinModel, j: Junction,
         return None
     # fill holes (a junction interior is drivable through and through)
     return Polygon(poly.exterior)
+
+
+def junction_polygon(model: TwinModel, j: Junction,
+                     carriageways: dict[str, Polygon | MultiPolygon],
+                     cover: str = "convex", plaza: BaseGeometry | None = None,
+                     keep_out: BaseGeometry | None = None,
+                     buildings: BaseGeometry | None = None) -> Optional[Polygon]:
+    """Junction polygon: :func:`junction_cover_polygon`, and — when a building-derived ``plaza``
+    (drivable part of the corner void) is given — that cover minus the sidewalk band
+    ``keep_out`` along the buildings, united with the plaza and the connecting roads'
+    carriageways. Holes are filled unless they hold a building."""
+    base = junction_cover_polygon(model, j, carriageways, cover=cover)
+    if plaza is None or plaza.is_empty or base is None:
+        return base
+    connecting, incoming = _junction_roads(model, j)
+    parts: list[BaseGeometry] = [plaza]
+    parts.append(base.difference(keep_out) if keep_out is not None and not keep_out.is_empty else base)
+    for r in connecting:
+        cw = carriageways.get(r.id)
+        if cw is not None and not cw.is_empty:
+            parts.append(cw)
+    for r, _ in incoming:  # the arms' own carriageways stay junction wherever the cover had them
+        cw = carriageways.get(r.id)
+        if cw is not None and not cw.is_empty:
+            parts.append(base.intersection(cw))
+    poly = _clean(unary_union(parts))
+    if isinstance(poly, MultiPolygon):
+        poly = _clean(unary_union([poly, base]))
+    if isinstance(poly, MultiPolygon):
+        poly = _clean(unary_union([poly, shapely.convex_hull(poly)]))
+    if isinstance(poly, MultiPolygon):
+        poly = max(poly.geoms, key=lambda p: p.area)
+    if poly.is_empty:
+        return base
+    holes = [ring for ring in poly.interiors
+             if buildings is not None and not buildings.is_empty and Polygon(ring).intersects(buildings)]
+    return Polygon(poly.exterior, holes)
 
 
 # --------------------------------------------------------------------------- markings
@@ -440,10 +730,66 @@ def build_surfaces(model: TwinModel,
         if not cw.is_empty:
             carriageways[r.id] = cw
 
+    buildings = _clean(unary_union([b.footprint for b in model.buildings])) if model.buildings else Polygon()
+
     # junction polygons ----------------------------------------------------------------------
+    # convex cover of the arm ends (DESIGN.md) — or, where the arms run in a street canyon, the
+    # drivable part of the corner void between the buildings (Eixample: the chamfer octagon);
+    # the band of width ``sw`` along the buildings inside that void becomes sidewalk
     junction_polys: dict[str, Polygon] = {}
+    plaza_sidewalks: list[tuple[BaseGeometry, str]] = []
+    keep_out_cache: dict[float, BaseGeometry] = {}
+    n_plaza = 0
     for j in model.junctions:
-        poly = junction_polygon(model, j, carriageways, cover=junction_cover)
+        if j.tags.get("polygon_source") == "surfaces":
+            j.polygon = None  # our own previous result is not an input (idempotent rebuilds)
+        base = junction_cover_polygon(model, j, carriageways, cover=junction_cover)
+        _, incoming = _junction_roads(model, j)
+        plaza_drv = None
+        source = "convex"
+        if base is not None and not buildings.is_empty and incoming:
+            widths = [w for r, _ in incoming for w in _sidewalk_widths(r) if w > 0]
+            sw = round(max(widths) if widths else DEFAULT_PLAZA_SIDEWALK, 3)
+            tag = j.tags.get("plaza_wkt")
+            arms = [arm_info(r, at_end, buildings) for r, at_end in incoming]
+            plaza = keep_out = None
+            if tag:
+                plaza = _clean(shapely_wkt.loads(tag))
+                plaza = plaza if not plaza.is_empty else None
+                source = "lanegraph"
+                # keep-out: the widest effective sidewalk of the arms along every face
+                sw = round(max([w for a in arms for w in a.sidewalk] or [sw]), 3)
+                if sw not in keep_out_cache:
+                    keep_out_cache[sw] = _clean(buildings.buffer(sw, join_style="mitre",
+                                                                 mitre_limit=MITRE_LIMIT))
+                keep_out = keep_out_cache[sw]
+            else:
+                res = junction_plaza(model, j, arms, buildings, base, connecting_ids)
+                if res is not None:
+                    plaza, keep_out = res
+                source = "corner_void"
+            if plaza is not None:
+                plaza_drv = _clean(plaza.difference(keep_out))
+                # spikes and slivers (a chamfer shoulder squeezed between the keep-out and an
+                # arm) are sidewalk, not plaza; keep only what connects to the cover
+                opened = _clean(plaza_drv.buffer(-PLAZA_OPENING, join_style="mitre")
+                                .buffer(PLAZA_OPENING, join_style="mitre"))
+                opened = _keep_touching(opened, base.buffer(0.5))
+                plaza_sw = _clean(unary_union([plaza.intersection(keep_out),
+                                               plaza_drv.difference(opened)]))
+                plaza_drv = opened
+                if not plaza_sw.is_empty:
+                    plaza_sidewalks.append((plaza_sw, f"junction:{j.id}"))
+                poly = junction_polygon(model, j, carriageways, cover=junction_cover,
+                                        plaza=plaza_drv, keep_out=keep_out, buildings=buildings)
+                n_plaza += 1
+            else:
+                poly = base
+                source = "convex"
+        else:
+            poly = base
+        j.tags["plaza_source"] = source
+        j.tags["polygon_source"] = "surfaces"
         j.polygon = poly
         if poly is not None:
             junction_polys[j.id] = poly
@@ -465,7 +811,6 @@ def build_surfaces(model: TwinModel,
 
     # holes: tiny ones are filled; small building-free ones become traffic islands; the rest
     # (city blocks enclosed by a ring of roads) stay plain holes
-    buildings = _clean(unary_union([b.footprint for b in model.buildings])) if model.buildings else Polygon()
     islands: list[Polygon] = []
     filled_parts: list[Polygon] = []
     for part in _parts(drivable):
@@ -493,22 +838,42 @@ def build_surfaces(model: TwinModel,
             tags={"junction_ids": jids} if len(jids) > 1 else {}))
         n += 1
     # 3. sidewalks / medians -----------------------------------------------------------------
+    # a sidewalk lane is a band of its own width; in a street canyon (cross-section from the
+    # buildings, or >= SIDE_CANYON_MIN of the side faces a building) it runs from the
+    # carriageway edge to the building face (never more than MAX_SIDEWALK_REACH)
     raised_parts: dict[str, list[tuple[BaseGeometry, str]]] = {"sidewalk": [], "median": []}
+    n_face_sides = 0
     for r in model.roads:
         if r.id in connecting_ids:
             continue
         ref = _ref2d(r)
-        for b in lane_bands(r):
+        bands = lane_bands(r)
+        faces = None
+        if not buildings.is_empty and any(b.lane.type == "sidewalk" for b in bands):
+            faces = _road_faces(r, buildings)
+        forced = r.tags.get("cross_section_source") == "buildings"
+        for b in bands:
             if b.lane.type not in RAISED_TYPES:
                 continue
-            band = _side_band(ref, b.inner, b.outer, b.left)
+            inner, outer = b.inner, b.outer
+            if b.lane.type == "sidewalk" and faces is not None:
+                fr, w = faces[b.left]
+                if (forced or fr >= SIDE_CANYON_MIN) and np.isfinite(w):
+                    reach = min(inner + MAX_SIDEWALK_REACH, w + 1.0)
+                    if reach > outer:
+                        outer = reach
+                        n_face_sides += 1
+            band = _side_band(ref, inner, outer, b.left)
             if not band.is_empty:
                 raised_parts[b.lane.type].append((band, r.id))
 
-    # sidewalks wrapping around junction polygons
+    # sidewalks around junctions: the band along the corner buildings inside the plaza, or
+    # (no buildings around) a wrap of the junction polygon
+    plaza_ids = {rid for _, rid in plaza_sidewalks}
+    raised_parts["sidewalk"].extend(plaza_sidewalks)
     for j in model.junctions:
         poly = junction_polys.get(j.id)
-        if poly is None:
+        if poly is None or f"junction:{j.id}" in plaza_ids:
             continue
         _, incoming = _junction_roads(model, j)
         widths = [w for r, _ in incoming for w in _sidewalk_widths(r) if w > 0]
@@ -570,8 +935,28 @@ def build_surfaces(model: TwinModel,
                                       road_ids=[sig.road_id], tags={"signal_id": sig.id}))
         k += 1
 
-    # 5. curbs -------------------------------------------------------------------------------
+    # 5. ground: the street void near the surfaces that is neither drivable nor raised nor
+    #    building (open lots, courtyard mouths, the strip beyond a short sidewalk); block
+    #    interiors are enclosed by their buildings and stay empty
     raised_all = _clean(unary_union(raised_union_parts + islands)) if (raised_union_parts or islands) else Polygon()
+    covered = _clean(unary_union([drivable, raised_all]))
+    ground_area = 0.0
+    if not covered.is_empty:
+        minx, miny, maxx, maxy = unary_union([covered, buildings]).bounds
+        extent = box(minx - GROUND_REACH, miny - GROUND_REACH, maxx + GROUND_REACH, maxy + GROUND_REACH)
+        bbox = _model_bbox(model)
+        if bbox is not None:
+            extent = extent.intersection(bbox)
+        void = _clean(extent.difference(buildings)) if not buildings.is_empty else extent
+        reach = covered.buffer(GROUND_REACH)
+        ground = _clean(void.intersection(reach).difference(covered), min_area=MIN_GROUND_AREA)
+        ground = _keep_touching(ground, covered)
+        for k, part in enumerate(_parts(ground)):
+            model.surfaces.append(Surface(id=f"ground_{k}", kind="ground", geometry=part,
+                                          z_offset=GROUND_Z, source="osm_tags", confidence=0.5))
+            ground_area += part.area
+
+    # 6. curbs (drivable <-> sidewalk/island only) --------------------------------------------
     for k, line in enumerate(curb_lines(drivable, raised_all)):
         mid = line.interpolate(0.5, normalized=True)
         high_kind = "sidewalk"
@@ -582,7 +967,7 @@ def build_surfaces(model: TwinModel,
         model.curbs.append(CurbLine(id=f"curb_{k}", geometry=line, height=CURB_HEIGHT,
                                     low_side_kind="drivable", high_side_kind=high_kind))
 
-    # 6. markings (never inside junctions) ---------------------------------------------------
+    # 7. markings (never inside junctions) ---------------------------------------------------
     clip_out = junction_union.buffer(0.05) if not junction_union.is_empty else None
     keep_in = drivable.buffer(0.05)
     for r in model.roads:
@@ -605,10 +990,14 @@ def build_surfaces(model: TwinModel,
         "curb_length": float(sum(c.geometry.length for c in model.curbs)),
         "marking_count": len(model.markings),
         "junctions_with_polygon": len(junction_polys),
+        "junctions_with_plaza": n_plaza,
+        "sidewalk_sides_to_face": n_face_sides,
+        "ground_area": float(ground_area),
         "drivable_source": source,
     })
     model.metadata.setdefault("surfaces", {}).update(stats)
-    log.info("surfaces: drivable %.0f m2, sidewalk %.0f m2, %d islands, curbs %.0f m, %d markings",
-             stats["drivable_area"], stats["sidewalk_area"], stats["island_count"],
-             stats["curb_length"], stats["marking_count"])
+    log.info("surfaces: drivable %.0f m2, sidewalk %.0f m2, ground %.0f m2, %d islands, curbs %.0f m, "
+             "%d markings, %d/%d junction plazas from buildings",
+             stats["drivable_area"], stats["sidewalk_area"], stats["ground_area"], stats["island_count"],
+             stats["curb_length"], stats["marking_count"], n_plaza, len(junction_polys))
     return model

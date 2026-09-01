@@ -199,3 +199,111 @@ def test_save_load_roundtrip(tmp_path):
     assert len(m2.curbs) == len(model.curbs)
     assert len(m2.markings) == len(model.markings)
     assert m2.junction("j1").polygon.area == pytest.approx(model.junction("j1").polygon.area)
+
+
+# --------------------------------------------------------------------------- building-aware
+
+def _ground(model):
+    parts = [s.geometry for s in model.surfaces_of("ground")]
+    return unary_union(parts) if parts else Polygon()
+
+
+def _sidewalk(model):
+    parts = [s.geometry for s in model.surfaces_of("sidewalk")]
+    return unary_union(parts) if parts else Polygon()
+
+
+def test_single_node_plaza_is_the_chamfer_octagon():
+    """Arms end at the crossing carriageway (convex cover = plain cross); the plaza must be the
+    open space between the four chamfered blocks minus a sidewalk band along their faces."""
+    from shapely.geometry import Point
+    model = build_surfaces(synthetic.eixample_single_node())
+    j = model.junction("j1")
+    assert j.tags["plaza_source"] == "corner_void"
+    d, sw = _drivable(model), _sidewalk(model)
+    # street axis at 0, carriageway half 5.5, face at 9.7 (axis) with the chamfer face on
+    # x + y = 30; sidewalk 4.5 m along the face -> drivable up to x + y = 23.6
+    for sx in (1, -1):
+        for sy in (1, -1):
+            for r in (7.0, 9.0, 11.0):  # outside the cross, inside the octagon
+                p = Point(sx * r, sy * r)
+                assert d.contains(p), (sx, sy, r)
+                assert j.polygon.contains(p), (sx, sy, r)
+            band = Point(sx * 13.5, sy * 13.5)  # 2.3 m inside the chamfer face
+            assert sw.contains(band) and not d.intersects(band), (sx, sy)
+            corner = Point(sx * 6.0, sy * 20.0)  # arm sidewalk right after the chamfer
+            assert sw.contains(corner), (sx, sy)
+    # the plaza is one octagon-ish polygon, much bigger than the 15 m cross cover
+    assert j.polygon.geom_type == "Polygon" and 800 < j.polygon.area < 1300
+    assert sw.intersection(d).area < 1e-6
+    b = unary_union([bb.footprint for bb in model.buildings])
+    assert sw.intersection(b).area < 1e-6
+    # curbs follow the chamfer: the curb line has segments running at 45 degrees
+    import numpy as np
+    diag = 0.0
+    for c in model.curbs:
+        xy = np.asarray(c.geometry.coords)[:, :2]
+        seg = np.diff(xy, axis=0)
+        ang = np.degrees(np.arctan2(np.abs(seg[:, 1]), np.abs(seg[:, 0])))
+        diag += np.linalg.norm(seg[(ang > 40) & (ang < 50)], axis=1).sum()
+    assert diag > 4 * 10.0, f"only {diag:.1f} m of 45-degree curb"
+    # markings never reach into the plaza
+    for m in model.markings:
+        assert not m.geometry.intersects(j.polygon.buffer(-0.01))
+
+
+def test_sidewalk_extends_to_building_face():
+    """Lane graph says 2 m of sidewalk, the buildings stand 9.7 m from the axis: in a canyon
+    the sidewalk runs to the face (and nothing is left for ground fill in between)."""
+    from shapely.geometry import Point
+    model = build_surfaces(synthetic.eixample_single_node(sidewalk_w=2.0, face_setback=9.7))
+    sw, g = _sidewalk(model), _ground(model)
+    for p in ((40.0, 9.0), (-40.0, -9.0), (9.0, 40.0), (-9.0, -40.0), (40.0, 6.0)):
+        assert sw.contains(Point(*p)), p
+    assert g.intersection(Point(0, 0).buffer(50)).area < 1e-6
+    assert model.metadata["surfaces"]["sidewalk_sides_to_face"] == 8
+    b = unary_union([bb.footprint for bb in model.buildings])
+    assert sw.intersection(b).area < 1e-6
+
+
+def test_sidewalk_reach_is_clamped():
+    """Buildings 30 m from the axis: the sidewalk grows at most 12 m past the carriageway,
+    the rest (up to 12 m from the sidewalk) is ground."""
+    from shapely.geometry import Point
+    model = build_surfaces(synthetic.eixample_single_node(sidewalk_w=2.0, face_setback=30.0))
+    sw, g = _sidewalk(model), _ground(model)
+    assert sw.contains(Point(40.0, 16.0))
+    assert not sw.intersects(Point(40.0, 18.5))
+    assert g.contains(Point(40.0, 18.5)) and g.contains(Point(40.0, 28.0))
+
+
+def test_ground_fill():
+    from shapely.geometry import Point
+    model = build_surfaces(synthetic.four_way_junction())
+    g = _ground(model)
+    assert not g.is_empty
+    covered = unary_union([_drivable(model), _raised(model)])
+    assert g.intersection(covered).area < 1e-6
+    assert g.difference(covered.buffer(12.0 + 0.01)).area < 1e-6  # never further than 12 m
+    b = unary_union([bb.footprint for bb in model.buildings])
+    assert g.intersection(b).area < 1e-6
+    for s in model.surfaces_of("ground"):
+        assert s.z_offset == pytest.approx(0.15)
+        assert s.geometry.distance(covered) < 0.06  # every piece touches a surface
+    # ground never gets a curb
+    for c in model.curbs:
+        assert c.high_side_kind in ("sidewalk", "island")
+    # a point just beyond the 2 m sidewalk is ground; the block corner building is not
+    assert g.contains(Point(30.0, -8.0))
+
+
+def test_no_plaza_without_buildings():
+    from shapely.geometry import Point
+    model = synthetic.eixample_single_node()
+    model.buildings = []
+    build_surfaces(model)
+    j = model.junction("j1")
+    assert j.tags["plaza_source"] == "convex"
+    assert j.polygon.area < 400  # the plain cross cover
+    assert not _drivable(model).contains(Point(9.0, 9.0))
+    assert not model.surfaces_of("ground") == []

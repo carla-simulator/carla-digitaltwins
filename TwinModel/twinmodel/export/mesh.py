@@ -2,7 +2,7 @@
 
 DESIGN.md §Mesh. The .obj is written in model space (x east, y north, z up, metres); whoever
 loads it into Unreal does ``(x, -y, z) * 100``. Groups: ``drivable``, ``sidewalk``, ``island``,
-``crossing``, ``median``, ``parking``, ``curb``, ``marking_white``, ``marking_yellow``.
+``crossing``, ``median``, ``parking``, ``ground``, ``curb``, ``marking_white``, ``marking_yellow``.
 """
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ MIN_TRI_AREA = 1e-7
 
 # material name -> (Kd r g b)
 MATERIALS: dict[str, tuple[float, float, float]] = {
+    "ground": (0.47, 0.52, 0.42),
     "drivable": (0.22, 0.22, 0.23),
     "sidewalk": (0.62, 0.61, 0.58),
     "island": (0.55, 0.62, 0.50),
@@ -298,6 +299,7 @@ def export_obj(model: TwinModel, path_obj: Path | str) -> None:
 # --------------------------------------------------------------------------- preview
 
 PREVIEW_COLORS = {
+    "ground": "#8a9a7c",
     "drivable": "#3a3a3d",
     "sidewalk": "#c9c4b8",
     "island": "#9fb08a",
@@ -363,7 +365,8 @@ def export_preview_png(model: TwinModel, path_png: Path | str, ortho: np.ndarray
     for b in model.buildings:
         for p in _polygons(b.footprint):
             patch(p, facecolor="#d8b49a", edgecolor="#8a5a3c", lw=0.5, alpha=0.6, zorder=1)
-    order = {"drivable": 2, "parking": 2.5, "island": 3, "median": 3, "sidewalk": 3, "crossing": 4}
+    order = {"ground": 1.5, "drivable": 2, "parking": 2.5, "island": 3, "median": 3, "sidewalk": 3,
+             "crossing": 4}
     for s in model.surfaces:
         for p in _polygons(s.geometry):
             patch(p, facecolor=PREVIEW_COLORS.get(s.kind, "#888"), edgecolor="none",

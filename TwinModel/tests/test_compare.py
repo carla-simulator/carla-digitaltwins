@@ -39,14 +39,14 @@ def test_render_mesh_top_groups_and_colors(straight_build):
     assert rgb.shape == (grid.height, grid.width, 3) and alpha.shape == (grid.height, grid.width)
     assert {"drivable", "sidewalk"} <= set(masks)
     # inside the lane (off the centre marking) is drivable, 4.5 m off-axis is sidewalk,
-    # 15 m off is background
+    # 19 m off is background (ground fill reaches 12 m beyond the sidewalk)
     r, c = _px(grid, 0.0, 1.5)
     assert masks["drivable"][r, c] and alpha[r, c] == 255
     r0, c0 = _px(grid, 0.0, 0.0)
     assert masks["marking_white"][r0, c0], "centre marking painted on top of drivable"
     r2, c2 = _px(grid, -30.0, -4.5)
     assert masks["sidewalk"][r2, c2] and not masks["drivable"][r2, c2]
-    r3, c3 = _px(grid, 0.0, -15.0)
+    r3, c3 = _px(grid, 0.0, -19.0)
     assert alpha[r3, c3] == 0 and tuple(rgb[r3, c3]) == (0, 0, 0)
     # colours come from the .mtl written by export_obj
     kd = MATERIALS["drivable"]

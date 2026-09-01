@@ -24,7 +24,7 @@ SCHEMA_VERSION = "0.1"
 
 LaneType = Literal["driving", "sidewalk", "shoulder", "parking", "biking", "median", "none"]
 Direction = Literal["forward", "backward"]
-SurfaceKind = Literal["drivable", "sidewalk", "island", "crossing", "median", "parking"]
+SurfaceKind = Literal["drivable", "sidewalk", "island", "crossing", "median", "parking", "ground"]
 SurfaceSource = Literal["osm_tags", "area_highway", "imagery"]
 SignalKind = Literal["traffic_light", "stop", "yield", "speed_limit", "crosswalk"]
 MarkingKind = Literal["solid", "broken"]

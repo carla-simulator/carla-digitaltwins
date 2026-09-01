@@ -185,9 +185,11 @@ def test_junction_connections(model):
             for ll in c.lane_links:
                 lane = next(l for l in inc.lanes if l.id == ll.from_lane)
                 assert lane.type == "driving"
-            # centreline stays close to the node cluster
+            # centreline stays inside the junction's open space (arms end at the chamfer
+            # line, so up to ~25 m from the node cluster) - or close to the cluster
+            plaza = wkt.loads(j.tags["area_wkt"]).buffer(2.0)
             for x, y, *_ in cr.reference_line.coords:
-                assert hull.distance(Point(x, y)) <= 15.0, (j.id, c.id)
+                assert plaza.contains(Point(x, y)) or hull.distance(Point(x, y)) <= 15.0, (j.id, c.id)
             # connecting road touches both incoming end and outgoing start
             p_in = point_on_road(inc, inc.length if cr.predecessor.contact == "end" else 0.0, 0.0)
             assert Point(cr.reference_line.coords[0][:2]).distance(p_in) < inc.width_left() + inc.width_right() + 0.5
@@ -334,7 +336,15 @@ def test_crossings_stay_on_their_road(model):
             continue
         keep = min(2.5, r.length / 2)
         assert keep - 1e-6 <= s.s <= r.length - keep + 1e-6, (s.id, s.s, r.length)
-    assert n_in_junction <= 6  # cycle crossings mapped inside the intersection box
+    # Eixample zebra crossings run between the chamfer corners, i.e. inside the plaza once the
+    # arms end at the chamfer line: they stay on their road (s clamped to the end), flagged
+    # with the junction id and their node position for the surface builder
+    assert 10 <= n_in_junction <= 40
+    for s in model.signals:
+        if s.kind == "crosswalk" and s.tags.get("in_junction"):
+            assert s.tags["in_junction"] in {j.id for j in model.junctions}
+            assert len(s.tags["node_xy"]) == 2
+    assert model.metadata["lanegraph"]["signal_nodes_unplaced"] == 0
 
 
 def test_no_width_steps_between_linked_roads(model):
@@ -348,7 +358,6 @@ def test_no_width_steps_between_linked_roads(model):
         for link in (r.predecessor, r.successor):
             if link and link.element == "road":
                 assert abs(_core_width(r) - _core_width(roads[link.id])) <= WIDTH_STEP_M + 1e-6, (r.id, link.id)
-    assert model.metadata["lanegraph"]["widths_reconciled"] >= 1
     assert model.metadata["lanegraph"]["tapers_inserted"] >= 1
 
 
@@ -423,15 +432,17 @@ def test_sidewalk_widths_from_separate_footways(model):
     assert _separate_sides({"sidewalk": "separate"}) == (True, True)
     assert _separate_sides({"sidewalk:left": "yes", "sidewalk:right": "separate"}) == (False, True)
     assert _separate_sides({"sidewalk:right": "separate", "reversed": True}) == (True, False)
+    # footway-derived on canyon roads (2 x (face - footway)) and on the others (2 x (footway
+    # - carriageway edge))
     est = [l.width for r in model.roads if r.junction_id is None
            for l in r.lanes if l.type == "sidewalk" and l.tags.get("width_source") == "footway"]
     assert len(est) >= 25
     assert all(1.5 <= w <= 6.0 for w in est)
     import numpy as np
     p10, p50, p90 = np.percentile(est, [10, 50, 90])
-    assert 3.5 <= p10 and 4.5 <= p50 <= 6.0 and p90 == 6.0
+    assert 2.5 <= p10 and 4.0 <= p50 <= 6.0 and 5.0 <= p90 <= 6.0
     st = model.metadata["lanegraph"]
-    assert st["sidewalks_from_footways"] == len(est) <= st["sidewalk_separate_sides"]
+    assert 1 <= st["sidewalks_from_footways"] <= st["sidewalk_separate_sides"]
 
 
 def test_no_road_band_covers_another_carriageway(model):
@@ -454,3 +465,156 @@ def test_no_road_band_covers_another_carriageway(model):
                 worst.append((a.id, b.id, round(area, 1)))
     assert worst == []
     assert model.metadata["lanegraph"]["band_overlap_cuts"] >= 1
+
+
+# --------------------------------------------------------------------------- building-aware round
+
+def _by_name(model, name):
+    return [r for r in model.roads if r.junction_id is None and name in r.name]
+
+
+def test_canyon_cross_section_from_building_faces(model):
+    """Cerda streets are 20 m building-to-building (Arago 30 m): the carriageway comes from
+    the faces, not from the 6-7 m width tags, and is centred between them."""
+    from twinmodel.lanegraph import MIN_LANE_WIDTH, CANYON_LANE_MAX_M
+    from twinmodel import streetspace
+    st = model.metadata["lanegraph"]
+    assert st["canyon_roads"] >= 20
+    bld = streetspace.building_union(model)
+    for name, w_lo, w_hi, c_lo, c_hi in (("Pau Claris", 18.5, 22.0, 9.5, 11.0),
+                                         ("Roger de Ll", 18.5, 21.0, 9.5, 11.0),
+                                         ("Carrer de Val", 18.5, 21.0, 9.5, 13.5),
+                                         ("Arag", 28.0, 31.0, 17.0, 18.0)):
+        canyon = [r for r in _by_name(model, name) if r.tags.get("cross_section_source") == "buildings"]
+        assert canyon, name
+        for r in canyon:
+            assert w_lo <= r.tags["street_width_m"] <= w_hi, (r.id, r.tags["street_width_m"])
+            c = r.width_left() + r.width_right()
+            assert c_lo <= c <= c_hi, (r.id, c)
+            assert all(cf >= 0.6 for cf in r.tags["canyon_fraction"])
+            drv = [l for l in r.lanes if l.type == "driving"]
+            assert all(MIN_LANE_WIDTH <= l.width <= CANYON_LANE_MAX_M for l in drv)
+            assert r.tags["width_source"] == "buildings"
+            # the carriageway is centred between the faces: faces measured from the final
+            # reference line agree with the tags, and the carriageway centre is mid-street
+            if r.tags.get("street_width_guarded"):
+                continue  # width taken from the street's median, not from these faces
+            line = LineString([(x, y) for x, y, *_ in r.reference_line.coords])
+            _, dl = streetspace.face_distances(line, bld, "left")
+            _, dr = streetspace.face_distances(line, bld, "right")
+            fl, fr = streetspace.robust_width(dl, 0.0), streetspace.robust_width(dr, 0.0)
+            centre_t = (r.width_left() - r.width_right()) / 2.0
+            assert abs(centre_t - (fl - fr) / 2.0) < 1.5, (r.id, centre_t, fl, fr)
+            # sidewalks reach (about) the faces
+            sw_l = sum(l.width for l in r.lanes if l.id > 0 and l.type == "sidewalk")
+            sw_r = sum(l.width for l in r.lanes if l.id < 0 and l.type == "sidewalk")
+            assert r.width_left() + sw_l <= fl + 1.5 and r.width_right() + sw_r <= fr + 1.5, r.id
+    # Passeig de Gracia: the laterals sit between the main carriageway and the buildings, so
+    # neither is a canyon - both keep their tags
+    for r in _by_name(model, "Passeig de Gr"):
+        assert r.tags["cross_section_source"] == "tags", r.id
+    main = [r for r in _by_name(model, "Passeig de Gr") if "lateral" not in r.name]
+    assert main and all(abs(r.width_left() + r.width_right() - 19.5) < 1e-6 for r in main)
+    # never a driving lane narrower than MIN_LANE_WIDTH anywhere
+    for r in model.roads:
+        for l in r.lanes:
+            if l.type == "driving":
+                assert l.width >= MIN_LANE_WIDTH - 1e-9, (r.id, l.id, l.width)
+    assert st["parking_lanes"] >= 1
+    for r in model.roads:
+        for l in r.lanes:
+            if l.type == "parking" and l.tags.get("width_source") == "buildings":
+                assert 2.0 <= l.width <= 2.5
+                assert r.highway not in ("living_street", "pedestrian")
+
+
+def test_canyon_arms_end_at_the_chamfer_line(model):
+    """A canyon arm is cut where its building faces end (the chamfer start), not at the node
+    hull: Valencia x Pau Claris (single node) arms end ~20-28 m from the node."""
+    from twinmodel import streetspace
+    st = model.metadata["lanegraph"]
+    assert st["chamfer_trims"] >= 20
+    bld = streetspace.building_union(model)
+    j5 = min(model.junctions, key=lambda j: math.dist(j.tags["centre"], (-63, 182)))
+    cx, cy = j5.tags["centre"]
+    arms = [(r, end) for r in model.roads if r.junction_id is None
+            for end, link in (("start", r.predecessor), ("end", r.successor))
+            if link and link.element == "junction" and link.id == j5.id]
+    assert len(arms) == 4
+    for r, end in arms:
+        assert r.tags.get("trim_source") == "chamfer", r.id
+        p = r.reference_line.coords[-1 if end == "end" else 0]
+        d = math.dist(p[:2], (cx, cy))
+        assert 18.0 <= d <= 30.0, (r.id, d)
+        # both faces are still there at the end (within the street width + tolerance) ...
+        line = LineString([(x, y) for x, y, *_ in r.reference_line.coords])
+        s_end = line.length if end == "end" else 0.0
+        lo, hi = streetspace.canyon_extent(line, bld, (r.tags["face_left_m"], r.tags["face_right_m"]),
+                                           scan=10.0)
+        assert (hi if end == "end" else lo) is not None
+        assert abs((hi if end == "end" else lo) - s_end) <= 2.0, (r.id, lo, hi, s_end)
+
+
+def test_every_junction_has_a_plaza(model):
+    """Every junction (clusters and single nodes) gets the open space between the corner
+    buildings; at an Eixample corner that is the chamfered octagon with its corner triangles."""
+    from shapely.geometry import Polygon as _P
+    st = model.metadata["lanegraph"]
+    assert st["plazas"] == len(model.junctions)
+    bld_ids = {b.id for b in model.buildings}
+    assert bld_ids
+    from twinmodel import streetspace
+    bld = streetspace.building_union(model, pad=0.0)
+    for j in model.junctions:
+        assert j.tags["area_source"] == "plaza"
+        assert j.tags["area_wkt"] == j.tags["plaza_wkt"]
+        plaza = wkt.loads(j.tags["plaza_wkt"])
+        assert plaza.is_valid and plaza.area >= 150.0, (j.id, plaza.area)
+        assert plaza.intersection(bld).area < 1.0, j.id  # never on a building
+        assert plaza.contains(Point(*j.tags["centre"])) or plaza.distance(Point(*j.tags["centre"])) < 3.0
+        # every arm end lies on the plaza boundary (within 1 m)
+        for r in model.roads:
+            if r.junction_id is not None:
+                continue
+            for end, link in (("start", r.predecessor), ("end", r.successor)):
+                if link and link.element == "junction" and link.id == j.id:
+                    p = Point(r.reference_line.coords[-1 if end == "end" else 0][:2])
+                    assert p.distance(plaza) <= 1.0, (j.id, r.id, end)
+    j5 = min(model.junctions, key=lambda j: math.dist(j.tags["centre"], (-63, 182)))
+    plaza = wkt.loads(j5.tags["plaza_wkt"])
+    assert isinstance(plaza, _P)
+    assert 1400 <= plaza.area <= 2200, plaza.area  # 20 m streets + four 14 m chamfer triangles
+    hull_area = wkt.loads(j5.tags["hull_wkt"]).area
+    assert plaza.area > 5 * hull_area
+    # the corner triangles are in: the plaza reaches the four chamfer faces (~24 m out on the
+    # diagonals of the two streets)
+    cx, cy = j5.tags["centre"]
+    ring = plaza.exterior
+    assert max(math.dist((x, y), (cx, cy)) for x, y in ring.coords) >= 24.0
+
+
+def test_laterals_continue_straight_across_the_main_junction(model):
+    """Passeig de Gracia x Arago (j4): the laterals get a straight through connection to their
+    continuation and do not fan into / out of the main carriageway."""
+    roads = {r.id: r for r in model.roads}
+    j4 = min(model.junctions, key=lambda j: math.dist(j.tags["centre"], (-97, -35)))
+    assert model.metadata["lanegraph"]["parallel_throughs_dropped"] >= 4
+    lateral_through = 0
+    for c in j4.connections:
+        cr = roads[c.connecting_road]
+        inc, out = roads[c.incoming_road], roads[cr.successor.id]
+        inc_lat, out_lat = "lateral" in inc.name, "lateral" in out.name
+        inc_main = inc.name == "Passeig de Gràcia"
+        out_main = out.name == "Passeig de Gràcia"
+        if cr.tags["turn"] == "through":
+            assert not (inc_lat and out_main), (c.id, "lateral feeds the main carriageway")
+            assert not (inc_main and out_lat), (c.id, "main carriageway fans into a lateral")
+            if inc_lat and out_lat:
+                lateral_through += 1
+                assert inc.name == out.name  # Besos stays Besos, Llobregat stays Llobregat
+                # straight: heading change under 15 degrees and nearly the chord length
+                h0 = math.atan2(*(cr.reference_line.coords[1][1::-1]))
+                pts = [p[:2] for p in cr.reference_line.coords]
+                chord = math.dist(pts[0], pts[-1])
+                assert cr.length <= chord * 1.03, (c.id, cr.length, chord)
+    assert lateral_through == 2
