@@ -492,6 +492,8 @@ def lanes_for_way(tags: dict[str, str], highway: str) -> LaneSpec:
     line; a oneway road's reference line is its left carriageway edge (edge line).
     """
     P = profiles.get()
+    if is_parking_aisle(tags):
+        return _parking_aisle_lanes(tags)
     cls = P.lane.for_class(highway)
     mk = P.marking
     oneway, _ = _is_oneway(tags)
@@ -597,6 +599,27 @@ def lanes_for_way(tags: dict[str, str], highway: str) -> LaneSpec:
         center = Marking("solid", mk.center_color) if cls.center_marking else None
     return LaneSpec(lanes=left[::-1] + right, center_marking=center, oneway=oneway,
                     n_forward=n_f, n_backward=n_b)
+
+
+def _parking_aisle_lanes(tags: dict[str, str]) -> LaneSpec:
+    """Cross section of a parking-lot aisle (``profiles.ParkingAisleRules``): driving lanes
+    only, at the profile's aisle width (an OSM ``width`` overrides it), no markings, no
+    sidewalk/verge/parking bands, the profile's low aisle speed limit."""
+    A = profiles.get().parking_aisle
+    oneway, _ = _is_oneway(tags)
+    driveway = tags.get("service") == "driveway"
+    tagged = parse_length(tags.get("width"))
+    if oneway:
+        w = tagged or (A.driveway_width if driveway else A.one_way_width)
+        lanes = [Lane(id=-1, type="driving", width=w, direction="forward",
+                      speed_limit=A.speed_limit, tags={"parking_aisle": True})]
+        return LaneSpec(lanes=lanes, center_marking=None, oneway=True, n_forward=1, n_backward=0)
+    w = (tagged or A.two_way_width) / 2.0
+    lanes = [Lane(id=1, type="driving", width=w, direction="backward",
+                  speed_limit=A.speed_limit, tags={"parking_aisle": True}),
+             Lane(id=-1, type="driving", width=w, direction="forward",
+                  speed_limit=A.speed_limit, tags={"parking_aisle": True})]
+    return LaneSpec(lanes=lanes, center_marking=None, oneway=False, n_forward=1, n_backward=1)
 
 
 def _lane_signature(lanes: list[Lane]) -> tuple:
@@ -737,10 +760,24 @@ def _is_underground(tags: dict[str, str]) -> bool:
     return tags.get("tunnel") in ("yes", "building_passage") or (_num(tags.get("layer")) or 0) < 0
 
 
-def _way_is_road(w: OsmWay, length_m: float, ramp_nodes: frozenset[int] | set[int] = frozenset()
-                 ) -> bool:
+def is_parking_aisle(tags: dict[str, str]) -> bool:
+    """True when the active profile ingests this way as parking-lot circulation:
+    ``highway=service`` + ``service=parking_aisle`` (or ``service=driveway`` when the profile's
+    ``ParkingAisleRules.include_driveways`` is set). Aisles are narrow service roads with
+    driving lanes only — no sidewalk/verge/parking lanes, no markings, no crossings."""
+    A = profiles.get().parking_aisle
+    if not A.include or tags.get("highway") != "service" or _is_underground(tags):
+        return False
+    service = tags.get("service")
+    return service == "parking_aisle" or (service == "driveway" and A.include_driveways)
+
+
+def _way_is_road(w: OsmWay, length_m: float, ramp_nodes: frozenset[int] | set[int] = frozenset(),
+                 aisle_nodes: frozenset[int] | set[int] = frozenset()) -> bool:
     """``ramp_nodes``: end nodes of underground drivable ways; an unnamed service way ending on
-    one is the ramp into that car park and is dropped with it."""
+    one is the ramp into that car park and is dropped with it.
+    ``aisle_nodes``: nodes of the parking aisles; a short unnamed service way touching one is
+    the lot's link to the street and is kept (the aisles would be an island without it)."""
     P = profiles.get()
     hw = w.tags.get("highway")
     if hw not in P.lane.drivable_classes:
@@ -750,9 +787,14 @@ def _way_is_road(w: OsmWay, length_m: float, ramp_nodes: frozenset[int] | set[in
     if _is_underground(w.tags):
         return False  # underground car-park aisles etc. are not part of the surface twin
     if hw == "service":
+        if is_parking_aisle(w.tags):
+            # a lot aisle is a road of its own (profiles.ParkingAisleRules), never subject to
+            # the unnamed-service-way length rule for through streets
+            return length_m >= P.parking_aisle.min_length
         if w.tags.get("service") in ("parking_aisle", "driveway", "drive-through", "emergency_access"):
             return False
-        if not w.tags.get("name") and length_m < P.lane.service_min_length:
+        if (not w.tags.get("name") and length_m < P.lane.service_min_length
+                and not (aisle_nodes and aisle_nodes.intersection(w.nodes))):
             return False
         if not w.tags.get("name") and w.nodes and (w.nodes[0] in ramp_nodes or w.nodes[-1] in ramp_nodes):
             return False  # ramp down to an underground aisle
@@ -858,9 +900,12 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     n_service_dropped = 0
     n_ramps = 0
     ramp_nodes: set[int] = set()  # ends of underground drivable ways: unnamed service ways there are ramps
+    aisle_nodes: set[int] = set()  # nodes of the parking aisles: short service ways there are lot links
     for w in osm.ways:
         if w.tags.get("highway") in P.lane.drivable_classes and _is_underground(w.tags) and len(w.nodes) >= 2:
             ramp_nodes.update((w.nodes[0], w.nodes[-1]))
+        if is_parking_aisle(w.tags):
+            aisle_nodes.update(w.nodes)
     for w in osm.ways:
         if w.tags.get("highway") not in P.lane.drivable_classes:
             continue
@@ -870,9 +915,10 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
         lons, lats = zip(*coords)
         x, y = frame.to_local(np.array(lons), np.array(lats))
         length = _polyline_length(list(zip(np.atleast_1d(x), np.atleast_1d(y))))
-        if not _way_is_road(w, length, ramp_nodes):
+        if not _way_is_road(w, length, ramp_nodes, aisle_nodes):
             n_service_dropped += w.tags.get("highway") == "service"
-            n_ramps += _way_is_road(w, length) and not _way_is_road(w, length, ramp_nodes)
+            n_ramps += (_way_is_road(w, length, aisle_nodes=aisle_nodes)
+                        and not _way_is_road(w, length, ramp_nodes, aisle_nodes))
             continue
         oneway, rev = _is_oneway(w.tags)
         if rev:  # normalise oneway=-1 by reversing the node order
@@ -880,15 +926,21 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
         pieces.extend(_clip_way(w, osm, frame, bbox))
     stats["drivable_ways"] = len({p.way.id for p in pieces})
     stats["service_ways_skipped"] = n_service_dropped
+    stats["parking_aisle_ways"] = len({p.way.id for p in pieces if is_parking_aisle(p.way.tags)})
 
-    # 2. node degrees in the drivable graph
+    # 2. node degrees in the drivable graph (street degree = without the parking-lot aisles)
     degree: dict[int, int] = defaultdict(int)
+    street_degree: dict[int, int] = defaultdict(int)
+    aisle_degree: dict[int, int] = defaultdict(int)
     endpoint_ways: dict[int, list[_Piece]] = defaultdict(list)
     for p in pieces:
+        aisle = is_parking_aisle(p.way.tags)
         for i, nid in enumerate(p.nodes):
             if nid is None:
                 continue
-            degree[nid] += 1 if i in (0, len(p.nodes) - 1) else 2
+            d = 1 if i in (0, len(p.nodes) - 1) else 2
+            degree[nid] += d
+            (aisle_degree if aisle else street_degree)[nid] += d
             if i in (0, len(p.nodes) - 1):
                 endpoint_ways[nid].append(p)
     intersection: set[int] = set()
@@ -935,6 +987,8 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     def compatible(s1: _Segment, r1: bool, s2: _Segment, r2: bool) -> bool:
         if s1.way.tags.get("name", "") != s2.way.tags.get("name", ""):
             return False
+        if is_parking_aisle(s1.way.tags) != is_parking_aisle(s2.way.tags):
+            return False  # a lot aisle never chains with a service street of the same width
         if s1.way.tags.get("highway") != s2.way.tags.get("highway"):
             return False
         sp1, sp2 = spec_for(s1), spec_for(s2)
@@ -1014,9 +1068,18 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     uf = _UnionFind()
     for nid in intersection:
         uf.find(nid)
+    # minor junctions: a node that is only an intersection because a parking-lot aisle joins it
+    # (at most a street running through, or aisles meeting each other inside a lot). They never
+    # merge with a neighbouring cluster — two lot entrances 50 m apart on the same street would
+    # otherwise pull the street between them into one 60 m cluster and pave it.
+    minor_nodes = {nid for nid in intersection
+                   if aisle_degree[nid] > 0 and street_degree[nid] <= 2}
+    stats["minor_junction_nodes"] = len(minor_nodes)
     for ch in chains:
         nodes = ch.nodes
         a, b = nodes[0], nodes[-1]
+        if a in minor_nodes or b in minor_nodes:
+            continue
         if a in intersection and b in intersection and a != b:
             if (_polyline_length(ch.xy) < P.junction.cluster_m
                     and math.dist(node_xy[a], node_xy[b]) < P.junction.cluster_m):
@@ -1093,13 +1156,18 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                         tags={k: v for k, v in head.way.tags.items() if k in _ROAD_TAG_KEYS})
             road.tags["oneway_road"] = spec.oneway
             road.tags["reversed"] = bool(ch.reversed_flags[0])  # runs against the head way
+            aisle = is_parking_aisle(head.way.tags)
+            if aisle:
+                road.tags["parking_aisle"] = True
             # reference line between forward and backward carriageway lanes
             wl, wr = road.width_left(), road.width_right()
             shift = (wl - wr) / 2.0  # positive: move right (carriageway centre stays on the OSM line)
             if abs(shift) > 1e-3:
                 xy = _dedupe(_offset_polyline(xy, -shift))
                 road.reference_line = _line3d(xy)
-            faces = _measure_faces(road, bld, blockers_for(ch, xy))
+            # aisles keep their profile cross section: a lot between two buildings is not a
+            # street canyon, and an aisle never gets sidewalks or parking bands from the faces
+            faces = None if aisle else _measure_faces(road, bld, blockers_for(ch, xy))
             if faces is not None:
                 canyon_faces[road.id] = faces
                 canyon_key[road.id] = (road.name, road.highway, spec.oneway,
@@ -1698,9 +1766,14 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
         "objects": len(model.objects),
         "parking_lanes": sum(1 for r in roads if r.junction_id is None
                              for l in r.lanes if l.type == "parking"),
+        "parking_aisle_roads": sum(1 for r in roads if r.junction_id is None
+                                   and r.tags.get("parking_aisle")),
         "profile": P.name,
         "params": {"junction_cluster_m": P.junction.cluster_m, "trim_margin_m": P.junction.trim_margin_m,
                    "service_min_length": P.lane.service_min_length,
+                   "parking_aisles": P.parking_aisle.include,
+                   "parking_aisle_two_way_m": P.parking_aisle.two_way_width,
+                   "parking_aisle_one_way_m": P.parking_aisle.one_way_width,
                    "connect_sample_m": P.geometry.connect_sample_m,
                    "canyon_min_fraction": P.streetspace.canyon_min_fraction,
                    "sidewalk_canyon_fraction": P.sidewalk.canyon_fraction,
@@ -1868,7 +1941,10 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
         counter[0] += 1
         return f"sig{counter[0]}"
 
-    plain_roads = [r for r in model.roads if r.junction_id is None]
+    # parking-lot aisles carry no signals: no traffic lights on a lot entrance approach and
+    # no crossings (a zebra node on the street must never land on the aisle beside it)
+    plain_roads = [r for r in model.roads
+                   if r.junction_id is None and not r.tags.get("parking_aisle")]
     tagged = {nid: n for nid, n in osm.nodes.items() if n.tags}
     xy_of = {}
     for nid, n in tagged.items():
@@ -1925,7 +2001,8 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
         if hw not in ("crossing", "stop", "give_way"):
             continue
         pt = Point(xy_of[nid])
-        cands = [by_id[r] for r in node_roads.get(nid, []) if r in by_id]
+        cands = [by_id[r] for r in node_roads.get(nid, [])
+                 if r in by_id and not by_id[r].tags.get("parking_aisle")]
         road = min(cands, key=lambda r: r.reference_line.distance(pt)) if cands else None
         if (road is None or road.reference_line.distance(pt) > 1.0) and plain_roads:
             # the node's own road was shortened past it (taper split, merge): the road that

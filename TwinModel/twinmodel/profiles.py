@@ -128,6 +128,24 @@ class JunctionRules:
 
 
 @dataclass(frozen=True)
+class ParkingAisleRules:
+    """Circulation inside a parking lot: ``highway=service`` + ``service=parking_aisle`` (and
+    ``service=driveway`` when ``include_driveways``).
+
+    An aisle is ingested as a narrow service road with driving lanes only — no sidewalk, no
+    verge, no on-street parking, no centre line, no crossings — so cars can drive into the
+    ``amenity=parking`` lots instead of facing an empty slab. Its carriageway is cut out of the
+    lot's ``parking`` surface (see DESIGN.md), so the two never overlap."""
+    include: bool              # ingest parking aisles at all
+    two_way_width: float       # total carriageway width of a two-way aisle (both lanes)
+    one_way_width: float       # width of a one-way aisle (its single lane)
+    min_length: float          # aisle ways shorter than this are not roads
+    speed_limit: float         # m/s written on the aisle lanes
+    include_driveways: bool = False   # same code path for service=driveway
+    driveway_width: float = 3.0       # width of a one-way driveway (two-way: two_way_width)
+
+
+@dataclass(frozen=True)
 class GeometryRules:
     min_road_length: float
     connect_sample_m: float    # connecting road sampling step
@@ -181,6 +199,7 @@ class StreetProfile:
     sidewalk: SidewalkRules
     marking: MarkingRules
     crossing: CrossingRules
+    parking_aisle: ParkingAisleRules
     junction: JunctionRules
     geometry: GeometryRules
     streetspace: StreetSpaceRules
@@ -233,6 +252,13 @@ EU_DENSE = StreetProfile(
     marking=MarkingRules(width=0.12, center_color="white", lane_color="white", edge_color="white",
                          broken_dash=2.0, broken_gap=4.0, z=0.002),
     crossing=CrossingRules(width=4.0, z=0.003, keep_m=2.5, near_cut_m=5.0),
+    # Aisles are OFF for EU_DENSE: the Eixample fixture has 13 service=parking_aisle ways and
+    # the EU_DENSE build is the pinned regression (tests/test_profiles_lanegraph checksum,
+    # tests/test_profiles_surfaces OBJ checksum). The widths are the ones to use when it is
+    # turned on: 6.0 m two-way / 3.5 m one-way aisle (typical European lot), 20 km/h.
+    parking_aisle=ParkingAisleRules(include=False, two_way_width=6.0, one_way_width=3.5,
+                                    min_length=8.0, speed_limit=20 / 3.6,
+                                    include_driveways=False, driveway_width=3.0),
     junction=JunctionRules(cluster_m=30.0, trim_margin_m=2.0, through_deg=30.0, uturn_deg=150.0,
                            through_align_m=1.0, signal_search_m=25.0, signal_lateral_m=0.5,
                            plaza_radius_m=45.0, chamfer_scan_m=60.0, dead_end_stub_m=10.0,
@@ -292,6 +318,13 @@ US_URBAN = StreetProfile(
     marking=MarkingRules(width=4 * IN, center_color="yellow", lane_color="white", edge_color="white",
                          broken_dash=10 * FT, broken_gap=30 * FT, z=0.002),
     crossing=CrossingRules(width=10 * FT, z=0.003, keep_m=2.5, near_cut_m=5.0),
+    # Parking-lot aisles: 24 ft two-way / 13 ft one-way (typical US zoning minimum for a
+    # drive aisle serving 90-degree stalls is 24 ft two-way, 12-14 ft one-way), 10 mph.
+    # Driveways stay off: they are mostly short entrances into building garages that would
+    # only add dead-end stubs (see DESIGN.md).
+    parking_aisle=ParkingAisleRules(include=True, two_way_width=24 * FT, one_way_width=13 * FT,
+                                    min_length=8.0, speed_limit=10 * 1609.344 / 3600,
+                                    include_driveways=False, driveway_width=12 * FT),
     junction=JunctionRules(cluster_m=40.0, trim_margin_m=2.0, through_deg=30.0, uturn_deg=150.0,
                            through_align_m=1.0, signal_search_m=35.0, signal_lateral_m=0.5,
                            plaza_radius_m=50.0, chamfer_scan_m=60.0, dead_end_stub_m=10.0,

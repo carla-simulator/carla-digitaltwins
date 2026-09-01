@@ -807,6 +807,8 @@ def _default_center_marking(road: Road) -> Optional[Marking]:
 
 def road_markings(road: Road, default_markings: bool = True) -> list[Marking]:
     """Free-standing Marking geometries for one (non-connecting) road."""
+    if road.tags.get("parking_aisle"):
+        return []  # a lot aisle carries no centre, lane or edge line (profiles.ParkingAisleRules)
     ref = _ref2d(road)
     bands = lane_bands(road)
     wl, wr = carriageway_extent(road)
@@ -1035,7 +1037,11 @@ def build_surfaces(model: TwinModel,
         drivable = lanegraph_drivable
 
     # holes: tiny ones are filled; small building-free ones become traffic islands; the rest
-    # (city blocks enclosed by a ring of roads) stay plain holes
+    # (city blocks enclosed by a ring of roads) stay plain holes. A hole inside a surface
+    # parking lot is the stall field between the aisles, not a raised island: it stays a hole
+    # and step 4b fills it with the lot's `parking` surface.
+    lots = [shapely_wkt.loads(w) for w in model.metadata.get("parking_lots_wkt", []) or []]
+    lots_union = _clean(unary_union(lots)) if lots else Polygon()
     islands: list[Polygon] = []
     filled_parts: list[Polygon] = []
     for part in _parts(drivable):
@@ -1045,7 +1051,9 @@ def build_surfaces(model: TwinModel,
             if hole.area < MIN_ISLAND_AREA:
                 continue
             keep_holes.append(ring)
-            if hole.area <= MAX_ISLAND_AREA and not hole.intersects(buildings):
+            in_lot = (not lots_union.is_empty
+                      and lots_union.intersection(hole).area > 0.5 * hole.area)
+            if hole.area <= MAX_ISLAND_AREA and not hole.intersects(buildings) and not in_lot:
                 islands.append(hole)
         filled_parts.append(Polygon(part.exterior, keep_holes))
     drivable = _clean(unary_union(filled_parts)) if filled_parts else Polygon()
@@ -1181,9 +1189,8 @@ def build_surfaces(model: TwinModel,
     #     level, never over the carriageway, a raised surface or a building
     raised_all = _clean(unary_union(raised_union_parts + islands)) if (raised_union_parts or islands) else Polygon()
     parking = Polygon()
-    lots = [shapely_wkt.loads(w) for w in model.metadata.get("parking_lots_wkt", []) or []]
     if lots:
-        parking = _clean(unary_union(lots))
+        parking = lots_union
         bbox = _model_bbox(model)
         if bbox is not None:
             parking = _clean(parking.intersection(bbox))
