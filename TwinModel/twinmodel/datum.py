@@ -88,6 +88,7 @@ class RoadDatum:
         self.cross_slope_cap = float(cross_slope_cap)
         self.layer_fallback = float(layer_fallback)
         self._layer_trees: dict[int, tuple[Optional[cKDTree], np.ndarray]] = {}
+        self._surface_tree: Optional[tuple[Optional[cKDTree], np.ndarray]] = None
         lines, covers, s_arrays, z_arrays, wl, wr = [], [], [], [], [], []
         pts, zs, rid = [], [], []
         road_layers: list[int] = []
@@ -118,6 +119,9 @@ class RoadDatum:
             rid.append(np.full(len(dense), i, dtype=np.int64))
         self.n_roads = len(lines)
         self.layers = np.asarray(road_layers, dtype=np.int64)
+        # a tunnel is under the ground: no query for the surface (layer >= 0, or no layer)
+        # may ever land on it, see ``nearest``
+        self.has_tunnels = bool(len(self.layers)) and bool((self.layers < 0).any())
         if not lines:
             self.tree = None
             self.cover_tree = None
@@ -170,6 +174,13 @@ class RoadDatum:
             best_z = np.where(better, z, best_z)
         return best_z, best_d
 
+    def _surface_samples(self) -> tuple[Optional[cKDTree], np.ndarray]:
+        """(KD-tree over the 1 m samples of the roads on layer >= 0, their global indices)."""
+        if self._surface_tree is None:
+            idx = np.flatnonzero(self.layers[self.rid] >= 0)
+            self._surface_tree = (cKDTree(self.xy[idx]) if len(idx) else None, idx)
+        return self._surface_tree
+
     def nearest(self, x, y, layer: Optional[int] = None) -> tuple[np.ndarray, np.ndarray]:
         """(road z at the covering reference-line point, distance to it) for each xy.
 
@@ -180,7 +191,10 @@ class RoadDatum:
 
         ``layer``: restrict the candidates to roads on that OSM layer (grade separation — the
         deck of an overpass and the road under it cover the same xy). Points that no road of
-        that layer covers fall back to the nearest sample of *any* road, as before."""
+        that layer covers fall back to the nearest sample of *any* road, as before — except a
+        tunnel road (layer < 0), which never answers for the surface: a query for layer >= 0
+        (or for no layer at all) over a tunnel is the ground above it, and the tunnel's own
+        surfaces stay inside its coverage."""
         x = np.atleast_1d(np.asarray(x, dtype=np.float64))
         y = np.atleast_1d(np.asarray(y, dtype=np.float64))
         n = len(x)
@@ -193,6 +207,9 @@ class RoadDatum:
         pi, ri = self.cover_tree.query(pts, predicate="within")
         if layer is not None and len(pi):
             keep = self.layers[ri] == int(layer)
+            pi, ri = pi[keep], ri[keep]
+        elif self.has_tunnels and len(pi):
+            keep = self.layers[ri] >= 0
             pi, ri = pi[keep], ri[keep]
         if len(pi):
             lines = self.lines[ri]
@@ -239,8 +256,16 @@ class RoadDatum:
             # nothing on ``layer`` covers these points: fall back to the nearest sample of any
             # road, as without a layer. Restricting the fallback too would drag a point beside
             # a ground road onto a deck 30 m away just because the deck is the only layer-1 road.
-            _, i0 = self.tree.query(q[miss], k=1)
-            z0, d0 = self._project(q[miss], np.atleast_1d(i0))
+            # Any road *above ground*, that is: a ground vertex over a tunnel must not drop
+            # into it (the fallback to the tunnel is kept only for a query on a tunnel layer).
+            tree, idx = self.tree, None
+            if self.has_tunnels and (layer is None or int(layer) >= 0):
+                tree, idx = self._surface_samples()
+            if tree is None:
+                tree, idx = self.tree, None
+            _, i0 = tree.query(q[miss], k=1)
+            i0 = np.atleast_1d(i0)
+            z0, d0 = self._project(q[miss], i0 if idx is None else idx[i0])
             z_out[miss] = z0
             d_out[miss] = d0
         return z_out, d_out
