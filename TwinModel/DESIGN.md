@@ -437,6 +437,28 @@ Generated content is a build product (not committed): `Content/Carla/Maps/Twins/
 `Content/Carla/__ExternalActors__/Carla/Maps/Twins/<Name>/`,
 `Content/Carla/Static/{Road,SideWalk,RoadLine,Building,Terrain}/Twins/<Name>/`.
 
+### Packaging a baked twin as a content pack (evaluated 2026-09-01, not yet executed)
+
+The content-pack tooling (commit `da94ed2b7`, branch `ue58-dev-carla`, checked out in
+`carla-ue58-cosmos`) supports World Partition maps by design: `carla-pack add --map ...
+--world-partition` copies the map's `__ExternalActors__`/`__ExternalObjects__` and `_BuiltData`
+into the pack plugin and the manifest records `world_partition: true`; `FindPathToXODRFile`
+searches mounted packs' `Content/Maps/OpenDrive/`. A baked twin would fit like this:
+1. author the pack in the tree that has the tooling: `carla-pack init TwinEixample`, then run
+   `ue/bake_level.py` with `--map-root /TwinEixample/Maps --mesh-root /TwinEixample/Static/
+   {semantic}/Twins/{name}` after a *Save-As into the pack* (a WP map must be duplicated into
+   the pack mount from the editor, file copies keep `/Game/...` references); the pack-side
+   Tagger rule is `/<Pack>/Static/<Label>/...` (first `Static` folder), which the mesh-root
+   above satisfies.
+2. `carla-pack add TwinEixample --map .../Maps/Eixample.umap --xodr Eixample.xodr
+   --world-partition`, `carla-pack build --base carla-0.10.0-Linux-release-metadata.tar.gz`
+   (needs the source build's editor as DLC cooker + the base-release metadata, both present in
+   `carla-ue58-cosmos/Build`), `carla-pack install` into the pack-capable packaged server.
+Blockers for doing it from this lane: the tooling, the mount RPCs and the pack-aware Tagger are
+not on `ue58-dev` (this tree) — authoring/cooking would have to happen in the
+`carla-ue58-cosmos` worktree (`ue58-dev-carla`), which another task owns; and a WP pack has not
+been verified end to end anywhere yet (TestPack is flat). No blocker is architectural.
+
 ### Stage 3 — `tools/carla_level_check.py <build_dir> <name> --level <Name> --port 4000`
 Same soak as `carla_load_check.py` (20 TM vehicles, 600 sync frames, collision sensors, stuck
 tracking, junction captures) but `client.load_world(<Name>)` instead of
