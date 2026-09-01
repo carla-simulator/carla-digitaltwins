@@ -307,3 +307,161 @@ def test_no_plaza_without_buildings():
     assert j.polygon.area < 400  # the plain cross cover
     assert not _drivable(model).contains(Point(9.0, 9.0))
     assert not model.surfaces_of("ground") == []
+
+
+# --------------------------------------------------------------------------- H2: bounded junctions, parking lots
+
+def _hull_of_ends(model):
+    from twinmodel.surfaces import _end_cross_section, _junction_roads
+    pts = []
+    for r, at_end in _junction_roads(model, model.junctions[0])[1]:
+        pts.extend(_end_cross_section(r, at_end))
+    return shapely.convex_hull(shapely.multipoints(pts))
+
+
+def test_bounded_cover_does_not_pave_the_block():
+    """US profiles: a cluster whose arm ends are 50 m apart gets the union of the arm corridors
+    and the connecting carriageways, not the hull of the ends (which spans the block)."""
+    from shapely.geometry import Point
+    from twinmodel import profiles
+    with profiles.use("us_urban"):
+        model = build_surfaces(synthetic.elongated_cluster())
+    j = model.junctions[0]
+    hull = _hull_of_ends(model)
+    assert j.tags["plaza_source"] in ("bounded", "lanegraph", "corner_void")
+    assert model.metadata["surfaces"]["junction_cover"] == "bounded"
+    assert j.polygon.area < 0.6 * hull.area, (j.polygon.area, hull.area)
+    # the block corners (inside the hull, far from every path) are not drivable ...
+    d = _drivable(model)
+    for sx in (1, -1):
+        for sy in (1, -1):
+            assert not d.intersects(Point(sx * 10.0, sy * 40.0)), (sx, sy)
+    # ... but every connecting road and every arm end is
+    for r in model.roads:
+        assert j.polygon.buffer(0.01).contains(shapely.force_2d(r.reference_line)) or r.junction_id is None
+    for c in j.connections:
+        assert j.polygon.distance(shapely.force_2d(model.road(c.incoming_road).reference_line)) < 1e-6
+    # the ring 1 m outside the junction is mostly raised (sidewalk apron), never a building
+    b = unary_union([bb.footprint for bb in model.buildings])
+    assert d.intersection(b).area < 1e-6
+
+
+def test_convex_cover_under_eu_dense_is_the_hull():
+    """EU_DENSE keeps DESIGN.md's convex cover: the same cluster is paved hull-wide."""
+    from twinmodel import profiles
+    with profiles.use("eu_dense"):
+        model = build_surfaces(synthetic.elongated_cluster(with_buildings=False))
+    j = model.junctions[0]
+    assert model.metadata["surfaces"]["junction_cover"] == "convex"
+    assert j.polygon.area == pytest.approx(_hull_of_ends(model).area, rel=0.05)
+
+
+def test_plaza_is_bounded_by_the_arm_envelope_and_capped():
+    """A lane-graph plaza that over-reaches (a 45 m disc around the junction) is clipped to the
+    envelope built from the arms; under the US profiles it is then capped by
+    ``plaza_max_area_factor`` x (widest street)^2 and the junction falls back to its cover."""
+    from dataclasses import replace
+    from shapely.geometry import Point
+    from twinmodel import profiles
+    from twinmodel.surfaces import _Arm, arm_info, bound_plaza, junction_envelope, _junction_roads
+    from shapely.ops import unary_union as uu
+
+    def with_tag(P, setback):
+        m = synthetic.four_way_junction()
+        # buildings on every corner, 90 degrees, ``setback`` m from the axes (5.0 = at the
+        # sidewalk edge, a plain city corner; 30 = wide open corners)
+        m.buildings = []
+        for sx in (1, -1):
+            for sy in (1, -1):
+                m.buildings.append(synthetic.Building(id=f"b{sx}{sy}", footprint=Polygon(
+                    [(sx * setback, sy * setback), (sx * 80, sy * setback), (sx * 80, sy * 80), (sx * setback, sy * 80)]), levels=3))
+        m.junctions[0].tags["centre"] = [0.0, 0.0]
+        m.junctions[0].tags["plaza_wkt"] = Point(0, 0).buffer(45).wkt
+        return m
+
+    # uncapped: the plaza is still bounded by construction
+    uncapped = profiles.US_URBAN.with_(name="test", junction=replace(profiles.US_URBAN.junction, plaza_max_area_factor=None))
+    with profiles.use(uncapped) as P:
+        model = build_surfaces(with_tag(P, 5.0))
+        j = model.junctions[0]
+        assert j.tags["plaza_source"] == "lanegraph" and "plaza_capped" not in j.tags
+        b = uu([bb.footprint for bb in model.buildings])
+        arms = [arm_info(r, e, b) for r, e in _junction_roads(model, j)[1]]
+        env = junction_envelope(j, arms, b)
+        assert env is not None and env.envelope.area < Point(0, 0).buffer(45).area
+        # the hull spans the arm ends' full street cross-sections (sidewalks included)
+        cw_hull = _hull_of_ends(model).area
+        assert cw_hull < env.hull.area < 1.5 * cw_hull
+        # 90-degree corners with no receding face: closed -> nothing past the hull in the corners
+        assert not env.closed.is_empty
+        clipped = bound_plaza(shapely.wkt.loads(j.tags["plaza_wkt"]), env)
+        assert clipped.area < 0.5 * Point(0, 0).buffer(45).area
+        assert clipped.difference(env.envelope).area < 1e-6
+        corner = clipped.intersection(env.closed).difference(env.hull.buffer(0.01))
+        assert corner.area < 1e-6
+        assert j.polygon.area < 0.4 * Point(0, 0).buffer(45).area
+        # a (mm-snapped) plaza that already lies inside its envelope comes back as the same object
+        from twinmodel.surfaces import _clean
+        inside = _clean(env.hull.buffer(-1.0))
+        assert bound_plaza(inside, env) is inside
+    # wide-open corners (blocks 30 m back: the faces recede past the arm ends -> open wedges):
+    # the plaza fills the envelope, which is far above 3 x (10.5 m)^2 -> capped, cover only
+    with profiles.use("us_urban") as P:
+        model = build_surfaces(with_tag(P, 30.0))
+        j = model.junctions[0]
+        assert j.tags["plaza_source"] == "bounded" and j.tags["plaza_capped"] > 3.0 * (2 * (3.25 + 2.0)) ** 2
+        assert model.metadata["surfaces"]["junctions_plaza_capped"] == 1
+        assert j.polygon.area < 3.0 * (2 * (3.25 + 2.0)) ** 2
+    with profiles.use(uncapped) as P:  # uncapped: the same open corners are paved up to the envelope
+        model = build_surfaces(with_tag(P, 30.0))
+        j = model.junctions[0]
+        assert j.tags["plaza_source"] == "lanegraph"
+        assert 3.0 * (2 * (3.25 + 2.0)) ** 2 < j.polygon.area < Point(0, 0).buffer(45).area
+    # EU_DENSE (uncapped, corner_opening="always"): the chamfer octagon behaviour is untouched
+    with profiles.use("eu_dense"):
+        eu = build_surfaces(synthetic.eixample_single_node())
+        assert eu.junctions[0].tags["plaza_source"] == "corner_void"
+        assert "plaza_capped" not in eu.junctions[0].tags
+        assert 800 < eu.junctions[0].polygon.area < 1300
+
+
+def test_parking_lots_from_metadata():
+    """``metadata["parking_lots_wkt"]`` (lanegraph, OSM amenity=parking) -> ``parking`` surfaces at
+    road level that never overlap the carriageway, the sidewalks, a building or the ground fill."""
+    from shapely.geometry import Point
+    base = build_surfaces(synthetic.straight_road())
+    ground_before = _ground(base).area
+    model = synthetic.straight_road()
+    lot = Polygon([(-30, -3), (30, -3), (30, -25), (-30, -25)])      # overlaps the road + right sidewalk
+    lot2 = Polygon([(-15, 4), (5, 4), (5, 20), (-15, 20)])           # overlaps the building on the left
+    model.metadata["parking_lots_wkt"] = [lot.wkt, lot2.wkt]
+    build_surfaces(model)
+    parking = [s for s in model.surfaces if s.kind == "parking"]
+    assert parking and all(s.z_offset == 0.0 and s.source == "osm_tags" for s in parking)
+    pk = unary_union([s.geometry for s in parking])
+    d, sw, g = _drivable(model), _sidewalk(model), _ground(model)
+    b = unary_union([bb.footprint for bb in model.buildings])
+    assert pk.intersection(d).area < 1e-6
+    assert pk.intersection(sw).area < 1e-6
+    assert pk.intersection(b).area < 1e-6
+    assert pk.intersection(g).area < 1e-6
+    assert pk.contains(Point(0, -15)) and not g.intersects(Point(0, -15))
+    assert pk.area == pytest.approx(lot.difference(unary_union([d, sw])).area + lot2.difference(unary_union([sw, b])).area, rel=0.02)
+    assert model.metadata["surfaces"]["parking_lot_count"] == 2
+    assert model.metadata["surfaces"]["parking_area"] == pytest.approx(pk.area)
+    assert g.area < ground_before                     # the lot reduces the ground fill
+    # a curb between the lot and the raised sidewalk
+    pcurbs = [c for c in model.curbs if c.low_side_kind == "parking"]
+    assert pcurbs and all(c.high_side_kind == "sidewalk" for c in pcurbs)
+    for c in pcurbs:
+        assert pk.boundary.buffer(0.005).contains(c.geometry) and sw.boundary.buffer(0.005).contains(c.geometry)
+    # idempotent
+    n = len(model.surfaces)
+    build_surfaces(model)
+    assert len(model.surfaces) == n and len([s for s in model.surfaces if s.kind == "parking"]) == len(parking)
+
+
+def test_no_parking_surfaces_without_lots():
+    model = build_surfaces(synthetic.straight_road())
+    assert not [s for s in model.surfaces if s.kind == "parking"]
+    assert model.metadata["surfaces"]["parking_lot_count"] == 0

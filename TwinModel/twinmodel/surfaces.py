@@ -25,7 +25,7 @@ from shapely import wkt as shapely_wkt
 from shapely.geometry import (GeometryCollection, LineString, MultiLineString, MultiPolygon,
                               Point, Polygon, box)
 from shapely.geometry.base import BaseGeometry
-from shapely.ops import linemerge, substring, unary_union
+from shapely.ops import linemerge, nearest_points, substring, unary_union
 
 from . import profiles, streetspace
 from .model import CurbLine, Junction, Lane, Marking, Road, Signal, Surface, TwinModel
@@ -45,10 +45,13 @@ EDGE_MARKING_INSET = 0.10  # outermost edge lines are drawn this far inside the 
 ARM_PROBE_STEP = 1.0       # sampling step along a junction arm for canyon / chamfer detection
 MIN_GROUND_AREA = 2.0
 PLAZA_OPENING = 3.0        # drivable plaza features thinner than 2x this become sidewalk
+MIN_CHAMFER = 2.0          # an arm's face must recede at least this far past its end to open a corner
 # regional values live in twinmodel.profiles (P = profiles.get() at call time):
 #   P.sidewalk.z / curb_height / verge_z            sidewalk, curb, planting-strip heights
 #   P.crossing.width / z                            default zebra width, crossing lift
 #   P.junction.plaza_radius_m / chamfer_scan_m / chamfer_allowance_m / plaza_sidewalk_m
+#   P.junction.cover / plaza_max_area_factor / corner_opening   cover construction, plaza cap,
+#                                                   when a corner may open past the arm-end hull
 #   P.streetspace.canyon_min_fraction / plaza_canyon_min_fraction / face_tol_m /
 #                 face_sample_step_m / sidewalk_to_face_max_m / ground_reach_m
 #   P.marking.*                                     default marking colours / width
@@ -361,6 +364,108 @@ def _band(line: LineString, w_left: float, w_right: float) -> BaseGeometry:
     return _clean(unary_union(parts)) if parts else Polygon()
 
 
+@dataclass
+class _Envelope:
+    """Bounds of a junction's open space, built from its arms (see :func:`junction_envelope`)."""
+    centre: Point
+    wmax: float                 # widest arm street width (incl. sidewalks)
+    corridors: BaseGeometry     # union of the widened arm corridors
+    hull: BaseGeometry          # convex hull of the arm-end cross-sections within plaza_radius_m
+    envelope: BaseGeometry      # corridors | hull.buffer(chamfer_allowance_m)
+    closed: BaseGeometry        # corner wedges that may not open past the hull (see junction_envelope)
+
+
+def junction_envelope(j: Junction, arms: list[_Arm], buildings: BaseGeometry | None) -> Optional[_Envelope]:
+    """Envelope a junction plaza may never leave, built by construction from the arms:
+
+    * per arm, a corridor rectangle from its trimmed end along its axis to the junction
+      centre's projection and on to the far side of the widest crossing arm (the approach
+      capped at ``junction.plaza_radius_m``) and
+      outward over its chamfer (``s_chamfer``), as wide as the arm's street (incl. sidewalks,
+      or the building face where the arm is in a canyon) plus ``junction.chamfer_allowance_m``
+      per side; the envelope is the UNION of these (never their convex hull), together with
+    * the convex hull of the arm-end cross-sections (arms within ``plaza_radius_m``) buffered
+      by the chamfer allowance.
+
+    A corner wedge (between two adjacent arms by bearing) without any building within
+    ``plaza_radius_m`` of the centre has nothing to open a chamfer towards: it is ``closed``
+    and :func:`bound_plaza` keeps only the hull part there. Under
+    ``junction.corner_opening == "recess"`` a wedge is also closed when both its arms run in
+    their canyon right up to their ends (``s_chamfer`` <= ``MIN_CHAMFER``): a 90-degree corner
+    never opens, a block-wide "plaza" along a swallowed internal street cannot form. Under
+    ``"always"`` (EU_DENSE: Eixample arms are cut at the chamfer line, so the open corner shows
+    no receding face) every wedge with a building face gets the full envelope."""
+    if not arms:
+        return None
+    P = profiles.get()
+    R = P.junction.plaza_radius_m
+    allow = P.junction.chamfer_allowance_m
+    ctr = j.tags.get("centre")
+    centre = (Point(float(ctr[0]), float(ctr[1])) if ctr
+              else Point(*np.mean([a.p for a in arms], axis=0)))
+    c = np.array([centre.x, centre.y])
+    wmax = max(sum(a.half) for a in arms)
+    far = max(max(a.half) for a in arms) + P.junction.trim_margin_m
+    corridors: list[BaseGeometry] = []
+    ends: list[tuple[float, float]] = [(centre.x, centre.y)]
+    for a in arms:
+        d = float(np.linalg.norm(a.p - c))
+        # the approach runs to the centre's projection on the arm's axis (an arm that enters
+        # off-centre must not shoot past the junction), capped at the plaza radius
+        inward = min(max(0.0, float(np.dot(c - a.p, -a.u))), R) + far
+        outward = min(a.s_chamfer, R) + 1.0
+        seg = LineString([a.p - a.u * inward, a.p + a.u * outward])
+        w = [max(a.half[i], a.face[i] if np.isfinite(a.face[i]) else 0.0) + allow for i in (0, 1)]
+        corridors.append(_band(seg, w[0], w[1]))
+        if d <= R:
+            n = np.array([-a.u[1], a.u[0]])
+            ends.append(tuple(a.p + n * a.half[0]))
+            ends.append(tuple(a.p - n * a.half[1]))
+    hull = shapely.convex_hull(shapely.multipoints(ends))
+    if not isinstance(hull, Polygon) or hull.is_empty:
+        hull = centre.buffer(far)
+    corr = _clean(unary_union(corridors))
+    closed: list[Polygon] = []
+    need_recess = P.junction.corner_opening == "recess"
+    order = sorted(arms, key=lambda a: a.bearing)
+    rr = R + allow + wmax
+    disc = centre.buffer(R)
+    for k, a in enumerate(order):
+        b = order[(k + 1) % len(order)]
+        gap = (b.bearing - a.bearing) % (2 * math.pi) if len(order) > 1 else 2 * math.pi
+        if gap < math.radians(10):
+            continue  # near-parallel arms (a boulevard's laterals) share no corner
+        n = max(2, int(math.ceil(gap / math.radians(15))))
+        fan = [(centre.x, centre.y)] + [
+            (centre.x + rr * math.cos(a.bearing + gap * t / n), centre.y + rr * math.sin(a.bearing + gap * t / n))
+            for t in range(n + 1)]
+        wedge = Polygon(fan)
+        if not wedge.is_valid or wedge.area <= 0:
+            continue
+        if (buildings is None or buildings.is_empty or not buildings.intersects(wedge.intersection(disc))
+                or (need_recess and max(a.s_chamfer, b.s_chamfer) <= MIN_CHAMFER)):
+            closed.append(wedge)
+    envelope = _clean(unary_union([corr, hull.buffer(allow, join_style="mitre", mitre_limit=MITRE_LIMIT)]))
+    return _Envelope(centre, wmax, corr, hull, envelope,
+                     _clean(unary_union(closed)) if closed else Polygon())
+
+
+def bound_plaza(plaza: Polygon | MultiPolygon | None, env: Optional[_Envelope]) -> Polygon | MultiPolygon | None:
+    """``plaza`` clipped to the junction envelope and, inside closed corner wedges, to the
+    arm-end hull. The input object is returned untouched when nothing is cut, so a plaza that
+    already lies inside its envelope (every Eixample corner) rebuilds byte-identically."""
+    if env is None or plaza is None or plaza.is_empty:
+        return plaza
+    out = plaza.intersection(env.envelope)
+    if not env.closed.is_empty:
+        inside = out.intersection(env.closed)
+        out = unary_union([out.difference(env.closed), inside.intersection(env.hull)])
+    out = _clean(out)
+    if abs(out.area - plaza.area) < 1e-6:
+        return plaza
+    return out
+
+
 def junction_plaza(model: TwinModel, j: Junction, arms: list[_Arm], buildings: BaseGeometry,
                    seed: BaseGeometry, connecting_ids: set[str]
                    ) -> Optional[tuple[Polygon | MultiPolygon, BaseGeometry]]:
@@ -496,17 +601,45 @@ def _junction_roads(model: TwinModel, j: Junction) -> tuple[list[Road], list[tup
     return connecting, out
 
 
+def _arm_inward(road: Road, at_end: bool) -> Optional[np.ndarray]:
+    """Unit tangent at the road's junction end pointing INTO the junction."""
+    c = np.asarray(_ref2d(road).coords, dtype=np.float64)
+    if len(c) < 2:
+        return None
+    d = (c[-1] - c[-2]) if at_end else (c[0] - c[1])
+    n = float(np.linalg.norm(d))
+    return d / n if n > 1e-9 else None
+
+
+def _bridge_parts(poly: MultiPolygon, width: float) -> Polygon | MultiPolygon:
+    """Join the parts of a multipolygon with flat corridors of ``width`` between nearest points
+    (largest part first)."""
+    parts = sorted(_parts(poly), key=lambda g: g.area, reverse=True)
+    out: BaseGeometry = parts[0]
+    for g in parts[1:]:
+        a, b = nearest_points(out, g)
+        link = LineString([a, b]).buffer(max(width, 0.5), cap_style="flat") if a.distance(b) > 1e-6 else Polygon()
+        out = _clean(unary_union([out, g, link]))
+    return out
+
+
 def junction_cover_polygon(model: TwinModel, j: Junction,
                    carriageways: dict[str, Polygon | MultiPolygon],
-                   cover: str = "convex") -> Optional[Polygon]:
+                   cover: str = "convex", buildings: BaseGeometry | None = None) -> Optional[Polygon]:
     """Union of the connecting roads' carriageways and a cover of the incoming roads' end
     cross-sections so the polygon fully spans the space between the road ends.
 
-    ``cover="convex"`` (default, DESIGN.md): convex hull of all end cross-sections and
-    connecting-road samples — matches the Eixample octagon, may pave over a corner in front of an
-    arm that sits far from the others. ``cover="adjacent"``: union of the hulls of consecutive
-    arm pairs (by bearing) plus the polygon through the arm-end centres — hugs the arms, but gives
-    lumpy concave edges where parallel arms (carriageway + lateral) enter on the same side."""
+    ``cover="convex"`` (DESIGN.md, ``profiles.EU_DENSE``): convex hull of all end cross-sections
+    and connecting-road samples — matches the Eixample octagon, may pave over a corner in front
+    of an arm that sits far from the others. ``cover="adjacent"``: union of the hulls of
+    consecutive arm pairs (by bearing) plus the polygon through the arm-end centres — hugs the
+    arms, but gives lumpy concave edges where parallel arms (carriageway + lateral) enter on the
+    same side. ``cover="bounded"`` (US profiles): no hull at all — every arm's carriageway is
+    extruded into the junction (through the centre to the far side of the widest crossing arm,
+    the approach capped at ``junction.plaza_radius_m``, never over a ``buildings`` footprint)
+    and the connecting roads' carriageways carry the rest; holes are filled unless they hold a
+    building. This is what a 40–60 m cluster that swallowed internal ways needs: the hull of
+    arm ends 80 m apart would pave the whole block."""
     connecting, incoming = _junction_roads(model, j)
     parts: list[BaseGeometry] = []
     centre_pts: list[tuple[float, float]] = []
@@ -515,11 +648,37 @@ def junction_cover_polygon(model: TwinModel, j: Junction,
         if cw is not None and not cw.is_empty:
             parts.append(cw)
         centre_pts.extend(_ref2d(r).coords)
-    sections = [(_end_cross_section(r, at_end), r) for r, at_end in incoming]
-    sections = [(xs, r) for xs, r in sections if xs]
+    sections3 = [(_end_cross_section(r, at_end), r, at_end) for r, at_end in incoming]
+    sections = [(xs, r) for xs, r, _ in sections3 if xs]
     for xs, _ in sections:
         centre_pts.extend(xs)
-    if cover == "adjacent" and len(sections) >= 3:
+    if cover == "bounded" and sections:
+        P = profiles.get()
+        ctr = j.tags.get("centre")
+        centre = (np.array([float(ctr[0]), float(ctr[1])]) if ctr
+                  else np.mean([xs[len(xs) // 2] for xs, _ in sections], axis=0))
+        far = max(max(carriageway_extent(r)) for _, r in sections) + P.junction.trim_margin_m
+        has_bld = buildings is not None and not buildings.is_empty
+        for xs, r, at_end in sections3:
+            u = _arm_inward(r, at_end) if xs else None
+            if u is None:
+                continue
+            a, b = np.asarray(xs[0]), np.asarray(xs[-1])
+            mid = np.asarray(xs[len(xs) // 2])
+            # to the centre's projection on the arm's axis (not past the junction when the arm
+            # enters off-centre), capped at the plaza radius, plus the far side's half width
+            L = min(max(0.0, float(np.dot(centre - mid, u))), P.junction.plaza_radius_m) + far
+            rect = Polygon([a, b, b + u * L, a + u * L]) if float(np.linalg.norm(a - b)) > 1e-6 else Polygon()
+            if rect.is_empty or not rect.is_valid:
+                continue
+            if has_bld:
+                rect = _keep_touching(_clean(rect.difference(buildings)), LineString([a, b]))
+            if not rect.is_empty:
+                parts.append(rect)
+        if len(sections) == 1 and not connecting:
+            parts.append(Polygon(sections[0][0]).buffer(far) if len(sections[0][0]) >= 3 else
+                         Point(*sections[0][0][0]).buffer(far))
+    elif cover == "adjacent" and len(sections) >= 3:
         # concave-ish cover: hull of every pair of *adjacent* arms (sorted by bearing around
         # the junction centre) plus the polygon through all arm ends; avoids sweeping the
         # corner space in front of an arm that sits far from the others
@@ -547,6 +706,9 @@ def junction_cover_polygon(model: TwinModel, j: Junction,
         log.warning("junction %s: no geometry to build a polygon from", j.id)
         return None
     poly = _clean(unary_union(parts))
+    if isinstance(poly, MultiPolygon) and cover == "bounded":
+        # disconnected pieces: link them with corridors as wide as the widest arm
+        poly = _bridge_parts(poly, max(max(carriageway_extent(r)) for _, r in sections) if sections else 1.0)
     if isinstance(poly, MultiPolygon):
         # disconnected pieces: bridge with the hull of everything
         poly = _clean(unary_union([poly, shapely.convex_hull(poly)]))
@@ -554,8 +716,10 @@ def junction_cover_polygon(model: TwinModel, j: Junction,
         poly = max(poly.geoms, key=lambda p: p.area)
     if poly.is_empty:
         return None
-    # fill holes (a junction interior is drivable through and through)
-    return Polygon(poly.exterior)
+    # fill holes (a junction interior is drivable through and through) unless one holds a building
+    holes = [ring for ring in poly.interiors
+             if buildings is not None and not buildings.is_empty and Polygon(ring).intersects(buildings)]
+    return Polygon(poly.exterior, holes)
 
 
 def junction_polygon(model: TwinModel, j: Junction,
@@ -567,7 +731,8 @@ def junction_polygon(model: TwinModel, j: Junction,
     (drivable part of the corner void) is given — that cover minus the sidewalk band
     ``keep_out`` along the buildings, united with the plaza and the connecting roads'
     carriageways. Holes are filled unless they hold a building."""
-    base = junction_cover_polygon(model, j, carriageways, cover=cover)
+    base = junction_cover_polygon(model, j, carriageways, cover=cover,
+                                  buildings=buildings if cover == "bounded" else None)
     if plaza is None or plaza.is_empty or base is None:
         return base
     connecting, incoming = _junction_roads(model, j)
@@ -732,19 +897,24 @@ def curb_lines(drivable: BaseGeometry, raised: BaseGeometry) -> list[LineString]
 def build_surfaces(model: TwinModel,
                    refined_drivable: Polygon | MultiPolygon | None = None,
                    default_markings: bool = True,
-                   junction_cover: str = "convex") -> TwinModel:
+                   junction_cover: Optional[str] = None) -> TwinModel:
     """Fill ``model.surfaces``, ``model.curbs``, ``model.markings`` and every
     ``Junction.polygon`` from the lane graph. Mutates and returns ``model``. Idempotent.
 
     ``refined_drivable`` (from ``refine.py``) replaces the lane-graph drivable polygon (source
     ``imagery``; the lane-graph one is kept as WKT in ``metadata["surfaces"]``).
     ``default_markings``: synthesise edge/centre/lane markings where the lane graph has none.
-    ``junction_cover``: see :func:`junction_polygon`."""
+    ``junction_cover``: see :func:`junction_cover_polygon`; default the profile's
+    ``junction.cover``. Surface parking lots listed as WKT in
+    ``model.metadata["parking_lots_wkt"]`` (lanegraph, OSM ``amenity=parking``) become
+    ``parking`` surfaces."""
     model.surfaces = []
     model.curbs = []
     model.markings = []
     stats: dict = {}
     P = profiles.get()
+    cover = junction_cover or P.junction.cover
+    plaza_cap = P.junction.plaza_max_area_factor
     sidewalk_z = P.sidewalk.z
     verge_z = P.sidewalk.verge_z
     ground_z = P.sidewalk.z            # ground fill sits at curb-top level
@@ -775,23 +945,29 @@ def build_surfaces(model: TwinModel,
     plaza_sidewalks: list[tuple[BaseGeometry, str]] = []
     keep_out_cache: dict[float, BaseGeometry] = {}
     n_plaza = 0
+    n_capped = 0
+    plaza_ratios: dict[str, float] = {}
     for j in model.junctions:
         if j.tags.get("polygon_source") == "surfaces":
             j.polygon = None  # our own previous result is not an input (idempotent rebuilds)
-        base = junction_cover_polygon(model, j, carriageways, cover=junction_cover)
+        j.tags.pop("plaza_capped", None)
+        base = junction_cover_polygon(model, j, carriageways, cover=cover,
+                                      buildings=buildings if cover == "bounded" else None)
         _, incoming = _junction_roads(model, j)
         plaza_drv = None
-        source = "convex"
+        source = cover
         if base is not None and not buildings.is_empty and incoming:
             widths = [w for r, _ in incoming for w in _sidewalk_widths(r) if w > 0]
             sw = round(max(widths) if widths else P.junction.plaza_sidewalk_m, 3)
             tag = j.tags.get("plaza_wkt")
             arms = [arm_info(r, at_end, buildings) for r, at_end in incoming]
+            env = junction_envelope(j, arms, buildings)
             plaza = keep_out = None
+            plaza_from = "corner_void"
             if tag:
                 plaza = _clean(shapely_wkt.loads(tag))
                 plaza = plaza if not plaza.is_empty else None
-                source = "lanegraph"
+                plaza_from = "lanegraph"
                 # keep-out: the widest effective sidewalk of the arms along every face
                 sw = round(max([w for a in arms for w in a.sidewalk] or [sw]), 3)
                 if sw not in keep_out_cache:
@@ -802,9 +978,24 @@ def build_surfaces(model: TwinModel,
                 res = junction_plaza(model, j, arms, buildings, base, connecting_ids)
                 if res is not None:
                     plaza, keep_out = res
-                source = "corner_void"
+            # the plaza never leaves the envelope built from the arms (corridors + arm-end hull);
+            # a corner without a building face gets no chamfer opening
+            plaza = bound_plaza(plaza, env)
+            if plaza is not None and plaza.is_empty:
+                plaza = None
             if plaza is not None:
                 plaza_drv = _clean(plaza.difference(keep_out))
+                if env is not None and env.wmax > 0:
+                    plaza_ratios[j.id] = float(plaza_drv.area) / env.wmax ** 2
+                if (plaza_cap is not None and env is not None
+                        and plaza_drv.area > plaza_cap * env.wmax ** 2):
+                    log.info("junction %s: plaza %.0f m2 exceeds %.1f x (%.1f m)^2 = %.0f m2 -> %s cover only",
+                             j.id, plaza_drv.area, plaza_cap, env.wmax, plaza_cap * env.wmax ** 2, cover)
+                    j.tags["plaza_capped"] = round(float(plaza_drv.area), 1)
+                    n_capped += 1
+                    plaza = plaza_drv = None
+            if plaza is not None:
+                source = plaza_from
                 # spikes and slivers (a chamfer shoulder squeezed between the keep-out and an
                 # arm) are sidewalk, not plaza; keep only what connects to the cover
                 opened = _clean(plaza_drv.buffer(-PLAZA_OPENING, join_style="mitre")
@@ -815,12 +1006,11 @@ def build_surfaces(model: TwinModel,
                 plaza_drv = opened
                 if not plaza_sw.is_empty:
                     plaza_sidewalks.append((plaza_sw, f"junction:{j.id}"))
-                poly = junction_polygon(model, j, carriageways, cover=junction_cover,
+                poly = junction_polygon(model, j, carriageways, cover=cover,
                                         plaza=plaza_drv, keep_out=keep_out, buildings=buildings)
                 n_plaza += 1
             else:
                 poly = base
-                source = "convex"
         else:
             poly = base
         j.tags["plaza_source"] = source
@@ -987,10 +1177,26 @@ def build_surfaces(model: TwinModel,
                                       road_ids=[sig.road_id], tags={"signal_id": sig.id}))
         k += 1
 
-    # 5. ground: the street void near the surfaces that is neither drivable nor raised nor
-    #    building (open lots, courtyard mouths, the strip beyond a short sidewalk); block
-    #    interiors are enclosed by their buildings and stay empty
+    # 4b. parking lots (OSM amenity=parking, handed over by the lane graph as WKT): at road
+    #     level, never over the carriageway, a raised surface or a building
     raised_all = _clean(unary_union(raised_union_parts + islands)) if (raised_union_parts or islands) else Polygon()
+    parking = Polygon()
+    lots = [shapely_wkt.loads(w) for w in model.metadata.get("parking_lots_wkt", []) or []]
+    if lots:
+        parking = _clean(unary_union(lots))
+        bbox = _model_bbox(model)
+        if bbox is not None:
+            parking = _clean(parking.intersection(bbox))
+        parking = _clean(parking.difference(unary_union([drivable, raised_all])), min_area=MIN_SURFACE_AREA)
+        if not buildings.is_empty:
+            parking = _clean(parking.difference(buildings), min_area=MIN_SURFACE_AREA)
+        for k, part in enumerate(_parts(parking)):
+            model.surfaces.append(Surface(id=f"parking_{k}", kind="parking", geometry=part,
+                                          z_offset=0.0, source="osm_tags"))
+
+    # 5. ground: the street void near the surfaces that is neither drivable nor raised nor
+    #    parking lot nor building (open lots, courtyard mouths, the strip beyond a short
+    #    sidewalk); block interiors are enclosed by their buildings and stay empty
     covered = _clean(unary_union([drivable, raised_all]))
     ground_area = 0.0
     if not covered.is_empty:
@@ -1002,6 +1208,8 @@ def build_surfaces(model: TwinModel,
         void = _clean(extent.difference(buildings)) if not buildings.is_empty else extent
         reach = covered.buffer(ground_reach)
         ground = _clean(void.intersection(reach).difference(covered), min_area=MIN_GROUND_AREA)
+        if not parking.is_empty:
+            ground = _clean(ground.difference(parking), min_area=MIN_GROUND_AREA)
         ground = _keep_touching(ground, covered)
         for k, part in enumerate(_parts(ground)):
             model.surfaces.append(Surface(id=f"ground_{k}", kind="ground", geometry=part,
@@ -1016,10 +1224,13 @@ def build_surfaces(model: TwinModel,
         if not parts:
             continue
         raised_kind = _clean(unary_union(parts))
-        for line in curb_lines(drivable, raised_kind):
-            model.curbs.append(CurbLine(id=f"curb_{k}", geometry=line, height=curb_height,
-                                        low_side_kind="drivable", high_side_kind=high_kind))
-            k += 1
+        for low_kind, low in (("drivable", drivable), ("parking", parking)):
+            if low.is_empty:
+                continue
+            for line in curb_lines(low, raised_kind):
+                model.curbs.append(CurbLine(id=f"curb_{k}", geometry=line, height=curb_height,
+                                            low_side_kind=low_kind, high_side_kind=high_kind))
+                k += 1
 
     # 7. markings (never inside junctions) ---------------------------------------------------
     clip_out = junction_union.buffer(0.05) if not junction_union.is_empty else None
@@ -1047,8 +1258,13 @@ def build_surfaces(model: TwinModel,
         "marking_count": len(model.markings),
         "junctions_with_polygon": len(junction_polys),
         "junctions_with_plaza": n_plaza,
+        "junctions_plaza_capped": n_capped,
+        "plaza_ratio_max": float(max(plaza_ratios.values())) if plaza_ratios else 0.0,
+        "junction_cover": cover,
         "sidewalk_sides_to_face": n_face_sides,
         "ground_area": float(ground_area),
+        "parking_lot_count": len(lots),
+        "parking_area": float(parking.area),
         "drivable_source": source,
     })
     model.metadata.setdefault("surfaces", {}).update(stats)

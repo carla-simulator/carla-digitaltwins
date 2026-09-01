@@ -113,6 +113,18 @@ class JunctionRules:
     band_overlap_m2: float     # a road's full band may not cover another road's carriageway more
     plaza_sidewalk_m: float = 4.5     # sidewalk band along the corner buildings when no arm has one
     chamfer_allowance_m: float = 15.0  # how far beyond an arm's face line a corner chamfer may open
+    # junction cover polygon: "convex" = convex hull of the arm-end cross-sections (compact dense-
+    # city clusters, DESIGN.md); "bounded" = union of the arm corridors and the connecting roads'
+    # carriageways (40-60 m clusters that swallow internal ways: the hull would pave the block)
+    cover: Literal["convex", "bounded"] = "convex"
+    # a corner plaza may not exceed this multiple of (widest arm street width)^2; above it the
+    # junction falls back to its cover polygon. None = uncapped.
+    plaza_max_area_factor: Optional[float] = 3.0
+    # when a junction corner (between two adjacent arms) may open beyond the hull of the arm
+    # ends towards the buildings: "always" (chamfered blocks — the arms are cut at the chamfer
+    # line, the open corner needs no receding face) or "recess" (only when one of the two arms'
+    # canyon face steps back past its end; 90-degree corners never open)
+    corner_opening: Literal["always", "recess"] = "recess"
 
 
 @dataclass(frozen=True)
@@ -224,7 +236,10 @@ EU_DENSE = StreetProfile(
     junction=JunctionRules(cluster_m=30.0, trim_margin_m=2.0, through_deg=30.0, uturn_deg=150.0,
                            through_align_m=1.0, signal_search_m=25.0, signal_lateral_m=0.5,
                            plaza_radius_m=45.0, chamfer_scan_m=60.0, dead_end_stub_m=10.0,
-                           stub_m=3.0, short_road_m=5.0, band_overlap_m2=0.5),
+                           stub_m=3.0, short_road_m=5.0, band_overlap_m2=0.5,
+                           # 2026-09-01 behaviour: hull cover, no plaza cap (Eixample's chamfer
+                           # octagons reach 3.6x, the Passeig de Gracia 8-arm plazas 5.7x)
+                           cover="convex", plaza_max_area_factor=None, corner_opening="always"),
     geometry=GeometryRules(min_road_length=1.0, connect_sample_m=1.0, simplify_m=0.1,
                            width_step_m=1.0, taper_max_m=15.0, taper_pieces_max=3, jog_max_m=5.0,
                            jog_min_turn_deg=45.0, jog_transition_m=10.0, street_width_outlier=0.25),
@@ -280,7 +295,8 @@ US_URBAN = StreetProfile(
     junction=JunctionRules(cluster_m=40.0, trim_margin_m=2.0, through_deg=30.0, uturn_deg=150.0,
                            through_align_m=1.0, signal_search_m=35.0, signal_lateral_m=0.5,
                            plaza_radius_m=50.0, chamfer_scan_m=60.0, dead_end_stub_m=10.0,
-                           stub_m=3.0, short_road_m=5.0, band_overlap_m2=0.5),
+                           stub_m=3.0, short_road_m=5.0, band_overlap_m2=0.5,
+                           cover="bounded", plaza_max_area_factor=3.0, corner_opening="recess"),
     geometry=GeometryRules(min_road_length=1.0, connect_sample_m=1.0, simplify_m=0.1,
                            width_step_m=1.0, taper_max_m=25.0, taper_pieces_max=3, jog_max_m=5.0,
                            jog_min_turn_deg=45.0, jog_transition_m=10.0, street_width_outlier=0.25),

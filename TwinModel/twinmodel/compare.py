@@ -38,7 +38,7 @@ PAD_M = 2.0                  # grid padding, must match imagery.fetch_ortho / os
 OVERLAY_ALPHA = 0.55
 JUNCTION_WINDOW_M = 120.0
 N_JUNCTIONS = 3
-ROAD_GROUPS = ("drivable", "crossing", "parking")
+ROAD_GROUPS = ("drivable", "crossing")  # parking lots are not road
 # rasterisation order: later groups paint over earlier ones
 DRAW_ORDER = ("ground", "drivable", "parking", "verge", "sidewalk", "island", "median", "crossing",
               "curb", "marking_white", "marking_yellow")

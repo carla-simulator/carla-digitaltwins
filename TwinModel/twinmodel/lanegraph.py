@@ -1684,8 +1684,11 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     # 9. signals + controllers
     _build_signals(model, osm, node_xy, clusters, road_end_cluster, road_nodes, by_id, stats)
 
-    # 10. point objects (buildings were built first)
+    # 10. point objects (buildings were built first); surface parking lots go to the metadata
+    #     (surfaces.build_surfaces turns them into ``parking`` surfaces)
     model.objects = _objects(osm, frame)
+    meta["parking_lots_wkt"] = _parking_lots(osm, frame)
+    stats["parking_lots"] = len(meta["parking_lots_wkt"])
 
     stats.update({
         "roads": sum(1 for r in roads if r.junction_id is None),
@@ -2424,6 +2427,48 @@ def _objects(osm: OsmData, frame: LocalFrame) -> list[PointObject]:
                          "diameter_crown", "circumference")}
         out.append(PointObject(id=f"{kind}{nid}", kind=kind, position=Point(float(x), float(y)),
                                osm_id=nid, tags=keep))
+    return out
+
+
+_PARKING_EXCLUDED = ("underground", "multi-storey", "rooftop")
+
+
+def _parking_lots(osm: OsmData, frame: LocalFrame) -> list[str]:
+    """WKT (model space) of the surface parking lots: closed ways and multipolygon relations
+    tagged ``amenity=parking`` whose ``parking=*`` is ``surface`` or absent (underground,
+    multi-storey and rooftop lots are not ground surfaces)."""
+    def wanted(tags: dict[str, str]) -> bool:
+        return tags.get("amenity") == "parking" and tags.get("parking", "surface") not in _PARKING_EXCLUDED
+
+    out: list[str] = []
+    member_ways: set[int] = set()
+    for rel in osm.relations:
+        if not wanted(rel.tags) or rel.tags.get("type", "multipolygon") != "multipolygon":
+            continue
+        outers = [m.ref for m in rel.members if m.type == "way" and m.role in ("outer", "")]
+        inners = [m.ref for m in rel.members if m.type == "way" and m.role == "inner"]
+        member_ways.update(outers)
+        outer_polys = _assemble_rings(osm, outers, frame)
+        if not outer_polys:
+            continue
+        geom = unary_union(outer_polys)
+        holes = _assemble_rings(osm, inners, frame)
+        if holes:
+            geom = geom.difference(unary_union(holes))
+        geom = unary_union([g for g in getattr(geom, "geoms", [geom]) if isinstance(g, Polygon) and not g.is_empty])
+        if not geom.is_empty:
+            out.append(geom.wkt)
+    for w in osm.ways:
+        if not wanted(w.tags) or w.id in member_ways or len(w.nodes) < 4 or w.nodes[0] != w.nodes[-1]:
+            continue
+        xy = _ring_xy(osm, w, frame)
+        if not xy or len(xy) < 4:
+            continue
+        poly = Polygon(xy)
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+        if not poly.is_empty and poly.area >= 0.5:
+            out.append(poly.wkt)
     return out
 
 

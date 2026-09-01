@@ -327,9 +327,58 @@ def eixample_single_node(arm_length: float = 60.0, lane_w: float = 3.0, parking_
                              name="synthetic_eixample_node")
 
 
+# --------------------------------------------------------------------------- case 5
+
+def elongated_cluster(long_arm: float = 50.0, short_arm: float = 12.0, lane_w: float = 3.25,
+                      sidewalk_w: float = 2.0, arm_length: float = 60.0, setback: float = 14.0,
+                      with_buildings: bool = True) -> TwinModel:
+    """A junction cluster that swallowed an internal street (US 40–60 m clustering): the N and S
+    arms end ``long_arm`` m from the centre, the E and W arms ``short_arm`` m — the convex hull
+    of the arm ends spans the whole block between them. Connecting roads for every in->out pair;
+    four rectangular blocks ``setback`` m from the street axes (90-degree corners, no chamfer).
+    The N-S connecting road is the swallowed street itself."""
+    m = _empty("synthetic_elongated")
+    jid = "j1"
+    arms = []
+    for name, ang, r_end in (("E", 0.0, short_arm), ("N", math.pi / 2, long_arm),
+                             ("W", math.pi, short_arm), ("S", -math.pi / 2, long_arm)):
+        arm = _arm(f"arm_{name}", ang, r_end, arm_length, two_way_lanes(lane_w, sidewalk_w),
+                   incoming=True, junction_id=jid, name=f"Arm {name}")
+        arms.append(arm)
+    m.roads.extend(arms)
+    junction = Junction(id=jid, name="elongated", tags={"centre": [0.0, 0.0]})
+    for a in arms:
+        for b in arms:
+            if a is b:
+                continue
+            p0 = np.asarray(a.reference_line.coords)[-1][:2]
+            p1 = np.asarray(b.reference_line.coords)[-1][:2]
+            t0 = _end_tangent(a, True)
+            t1 = -_end_tangent(b, True)
+            cid = f"c_{a.id[-1]}{b.id[-1]}"
+            croad = Road(id=cid, reference_line=hermite(p0, t0, p1, t1),
+                         lanes=[Lane(id=-1, type="driving", width=lane_w, direction="forward")],
+                         junction_id=jid, highway="residential",
+                         predecessor=RoadLink("road", a.id, "end"), successor=RoadLink("road", b.id, "end"))
+            m.roads.append(croad)
+            junction.connections.append(Connection(
+                id=f"{a.id}->{cid}", incoming_road=a.id, connecting_road=cid,
+                contact_point="start", lane_links=[LaneLink(-1, -1)]))
+    m.junctions.append(junction)
+    if with_buildings:
+        for sx in (1, -1):
+            for sy in (1, -1):
+                m.buildings.append(Building(id=f"b_{sx}_{sy}", footprint=Polygon(
+                    [(sx * setback, sy * setback), (sx * (setback + 80), sy * setback),
+                     (sx * (setback + 80), sy * (setback + 80)), (sx * setback, sy * (setback + 80))]),
+                    levels=3))
+    return m
+
+
 ALL_CASES = {
     "straight": straight_road,
     "fourway": four_way_junction,
     "eixample": eixample_junction,
     "eixample_node": eixample_single_node,
+    "elongated": elongated_cluster,
 }

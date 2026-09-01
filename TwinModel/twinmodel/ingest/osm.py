@@ -90,7 +90,8 @@ def overpass_query(bbox_swne: tuple[float, float, float, float]) -> str:
     """Overpass QL for everything the twin needs inside the bbox.
 
     Highway ways and their nodes, the point features we turn into signals/objects,
-    buildings (ways + multipolygon relations), ``area:highway`` ways and turn-restriction
+    buildings (ways + multipolygon relations), surface parking lots (``amenity=parking`` ways +
+    relations, for ``parking`` surfaces), ``area:highway`` ways and turn-restriction
     relations. ``out body; >; out skel qt;`` recurses down to every referenced node.
     """
     s, w, n, e = bbox_swne
@@ -103,6 +104,8 @@ def overpass_query(bbox_swne: tuple[float, float, float, float]) -> str:
   node["natural"="tree"]({bb});
   way["building"]({bb});
   relation["building"]({bb});
+  way["amenity"="parking"]({bb});
+  relation["amenity"="parking"]({bb});
   way["area:highway"]({bb});
   relation["type"="restriction"]({bb});
 );

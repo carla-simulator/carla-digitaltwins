@@ -620,3 +620,42 @@ def test_laterals_continue_straight_across_the_main_junction(model):
                 chord = math.dist(pts[0], pts[-1])
                 assert cr.length <= chord * 1.03, (c.id, cr.length, chord)
     assert lateral_through == 2
+
+
+def test_parking_lots_extracted_to_metadata():
+    """Closed ``amenity=parking`` ways and multipolygon relations (surface / untagged) become
+    ``metadata["parking_lots_wkt"]``; underground, multi-storey and rooftop lots do not."""
+    from shapely import wkt as _wkt
+    from twinmodel.frame import LocalFrame
+    from twinmodel.ingest.osm import OsmData, OsmMember, OsmNode, OsmRelation, OsmWay
+    from twinmodel.lanegraph import _parking_lots
+    frame = LocalFrame(41.3925, 2.1660)
+    osm = OsmData()
+    nid = [0]
+
+    def node(x, y):
+        nid[0] += 1
+        lon, lat = frame.to_wgs84(x, y)
+        osm.nodes[nid[0]] = OsmNode(nid[0], float(lat), float(lon))
+        return nid[0]
+
+    def ring(x0, y0, w, h):
+        ids = [node(x0, y0), node(x0 + w, y0), node(x0 + w, y0 + h), node(x0, y0 + h)]
+        return ids + [ids[0]]
+
+    osm.ways.append(OsmWay(1, ring(0, 0, 20, 10), {"amenity": "parking"}))
+    osm.ways.append(OsmWay(2, ring(50, 0, 20, 10), {"amenity": "parking", "parking": "surface"}))
+    osm.ways.append(OsmWay(3, ring(100, 0, 20, 10), {"amenity": "parking", "parking": "underground"}))
+    osm.ways.append(OsmWay(4, ring(150, 0, 20, 10), {"amenity": "parking", "parking": "multi-storey"}))
+    osm.ways.append(OsmWay(5, ring(200, 0, 20, 10), {"amenity": "parking", "parking": "rooftop"}))
+    osm.ways.append(OsmWay(6, ring(250, 0, 20, 10)[:-1], {"amenity": "parking"}))   # not closed
+    osm.ways.append(OsmWay(7, ring(300, 0, 40, 40), {}))                            # relation outer
+    osm.ways.append(OsmWay(8, ring(310, 10, 10, 10), {}))                           # relation inner
+    osm.relations.append(OsmRelation(9, [OsmMember("way", 7, "outer"), OsmMember("way", 8, "inner")],
+                                     {"type": "multipolygon", "amenity": "parking"}))
+    lots = [_wkt.loads(w) for w in _parking_lots(osm, frame)]
+    areas = sorted(round(g.area) for g in lots)
+    assert areas == [200, 200, 1500], areas
+    assert all(g.is_valid for g in lots)
+    assert not any(abs(g.centroid.x - 110) < 15 or abs(g.centroid.x - 160) < 15 or abs(g.centroid.x - 210) < 15
+                   for g in lots)
