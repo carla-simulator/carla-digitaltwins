@@ -96,6 +96,52 @@ class Road:
         return sum(l.width for l in self.lanes if l.id < 0 and l.type in types)
 
 
+# --------------------------------------------------------------------------- auxiliary lanes
+# A freeway speed-change lane (lanegraph 7k, ``JunctionRules.gore_model == "taper"``) is a
+# lane of the mainline road that exists only over part of it and whose width changes linearly
+# along the reference line. It is described by tags on the ``Lane``:
+#   aux       "merge" (acceleration lane, full width then tapering to 0), "diverge"
+#             (deceleration lane, tapering in from 0 then full width) or "weave" (full width
+#             over the whole road)
+#   aux_s0 / aux_s1        the s interval of the road over which the lane exists
+#   taper_s0 / taper_s1    the sub-interval over which the width changes (merge: full -> 0,
+#                          diverge: 0 -> full); absent for a weave
+# ``Lane.width`` is the full width. Everything else (a lane without ``aux``) spans the road.
+
+AUX_EPS = 1e-6
+
+
+def aux_span(lane: "Lane", road: "Road") -> tuple[float, float]:
+    """``(s0, s1)`` over which ``lane`` exists on ``road`` (the whole road for an ordinary lane)."""
+    if not lane.tags.get("aux"):
+        return 0.0, float(road.length)
+    return float(lane.tags.get("aux_s0", 0.0)), float(lane.tags.get("aux_s1", road.length))
+
+
+def lane_present_at(lane: "Lane", road: "Road", contact: str) -> bool:
+    """Whether ``lane`` exists at the ``"start"`` / ``"end"`` of ``road``."""
+    s0, s1 = aux_span(lane, road)
+    return s0 <= AUX_EPS if contact == "start" else s1 >= road.length - AUX_EPS
+
+
+def aux_width_at(lane: "Lane", road: "Road", s: float) -> float:
+    """Width of ``lane`` at ``s`` (0 where the lane does not exist)."""
+    if not lane.tags.get("aux"):
+        return float(lane.width)
+    s0, s1 = aux_span(lane, road)
+    if s < s0 - AUX_EPS or s > s1 + AUX_EPS:
+        return 0.0
+    t0 = lane.tags.get("taper_s0")
+    t1 = lane.tags.get("taper_s1")
+    if t0 is None or t1 is None or float(t1) - float(t0) <= AUX_EPS:
+        return float(lane.width)
+    t0, t1 = float(t0), float(t1)
+    f = min(1.0, max(0.0, (s - t0) / (t1 - t0)))
+    if lane.tags["aux"] == "merge":
+        f = 1.0 - f
+    return float(lane.width) * f
+
+
 def road_osm_layer(road: "Road") -> int:
     """Vertical stacking level of a road: the OSM ``layer`` tag as an int, 0 when absent.
 
