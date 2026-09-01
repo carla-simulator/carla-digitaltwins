@@ -40,11 +40,12 @@ JUNCTION_WINDOW_M = 120.0
 N_JUNCTIONS = 3
 ROAD_GROUPS = ("drivable", "crossing", "parking")
 # rasterisation order: later groups paint over earlier ones
-DRAW_ORDER = ("ground", "drivable", "parking", "sidewalk", "island", "median", "crossing", "curb",
-              "marking_white", "marking_yellow")
+DRAW_ORDER = ("ground", "drivable", "parking", "verge", "sidewalk", "island", "median", "crossing",
+              "curb", "marking_white", "marking_yellow")
 FALLBACK_COLORS: dict[str, tuple[int, int, int]] = {
     "drivable": (56, 56, 59), "sidewalk": (158, 156, 148), "island": (140, 158, 128),
-    "crossing": (217, 217, 209), "median": (133, 148, 122), "parking": (77, 77, 79),
+    "crossing": (217, 217, 209), "median": (133, 148, 122), "verge": (92, 133, 69),
+    "parking": (77, 77, 79),
     "curb": (128, 128, 128), "marking_white": (242, 242, 242), "marking_yellow": (242, 204, 38),
     "ground": (120, 133, 107),
 }

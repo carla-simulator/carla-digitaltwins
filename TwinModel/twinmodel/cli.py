@@ -2,15 +2,22 @@
 
     twinmodel build --bbox S W N E --name NAME --out DIR [--no-imagery] [--no-dem]
                     [--no-refine] [--fixture PATH] [--cache data] [--mask-method classical|sam|auto]
+                    [--profile eu_dense|us_urban|us_suburban|auto]
     twinmodel validate <twin_dir> <xodr> [--out DIR] [--step 1.0]
     twinmodel compare BUILD_DIR NAME [--resolution 0.25] [--zoom 19]   (twinmodel.compare)
 
 ``build`` stages (each timed, everything recorded in ``model.metadata["build"]``):
 
+0. Profile  ``--profile`` (default ``auto``: the bbox's country via
+            ``ingest.osm.country_for_bbox`` + the OSM building coverage pick a
+            :mod:`twinmodel.profiles` profile; unknown -> ``eu_dense``). Every stage below
+            reads its regional constants from the active profile; ``metadata["profile"]``
+            records the choice.
 1. OSM      Overpass (cached) or ``--fixture`` -> ``parse_osm`` -> ``build_lanegraph``.
 2. DEM      ``fetch_dem`` -> ``model.elevation``; z applied to every reference line with
-            along-road smoothing (2 m resample, ~10 m Savitzky-Golay window), connecting
-            roads interpolated between their incoming/outgoing road ends, signal z set.
+            along-road smoothing (profile ``elevation.resample_m`` resample,
+            ``elevation.smooth_window_m`` Savitzky-Golay window), connecting roads
+            interpolated between their incoming/outgoing road ends, signal z set.
 3. Imagery  ``fetch_ortho`` (kept for the preview and for refinement).
 4. Surfaces ``build_surfaces``; then (unless ``--no-refine``) ``road_mask`` ->
             ``refine_drivable`` -> ``build_surfaces(refined_drivable=...)``; refinement is
@@ -24,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import inspect
 import json
 import logging
 import math
@@ -31,12 +39,14 @@ import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Callable, Iterator, Optional
 
 import numpy as np
 import shapely
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, Point, Polygon, box
+from shapely.ops import unary_union
 
+from . import profiles
 from .frame import LocalFrame
 from .model import Elevation, Road, TwinModel
 
@@ -44,20 +54,23 @@ log = logging.getLogger("twinmodel.cli")
 
 DEFAULT_BBOX = (41.3905, 2.1630, 41.3945, 2.1690)  # Eixample, see DESIGN.md
 LANE_IN_DRIVABLE_MIN = 0.98
-RESAMPLE_M = 2.0          # along-road sampling step for the DEM
-SMOOTH_WINDOW_M = 10.0    # Savitzky-Golay window (metres) applied to the sampled profile
 JUNCTION_ZOOM_PAD_M = 25.0
+PROFILE_CHOICES = tuple(sorted(profiles.PROFILES)) + ("auto",)
+# regional (twinmodel.profiles): DEM resample step P.elevation.resample_m, smoothing window
+# P.elevation.smooth_window_m, data-source preference P.sources
 
 
 # --------------------------------------------------------------------------- elevation glue
 
-def _smooth_z(z: np.ndarray, ds: float) -> np.ndarray:
-    """Savitzky-Golay (polyorder 1, i.e. a least-squares moving average) over a ~SMOOTH_WINDOW_M
-    window; graceful for short lines."""
+def _smooth_z(z: np.ndarray, ds: float, window_m: Optional[float] = None) -> np.ndarray:
+    """Savitzky-Golay (polyorder 1, i.e. a least-squares moving average) over a ``window_m``
+    (default: profile ``elevation.smooth_window_m``) window; graceful for short lines."""
+    if window_m is None:
+        window_m = profiles.get().elevation.smooth_window_m
     n = len(z)
     if n < 3:
         return z.copy()
-    win = int(round(SMOOTH_WINDOW_M / ds))
+    win = int(round(window_m / ds))
     win = max(3, win | 1)  # odd, >= 3
     if win > n:
         win = n if n % 2 == 1 else n - 1
@@ -82,15 +95,16 @@ def _vertex_s(xy: np.ndarray) -> np.ndarray:
 
 def road_profile_from_dem(road: Road, elevation: Elevation) -> tuple[np.ndarray, float]:
     """Smoothed z at the road's reference-line vertices; also the max |smoothed - raw DEM|."""
+    E = profiles.get().elevation
     xy = np.asarray(road.reference_line.coords, dtype=np.float64)[:, :2]
     s_v = _vertex_s(xy)
     length = float(s_v[-1])
     line2d = LineString(xy)
-    # sample every RESAMPLE_M along the line, extended half a window past both ends along the
-    # end tangents so the end vertices (junction contacts) get full-window smoothing too
-    ext = SMOOTH_WINDOW_M / 2.0
-    n_in = max(2, int(math.ceil(length / RESAMPLE_M)) + 1)
-    ds = length / (n_in - 1) if length > 0 else RESAMPLE_M
+    # sample every elevation.resample_m along the line, extended half a window past both ends
+    # along the end tangents so the end vertices (junction contacts) get full-window smoothing
+    ext = E.smooth_window_m / 2.0
+    n_in = max(2, int(math.ceil(length / E.resample_m)) + 1)
+    ds = length / (n_in - 1) if length > 0 else E.resample_m
     n_ext = int(math.ceil(ext / ds))
     s_dense = np.concatenate([-ds * np.arange(n_ext, 0, -1), np.linspace(0.0, length, n_in),
                               length + ds * np.arange(1, n_ext + 1)])
@@ -109,7 +123,7 @@ def road_profile_from_dem(road: Road, elevation: Elevation) -> tuple[np.ndarray,
     px[after] += t1[0] * (s_dense[after] - length)
     py[after] += t1[1] * (s_dense[after] - length)
     z_raw = np.asarray(elevation.sample(px, py), dtype=np.float64)
-    z_smooth = _smooth_z(z_raw, ds)
+    z_smooth = _smooth_z(z_raw, ds, E.smooth_window_m)
     z_vertices = np.interp(s_v, s_dense, z_smooth)
     z_raw_vertices = np.asarray(elevation.sample(xy[:, 0], xy[:, 1]), dtype=np.float64)
     return z_vertices, float(np.max(np.abs(z_vertices - z_raw_vertices)))
@@ -184,12 +198,13 @@ def apply_elevation(model: TwinModel, elevation: Optional[Elevation] = None) -> 
     zs = np.concatenate([np.asarray(r.reference_line.coords)[:, 2] for r in model.roads]) \
         if model.roads else np.zeros(1)
     from .ingest.elevation import plane_fit
+    E = profiles.get().elevation
     stats = plane_fit(el)
     stats.update({
         "applied": True,
         "roads": n_plain, "connecting_roads": n_conn, "connecting_roads_dem_fallback": n_conn_fallback,
         "road_z_min": float(zs.min()), "road_z_max": float(zs.max()),
-        "smoothing": {"resample_m": RESAMPLE_M, "window_m": SMOOTH_WINDOW_M, "filter": "savgol1"},
+        "smoothing": {"resample_m": E.resample_m, "window_m": E.smooth_window_m, "filter": "savgol1"},
         "max_abs_smoothing_residual_m": max_resid,
         "junction_planes": junction_stats,
         "grid": {"shape": list(el.z.shape), "dx": el.dx, "dy": el.dy},
@@ -256,15 +271,97 @@ def _json_safe(o: Any) -> Any:
     return o
 
 
+# --------------------------------------------------------------------------- profile selection
+
+def _bbox_polygon(frame: LocalFrame, bbox: tuple[float, float, float, float]) -> Polygon:
+    south, west, north, east = bbox
+    x0, y0 = frame.to_local(west, south)
+    x1, y1 = frame.to_local(east, north)
+    return box(float(x0), float(y0), float(x1), float(y1))
+
+
+def building_coverage(osm, frame: LocalFrame, bbox: tuple[float, float, float, float]) -> Optional[float]:
+    """Building footprint area / bbox area (0-1) from the OSM download, computed *before* the
+    lane graph so the profile can be chosen first. Uses ``lanegraph._buildings`` (footprints
+    incl. multipolygon relations) when available, plain ``building=*`` closed ways otherwise;
+    None when nothing can be measured."""
+    try:
+        area_box = _bbox_polygon(frame, bbox)
+        if area_box.area <= 0:
+            return None
+        footprints: list = []
+        from . import lanegraph as _lg
+        fn = getattr(_lg, "_buildings", None)
+        if fn is not None:
+            footprints = [b.footprint for b in fn(osm, frame)]
+        else:  # pragma: no cover - lanegraph helper renamed: closed building ways only
+            for w in osm.ways_with("building"):
+                pts = [frame.to_local(lon, lat) for lon, lat in osm.way_coords(w)]
+                if len(pts) >= 4 and w.nodes[0] == w.nodes[-1]:
+                    poly = Polygon([(float(x), float(y)) for x, y in pts])
+                    if poly.is_valid and poly.area > 0:
+                        footprints.append(poly)
+        if not footprints:
+            return 0.0
+        covered = unary_union([shapely.make_valid(f) for f in footprints]).intersection(area_box)
+        return float(covered.area / area_box.area)
+    except Exception as exc:  # noqa: BLE001 - selection heuristic only
+        log.warning("building coverage not measured: %s", exc)
+        return None
+
+
+def country_for_bbox(bbox: tuple[float, float, float, float], cache_dir: Path) -> Optional[str]:
+    """ISO 3166-1 alpha-2 of the bbox via ``ingest.osm.country_for_bbox`` when that exists
+    (worker D2), else None (-> the caller falls back to EU_DENSE)."""
+    from .ingest import osm as osm_mod
+    fn: Optional[Callable] = getattr(osm_mod, "country_for_bbox", None)
+    if fn is None:
+        log.info("profile: ingest.osm.country_for_bbox not available, country unknown")
+        return None
+    try:
+        try:
+            iso2 = fn(bbox, cache_dir)
+        except TypeError:
+            iso2 = fn(bbox)
+    except Exception as exc:  # noqa: BLE001 - network / lookup failure -> unknown
+        log.warning("profile: country lookup failed (%s), country unknown", exc)
+        return None
+    return str(iso2).upper() if iso2 else None
+
+
+def select_profile(choice: str, osm, frame: LocalFrame, bbox: tuple[float, float, float, float],
+                   cache_dir: Path) -> tuple[profiles.StreetProfile, dict[str, Any]]:
+    """Resolve ``--profile``: a name, or ``auto`` = ``profiles.choose_for_country(iso2,
+    building_coverage)``. Returns the profile and the ``metadata["profile"]`` record."""
+    coverage = building_coverage(osm, frame, bbox)
+    if choice != "auto":
+        p = profiles.by_name(choice)
+        return p, {"name": p.name, "source": "cli", "iso2": None, "building_coverage": coverage}
+    iso2 = country_for_bbox(bbox, cache_dir)
+    p = profiles.choose_for_country(iso2, coverage)
+    return p, {"name": p.name, "source": "auto", "iso2": iso2, "building_coverage": coverage}
+
+
+def _call_with_sources(fn: Callable, *args, sources: tuple[str, ...], **kw):
+    """Call an ingest fetcher passing ``sources=`` only when it accepts it (worker D2 is
+    adding the kwarg; works before and after)."""
+    try:
+        accepts = "sources" in inspect.signature(fn).parameters
+    except (TypeError, ValueError):  # pragma: no cover - builtins / odd callables
+        accepts = False
+    if accepts:
+        try:
+            return fn(*args, sources=list(sources), **kw)
+        except TypeError as exc:
+            if "sources" not in str(exc):
+                raise
+    return fn(*args, **kw)
+
+
 # --------------------------------------------------------------------------- build
 
 def build(args: argparse.Namespace) -> int:
     from .ingest.osm import fetch_overpass, load_fixture, parse_osm
-    from .lanegraph import build_lanegraph
-    from .surfaces import build_surfaces
-    from .export.xodr import export_xodr
-    from .export.mesh import export_obj, export_preview_png
-    from . import validate as validate_mod
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -276,9 +373,8 @@ def build(args: argparse.Namespace) -> int:
                  if k != "func"},
         "timings": timer.timings, "outputs": {}, "notes": [],
     }
-    outputs = build_meta["outputs"]
 
-    # 1. OSM -> lane graph ------------------------------------------------------------------
+    # 1. OSM --------------------------------------------------------------------------------
     with timer.stage("osm"):
         if args.fixture:
             osm = load_fixture(args.fixture)
@@ -296,8 +392,34 @@ def build(args: argparse.Namespace) -> int:
             return 2
         build_meta["bbox_swne"] = list(bbox)
         frame = LocalFrame.from_bbox(*bbox)
+
+    # 0. profile: chosen before the lane graph, active for every stage that follows --------
+    with timer.stage("profile"):
+        profile, profile_meta = select_profile(getattr(args, "profile", "auto") or "auto",
+                                               osm, frame, bbox, cache)
+        build_meta["profile"] = profile_meta
+        cov = profile_meta.get("building_coverage")
+        log.info("profile: %s (%s, country %s, building coverage %s)", profile.name,
+                 profile_meta["source"], profile_meta.get("iso2") or "unknown",
+                 f"{cov:.2f}" if cov is not None else "n/a")
+        log.info("profile: %s", profiles.summary(profile))
+    with profiles.use(profile):
+        return _build_pipeline(args, osm, bbox, frame, out, cache, timer, build_meta, profile_meta)
+
+
+def _build_pipeline(args: argparse.Namespace, osm, bbox, frame: LocalFrame, out: Path, cache: Path,
+                    timer: _Timer, build_meta: dict[str, Any], profile_meta: dict[str, Any]) -> int:
+    from .lanegraph import build_lanegraph
+    from .surfaces import build_surfaces
+    from .export.xodr import export_xodr
+    from .export.mesh import export_obj, export_preview_png
+    from . import validate as validate_mod
+
+    outputs = build_meta["outputs"]
+    P = profiles.get()
     with timer.stage("lanegraph"):
         model = build_lanegraph(osm, frame, bbox, name=args.name)
+        model.metadata["profile"] = dict(profile_meta)
         log.info("lanegraph: %d roads, %d junctions, %d signals, %d buildings",
                  len(model.roads), len(model.junctions), len(model.signals), len(model.buildings))
 
@@ -308,7 +430,8 @@ def build(args: argparse.Namespace) -> int:
             build_meta["notes"].append("dem: skipped (--no-dem)")
         else:
             from .ingest.elevation import fetch_dem
-            model.elevation = fetch_dem(frame, bbox, cache_dir=cache)
+            model.elevation = _call_with_sources(fetch_dem, frame, bbox, cache_dir=cache,
+                                                 sources=P.sources.dem)
             if model.elevation is None:
                 build_meta["notes"].append("dem: no source reachable, z=0")
         model.metadata["elevation"] = _json_safe(apply_elevation(model))
@@ -327,7 +450,8 @@ def build(args: argparse.Namespace) -> int:
             build_meta["notes"].append("imagery: skipped (--no-imagery)")
         else:
             from .ingest.imagery import fetch_ortho
-            ortho = fetch_ortho(frame, bbox, cache_dir=cache)
+            ortho = _call_with_sources(fetch_ortho, frame, bbox, cache_dir=cache,
+                                       sources=P.sources.ortho)
             if ortho is None:
                 build_meta["notes"].append("imagery: fetch failed, no ortho")
             else:
@@ -448,11 +572,14 @@ def build(args: argparse.Namespace) -> int:
     # report.json also carries the build metadata so a reader has everything in one file
     report_slim = json.loads(report_path.read_text())
     report_slim["build"] = _json_safe(build_meta)
+    report_slim["profile"] = _json_safe(model.metadata.get("profile"))
     report_slim["elevation"] = model.metadata.get("elevation")
     report_slim["refine"] = _json_safe({k: v for k, v in model.metadata.get("refine", {}).items()})
     report_path.write_text(json.dumps(report_slim, indent=2, default=str))
 
     print(validate_mod.summary(report))
+    print(f"profile: {profiles.summary(P)} [{profile_meta['source']}"
+          + (f", {profile_meta['iso2']}" if profile_meta.get("iso2") else "") + "]")
     print("timings: " + ", ".join(f"{k} {v:.2f}s" for k, v in timer.timings.items())
           + f" (total {build_meta['total_seconds']:.2f}s)")
     print(f"outputs: {out}")
@@ -506,6 +633,8 @@ def _build_parser() -> argparse.ArgumentParser:
     b.add_argument("--no-dem", action="store_true")
     b.add_argument("--no-refine", action="store_true")
     b.add_argument("--mask-method", default="classical", choices=["classical", "sam", "auto"])
+    b.add_argument("--profile", default="auto", choices=list(PROFILE_CHOICES),
+                   help="region profile (twinmodel.profiles); auto = by country + building density")
     b.add_argument("--step", type=float, default=1.0, help="waypoint step for validation (m)")
     b.add_argument("--junction-zooms", type=int, default=3, help="zoom PNGs for the N largest junctions")
     b.set_defaults(func=build)

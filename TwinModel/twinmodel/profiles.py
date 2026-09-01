@@ -111,6 +111,8 @@ class JunctionRules:
     stub_m: float              # trimmed remnants shorter than this are absorbed into their neighbour
     short_road_m: float        # non-junction roads shorter than this merge into a neighbour
     band_overlap_m2: float     # a road's full band may not cover another road's carriageway more
+    plaza_sidewalk_m: float = 4.5     # sidewalk band along the corner buildings when no arm has one
+    chamfer_allowance_m: float = 15.0  # how far beyond an arm's face line a corner chamfer may open
 
 
 @dataclass(frozen=True)
@@ -137,6 +139,7 @@ class StreetSpaceRules:
     blocker_min_dist_m: float
     ground_reach_m: float       # ground fill: within this of a sidewalk/drivable surface
     sidewalk_to_face_max_m: float  # sidewalk band may extend at most this far from the carriageway
+    plaza_canyon_min_fraction: float = 0.5  # mean canyon fraction of a junction's arms to trust the buildings
 
 
 @dataclass(frozen=True)

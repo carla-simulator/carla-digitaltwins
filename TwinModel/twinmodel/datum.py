@@ -36,16 +36,16 @@ from scipy.spatial import cKDTree
 from shapely.geometry import LineString
 from shapely.strtree import STRtree
 
+from . import profiles
 from .model import Elevation, Road, TwinModel
 
 log = logging.getLogger("twinmodel.datum")
 
 SEGMENT_M = 1.0
-MAX_DIST_M = 25.0
 REACH_PAD_M = 1.0
 K_NEIGHBOURS = 64  # far-field fallback only
-JUNCTION_BLEND_M = 20.0
-CONNECTING_BLEND_M = 15.0
+# regional (twinmodel.profiles, read at call time): P.elevation.datum_max_dist_m,
+# P.elevation.junction_blend_m, P.elevation.connecting_blend_m
 
 
 def _densify(xyz: np.ndarray, step: float) -> np.ndarray:
@@ -70,9 +70,12 @@ class RoadDatum:
     """Reference-line z over model space (see module docstring)."""
 
     def __init__(self, roads: Iterable[Road], elevation: Optional[Elevation] = None,
-                 max_dist: float = MAX_DIST_M, segment: float = SEGMENT_M,
+                 max_dist: Optional[float] = None, segment: float = SEGMENT_M,
                  reach_pad: float = REACH_PAD_M, k: int = K_NEIGHBOURS,
                  cross_slope: float = 0.0, cross_slope_cap: float = 10.0):
+        """``max_dist`` defaults to the active profile's ``elevation.datum_max_dist_m``."""
+        if max_dist is None:
+            max_dist = profiles.get().elevation.datum_max_dist_m
         self.elevation = elevation
         self.max_dist = float(max_dist)
         self.reach_pad = float(reach_pad)
@@ -245,12 +248,19 @@ def _fit_plane(P: np.ndarray) -> np.ndarray:
     return np.array([a, b, c])
 
 
-def harmonize_junction_z(model: TwinModel, blend_m: float = JUNCTION_BLEND_M) -> dict[str, Any]:
+def harmonize_junction_z(model: TwinModel, blend_m: Optional[float] = None,
+                         conn_blend_m: Optional[float] = None) -> dict[str, Any]:
     """Pull every junction's contact points onto one plane per junction (fitted through the
     contacts of its incoming/outgoing roads), blending each arm's profile over ``blend_m``
-    from the contact, and set connecting-road z from that plane (ends pinned to the linked
-    lanes' z, see below). Mutates the reference lines; returns stats (max/rms contact
-    adjustment, junctions touched)."""
+    (default ``profile.elevation.junction_blend_m``) from the contact, and set
+    connecting-road z from that plane (ends pinned to the linked lanes' z, blended over
+    ``conn_blend_m``, default ``profile.elevation.connecting_blend_m``). Mutates the
+    reference lines; returns stats (max/rms contact adjustment, junctions touched)."""
+    E = profiles.get().elevation
+    if blend_m is None:
+        blend_m = E.junction_blend_m
+    if conn_blend_m is None:
+        conn_blend_m = E.connecting_blend_m
     roads = {r.id: r for r in model.roads}
     contacts: dict[str, list[tuple[str, bool, np.ndarray]]] = {}  # jid -> (road, at_end, xyz)
     for r in model.roads:
@@ -297,7 +307,7 @@ def harmonize_junction_z(model: TwinModel, blend_m: float = JUNCTION_BLEND_M) ->
     # 13 m from the arm's reference line sits at the reference z, not at the plane z of its
     # own xy; blend that lateral-offset delta out over the first/last conn_blend_m
     n_conn = 0
-    conn_blend_m = min(blend_m, CONNECTING_BLEND_M)
+    conn_blend_m = min(blend_m, conn_blend_m)
     for r in model.roads:
         if r.junction_id is None or r.junction_id not in planes:
             continue

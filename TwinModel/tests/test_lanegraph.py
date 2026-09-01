@@ -11,7 +11,8 @@ from shapely.geometry import LineString, Point
 from twinmodel.frame import LocalFrame
 from twinmodel.ingest.osm import load_fixture, parse_osm, overpass_query
 from twinmodel.lanegraph import (build_lanegraph, lanes_for_way, parse_length, parse_maxspeed,
-                                 point_on_road, _hermite, _offset_polyline, JUNCTION_CLUSTER_M)
+                                 point_on_road, _hermite, _offset_polyline)
+from twinmodel import profiles
 from twinmodel.model import TwinModel
 
 FIXTURE = Path(__file__).parent / "fixtures" / "eixample_overpass.json"
@@ -164,7 +165,7 @@ def test_eixample_boulevard_crossings_are_single_junctions(model):
     for j in model.junctions:
         hull = wkt.loads(j.tags["hull_wkt"])
         xs, ys = hull.bounds[0::2], hull.bounds[1::2]
-        assert max(xs[1] - xs[0], ys[1] - ys[0]) < 3 * JUNCTION_CLUSTER_M
+        assert max(xs[1] - xs[0], ys[1] - ys[0]) < 3 * profiles.get().junction.cluster_m
 
 
 def test_junction_connections(model):
@@ -348,7 +349,8 @@ def test_crossings_stay_on_their_road(model):
 
 
 def test_no_width_steps_between_linked_roads(model):
-    from twinmodel.lanegraph import _core_width, WIDTH_STEP_M, TAPER_MAX_M
+    from twinmodel.lanegraph import _core_width
+    WIDTH_STEP_M, TAPER_MAX_M = profiles.get().geometry.width_step_m, profiles.get().geometry.taper_max_m
     roads = {r.id: r for r in model.roads}
     tapers = [r for r in model.roads if r.tags.get("taper")]
     assert tapers and all(r.length <= TAPER_MAX_M + 1e-6 for r in tapers)
@@ -411,7 +413,7 @@ def test_interior_dead_ends_are_genuine(model):
 
 
 def test_reference_lines_are_simplified(model):
-    from twinmodel.lanegraph import SHORT_ROAD_M
+    SHORT_ROAD_M = profiles.get().junction.short_road_m
     for r in model.roads:
         if r.junction_id is not None:
             continue
@@ -476,7 +478,7 @@ def _by_name(model, name):
 def test_canyon_cross_section_from_building_faces(model):
     """Cerda streets are 20 m building-to-building (Arago 30 m): the carriageway comes from
     the faces, not from the 6-7 m width tags, and is centred between them."""
-    from twinmodel.lanegraph import MIN_LANE_WIDTH, CANYON_LANE_MAX_M
+    MIN_LANE_WIDTH, CANYON_LANE_MAX_M = profiles.get().lane.min_width, profiles.get().lane.canyon_max_width
     from twinmodel import streetspace
     st = model.metadata["lanegraph"]
     assert st["canyon_roads"] >= 20

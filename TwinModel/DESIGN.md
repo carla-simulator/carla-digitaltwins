@@ -190,6 +190,28 @@ The output must parse with `carla.Map("twin", xodr_string)` (ue58 wheel, no serv
   the largest junctions, runs a TM fleet soak with collision sensors and writes `carla_report.json`.
   Server recipe in the integrator section; check `ss -ltn` for a lingering port 3000 before relaunching.
 
+## Region profiles (`twinmodel/profiles.py`)
+
+Every dimensional or urban-form constant lives in ONE place: a `StreetProfile` (lane defaults per
+`highway=*`, sidewalk/verge/parking rules, marking colours and dash pattern, crossing width,
+junction clustering radii, chamfer/plaza scan distances, canyon thresholds, elevation smoothing,
+and the ordered imagery/DEM providers). Modules read it with `profiles.get()` **at call time**;
+never copy a number into a module. Pure numerical tolerances (mm precision grids, triangle-area
+epsilons) stay in the modules.
+
+- `EU_DENSE` — the values the pipeline was calibrated with on Eixample; the Eixample build is the
+  regression check for any refactor (`tests/test_profiles_*` pin checksums).
+- `US_URBAN` / `US_SUBURBAN` — MUTCD / AASHTO / NACTO / PROWAG values (feet in the comments):
+  10–12 ft lanes, yellow centre lines, 10 ft / 30 ft dashes, 10 ft crosswalks, parking both
+  sides on residential streets, 5 ft sidewalks behind 4–6 ft planting strips (`verge` lane and
+  surface kind), 40–60 m junction clusters for divided arterials, NAIP + 3DEP sources.
+- Selection: `twinmodel build --profile auto` → `ingest.osm.country_for_bbox` (Overpass
+  `is_in`) → `profiles.choose_for_country(iso2, building_coverage)`; US picks urban when building
+  footprints cover ≥ 30 % of the bbox. `--profile <name>` overrides. The chosen profile is recorded
+  in `metadata["profile"]` and printed at the top of the build log.
+- Lane order outward from the reference line: driving… | biking | parking | verge | sidewalk.
+  `verge` → OpenDRIVE `border` lane; mesh group `verge` (grass, curb-top level).
+
 ## Rules for all workers
 
 - Pure functions over the dataclasses in `model.py`; no global state; no network inside tests.

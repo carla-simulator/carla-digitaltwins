@@ -2,7 +2,11 @@
 
 DESIGN.md §Mesh. The .obj is written in model space (x east, y north, z up, metres); whoever
 loads it into Unreal does ``(x, -y, z) * 100``. Groups: ``drivable``, ``sidewalk``, ``island``,
-``crossing``, ``median``, ``parking``, ``ground``, ``curb``, ``marking_white``, ``marking_yellow``.
+``crossing``, ``median``, ``verge``, ``parking``, ``ground``, ``curb``, ``marking_white``,
+``marking_yellow``.
+
+Marking width / dash pattern / lift and the elevation subdivision grid come from the active
+:mod:`twinmodel.profiles` profile (read at export time).
 """
 from __future__ import annotations
 
@@ -16,16 +20,13 @@ from shapely.geometry import LineString, MultiPolygon, Polygon, box
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
+from .. import profiles
 from ..model import CurbLine, Marking, Surface, TwinModel
 
 log = logging.getLogger("twinmodel.export.mesh")
 
-MARKING_Z = 0.002
-MARKING_WIDTH = 0.12
-BROKEN_DASH = 2.0
-BROKEN_GAP = 4.0
-ELEVATION_GRID = 5.0
 MIN_TRI_AREA = 1e-7
+# regional: P.marking.z / width / broken_dash / broken_gap, P.elevation.mesh_grid_m
 
 # material name -> (Kd r g b)
 MATERIALS: dict[str, tuple[float, float, float]] = {
@@ -35,6 +36,7 @@ MATERIALS: dict[str, tuple[float, float, float]] = {
     "island": (0.55, 0.62, 0.50),
     "crossing": (0.85, 0.85, 0.82),
     "median": (0.52, 0.58, 0.48),
+    "verge": (0.36, 0.52, 0.27),   # planting strip: grass
     "parking": (0.30, 0.30, 0.31),
     "curb": (0.50, 0.50, 0.50),
     "marking_white": (0.95, 0.95, 0.95),
@@ -209,7 +211,7 @@ def _z(model: TwinModel, xy: np.ndarray, z_offset: float) -> np.ndarray:
 
 def _add_surface(w: _ObjWriter, model: TwinModel, geom: BaseGeometry, z_offset: float,
                  group: str, subdivide: bool) -> int:
-    polys = _grid_split(geom, ELEVATION_GRID) if subdivide else _polygons(geom)
+    polys = _grid_split(geom, profiles.get().elevation.mesh_grid_m) if subdivide else _polygons(geom)
     n = 0
     for poly in polys:
         verts, faces = triangulate_polygon(poly)
@@ -225,7 +227,7 @@ def _add_surface(w: _ObjWriter, model: TwinModel, geom: BaseGeometry, z_offset: 
 def _add_curb(w: _ObjWriter, model: TwinModel, curb: CurbLine, subdivide: bool) -> int:
     line = shapely.force_2d(curb.geometry)
     if subdivide:
-        line = line.segmentize(ELEVATION_GRID)
+        line = line.segmentize(profiles.get().elevation.mesh_grid_m)
     xy = np.asarray(line.coords, dtype=np.float64)[:, :2]
     if len(xy) < 2:
         return 0
@@ -249,24 +251,25 @@ def _add_marking(w: _ObjWriter, model: TwinModel, mk: Marking, subdivide: bool) 
         return 0
     from shapely.ops import substring
 
+    M = profiles.get().marking
     line = shapely.force_2d(mk.geometry)
     pieces: list[LineString]
     if mk.kind == "broken":
         pieces = []
         s, L = 0.0, line.length
         while s < L:
-            e = min(L, s + BROKEN_DASH)
+            e = min(L, s + M.broken_dash)
             if e - s > 0.05:
                 pieces.append(substring(line, s, e))
-            s += BROKEN_DASH + BROKEN_GAP
+            s += M.broken_dash + M.broken_gap
     else:
         pieces = [line]
     group = "marking_yellow" if mk.color == "yellow" else "marking_white"
-    width = mk.width or MARKING_WIDTH
+    width = mk.width or M.width
     n = 0
     for piece in pieces:
         quad = piece.buffer(width / 2.0, cap_style="flat", join_style="mitre", mitre_limit=2.0)
-        n += _add_surface(w, model, quad, MARKING_Z, group, subdivide)
+        n += _add_surface(w, model, quad, M.z, group, subdivide)
     return n
 
 
@@ -305,6 +308,7 @@ PREVIEW_COLORS = {
     "island": "#9fb08a",
     "crossing": "#eeeeea",
     "median": "#8fa382",
+    "verge": "#5f8a48",
     "parking": "#55555a",
 }
 SIGNAL_STYLE = {
@@ -365,8 +369,8 @@ def export_preview_png(model: TwinModel, path_png: Path | str, ortho: np.ndarray
     for b in model.buildings:
         for p in _polygons(b.footprint):
             patch(p, facecolor="#d8b49a", edgecolor="#8a5a3c", lw=0.5, alpha=0.6, zorder=1)
-    order = {"ground": 1.5, "drivable": 2, "parking": 2.5, "island": 3, "median": 3, "sidewalk": 3,
-             "crossing": 4}
+    order = {"ground": 1.5, "drivable": 2, "parking": 2.5, "island": 3, "median": 3, "verge": 3,
+             "sidewalk": 3, "crossing": 4}
     for s in model.surfaces:
         for p in _polygons(s.geometry):
             patch(p, facecolor=PREVIEW_COLORS.get(s.kind, "#888"), edgecolor="none",

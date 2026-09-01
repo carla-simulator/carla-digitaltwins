@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from twinmodel import cli
+from twinmodel import cli, profiles
 from twinmodel.frame import LocalFrame
 from twinmodel.ingest.osm import load_fixture
 from twinmodel.lanegraph import build_lanegraph
@@ -23,8 +23,10 @@ carla = pytest.importorskip("carla")
 @pytest.fixture(scope="module")
 def built(tmp_path_factory) -> tuple[Path, int]:
     out = tmp_path_factory.mktemp("build")
+    # explicit profile: ``auto`` may consult ingest.osm.country_for_bbox (network) once it exists
     rc = cli.main(["-q", "build", "--fixture", str(FIXTURE), "--name", "eixcli", "--out", str(out),
-                   "--no-imagery", "--no-dem", "--no-refine", "--cache", str(out / "cache")])
+                   "--no-imagery", "--no-dem", "--no-refine", "--cache", str(out / "cache"),
+                   "--profile", "eu_dense"])
     return out, rc
 
 
@@ -73,6 +75,12 @@ def test_build_report_passes(built):
     meta = json.loads((out / "eixcli.twin" / "model.json").read_text())["metadata"]
     assert meta["build"]["status"] == "ok"
     assert meta["build"]["timings"]["validate"] > 0
+    assert "profile" in b["timings"]
+    # the profile choice is recorded in the report, the build metadata and the saved model
+    for prof in (rep["profile"], b["profile"], meta["profile"]):
+        assert prof["name"] == "eu_dense" and prof["source"] == "cli" and prof["iso2"] is None
+        assert 0.3 < prof["building_coverage"] < 0.8  # Eixample blocks: dense
+    assert meta["surfaces"]["profile"] == "eu_dense"
 
 
 def test_saved_model_reloads(built):
@@ -100,6 +108,98 @@ def test_build_requires_bbox_or_fixture(tmp_path):
     # must at least accept the form and route to the default bbox
     args = cli._build_parser().parse_args(["build", "--out", str(tmp_path)])
     assert args.bbox is None and args.fixture is None
+    assert args.profile == "auto"
+    assert cli._build_parser().parse_args(["build", "--out", "x", "--profile", "us_urban"]).profile == "us_urban"
+    with pytest.raises(SystemExit):
+        cli._build_parser().parse_args(["build", "--out", "x", "--profile", "mars"])
+
+
+# --------------------------------------------------------------------------- profile selection
+
+@pytest.fixture(scope="module")
+def osm_fixture():
+    return load_fixture(FIXTURE), LocalFrame.from_bbox(*BBOX)
+
+
+def test_building_coverage_from_osm(osm_fixture):
+    osm, frame = osm_fixture
+    cov = cli.building_coverage(osm, frame, BBOX)
+    assert cov is not None and 0.3 < cov < 0.8
+
+
+def test_select_profile_auto_without_country_lookup(osm_fixture, monkeypatch, tmp_path):
+    """Before worker D2 lands ``ingest.osm.country_for_bbox`` the country is unknown -> EU_DENSE."""
+    from twinmodel.ingest import osm as osm_mod
+    monkeypatch.delattr(osm_mod, "country_for_bbox", raising=False)
+    osm, frame = osm_fixture
+    p, meta = cli.select_profile("auto", osm, frame, BBOX, tmp_path)
+    assert p is profiles.EU_DENSE
+    assert meta["source"] == "auto" and meta["iso2"] is None and meta["building_coverage"] > 0.3
+
+
+def test_select_profile_auto_uses_country_and_density(osm_fixture, monkeypatch, tmp_path):
+    from twinmodel.ingest import osm as osm_mod
+    osm, frame = osm_fixture
+    calls = []
+
+    def fake_country(bbox, cache_dir):
+        calls.append((tuple(bbox), Path(cache_dir)))
+        return "us"
+
+    monkeypatch.setattr(osm_mod, "country_for_bbox", fake_country, raising=False)
+    p, meta = cli.select_profile("auto", osm, frame, BBOX, tmp_path)
+    assert calls == [(BBOX, tmp_path)]
+    assert p is profiles.US_URBAN  # Eixample density (> 0.30) in the US -> downtown grid
+    assert meta == {"name": "us_urban", "source": "auto", "iso2": "US",
+                    "building_coverage": pytest.approx(meta["building_coverage"])}
+    monkeypatch.setattr(osm_mod, "country_for_bbox", lambda bbox: "ES", raising=False)  # 1-arg form
+    p, meta = cli.select_profile("auto", osm, frame, BBOX, tmp_path)
+    assert p is profiles.EU_DENSE and meta["iso2"] == "ES"
+    monkeypatch.setattr(osm_mod, "country_for_bbox", lambda bbox, cache_dir: 1 / 0, raising=False)
+    p, meta = cli.select_profile("auto", osm, frame, BBOX, tmp_path)
+    assert p is profiles.EU_DENSE and meta["iso2"] is None  # lookup failure -> unknown
+    p, meta = cli.select_profile("us_suburban", osm, frame, BBOX, tmp_path)
+    assert p is profiles.US_SUBURBAN and meta["source"] == "cli"
+
+
+def test_call_with_sources_before_and_after_ingest_kwarg():
+    seen = {}
+
+    def old(frame, bbox, cache_dir="data"):
+        seen["old"] = cache_dir
+        return "old"
+
+    def new(frame, bbox, cache_dir="data", sources=None):
+        seen["new"] = sources
+        return "new"
+
+    assert cli._call_with_sources(old, None, None, cache_dir="c", sources=("a", "b")) == "old"
+    assert cli._call_with_sources(new, None, None, cache_dir="c", sources=("a", "b")) == "new"
+    assert seen == {"old": "c", "new": ["a", "b"]}
+
+
+def test_build_stays_under_selected_profile_and_restores_it(tmp_path, monkeypatch):
+    """``build`` activates the chosen profile for the pipeline only; the caller's profile is
+    untouched afterwards. A tiny synthetic fixture keeps this fast."""
+    from twinmodel import surfaces as surfaces_mod
+    seen = {}
+    real = surfaces_mod.build_surfaces
+
+    def spy(model, **kw):
+        seen["profile"] = profiles.get().name
+        return real(model, **kw)
+
+    monkeypatch.setattr(surfaces_mod, "build_surfaces", spy)
+    out = tmp_path / "b"
+    rc = cli.main(["-q", "build", "--fixture", str(FIXTURE), "--name", "p", "--out", str(out),
+                   "--no-imagery", "--no-dem", "--no-refine", "--cache", str(out / "cache"),
+                   "--profile", "us_suburban", "--junction-zooms", "0"])
+    assert seen["profile"] == "us_suburban"
+    assert profiles.get() is profiles.EU_DENSE
+    rep = json.loads((out / "report.json").read_text())
+    assert rep["profile"]["name"] == "us_suburban" and rep["build"]["profile"]["source"] == "cli"
+    assert rep["topology"]["loaded"]
+    assert rc in (0, 1)  # US widths on Eixample geometry are not required to validate clean
 
 
 # --------------------------------------------------------------------------- elevation glue

@@ -71,9 +71,10 @@ def test_model_grid_covers_bbox():
 
 def test_fetch_ortho_unreachable_returns_none(monkeypatch, tmp_path):
     monkeypatch.setattr(imagery, "WMS_URL", "http://127.0.0.1:9/wms")
+    monkeypatch.setattr(imagery, "IGN_ES_WMS", "http://127.0.0.1:9/wms")
     monkeypatch.setattr(imagery, "REQUEST_TIMEOUT", 2)
     frame = LocalFrame.from_bbox(*BBOX)
-    assert imagery.fetch_ortho(frame, BBOX, cache_dir=tmp_path) is None
+    assert imagery.fetch_ortho(frame, BBOX, cache_dir=tmp_path, sources=("icgc", "ign_es")) is None
 
 
 # --------------------------------------------------------------------------- elevation

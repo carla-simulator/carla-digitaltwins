@@ -38,6 +38,7 @@ from typing import Optional
 import numpy as np
 from lxml import etree
 
+from .. import profiles
 from ..model import Controller, Lane, Marking, Road, Signal, TwinModel
 
 log = logging.getLogger("twinmodel.export.xodr")
@@ -51,10 +52,21 @@ SIGNAL_TYPES: dict[str, tuple[str, str, str]] = {
     "speed_limit": ("274", "", "no"),  # subtype filled with the km/h value
 }
 CROSSWALK_KIND = "crosswalk"
-DEFAULT_CROSSWALK_WIDTH = 4.0  # metres along s
-SIDEWALK_HEIGHT = 0.15
+# regional (twinmodel.profiles): crosswalk width P.crossing.width, sidewalk height P.sidewalk.z,
+# verge (planting strip) height P.sidewalk.curb_height
 LANE_TYPES = {"driving", "sidewalk", "shoulder", "parking", "biking", "median", "none"}
+# model lane types with no OpenDRIVE equivalent -> the closest type CARLA parses
+# (``RoadParser.cpp``: border -> LaneType::Border, a raised non-drivable strip)
+LANE_TYPE_MAP = {"verge": "border"}
+RAISED_LANE_TYPES = {"sidewalk", "verge"}  # get a <height> record
 _MARK_COLORS = {"white": "white", "yellow": "yellow"}
+
+
+def xodr_lane_type(lane_type: str) -> str:
+    """OpenDRIVE ``<lane type>`` for a model lane type."""
+    if lane_type in LANE_TYPES:
+        return lane_type
+    return LANE_TYPE_MAP.get(lane_type, "none")
 
 
 # ------------------------------------------------------------------------------ id mapping
@@ -440,18 +452,20 @@ def _write_road(parent, model: TwinModel, road: Road, ids: IdMap, signals: list[
     _sub(lanes, "laneOffset", s=0, a=0, b=0, c=0, d=0)
     sec = _sub(lanes, "laneSection", s=0)
     links = _lane_links(model, road)
+    P = profiles.get()
+    heights = {"sidewalk": P.sidewalk.z, "verge": P.sidewalk.curb_height}
 
     def write_lane(container, lane: Lane):
-        le = _sub(container, "lane", id=str(lane.id),
-                  type=lane.type if lane.type in LANE_TYPES else "none", level="false")
+        le = _sub(container, "lane", id=str(lane.id), type=xodr_lane_type(lane.type), level="false")
         lk = _sub(le, "link")
         for tag in ("predecessor", "successor"):
             if tag in links[lane.id]:
                 _sub(lk, tag, id=str(links[lane.id][tag]))
         _sub(le, "width", sOffset=0, a=lane.width, b=0, c=0, d=0)
         _road_mark(le, lane.marking)
-        if lane.type == "sidewalk":
-            _sub(le, "height", sOffset=0, inner=SIDEWALK_HEIGHT, outer=SIDEWALK_HEIGHT)
+        if lane.type in RAISED_LANE_TYPES:
+            h = heights[lane.type]
+            _sub(le, "height", sOffset=0, inner=h, outer=h)
         if lane.speed_limit:
             _sub(le, "speed", sOffset=0, max=lane.speed_limit * 3.6, unit="km/h")
 
@@ -475,7 +489,7 @@ def _write_road(parent, model: TwinModel, road: Road, ids: IdMap, signals: list[
     wr = road.width_right()
     for sig in signals:
         if sig.kind == CROSSWALK_KIND:
-            width_s = float(sig.tags.get("width", DEFAULT_CROSSWALK_WIDTH))
+            width_s = float(sig.tags.get("width", P.crossing.width))
             half_t = (wl + wr) / 2.0
             centre_t = (wl - wr) / 2.0
             ob = _sub(objects, "object", id=sig.id, name="Crosswalk", s=sig.s, t=centre_t,

@@ -16,20 +16,40 @@ from shapely import prepared
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon, box
 from shapely.ops import unary_union
 
+from . import profiles
+
 Side = Literal["left", "right"]
 
-BUILDING_PAD_M = 0.3      # footprints are drawn slightly inside the real face
-MAX_FACE_DIST_M = 40.0    # beyond this we don't call it a canyon
-FACE_SAMPLE_STEP_M = 4.0
+# Distances come from the active profile (``profiles.get().streetspace``) at call time; the
+# former module constants are served read-only through ``__getattr__`` for callers that
+# still name them (``streetspace.FACE_SAMPLE_STEP_M``).
+_LEGACY_NAMES = {
+    "BUILDING_PAD_M": ("streetspace", "building_pad_m"),
+    "MAX_FACE_DIST_M": ("streetspace", "max_face_dist_m"),
+    "FACE_SAMPLE_STEP_M": ("streetspace", "face_sample_step_m"),
+    "BLOCKER_MIN_DIST_M": ("streetspace", "blocker_min_dist_m"),
+    "FACE_TOL_M": ("streetspace", "face_tol_m"),
+}
 
 
-def building_union(model, pad: float = BUILDING_PAD_M):
-    """Union of all building footprints (buffered by ``pad``), or an empty polygon."""
+def __getattr__(name: str):
+    try:
+        group, attr = _LEGACY_NAMES[name]
+    except KeyError:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from None
+    return getattr(getattr(profiles.get(), group), attr)
+
+
+def building_union(model, pad: float | None = None):
+    """Union of all building footprints (buffered by ``pad``, default the profile's
+    ``streetspace.building_pad_m``), or an empty polygon."""
+    if pad is None:
+        pad = profiles.get().streetspace.building_pad_m
     geoms = [b.footprint.buffer(pad, join_style="mitre") for b in getattr(model, "buildings", [])]
     return unary_union(geoms) if geoms else Polygon()
 
 
-def street_void(model, extent: Polygon | None = None, pad: float = BUILDING_PAD_M) -> Polygon | MultiPolygon:
+def street_void(model, extent: Polygon | None = None, pad: float | None = None) -> Polygon | MultiPolygon:
     """Everything that is not building inside ``extent`` (default: bbox of roads + buildings, +30 m)."""
     if extent is None:
         geoms = [r.reference_line for r in model.roads] + [b.footprint for b in model.buildings]
@@ -55,11 +75,8 @@ def _samples(line: LineString, step: float):
     return s, pts, tang
 
 
-BLOCKER_MIN_DIST_M = 1.0  # a blocker hit closer than this is the line itself (or its joint)
-
-
-def face_distances(line: LineString, buildings, side: Side, step: float = FACE_SAMPLE_STEP_M,
-                   max_dist: float = MAX_FACE_DIST_M, blockers=None,
+def face_distances(line: LineString, buildings, side: Side, step: float | None = None,
+                   max_dist: float | None = None, blockers=None,
                    s_range: tuple[float, float] | None = None) -> tuple[np.ndarray, np.ndarray]:
     """For samples along ``line`` (every ``step`` m) cast a ray along the side normal and return
     (s_values, distances) to the first building face; ``nan`` where nothing is hit within
@@ -68,7 +85,13 @@ def face_distances(line: LineString, buildings, side: Side, step: float = FACE_S
     ``blockers`` (optional geometry, e.g. the other roads' centrelines): a ray that crosses a
     blocker before the face returns ``nan`` — the space up to that face belongs to the road in
     between (Passeig de Gràcia's laterals sit between the main carriageway and the buildings).
-    ``s_range`` restricts the samples to that s-interval of the line."""
+    ``s_range`` restricts the samples to that s-interval of the line. ``step`` / ``max_dist``
+    default to the profile's ``streetspace.face_sample_step_m`` / ``max_face_dist_m``; a
+    blocker hit closer than ``blocker_min_dist_m`` is the line itself (or its joint)."""
+    S = profiles.get().streetspace
+    step = S.face_sample_step_m if step is None else step
+    max_dist = S.max_face_dist_m if max_dist is None else max_dist
+    blocker_min = S.blocker_min_dist_m
     if s_range is None:
         s, pts, tang = _samples(line, step)
     else:
@@ -92,7 +115,7 @@ def face_distances(line: LineString, buildings, side: Side, step: float = FACE_S
             bh = ray.intersection(blockers)
             if not bh.is_empty:
                 db = min((p.distance(g) for g in getattr(bh, "geoms", [bh])
-                          if p.distance(g) >= BLOCKER_MIN_DIST_M), default=math.inf)
+                          if p.distance(g) >= blocker_min), default=math.inf)
                 if db < d:
                     continue
         out[i] = d
@@ -129,24 +152,29 @@ def robust_width(dists: np.ndarray, default: float) -> float:
     return float(np.median(d)) if len(d) >= 3 else default
 
 
-def corner_void(centre: Point, buildings, radius: float = 45.0) -> Polygon | MultiPolygon:
-    """The open space around a junction node: a disc minus buildings. For an Eixample corner this
-    is the chamfered octagon plus the four street arms."""
+def corner_void(centre: Point, buildings, radius: float | None = None) -> Polygon | MultiPolygon:
+    """The open space around a junction node: a disc (``radius``, default the profile's
+    ``junction.plaza_radius_m``) minus buildings. For an Eixample corner this is the
+    chamfered octagon plus the four street arms."""
+    if radius is None:
+        radius = profiles.get().junction.plaza_radius_m
     disc = centre.buffer(radius, quad_segs=32)
     return disc if buildings is None or buildings.is_empty else disc.difference(buildings)
 
 
-FACE_TOL_M = 1.5  # a face further out than the street's width + this has ended (chamfer)
-
-
 def canyon_extent(line: LineString, buildings, widths: tuple[float, float], step: float = 1.0,
-                  tol: float = FACE_TOL_M, scan: float | None = None, blockers=None,
-                  max_dist: float = MAX_FACE_DIST_M) -> tuple[float | None, float | None]:
+                  tol: float | None = None, scan: float | None = None, blockers=None,
+                  max_dist: float | None = None) -> tuple[float | None, float | None]:
     """s-interval of ``line`` along which *both* building faces are where the street's cross
     section says (within ``widths`` (left, right) + ``tol``): scanning inward from each end,
     the first sample where both rays hit within that distance. Beyond it the face recedes —
     at an Eixample corner the 45° chamfer starts there. -> (s_lo, s_hi), None per end when no
-    such sample exists within ``scan`` m of that end (default: the whole line)."""
+    such sample exists within ``scan`` m of that end (default: the whole line). ``tol``
+    defaults to the profile's ``streetspace.face_tol_m`` (a face further out than the
+    street's width + tol has ended: the chamfer)."""
+    S = profiles.get().streetspace
+    tol = S.face_tol_m if tol is None else tol
+    max_dist = S.max_face_dist_m if max_dist is None else max_dist
     L = line.length
     scan = L if scan is None else min(L, scan)
     lim = (widths[0] + tol, widths[1] + tol)
@@ -174,13 +202,15 @@ def arm_corridor(end_xy: tuple[float, float], heading_in: float, half_width: flo
     return seg.buffer(half_width, cap_style="flat")
 
 
-def junction_plaza(centre: Point, buildings, corridors: list[Polygon], radius: float = 45.0
+def junction_plaza(centre: Point, buildings, corridors: list[Polygon], radius: float | None = None
                    ) -> Polygon | MultiPolygon:
     """Open space of a junction: ``corner_void`` clipped to the convex hull of the arms' street
     corridors (each running from its arm's end into the junction). With the arms cut at the
     chamfer line the hull's diagonal edges run along the chamfer faces, so for an Eixample
     corner this is the chamfered octagon including the four corner triangles. Sidewalk bands
     along the faces are *not* subtracted (surfaces does that)."""
+    if radius is None:
+        radius = profiles.get().junction.plaza_radius_m
     void = corner_void(centre, buildings, radius)
     if not corridors:
         return void

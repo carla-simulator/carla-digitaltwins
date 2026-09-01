@@ -60,16 +60,21 @@ def hermite(p0, t0, p1, t1, step: float = 1.0) -> LineString:
 
 
 def two_way_lanes(lane_w: float = 3.25, sidewalk_w: float = 2.0, n_per_side: int = 1,
-                  markings: bool = False) -> list[Lane]:
+                  markings: bool = False, parking_w: float = 0.0, verge_w: float = 0.0) -> list[Lane]:
+    """Symmetric two-way cross-section, outward per side: driving x n | parking | verge |
+    sidewalk (each optional band only when its width is > 0)."""
     lanes: list[Lane] = []
     for i in range(1, n_per_side + 1):
         lanes.append(Lane(id=i, type="driving", width=lane_w, direction="backward",
                           marking=Marking("solid", "white") if markings else None))
         lanes.append(Lane(id=-i, type="driving", width=lane_w, direction="forward",
                           marking=Marking("solid", "white") if markings else None))
-    if sidewalk_w > 0:
-        lanes.append(Lane(id=n_per_side + 1, type="sidewalk", width=sidewalk_w, direction="backward"))
-        lanes.append(Lane(id=-(n_per_side + 1), type="sidewalk", width=sidewalk_w, direction="forward"))
+    nxt = n_per_side + 1
+    for kind, w in (("parking", parking_w), ("verge", verge_w), ("sidewalk", sidewalk_w)):
+        if w > 0:
+            lanes.append(Lane(id=nxt, type=kind, width=w, direction="backward"))
+            lanes.append(Lane(id=-nxt, type=kind, width=w, direction="forward"))
+            nxt += 1
     return lanes
 
 
@@ -135,14 +140,18 @@ def _end_tangent(road: Road, at_end: bool) -> np.ndarray:
 
 
 def four_way_junction(arm_length: float = 60.0, half: float = 6.0, lane_w: float = 3.25,
-                      sidewalk_w: float = 2.0) -> TwinModel:
+                      sidewalk_w: float = 2.0, parking_w: float = 0.0, verge_w: float = 0.0,
+                      highway: str = "residential") -> TwinModel:
     m = _empty("synthetic_fourway")
     jid = "j1"
     arms = []
     for k, (name, ang) in enumerate([("E", 0.0), ("N", math.pi / 2), ("W", math.pi),
                                      ("S", -math.pi / 2)]):
-        arms.append(_arm(f"arm_{name}", ang, half, arm_length, two_way_lanes(lane_w, sidewalk_w),
-                         incoming=True, junction_id=jid, name=f"Arm {name}"))
+        arm = _arm(f"arm_{name}", ang, half, arm_length,
+                   two_way_lanes(lane_w, sidewalk_w, parking_w=parking_w, verge_w=verge_w),
+                   incoming=True, junction_id=jid, name=f"Arm {name}")
+        arm.highway = highway
+        arms.append(arm)
     m.roads.extend(arms)
     junction = Junction(id=jid, name="fourway")
     for a in arms:
@@ -179,9 +188,31 @@ def four_way_junction(arm_length: float = 60.0, half: float = 6.0, lane_w: float
         m.signals.append(Signal(id=f"x_{a.id}", kind="crosswalk", road_id=a.id, s=L - 5.0, t=0.0,
                                 position=Point(*pc), heading=math.atan2(t[1], t[0])))
     # a building on the NE corner that pokes into the sidewalk band
-    d = half + lane_w + sidewalk_w - 0.4
+    d = half + lane_w + parking_w + verge_w + sidewalk_w - 0.4
     m.buildings.append(Building(id="b_ne", footprint=Polygon(
         [(d, d), (d + 30, d), (d + 30, d + 30), (d, d + 30)]), levels=4))
+    return m
+
+
+# --------------------------------------------------------------------------- US suburban (verge)
+
+FT = 0.3048
+
+
+def suburban_residential(length: float = 120.0, lane_w: float = 11 * FT, parking_w: float = 8 * FT,
+                         verge_w: float = 6 * FT, sidewalk_w: float = 5 * FT,
+                         highway: str = "residential", with_crossing: bool = True) -> TwinModel:
+    """One US-suburban two-way street: per side driving | parking | verge (planting strip) |
+    sidewalk, a crosswalk at 60 % of the length, no buildings (set back). Lanes carry no
+    markings so the profile's default synthesis applies."""
+    m = _empty("synthetic_suburban")
+    ref = LineString([(-length / 2, 0.0, 0.0), (length / 2, 0.0, 0.0)])
+    lanes = two_way_lanes(lane_w, sidewalk_w, parking_w=parking_w, verge_w=verge_w)
+    m.roads.append(Road(id="r1", reference_line=ref, lanes=lanes, name="Elm Street", highway=highway))
+    if with_crossing:
+        s = length * 0.6
+        m.signals.append(Signal(id="x1", kind="crosswalk", road_id="r1", s=s, t=0.0,
+                                position=Point(-length / 2 + s, 0.0), heading=0.0))
     return m
 
 

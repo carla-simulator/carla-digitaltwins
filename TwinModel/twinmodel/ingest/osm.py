@@ -196,3 +196,138 @@ def parse_osm(data: dict[str, Any]) -> OsmData:
 
 def load_fixture(path: Path | str) -> OsmData:
     return parse_osm(json.loads(Path(path).read_text()))
+
+
+# --------------------------------------------------------------------------- region helpers
+
+COUNTRY_QUERY = ('[out:json][timeout:60];is_in({lat:.6f},{lon:.6f})->.a;'
+                 'area.a["admin_level"="2"]["ISO3166-1"];out tags;')
+
+
+def _country_cache_path(cache_dir: Path, lat: float, lon: float) -> Path:
+    return cache_dir / f"country_{lat:.4f}_{lon:.4f}.json"
+
+
+def country_for_bbox(bbox_swne: tuple[float, float, float, float],
+                     cache_dir: Path | str = "data",
+                     url: str = OVERPASS_URL,
+                     retries: int = 2,
+                     retry_sleep: float = 3.0) -> Optional[str]:
+    """ISO 3166-1 alpha-2 code of the country containing the bbox centre, via Overpass
+    ``is_in`` (``area["admin_level"="2"]["ISO3166-1"]``). Cached as
+    ``<cache_dir>/country_<lat>_<lon>.json``; returns ``None`` (never raises) when Overpass is
+    unreachable or the point is in no admin_level=2 area (open sea)."""
+    s, w, n, e = (float(v) for v in bbox_swne)
+    lat, lon = (s + n) / 2.0, (w + e) / 2.0
+    cache_dir = Path(cache_dir)
+    path = _country_cache_path(cache_dir, lat, lon)
+    if path.exists():
+        try:
+            d = json.loads(path.read_text())
+            log.info("country cache hit %s -> %s", path, d.get("iso2"))
+            return d.get("iso2")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("country cache %s unreadable (%s); re-querying", path, exc)
+
+    query = COUNTRY_QUERY.format(lat=lat, lon=lon)
+    for attempt in range(max(1, retries)):
+        try:
+            resp = requests.post(url, data={"data": query}, timeout=90,
+                                 headers={"User-Agent": _USER_AGENT})
+            if resp.status_code in (429, 504):
+                raise RuntimeError(f"overpass busy: HTTP {resp.status_code}")
+            resp.raise_for_status()
+            data = resp.json()
+            iso2, name = None, None
+            for el in data.get("elements", []):
+                tags = el.get("tags", {}) or {}
+                code = tags.get("ISO3166-1:alpha2") or tags.get("ISO3166-1")
+                if code:
+                    iso2, name = code.strip().upper()[:2], tags.get("name:en") or tags.get("name")
+                    break
+            if iso2 is None:
+                log.warning("country: no admin_level=2 area contains (%.5f, %.5f)", lat, lon)
+                return None
+            try:
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps({"iso2": iso2, "name": name, "lat": lat, "lon": lon}))
+            except Exception as exc:  # noqa: BLE001
+                log.warning("country: could not write cache %s (%s)", path, exc)
+            log.info("country for (%.5f, %.5f): %s (%s)", lat, lon, iso2, name)
+            return iso2
+        except Exception as exc:  # noqa: BLE001
+            log.warning("country lookup attempt %d failed: %s", attempt + 1, exc)
+            if attempt + 1 < retries and retry_sleep > 0:
+                time.sleep(retry_sleep * (attempt + 1))
+    log.warning("country: Overpass unreachable; region unknown")
+    return None
+
+
+def building_footprints(osm: OsmData, frame) -> list:
+    """Shapely polygons (model space) of every ``building=*`` way and multipolygon relation
+    outer ring in ``osm``; invalid rings are repaired with ``buffer(0)``; failures skipped."""
+    from shapely.geometry import Polygon
+    from shapely.validation import make_valid
+
+    ways_by_id = {w.id: w for w in osm.ways}
+    polys = []
+
+    def add(way: OsmWay) -> None:
+        coords = osm.way_coords(way)
+        if len(coords) < 4 or coords[0] != coords[-1]:
+            if len(coords) >= 3 and coords[0] != coords[-1]:
+                coords = coords + [coords[0]]
+            else:
+                return
+        lon, lat = zip(*coords)
+        x, y = frame.to_local(lon, lat)
+        try:
+            p = Polygon(zip(x.tolist(), y.tolist()))
+            if not p.is_valid:
+                p = make_valid(p)
+            if not p.is_empty:
+                polys.append(p)
+        except Exception:  # noqa: BLE001 - degenerate ring
+            return
+
+    for w in osm.ways:
+        if "building" in w.tags and w.tags["building"] != "no":
+            add(w)
+    for r in osm.relations:
+        if "building" not in r.tags or r.tags["building"] == "no":
+            continue
+        for m in r.members:
+            if m.type == "way" and m.role in ("outer", ""):
+                w = ways_by_id.get(m.ref)
+                if w is not None and "building" not in w.tags:
+                    add(w)
+    return polys
+
+
+def bbox_polygon(frame, bbox_swne: tuple[float, float, float, float]):
+    """The WGS84 bbox as a model-space shapely polygon (4 corners projected)."""
+    from shapely.geometry import Polygon
+    s, w, n, e = bbox_swne
+    lon = [w, e, e, w]
+    lat = [s, s, n, n]
+    x, y = frame.to_local(lon, lat)
+    return Polygon(zip(x.tolist(), y.tolist()))
+
+
+def building_coverage(osm: OsmData, frame, bbox_swne: tuple[float, float, float, float]) -> float:
+    """Building footprint area / bbox area in model space (0..1), a quick shapely union of every
+    building way / multipolygon outer ring clipped to the bbox. Used to pick urban vs suburban
+    profiles for US bboxes (``profiles.choose_for_country``)."""
+    from shapely.ops import unary_union
+    clip = bbox_polygon(frame, bbox_swne)
+    if clip.area <= 0:
+        return 0.0
+    polys = building_footprints(osm, frame)
+    if not polys:
+        return 0.0
+    union = unary_union(polys)
+    if not union.is_valid:
+        union = union.buffer(0)
+    cov = union.intersection(clip).area / clip.area
+    log.info("building coverage: %d footprints, %.1f%% of the bbox", len(polys), 100 * cov)
+    return float(min(max(cov, 0.0), 1.0))

@@ -24,7 +24,18 @@ Sources are tried in order; the first that yields a raster wins. Every source de
    GetCoverage.
 4. **Copernicus GLO-30 COG on AWS** (``copernicus-dem-30m`` bucket, no key). It is a DSM
    (buildings included) at 30 m — last resort, clearly labelled in ``Elevation.source``.
-5. ``None`` -> pipeline uses z = 0.
+5. **USGS 3DEP** (US; 1 m where LiDAR exists, else 1/3 arc-second) via the ArcGIS ImageServer
+   ``https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage``
+   (``format=tiff&pixelType=F32&interpolation=RSP_BilinearInterpolation&f=image``, EPSG:3857,
+   ``maxImageWidth`` 8000). Verified 2026-09-01 on Sunnyvale CA: an 890x700 request at 1 m
+   returns a float32 GeoTIFF, 32-40 m a.s.l. Requested at USGS_3DEP_RES mercator-metres then
+   warped bilinearly onto the model grid.
+6. ``None`` -> pipeline uses z = 0.
+
+``fetch_dem(..., sources=(...))`` walks the chain in the given order (the profile's
+``sources.dem``); provider names: ``icgc_mdt2m``, ``icgc_terr``, ``opentopo``, ``ign_wcs``,
+``copernicus_aws``, ``usgs_3dep``. The winner's *name* is stored in ``Elevation.source``; the
+long description is attached as ``Elevation.detail`` and logged.
 
 The result is cached as ``<cache_dir>/dem_<bbox>_<res>m.npz`` (``Elevation.to_npz``).
 """
@@ -35,7 +46,7 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 import numpy as np
 
@@ -57,6 +68,12 @@ OPENTOPO_URL = "https://portal.opentopography.org/API/globaldem"
 COPERNICUS_AWS = ("https://copernicus-dem-30m.s3.amazonaws.com/"
                   "Copernicus_DSM_COG_10_{lat}_00_{lon}_00_DEM/Copernicus_DSM_COG_10_{lat}_00_{lon}_00_DEM.tif")
 
+USGS_3DEP_URL = ("https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/"
+                 "exportImage")
+USGS_3DEP_CRS = "EPSG:3857"
+USGS_3DEP_RES = 1.0      # request resolution in EPSG:3857 units (service native 1 m)
+USGS_3DEP_MAX_PX = 8000
+DEFAULT_SOURCES: tuple[str, ...] = ("icgc_mdt2m", "icgc_terr", "opentopo", "ign_wcs", "copernicus_aws")
 DEFAULT_RES = 2.0
 DEFAULT_SAMPLE_SPACING = 8.0
 GFI_THREADS = 12
@@ -271,7 +288,55 @@ def _copernicus_aws(frame: LocalFrame, bbox_swne, grid) -> Optional[Elevation]:
                                     "Copernicus GLO-30 DSM (AWS COG, 30 m; buildings included)")
 
 
+# --------------------------------------------------------------------------- source 5: USGS 3DEP
+
+def _usgs_3dep(frame: LocalFrame, bbox_swne, grid) -> Optional[Elevation]:
+    import requests
+    from rasterio.io import MemoryFile
+    from rasterio.warp import transform_bounds
+    x0, y0, width, height, transform = grid
+    xmin, ymin, xmax, ymax = _grid_bounds(transform, width, height)
+    bx0, by0, bx1, by1 = transform_bounds(frame.crs, USGS_3DEP_CRS, xmin, ymin, xmax, ymax,
+                                          densify_pts=21)
+    pad = 4 * USGS_3DEP_RES
+    bx0, by0, bx1, by1 = bx0 - pad, by0 - pad, bx1 + pad, by1 + pad
+    w = int(np.ceil((bx1 - bx0) / USGS_3DEP_RES)); h = int(np.ceil((by1 - by0) / USGS_3DEP_RES))
+    if w > USGS_3DEP_MAX_PX or h > USGS_3DEP_MAX_PX:
+        log.warning("elevation: 3DEP request %dx%d exceeds the %d px cap", w, h, USGS_3DEP_MAX_PX)
+        return None
+    params = dict(bbox=f"{bx0:.3f},{by0:.3f},{bx1:.3f},{by1:.3f}", bboxSR=3857, imageSR=3857,
+                  size=f"{w},{h}", format="tiff", pixelType="F32", noData="",
+                  interpolation="RSP_BilinearInterpolation", f="image")
+    r = requests.get(USGS_3DEP_URL, params=params, timeout=120)
+    if r.status_code != 200 or not r.headers.get("content-type", "").startswith("image/tiff"):
+        log.warning("elevation: 3DEP exportImage returned %s %s: %s", r.status_code,
+                    r.headers.get("content-type"), r.text[:200])
+        return None
+    with MemoryFile(r.content) as mem, mem.open() as ds:
+        arr = ds.read(1).astype(np.float32)
+        nodata = ds.nodata
+        arr[~np.isfinite(arr) | (arr < -1000)] = np.nan   # service nodata is unset; guard anyway
+        z = _reproject_to_grid(arr, ds.transform, ds.crs or USGS_3DEP_CRS, nodata, transform,
+                               frame.crs, width, height)
+    if np.isnan(z).mean() > 0.5:
+        log.warning("elevation: 3DEP returned mostly nodata (%.0f%%)", 100 * np.isnan(z).mean())
+        return None
+    return _elevation_from_north_up(_fill_nan(z), x0, y0, transform.a,
+                                    f"USGS 3DEP ImageServer exportImage @{USGS_3DEP_RES:g} m "
+                                    f"({USGS_3DEP_CRS} -> local, bilinear)")
+
+
 # --------------------------------------------------------------------------- public API
+
+# name -> provider(frame, bbox_swne, grid, sample_spacing) -> Elevation | None
+PROVIDERS = {
+    "icgc_mdt2m": lambda frame, bbox, grid, spacing: _icgc_gfi_sample(frame, grid, spacing, "mdt2m"),
+    "icgc_terr": lambda frame, bbox, grid, spacing: _icgc_gfi_sample(frame, grid, spacing, "terr"),
+    "opentopo": lambda frame, bbox, grid, spacing: _opentopo(frame, bbox, grid),
+    "ign_wcs": lambda frame, bbox, grid, spacing: _ign_wcs(frame, bbox, grid),
+    "copernicus_aws": lambda frame, bbox, grid, spacing: _copernicus_aws(frame, bbox, grid),
+    "usgs_3dep": lambda frame, bbox, grid, spacing: _usgs_3dep(frame, bbox, grid),
+}
 
 def _cache_path(cache_dir: Path, bbox_swne, res: float) -> Path:
     s, w, n, e = bbox_swne
@@ -281,12 +346,14 @@ def _cache_path(cache_dir: Path, bbox_swne, res: float) -> Path:
 def fetch_dem(frame: LocalFrame, bbox_swne: tuple[float, float, float, float],
               cache_dir: Path | str = "data", resolution: float = DEFAULT_RES,
               sample_spacing: float = DEFAULT_SAMPLE_SPACING, pad_m: float = 10.0,
-              sources: Optional[list[str]] = None, use_cache: bool = True) -> Optional[Elevation]:
+              sources: Optional[tuple[str, ...] | list[str]] = DEFAULT_SOURCES,
+              use_cache: bool = True) -> Optional[Elevation]:
     """Return an ``Elevation`` on a ``resolution`` m model-space grid covering ``bbox_swne``
     (plus ``pad_m``), or ``None`` if no source is reachable.
 
-    ``sources`` selects/reorders the chain; default
-    ``["icgc_mdt2m", "icgc_terr", "opentopo", "ign_wcs", "copernicus_aws"]``.
+    ``sources`` is the ordered provider chain (names in ``PROVIDERS``; the profile's
+    ``sources.dem`` is the usual argument); default ``DEFAULT_SOURCES``. The winner's name is
+    stored in ``Elevation.source``.
     """
     cache_dir = Path(cache_dir)
     cpath = _cache_path(cache_dir, bbox_swne, resolution)
@@ -304,26 +371,21 @@ def fetch_dem(frame: LocalFrame, bbox_swne: tuple[float, float, float, float],
         log.warning("elevation: could not build model grid (%s)", exc)
         return None
 
-    chain: dict[str, Callable[[], Optional[Elevation]]] = {
-        "icgc_mdt2m": lambda: _icgc_gfi_sample(frame, grid, sample_spacing, "mdt2m"),
-        "icgc_terr": lambda: _icgc_gfi_sample(frame, grid, sample_spacing, "terr"),
-        "opentopo": lambda: _opentopo(frame, bbox_swne, grid),
-        "ign_wcs": lambda: _ign_wcs(frame, bbox_swne, grid),
-        "copernicus_aws": lambda: _copernicus_aws(frame, bbox_swne, grid),
-    }
-    order = sources or ["icgc_mdt2m", "icgc_terr", "opentopo", "ign_wcs", "copernicus_aws"]
+    order = DEFAULT_SOURCES if sources is None else sources
     for name in order:
-        fn = chain.get(name)
+        fn = PROVIDERS.get(name)
         if fn is None:
-            log.warning("elevation: unknown source %r", name)
+            log.warning("elevation: unknown source %r (known: %s)", name, sorted(PROVIDERS))
             continue
         try:
-            el = fn()
+            el = fn(frame, bbox_swne, grid, sample_spacing)
         except Exception as exc:  # network, parse, GDAL ... all degrade
             log.warning("elevation: source %s failed: %s", name, exc)
             el = None
         if el is not None and np.isfinite(el.z).all():
-            log.info("elevation: using %s -> %s", name, el.source)
+            el.detail = el.source
+            el.source = name
+            log.info("elevation: using %s -> %s", name, el.detail)
             try:
                 cache_dir.mkdir(parents=True, exist_ok=True)
                 el.to_npz(cpath)
