@@ -2161,6 +2161,9 @@ def _street_width_guard(faces: dict[str, tuple[float, float]], key_of: dict[str,
         if len(ws) >= 2 and key_of[rid][0]:
             med = float(np.median(ws))
             w = fl + fr
+            if w <= 0.5 or med <= 0.5:  # a building drawn over the road (garage, overpass): no street width here
+                out[rid] = (fl, fr, False)
+                continue
             if abs(w - med) > P.geometry.street_width_outlier * med:
                 k = med / w
                 log.info("%s: street width %.1f m is off its street's median %.1f m; scaled", rid, w, med)
