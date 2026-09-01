@@ -165,6 +165,9 @@ class JunctionRules:
     # a road left between two junctions shorter than this is a sliver: no vehicle can use it
     # (its lanes get no links in the xodr and the traffic manager deletes anything routed onto
     # it), so the two junctions are merged instead. 0 = off (EU_DENSE: 2026-09-01 behaviour).
+    # It must be >= twinmodel.validate.SLIVER_M (5 m, one passenger car plus a gap): the
+    # validator flags every road shorter than that between two junctions, so a profile that
+    # merges at a smaller radius leaves failures the lane graph considers acceptable.
     sliver_m: float = 0.0
 
 
@@ -407,7 +410,7 @@ US_URBAN = StreetProfile(
                            dual_carriageway_max_gap_m=25.0, dual_carriageway_min_gap_m=3.0,
                            dual_carriageway_parallel_deg=25.0, dual_carriageway_min_fraction=0.5,
                            dual_carriageway_min_paired_m=50.0, dual_carriageway_cluster_m=25.0,
-                           median_max_width_m=8 * FT, sliver_m=10 * FT),
+                           median_max_width_m=8 * FT, sliver_m=20 * FT),
     geometry=GeometryRules(min_road_length=1.0, connect_sample_m=1.0, simplify_m=0.1,
                            width_step_m=1.0, taper_max_m=25.0, taper_pieces_max=3, jog_max_m=5.0,
                            jog_min_turn_deg=45.0, jog_transition_m=10.0, street_width_outlier=0.25),
@@ -461,7 +464,7 @@ US_SUBURBAN = US_URBAN.with_(
                      dead_end_stub_m=15.0,
                      # suburban arterials carry wider medians (left-turn pockets, planted strips)
                      dual_carriageway_max_gap_m=30.0, dual_carriageway_cluster_m=28.0,
-                     median_max_width_m=12 * FT, sliver_m=12 * FT),
+                     median_max_width_m=12 * FT, sliver_m=20 * FT),
     geometry=replace(US_URBAN.geometry, taper_max_m=40.0),
     streetspace=replace(US_URBAN.streetspace, ground_reach_m=20.0, sidewalk_to_face_max_m=20.0),
 )
