@@ -123,6 +123,9 @@ def unreachable_lanes(model: TwinModel, cmap, road_of: dict[int, str], driving,
       beyond the twin's scope;
     - ``exit_only`` — the component reaches a street through its one-way exit(s) but nothing
       leads in (an entrance mapped as a one-way *out*, or an entrance lost with a dropped way);
+    - ``return_lane`` — every road of the component is reachable along its other lane: a
+      two-way aisle whose far end only leads onto a one-way aisle has a return lane no legal
+      movement enters (the lot itself is reachable; not a failure);
     - ``isolated`` — no link to the rest of the network at all.
     """
     roads_by_id = {r.id: r for r in model.roads}
@@ -193,7 +196,10 @@ def unreachable_lanes(model: TwinModel, cmap, road_of: dict[int, str], driving,
                 pt = r.reference_line.coords[0 if end == "start" else -1]
                 if inside_poly is None or not inside_poly.contains(Point(pt[0], pt[1])):
                     at_edge = True
-        reason = "entrance_outside_bbox" if at_edge else ("exit_only" if exits else "isolated")
+        return_lane = bool(plain) and all(
+            any((r.id, l.id) in seen for l in r.lanes if l.type == "driving") for r in plain)
+        reason = ("entrance_outside_bbox" if at_edge else "return_lane" if return_lane
+                  else "exit_only" if exits else "isolated")
         xy = plain[0].reference_line.interpolate(0.5, normalized=True) if plain else None
         groups.append({
             "reason": reason, "lanes": len(members),
@@ -207,9 +213,10 @@ def unreachable_lanes(model: TwinModel, cmap, road_of: dict[int, str], driving,
         by_kind[kind_of(rid)] = by_kind.get(kind_of(rid), 0) + 1
     return {
         "count": len(unreached), "by_kind": by_kind,
-        "in_bbox_count": sum(g["lanes"] for g in groups if g["reason"] != "entrance_outside_bbox"),
+        "in_bbox_count": sum(g["lanes"] for g in groups if g["reason"] in ("exit_only", "isolated")),
+        "return_lane_count": sum(g["lanes"] for g in groups if g["reason"] == "return_lane"),
         "groups": groups, "lanes": [{"road_id": r, "lane_id": l} for r, l in unreached[:200]],
-        "pass": not any(g["reason"] != "entrance_outside_bbox" for g in groups),
+        "pass": not any(g["reason"] in ("exit_only", "isolated") for g in groups),
     }
 
 
@@ -541,7 +548,7 @@ def validate(model: TwinModel, xodr_text: str, *, step: float = 1.0,
     # lanes no vehicle can reach from a street (a lot whose entrance is not in the twin) ------
     report["unreachable_lanes"] = unreachable_lanes(model, cmap, road_of, driving, inside_poly)
     for g in report["unreachable_lanes"]["groups"]:
-        if g["reason"] != "entrance_outside_bbox" and g["x"] is not None:
+        if g["reason"] in ("exit_only", "isolated") and g["x"] is not None:
             violations.append({"kind": "unreachable_lanes", "x": g["x"], "y": g["y"], "z": 0.0,
                                "road_id": g["roads"][0] if g["roads"] else "", "reason": g["reason"],
                                "lanes": g["lanes"]})
@@ -594,7 +601,8 @@ def summary(report: dict[str, Any]) -> str:
             outside = sum(g["lanes"] for g in ur["groups"] if g["reason"] == "entrance_outside_bbox")
             lines.append(f"unreachable_lanes (no path from a street): {ur['count']} "
                          f"[{ur['in_bbox_count']} with the entrance in the bbox, {outside} entered "
-                         f"from outside it; {len(ur['groups'])} group(s)] "
+                         f"from outside it, {ur['return_lane_count']} return lanes; "
+                         f"{len(ur['groups'])} group(s)] "
                          + ("PASS" if ur.get("pass") else "FAIL"))
         sl = report.get("junction_slivers") or {}
         if sl:
