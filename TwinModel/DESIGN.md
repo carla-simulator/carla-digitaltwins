@@ -102,6 +102,42 @@ lanes: 2 default, `oneway=yes` → 1; `lanes`, `lanes:forward/backward`, `width`
 `turn:lanes`, `cycleway*`, `parking:*` override. Sidewalk default: 2.0 m both sides for
 residential/tertiary/secondary/primary/living_street/pedestrian, none for motorway/trunk/service.
 
+## Parking lots and their aisles
+
+An OSM `amenity=parking` way/relation becomes a `parking` surface (`metadata["parking_lots_wkt"]`
+→ `surfaces.build_surfaces`). The circulation inside it — `highway=service` + `service=parking_aisle`
+— is ingested as a road so cars can drive into the lot, under the profile's `ParkingAisleRules`:
+
+- **Cross section** (`lanegraph._parking_aisle_lanes`): driving lanes only, `two_way_width` split
+  over two lanes or one lane of `one_way_width` (an OSM `width` wins), the profile's low
+  `speed_limit`, **no** sidewalk/verge/parking bands, **no** centre/lane/edge marking, and no
+  crossings or traffic lights (`_build_signals` skips aisle roads). A lot squeezed between two
+  buildings is not a street canyon: aisles never take the building-derived cross section.
+- **Connection to the street**: the shared OSM node makes an ordinary junction, but an aisle node
+  is a *minor junction* — it never merges into a neighbouring node cluster (`minor_nodes` in
+  `build_lanegraph`), so two lot entrances 50 m apart on the same street cannot pull the street
+  between them into one 60 m cluster. Aisle–aisle junctions inside a lot are single-node clusters
+  (~70–200 m² with the `bounded` cover); the only large junction with an aisle arm is a large
+  street intersection that the aisle happens to join.
+- **Lot links**: a short unnamed `highway=service` way (below `lane.service_min_length`, normally
+  dropped as noise) that touches an aisle is the lot's link to the street and is kept — without it
+  the aisles are an unreachable island.
+- **Surfaces**: the aisle is a normal road, so its carriageway is part of `drivable`; the lot's
+  `parking` surface is the lot polygon **minus** `drivable` (and minus raised surfaces and
+  buildings), as it already was for the streets. One surface per square metre, both at
+  `z_offset = 0`, no z-fighting, no curb between them. A hole in `drivable` that lies inside a lot
+  (the stall field enclosed by a ring of aisles) stays a hole and is filled by the lot — it must
+  not become a raised `island`.
+- **OpenDRIVE**: aisles are ordinary roads with `driving` lanes and a low `<speed>`; they link to
+  the street through the junction like any minor road, so `carla.Map` waypoints run through them.
+- `service=driveway` uses the same code path behind `ParkingAisleRules.include_driveways`
+  (`driveway_width` for the one-way case), **off by default**: in a subdivision every mapped house
+  driveway would become a dead-end stub. Turning it on for Sunnyvale adds 46 roads / 7 junctions
+  and connects 4 more lots — see the profile comment.
+- `EU_DENSE` sets `include=False`: the Eixample fixture contains 13 `service=parking_aisle` ways
+  and the Eixample build is the pinned regression (lane-graph SHA + OBJ checksum). The EU widths
+  (6.0 m two-way / 3.5 m one-way) are in the profile, ready for when it is switched on.
+
 ## Junction detection (the Eixample problem)
 
 Cluster OSM intersection nodes that are within `JUNCTION_CLUSTER_M = 30 m` of each other *and*
@@ -217,6 +253,10 @@ epsilons) stay in the modules.
   in `metadata["profile"]` and printed at the top of the build log.
 - Lane order outward from the reference line: driving… | biking | parking | verge | sidewalk.
   `verge` → OpenDRIVE `border` lane; mesh group `verge` (grass, curb-top level).
+- `ParkingAisleRules` (see "Parking lots and their aisles"): `include`, two-way / one-way aisle
+  width, minimum length, aisle speed limit, `include_driveways` + `driveway_width`. US: 24 ft
+  two-way / 13 ft one-way, 10 mph, driveways off. EU_DENSE: 6.0 / 3.5 m, `include=False` (the
+  Eixample regression).
 
 ## Rules for all workers
 
