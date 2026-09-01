@@ -8,6 +8,11 @@ Pipeline::
     refined, stats = refine.refine_drivable(prior, mask, ortho)      # prior boundary snapped to mask edge
     surfaces.build_surfaces(model, refined_drivable=refined)
 
+or, layer-aware (what ``build`` does — see the "layers" section below)::
+
+    refined, stats, mask = refine.refine_layers(model, ortho)        # {ground layer: polygon}
+    surfaces.build_surfaces(model, refined_drivable=refined)
+
 Mask methods (``road_mask(..., method=)``):
 
 * ``"classical"`` (default, always available): per-pixel quadratic discriminant on
@@ -59,6 +64,9 @@ OUTPUT_SIMPLIFY_M = 0.1  # simplify tolerance on the refined rings
 MIN_AREA_RATIO = 0.7     # a part may not lose more than 30 % of its prior area
 MIN_COVERAGE = 0.4       # parts with less of their prior area under the mask are left untouched
 CORE_ERODE_M = 2.0
+# an elevated deck's footprint (every surface on OSM layer > 0) is grown by this before it is
+# cut out of the ground mask: parapets, the deck's shadow and the ortho's off-nadir lean
+DECK_MASK_MARGIN_M = 1.5
 BAND_M = (3.0, 6.0)
 SAM_CKPTS = {"vit_h": "sam_vit_h_4b8939.pth", "vit_l": "sam_vit_l_0b3195.pth",
              "vit_b": "sam_vit_b_01ec64.pth"}
@@ -273,9 +281,12 @@ def classical_road_mask(ortho: OrthoImage, prior=None, core_erode_m: float = COR
                         band_m: tuple[float, float] = BAND_M, llr_threshold: float = 0.0,
                         k_pos: int = 3, k_neg: int = 8, use_spatial_bias: bool = True,
                         free_m: float = 2.5, postprocess: bool = True,
-                        return_llr: bool = False):
+                        return_llr: bool = False, ignore=None):
     """Prior-guided per-pixel classifier (see module docstring). ``free_m`` is the half-width
-    of the bias-free window around the prior boundary (match ``refine_drivable(max_shift)``)."""
+    of the bias-free window around the prior boundary (match ``refine_drivable(max_shift)``).
+    ``ignore`` (optional geometry): pixels that train neither class — the footprint of the
+    elevated decks, whose asphalt would otherwise land in the non-road band of the ground
+    roads they cross (see :func:`refine_layers`)."""
     feat = pixel_features(ortho)
     llr = None
     if prior is None or prior.is_empty:
@@ -286,6 +297,11 @@ def classical_road_mask(ortho: OrthoImage, prior=None, core_erode_m: float = COR
         core = rasterize(prior.buffer(-core_erode_m), ortho)
         band = rasterize(prior.buffer(band_m[1]).difference(prior.buffer(band_m[0])), ortho)
         far = ~rasterize(prior.buffer(2 * band_m[1]), ortho)
+        if ignore is not None and not ignore.is_empty:
+            ign = rasterize(ignore, ortho)
+            core &= ~ign
+            band &= ~ign
+            far &= ~ign
         if core.sum() < 500 or band.sum() < 500:
             log.warning("road_mask: prior too small for training (%d/%d px); fixed thresholds",
                         core.sum(), band.sum())
@@ -425,13 +441,14 @@ def road_mask(ortho: OrthoImage, prior: Optional[Polygon | MultiPolygon] = None,
     """Asphalt/road-surface mask (bool, same grid as ``ortho.array``)."""
     if method not in ("classical", "sam", "auto"):
         raise ValueError(method)
+    ignore = kw.pop("ignore", None)
     if method in ("sam", "auto") and prior is not None:
         if method == "sam" or sam_available():
             m = sam_road_mask(ortho, prior, **kw)
             if m is not None:
                 return m
             log.warning("road_mask: SAM unavailable/failed; using classical classifier")
-    return classical_road_mask(ortho, prior, **kw)
+    return classical_road_mask(ortho, prior, ignore=ignore, **kw)
 
 
 def mask_to_polygon(mask: np.ndarray, ortho: OrthoImage, simplify_m: float = 0.15,
@@ -545,14 +562,23 @@ def _smooth_closed(t: np.ndarray, k: int = 3) -> np.ndarray:
 
 
 def _refine_ring(coords, mask, prior_raster, ortho, max_shift, min_lane_width, step, stats,
-                 smooth_k: int = SMOOTH_K, keep=None):
+                 smooth_k: int = SMOOTH_K, keep=None, freeze=None):
     v = _densify_ring(np.asarray(coords, dtype=float)[:, :2], 0.5)
     if len(v) < 4:
         return v, np.zeros(len(v))
     n = _ring_normals(v)
     t, found = _edge_shifts(v, n, mask, ortho, max_shift, step)
+    if freeze is not None and not freeze.is_empty:
+        # under an elevated deck the imagery shows the deck, not this boundary: no shift, and
+        # (before smoothing) no influence on the neighbours either
+        frozen = shapely.contains_xy(freeze, v[:, 0], v[:, 1])
+        t[frozen] = 0.0
+        found &= ~frozen
+        stats["n_frozen"] += int(frozen.sum())
     t = _smooth_closed(t, max(1, smooth_k) | 1)
     t = np.clip(t, -max_shift, max_shift)
+    if freeze is not None and not freeze.is_empty:
+        t[frozen] = 0.0
     # width guard: shrinking (t < 0) must keep local width >= min_lane_width
     w0 = _local_width(v, n, prior_raster, ortho, step)
     shrink = t < 0
@@ -645,7 +671,7 @@ def refine_drivable(prior: Polygon | MultiPolygon, mask: np.ndarray, ortho: Orth
                     max_shift: float = 2.5, min_lane_width: float = 2.5,
                     step: Optional[float] = None, min_area_ratio: float = MIN_AREA_RATIO,
                     min_coverage: float = MIN_COVERAGE, smooth_k: int = SMOOTH_K,
-                    simplify_m: float = OUTPUT_SIMPLIFY_M, keep=None,
+                    simplify_m: float = OUTPUT_SIMPLIFY_M, keep=None, freeze=None,
                     ) -> tuple[Polygon | MultiPolygon, dict[str, Any]]:
     """Snap the prior's boundary to the mask edge (<= max_shift along the outward normal),
     keeping topology. Returns (refined polygon, stats).
@@ -656,10 +682,14 @@ def refine_drivable(prior: Polygon | MultiPolygon, mask: np.ndarray, ortho: Orth
     ``min_lane_width`` (negative-buffer test) reverts to the prior
     (``stats["reverted_parts"]``). Shifts are smoothed over ``smooth_k`` vertices (0.5 m
     apart) and the refined rings simplified to ``simplify_m``. ``keep`` (optional polygon,
-    see :func:`lane_keep_out`) is never entered by a shrinking boundary vertex."""
+    see :func:`lane_keep_out`) is never entered by a shrinking boundary vertex. Boundary
+    vertices inside ``freeze`` (optional polygon: the elevated decks' footprint, see
+    :func:`refine_layers`) are not moved at all."""
     step = step or ortho.dx / 2
     if keep is not None and not keep.is_empty:
         shapely.prepare(keep)
+    if freeze is not None and not freeze.is_empty:
+        shapely.prepare(freeze)
     prior = prior if prior.is_valid else prior.buffer(0)
     # normalise the prior: drop sliver parts / degenerate holes so the topology target is
     # well defined (unary_union + simplify of buffers can leave zero-area holes)
@@ -671,7 +701,7 @@ def refine_drivable(prior: Polygon | MultiPolygon, mask: np.ndarray, ortho: Orth
     prior_raster = rasterize(prior, ortho)
     mask_poly = mask_to_polygon(mask, ortho)
     stats: dict[str, Any] = {"n_vertices": 0, "n_found": 0, "n_width_rejected": 0,
-                             "n_keep_rejected": 0,
+                             "n_keep_rejected": 0, "n_frozen": 0,
                              "n_topology_fallback": 0, "max_shift": max_shift,
                              "min_lane_width": min_lane_width,
                              "n_parts": 0, "low_coverage_parts": 0, "reverted_parts": 0,
@@ -700,7 +730,7 @@ def refine_drivable(prior: Polygon | MultiPolygon, mask: np.ndarray, ortho: Orth
         ts = []
         for ring in rings:
             v, t = _refine_ring(ring.coords, mask, prior_raster, ortho, max_shift, min_lane_width,
-                                step, stats, smooth_k=smooth_k, keep=keep)
+                                step, stats, smooth_k=smooth_k, keep=keep, freeze=freeze)
             moved.append((v, t))
             ts.append(t)
         # progressively damp the shifts until the polygon is valid and topology is kept
@@ -789,13 +819,128 @@ def lane_keep_out(model: TwinModel, margin: float = 1.0):
     return unary_union(lines).buffer(margin, join_style="mitre", mitre_limit=2.0)
 
 
-def refine_surfaces(model: TwinModel, mask: np.ndarray, ortho: OrthoImage, **kw) -> TwinModel:
-    """Refine every ``drivable`` Surface of ``model`` in place (DESIGN.md: keeps the original as
-    ``tags['prior']`` GeoJSON-less area, sets source='imagery', records stats in metadata)."""
-    from shapely.geometry import mapping
-    all_stats = {}
+# --------------------------------------------------------------------------- layers
+#
+# Grade separation (DESIGN.md): a model with an overpass carries one drivable surface per OSM
+# ``layer`` (``surfaces.build_surfaces``, ``Surface.tags["layer"]``). The ortho only ever shows
+# the topmost surface, so refinement is per layer and only the *ground* layer is refined:
+#
+# * the deck footprint (every surface on layer > 0, grown by ``DECK_MASK_MARGIN_M``) is cut out
+#   of the ground mask — whatever the imagery shows there is the deck, not the street under it
+#   — and its pixels train neither class of the classifier (``classical_road_mask(ignore=)``);
+#   inside it the ground mask *is* the ground prior, and the ground boundary vertices under it
+#   are frozen (``refine_drivable(freeze=)``), so a ground road keeps its OSM geometry under a
+#   deck and is refined against the imagery everywhere else;
+# * elevated layers (layer > 0, ``bridge=*``) keep their OSM-derived geometry. Refining a deck
+#   only where no lower road runs under it was considered and rejected: the mask classifier is
+#   trained on the ground prior (deck asphalt at a different exposure and with parapet shadows
+#   is not the same class), deck widths come from ``lanes=*`` on the bridge way and are usually
+#   right, and a deck edge moved over a street below would eat into that street's mask;
+# * tunnel layers (layer < 0) are not refined either; the ground above them is refined as usual
+#   (nothing is masked there — the imagery shows the ground). The tunnel roads' own geometry
+#   and z are the tunnels lane's business; everything here keys on ``Surface.tags["layer"]``.
+
+def surface_layer(surface) -> Optional[int]:
+    """The OSM stacking level a surface belongs to (``None`` in a single-layer model)."""
+    v = (surface.tags or {}).get("layer")
+    return None if v is None else int(v)
+
+
+def drivable_by_layer(model: TwinModel) -> dict[Optional[int], Polygon | MultiPolygon]:
+    """Union of the ``drivable`` surfaces per layer (``{None: ...}`` in a single-layer model)."""
+    groups: dict[Optional[int], list] = {}
     for s in model.surfaces_of("drivable"):
-        refined, st = refine_drivable(s.geometry, mask, ortho, **kw)
+        if not s.geometry.is_empty:
+            groups.setdefault(surface_layer(s), []).append(s.geometry)
+    return {lay: unary_union(gs) for lay, gs in groups.items()}
+
+
+def ground_layer(layers) -> Optional[int]:
+    """The layer refined against the imagery: 0 when present (the ground), else the single
+    untagged layer, else the lowest non-negative one, else the highest (all underground)."""
+    layers = list(layers)
+    if 0 in layers:
+        return 0
+    if None in layers:
+        return None
+    above = [l for l in layers if l >= 0]
+    return min(above) if above else max(layers)
+
+
+def deck_footprint(model: TwinModel, margin: float = DECK_MASK_MARGIN_M):
+    """Footprint of the elevated structures: every surface (any kind) on OSM layer > 0, grown
+    by ``margin``. Empty polygon when the model has none."""
+    geoms = [s.geometry for s in model.surfaces
+             if (surface_layer(s) or 0) > 0 and not s.geometry.is_empty]
+    if not geoms:
+        return Polygon()
+    return unary_union(geoms).buffer(margin, join_style="mitre", mitre_limit=2.0)
+
+
+def mask_out_decks(mask: np.ndarray, deck, prior, ortho: OrthoImage) -> np.ndarray:
+    """Inside the deck footprint the ortho is uninformative about the ground: replace the mask
+    there by the ground prior itself (so the boundary search finds its edge exactly where the
+    prior is, and part coverage is not skewed by the deck)."""
+    if deck is None or deck.is_empty:
+        return mask
+    out = mask.copy()
+    d = rasterize(deck, ortho)
+    out[d] = rasterize(prior, ortho)[d]
+    return out
+
+
+def refine_layers(model: TwinModel, ortho: OrthoImage, mask: Optional[np.ndarray] = None,
+                  method: str = "classical", deck_margin: float = DECK_MASK_MARGIN_M,
+                  keep_margin: float = 1.0, **kw
+                  ) -> tuple[dict[Optional[int], Polygon | MultiPolygon], dict[str, Any], np.ndarray]:
+    """Layer-aware refinement of ``model``'s drivable surfaces against ``ortho`` (see the
+    section comment above). ``mask``: a ready road mask (tests); default ``road_mask`` learned
+    from the ground prior with the deck footprint ignored. Returns ``({ground_layer: refined},
+    stats, ground_mask)`` — a dict for ``surfaces.build_surfaces(refined_drivable=...)``; the
+    other layers are absent from it and keep their lane-graph surfaces. ``stats["layers"]``
+    records what was refined, kept and masked."""
+    groups = drivable_by_layer(model)
+    if not groups:
+        return {}, {"error": "no drivable surfaces"}, np.zeros(ortho.array.shape[:2], dtype=bool)
+    ground = ground_layer(groups)
+    prior = groups[ground]
+    deck = deck_footprint(model, deck_margin)
+    if mask is None:
+        mask = road_mask(ortho, prior=prior, method=method, ignore=deck)
+    mask = mask_out_decks(mask, deck, prior, ortho)
+    refined, st = refine_drivable(prior, mask, ortho, keep=lane_keep_out(model, keep_margin),
+                                  freeze=deck, **kw)
+    st["layers"] = {
+        "refined": ground,
+        "kept": sorted((l for l in groups if l != ground), key=lambda l: (l is None, l)),
+        "deck_footprint_m2": float(deck.area), "deck_margin_m": float(deck_margin),
+        "ground_prior_under_deck_m2": float(prior.intersection(deck).area) if not deck.is_empty else 0.0,
+        "area_by_layer": {str(l): float(g.area) for l, g in groups.items()},
+    }
+    if not deck.is_empty:
+        log.info("refine_layers: layer %s refined, %s kept; %.0f m2 of deck footprint masked "
+                 "(%.0f m2 of ground road under it frozen, %d boundary vertices)", ground,
+                 st["layers"]["kept"], deck.area, st["layers"]["ground_prior_under_deck_m2"],
+                 st["n_frozen"])
+    return {ground: refined}, st, mask
+
+
+def refine_surfaces(model: TwinModel, mask: np.ndarray, ortho: OrthoImage, **kw) -> TwinModel:
+    """Refine every ground-layer ``drivable`` Surface of ``model`` in place (DESIGN.md: keeps the
+    original area as ``tags['prior_area']``, sets source='imagery', records stats in metadata).
+    Surfaces on other layers (decks, tunnels) are left alone and the deck footprint is masked
+    out of the ground mask, as in :func:`refine_layers`."""
+    all_stats = {}
+    layers = {surface_layer(s) for s in model.surfaces_of("drivable")}
+    ground = ground_layer(layers) if layers else None
+    deck = deck_footprint(model)
+    prior = drivable_by_layer(model).get(ground)
+    if prior is not None:
+        mask = mask_out_decks(mask, deck, prior, ortho)
+    for s in model.surfaces_of("drivable"):
+        if surface_layer(s) != ground:
+            continue
+        refined, st = refine_drivable(s.geometry, mask, ortho, freeze=deck, **kw)
         s.tags["prior_area"] = float(s.geometry.area)
         s.geometry = refined
         s.source = "imagery"

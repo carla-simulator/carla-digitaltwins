@@ -898,14 +898,17 @@ def curb_lines(drivable: BaseGeometry, raised: BaseGeometry) -> list[LineString]
 # --------------------------------------------------------------------------- main entry
 
 def build_surfaces(model: TwinModel,
-                   refined_drivable: Polygon | MultiPolygon | None = None,
+                   refined_drivable: Polygon | MultiPolygon | dict | None = None,
                    default_markings: bool = True,
                    junction_cover: Optional[str] = None) -> TwinModel:
     """Fill ``model.surfaces``, ``model.curbs``, ``model.markings`` and every
     ``Junction.polygon`` from the lane graph. Mutates and returns ``model``. Idempotent.
 
     ``refined_drivable`` (from ``refine.py``) replaces the lane-graph drivable polygon (source
-    ``imagery``; the lane-graph one is kept as WKT in ``metadata["surfaces"]``).
+    ``imagery``; the lane-graph one is kept as WKT in ``metadata["surfaces"]``). In a model with
+    several OSM layers it is a dict ``{layer: polygon}`` (``refine.refine_layers``) and only the
+    listed layers are replaced — the others keep their lane-graph surfaces; a bare polygon is
+    taken as the ground layer's (``refine.ground_layer``), never fused across layers.
     ``default_markings``: synthesise edge/centre/lane markings where the lane graph has none.
     ``junction_cover``: see :func:`junction_cover_polygon`; default the profile's
     ``junction.cover``. Surface parking lots listed as WKT in
@@ -1038,6 +1041,23 @@ def build_surfaces(model: TwinModel,
     lanegraph_drivable = _clean(unary_union(list(carriageways.values()) + list(junction_polys.values())))
     lanegraph_drivable = _clean(lanegraph_drivable.simplify(SIMPLIFY_TOL, preserve_topology=True))
     source = "osm_tags"
+    layers = sorted({road_layer[rid] for rid in carriageways} | set(junction_layer.values()))
+    refined_by_layer: dict[Optional[int], Polygon | MultiPolygon] = {}
+    if isinstance(refined_drivable, dict):
+        refined_by_layer = {lay: g for lay, g in refined_drivable.items()
+                            if g is not None and not g.is_empty}
+        refined_drivable = None
+        if len(layers) <= 1:
+            # single-layer model: the dict holds one entry (keyed None or the layer itself)
+            refined_drivable = next(iter(refined_by_layer.values()), None)
+            refined_by_layer = {}
+    elif refined_drivable is not None and not refined_drivable.is_empty and len(layers) > 1:
+        from .refine import ground_layer
+        refined_by_layer = {ground_layer(layers): refined_drivable}
+        refined_drivable = None
+    if refined_by_layer:
+        source = "imagery"
+        stats["lanegraph_drivable_wkt"] = lanegraph_drivable.wkt
     if refined_drivable is not None and not refined_drivable.is_empty:
         drivable = _clean(refined_drivable.simplify(SIMPLIFY_TOL, preserve_topology=True))
         source = "imagery"
@@ -1082,8 +1102,8 @@ def build_surfaces(model: TwinModel,
     # the mesh and the road datum can keep them apart; with a single layer (the usual case)
     # nothing changes and the surfaces carry no layer tag.
     layer_groups: list[tuple[Optional[int], Polygon | MultiPolygon]] = [(None, drivable)]
-    layers = sorted({road_layer[rid] for rid in carriageways} | set(junction_layer.values()))
-    if len(layers) > 1 and source != "imagery":
+    layer_source: dict[Optional[int], str] = {None: source}
+    if len(layers) > 1:
         layer_groups = []
         for lay in layers:
             geoms = [g for rid, g in carriageways.items() if road_layer[rid] == lay]
@@ -1092,8 +1112,26 @@ def build_surfaces(model: TwinModel,
                 continue
             g = _clean(unary_union(geoms))
             g = _clean(g.simplify(SIMPLIFY_TOL, preserve_topology=True))
+            layer_source[lay] = "osm_tags"
+            rg = refined_by_layer.get(lay)
+            if rg is not None:
+                # this layer was refined against the imagery (refine.refine_layers): the
+                # lane-graph polygon of the layer is the reference for the IoU
+                rg = _clean(rg.simplify(SIMPLIFY_TOL, preserve_topology=True))
+                inter = rg.intersection(g).area
+                union = rg.union(g).area
+                stats.setdefault("refined_iou_by_layer", {})[str(lay)] = inter / union if union > 0 else 0.0
+                stats["refined_iou"] = stats["refined_iou_by_layer"][str(lay)]
+                g = rg
+                layer_source[lay] = "imagery"
             layer_groups.append((lay, _fill_holes(g, [])))
         stats["drivable_layers"] = layers
+        stats["drivable_area_by_layer"] = {str(lay): float(g.area) for lay, g in layer_groups}
+        if refined_by_layer:
+            # the all-layer union (sidewalk cutting, parking, ground, curbs) follows the refined
+            # layers; islands are re-read from its holes
+            islands = []
+            drivable = _fill_holes(_clean(unary_union([g for _, g in layer_groups])), islands)
     multi_layer = len(layer_groups) > 1
     drivable_by_layer = {lay: g for lay, g in layer_groups}
 
@@ -1116,7 +1154,8 @@ def build_surfaces(model: TwinModel,
             if lay is not None:
                 tags["layer"] = lay
             model.surfaces.append(Surface(
-                id=f"drivable_{n}", kind="drivable", geometry=part, z_offset=0.0, source=source,
+                id=f"drivable_{n}", kind="drivable", geometry=part, z_offset=0.0,
+                source=layer_source.get(lay, source),
                 road_ids=rids, junction_id=jids[0] if len(jids) == 1 else None, tags=tags))
             n += 1
     # 3. sidewalks / medians / verges --------------------------------------------------------
