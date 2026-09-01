@@ -273,6 +273,11 @@ def main() -> int:
     traversals = {v.id: 0 for v in vehicles}
     entries = {v.id: 0 for v in vehicles}
     junction_visits: dict = {}
+    # stuck tracking: speed is sampled every 5 frames, so a sample is worth 5 frames
+    stuck_run = {v.id: 0 for v in vehicles}          # frames in the current sub-0.5 m/s run
+    stuck_longest = {v.id: 0 for v in vehicles}      # longest such run, in frames
+    stuck_where: dict = {}                           # id -> location at the start of the longest run
+    stuck_run_start = {v.id: None for v in vehicles}
     moving_hist = []
     t0 = time.perf_counter()
     for f in range(1, args.frames + 1):
@@ -307,6 +312,17 @@ def main() -> int:
                 elif jid is None and prev is not None:
                     traversals[v.id] += 1
                 in_junction[v.id] = jid
+                vel5 = v.get_velocity()
+                if math.hypot(vel5.x, vel5.y) < 0.5:
+                    if stuck_run[v.id] == 0:
+                        stuck_run_start[v.id] = loc
+                    stuck_run[v.id] += 5
+                    if stuck_run[v.id] > stuck_longest[v.id]:
+                        stuck_longest[v.id] = stuck_run[v.id]
+                        sl = stuck_run_start[v.id]
+                        stuck_where[v.id] = [round(sl.x, 1), round(sl.y, 1), round(sl.z, 2)]
+                else:
+                    stuck_run[v.id] = 0
                 if f % 25 == 0:
                     path_len[v.id] += loc.distance(last_pos[v.id])
                     last_pos[v.id] = loc
@@ -328,6 +344,8 @@ def main() -> int:
                         start_pos[nv.id] = loc; path_len[nv.id] = 0.0; last_pos[nv.id] = loc
                         last_good[nv.id] = loc; in_junction[nv.id] = None
                         traversals[nv.id] = 0; entries[nv.id] = 0
+                        stuck_run[nv.id] = 0; stuck_longest[nv.id] = 0
+                        stuck_run_start[nv.id] = None
                         respawned += 1
             if f % 25 == 0:
                 moving_hist.append((f, n_mov))
@@ -360,6 +378,15 @@ def main() -> int:
     result["vehicles_travelled_gt_20m"] = sum(1 for v in vehicles if path_len[v.id] > 20.0)
     result["path_length_m"] = {str(k): round(v, 1) for k, v in path_len.items()}
     result["moving_history"] = moving_hist
+    result["stuck_longest_frames"] = {str(k): v for k, v in stuck_longest.items()}
+    result["vehicles_stuck_gt_200_frames"] = sum(1 for v in stuck_longest.values() if v > 200)
+    result["stuck_max_frames"] = max(stuck_longest.values()) if stuck_longest else 0
+    result["stuck_sites"] = [
+        {"vehicle": str(k), "frames": stuck_longest[k], "loc": stuck_where[k],
+         "nearest_junction": nearest_junction(carla.Location(x=stuck_where[k][0], y=stuck_where[k][1],
+                                                             z=stuck_where[k][2]))}
+        for k in sorted(stuck_longest, key=lambda i: -stuck_longest[i])[:5]
+        if stuck_longest[k] > 0 and k in stuck_where]
     result["collision_events"] = len(collisions)
     result["collision_vehicles"] = len({c["vehicle"] for c in collisions})
     by_other: dict = {}
@@ -373,7 +400,9 @@ def main() -> int:
         f"{result['vehicles_that_traversed_a_junction']} vehicles; visits {junction_visits}")
     log(f"after {args.frames} frames: alive {len(alive)}/{len(vehicles)}, moving {result['vehicles_moving_at_end']}, "
         f"travelled >20 m {result['vehicles_travelled_gt_20m']}, collision events {len(collisions)} "
-        f"({result['collision_vehicles']} vehicles) by other {by_other}")
+        f"({result['collision_vehicles']} vehicles) by other {by_other}; "
+        f"stuck >200 frames {result['vehicles_stuck_gt_200_frames']} "
+        f"(longest run {result['stuck_max_frames']} frames)")
 
     # --- collision hotspots (before teardown so the involved vehicles are still there) --------
     clusters: dict = {}
