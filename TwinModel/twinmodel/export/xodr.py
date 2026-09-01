@@ -60,6 +60,10 @@ LANE_TYPES = {"driving", "sidewalk", "shoulder", "parking", "biking", "median", 
 LANE_TYPE_MAP = {"verge": "border"}
 RAISED_LANE_TYPES = {"sidewalk", "verge"}  # get a <height> record
 _MARK_COLORS = {"white": "white", "yellow": "yellow"}
+# a fitted planview geometry may bow at most this far (metres) off the polyline it replaces;
+# a vertex that would need more rounding is written as a heading kink (see fit_planview). Pure
+# fitting tolerance, not a regional constant.
+MAX_PLANVIEW_OFFSET = 0.25
 
 
 def xodr_lane_type(lane_type: str) -> str:
@@ -153,16 +157,57 @@ def _cubic_length(coeffs: tuple[float, ...], n: int) -> float:
     return float(np.sum(np.hypot(np.diff(u), np.diff(v))))
 
 
-def fit_planview(coords: np.ndarray) -> list[Geom]:
-    """Fit an (N, 2+) polyline as a G1-continuous piecewise cubic ``paramPoly3`` planview.
+def _hermite_segment(p0: np.ndarray, p1: np.ndarray, t0: np.ndarray, t1: np.ndarray
+                     ) -> tuple[float, float, tuple[float, ...]]:
+    """Cubic Hermite from ``p0`` (unit tangent ``t0``) to ``p1`` (unit tangent ``t1``), tangent
+    magnitudes = chord length, expressed in the frame rotated to ``t0``.
+    Returns ``(hdg, chord_length, coeffs)`` with ``aU = aV = bV = 0``."""
+    chord = p1 - p0
+    L = float(np.hypot(*chord))
+    hdg = math.atan2(t0[1], t0[0])
+    c, sn = math.cos(hdg), math.sin(hdg)
+    rot = np.array([[c, sn], [-sn, c]])  # world -> local (u along start tangent)
+    p1l = rot @ chord
+    m0l = np.array([L, 0.0])
+    m1l = rot @ (t1 * L)
+    # Hermite -> power basis on p in [0, 1]
+    b = m0l
+    cc = 3.0 * p1l - 2.0 * m0l - m1l
+    d = -2.0 * p1l + m0l + m1l
+    return hdg, L, (0.0, b[0], cc[0], d[0], 0.0, b[1], cc[1], d[1])
+
+
+def _chord_offset(coeffs: tuple[float, ...], n: int = 33) -> float:
+    """Largest distance of the fitted cubic from the straight chord it spans (local frame)."""
+    aU, bU, cU, dU, aV, bV, cV, dV = coeffs
+    p = np.linspace(0.0, 1.0, n)
+    u = aU + bU * p + cU * p ** 2 + dU * p ** 3
+    v = aV + bV * p + cV * p ** 2 + dV * p ** 3
+    ex, ey = u[-1], v[-1]
+    L = math.hypot(ex, ey)
+    if L < 1e-9:
+        return float(np.max(np.hypot(u, v)))
+    t = np.clip((u * ex + v * ey) / (L * L), 0.0, 1.0)   # projection on the chord
+    return float(np.max(np.hypot(u - t * ex, v - t * ey)))
+
+
+def fit_planview(coords: np.ndarray, max_offset: Optional[float] = None) -> list[Geom]:
+    """Fit an (N, 2+) polyline as a piecewise cubic ``paramPoly3`` planview.
 
     Tangent *directions* at the vertices are Catmull-Rom (chord of the neighbours), the
     tangent magnitude per segment equals the segment chord length so the parametrisation is
     close to arc length and the curve does not overshoot on uneven spacing.  Each segment is a
     cubic Hermite expressed in the local frame rotated to the start tangent, hence
-    ``aU = aV = bV = 0`` and ``hdg`` is continuous between consecutive geometries.  A two-point
-    polyline becomes a single ``line``.
+    ``aU = aV = bV = 0`` and ``hdg`` is continuous between consecutive geometries (G1).  A
+    two-point polyline becomes a single ``line``.
+
+    A vertex where rounding would pull the curve more than ``max_offset`` off the polyline —
+    a right-angle corner with long legs, e.g. an L-shaped parking aisle — becomes a *corner*
+    instead: both adjacent geometries take their own chord direction, they meet with a heading
+    kink and a leg between two corners is written as a ``line``.  The polyline is what the
+    surface builder buffers, so following it is what keeps the lanes inside ``drivable``.
     """
+    max_offset = MAX_PLANVIEW_OFFSET if max_offset is None else max_offset
     pts = _dedupe(np.asarray(coords, dtype=np.float64))[:, :2]
     if len(pts) < 2:
         raise ValueError("reference line needs at least two distinct points")
@@ -171,31 +216,51 @@ def fit_planview(coords: np.ndarray) -> list[Geom]:
         L = float(np.hypot(*d))
         return [Geom(0.0, float(pts[0, 0]), float(pts[0, 1]), math.atan2(d[1], d[0]), L, "line")]
 
-    # unit tangent directions per vertex
+    n = len(pts)
+    chord_dir = pts[1:] - pts[:-1]
+    chord_dir = chord_dir / np.linalg.norm(chord_dir, axis=1, keepdims=True)
+    # unit tangent directions per vertex (Catmull-Rom; the ends follow their own chord)
     tang = np.zeros_like(pts)
-    tang[0] = pts[1] - pts[0]
-    tang[-1] = pts[-1] - pts[-2]
+    tang[0], tang[-1] = chord_dir[0], chord_dir[-1]
     tang[1:-1] = pts[2:] - pts[:-2]
     tang /= np.linalg.norm(tang, axis=1, keepdims=True)
+    t_out = tang.copy()          # tangent used at the start of segment i
+    t_in = tang.copy()           # tangent used at the end of segment i-1
+    corner = np.zeros(n, dtype=bool)
+    corner[0] = corner[-1] = True
+
+    # lock the vertices whose rounding bows too far off the polyline (a few passes: locking a
+    # vertex changes its neighbouring segments only)
+    for _pass in range(4):
+        locked = False
+        for i in range(n - 1):
+            _h, _L, coeffs = _hermite_segment(pts[i], pts[i + 1], t_out[i], t_in[i + 1])
+            if _chord_offset(coeffs) <= max_offset:
+                continue
+            # lock the endpoint that bends the segment most (candidates are interior vertices:
+            # both ends of the polyline are corners from the start)
+            cands = [j for j in (i, i + 1) if not corner[j]]
+            if not cands:
+                continue
+            def turn(k: int) -> float:
+                a, b = chord_dir[k - 1], chord_dir[k]
+                return abs(math.atan2(float(a[0] * b[1] - a[1] * b[0]), float(a @ b)))
+            j = max(cands, key=turn)
+            corner[j] = True
+            t_out[j], t_in[j] = chord_dir[j], chord_dir[j - 1]
+            locked = True
+        if not locked:
+            break
 
     geoms: list[Geom] = []
     s = 0.0
-    for i in range(len(pts) - 1):
+    for i in range(n - 1):
         p0, p1 = pts[i], pts[i + 1]
-        chord = p1 - p0
-        L = float(np.hypot(*chord))
-        hdg = math.atan2(tang[i][1], tang[i][0])
-        c, sn = math.cos(hdg), math.sin(hdg)
-        rot = np.array([[c, sn], [-sn, c]])  # world -> local (u along start tangent)
-        p1l = rot @ chord
-        m0l = np.array([L, 0.0])
-        m1l = rot @ (tang[i + 1] * L)
-        # Hermite -> power basis on p in [0, 1]
-        a = np.zeros(2)
-        b = m0l
-        cc = 3.0 * p1l - 2.0 * m0l - m1l
-        d = -2.0 * p1l + m0l + m1l
-        coeffs = (a[0], b[0], cc[0], d[0], a[1], b[1], cc[1], d[1])
+        hdg, L, coeffs = _hermite_segment(p0, p1, t_out[i], t_in[i + 1])
+        if corner[i] and corner[i + 1]:      # both tangents are the chord: a straight leg
+            geoms.append(Geom(s, float(p0[0]), float(p0[1]), hdg, L, "line"))
+            s += L
+            continue
         length = _cubic_length(coeffs, max(64, int(L / 0.05)))
         geoms.append(Geom(s, float(p0[0]), float(p0[1]), hdg, length, "paramPoly3", coeffs))
         s += length
@@ -232,10 +297,9 @@ def road_geometry(road: Road) -> tuple[list[Geom], np.ndarray]:
     """Planview geometries and the cumulative ``s`` of every (deduplicated) vertex."""
     coords = _dedupe(np.asarray(road.reference_line.coords, dtype=np.float64))
     geoms = fit_planview(coords)
-    if geoms[0].kind == "line":
-        s_vertices = np.array([0.0, geoms[0].length])
-    else:
-        s_vertices = np.concatenate([[0.0], np.cumsum([g.length for g in geoms])])
+    # one geometry per polyline segment, whatever its kind (a straight leg between two corners
+    # is a "line"): the cumulative geometry lengths are the s of the vertices
+    s_vertices = np.concatenate([[0.0], np.cumsum([g.length for g in geoms])])
     return geoms, s_vertices
 
 

@@ -141,7 +141,13 @@ one material per group. Also emit lane markings as thin quads (0.12 m wide, +2 m
 Prefer `scenariogeneration.xodr` (Line/Arc/Spiral/ParamPoly3 planview builder, lanes, junctions,
 signals, `<geoReference>`). Reference-line geometry: fit each polyline as piecewise cubic
 `paramPoly3` (Catmull-Rom → local-frame cubic per segment) so curvature is continuous — **no**
-line/arc quantisation. Elevation profile: piecewise cubic from the sampled z. Lanes: constant
+line/arc quantisation. Exception, `export.xodr.MAX_PLANVIEW_OFFSET` (0.25 m): a vertex whose
+rounding would pull the fitted curve further than that off the polyline (a right-angle corner
+with long legs — an L-shaped parking aisle, a service road around a block) is written as a
+*corner*: the two geometries take their own chord directions and meet with a heading kink, a leg
+between two corners becomes a `line`. The polyline is what `surfaces` buffers, so following it is
+what keeps the lanes inside `drivable` (before this, the sharp-cornered service roads of the
+Sunnyvale build put 378 waypoints, 1.4 %, outside `drivable`). Elevation profile: piecewise cubic from the sampled z. Lanes: constant
 width per lane; `<roadMark>` from `Marking`; sidewalks as `type="sidewalk"` lanes with `height`
 inner/outer 0.15. Junctions: `<junction>` with `<connection>` + `<laneLink>`; connecting roads
 have `junction=<id>`. Signals: `<signal>` with CARLA's expected `type`/`subtype` ("1000001" for
