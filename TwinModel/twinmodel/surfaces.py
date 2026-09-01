@@ -894,13 +894,14 @@ def ground_layer_of(layers: Iterable[int]) -> int:
 def tunnel_trench(model: TwinModel, tunnel_roads: Iterable[Road],
                   clearance: Optional[float] = None, step: float = 2.0) -> Polygon | MultiPolygon:
     """The open cut of a tunnel: the street-space band of every tunnel road wherever the DEM
-    (the ground above) is less than ``clearance`` (default ``elevation.min_clearance_m``) above
-    the tunnel road — the ramp between the portal and the covered part, where the ground
-    surface must not be laid over the road. Empty without a DEM or without tunnel roads."""
+    (the ground above) is less than ``clearance`` (default ``elevation.tunnel_height_m``: the
+    ceiling would stand above the ground) over the tunnel road — the ramp between the portal
+    and the covered part, where the ground surface must not be laid over the road. Empty
+    without a DEM or without tunnel roads."""
     if model.elevation is None:
         return Polygon()
     if clearance is None:
-        clearance = profiles.get().elevation.min_clearance_m
+        clearance = profiles.get().elevation.tunnel_height_m
     parts: list[BaseGeometry] = []
     for r in tunnel_roads:
         c = np.asarray(r.reference_line.coords, dtype=np.float64)

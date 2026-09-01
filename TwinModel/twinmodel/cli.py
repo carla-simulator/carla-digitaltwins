@@ -481,9 +481,8 @@ def apply_tunnel_profiles(model: TwinModel, elevation: Elevation,
         link = r.predecessor if end == "start" else r.successor
         if link is not None and link.element == "road" and link.id in roads \
                 and link.id not in tunnel_ids:
-            c = np.asarray(roads[link.id].reference_line.coords, dtype=np.float64)
-            if c.shape[1] >= 3 and np.any(c[:, 2] != 0.0):
-                return float(c[0, 2] if link.contact == "start" else c[-1, 2]), True
+            # the approach already has its (DEM) profile: its contact is the portal level
+            return _contact_z(roads[link.id], link.contact), True
         xy = np.asarray(r.reference_line.coords, dtype=np.float64)
         p = xy[0] if end == "start" else xy[-1]
         z_dem = float(np.asarray(elevation.sample(p[0], p[1]), dtype=np.float64))
