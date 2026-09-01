@@ -1042,6 +1042,129 @@ class _UnionFind:
             self.parent[rb] = ra
 
 
+# --------------------------------------------------------------------------- service nodes
+# A ``highway=service`` way that is not a parking aisle — a frontage road, a lot's access loop,
+# a driveway, an alley — meets the street at an ordinary OSM node, and every such node is an
+# intersection node. Clustered at ``junction.cluster_m`` (40-60 m in the US profiles) those nodes
+# chain: a lot entrance 10 m from the next one pulls it in, that one the frontage road, the
+# frontage road the far side of the lot — Sunnyvale's W Olive Ave x S Taaffe St fused ten nodes
+# and a 335 m parking loop into one 7100 m2 "junction" with 160 m connecting roads. The rule
+# here (``JunctionRules.service_cluster_m``): street junctions are made of street nodes only.
+#
+#   * a *service node* is an intersection node with at most one street running through it and
+#     a non-aisle service way meeting it (``_service_nodes``);
+#   * street nodes cluster as before, and a service node sitting on the street *between* two
+#     street nodes that fuse is inside that junction (the walk in ``_cluster_service_nodes``
+#     looks through service nodes so a lot entrance never splits a median box in two);
+#   * a service node joins a street junction only when a chain shorter than
+#     ``service_cluster_m`` links it *directly* to one of the junction's street nodes — it can
+#     join, it can never bridge from one street node to another;
+#   * two service nodes fuse (a frontage road crossing a lot access) only within
+#     ``service_cluster_m``, and never so that the service nodes of one junction span more than
+#     that: the throat of a driveway is one junction, a row of driveways is a row of junctions.
+#
+# Whatever the trims leave shorter than ``junction.sliver_m`` between two of these small
+# junctions is still merged by the clustering loop (step 7a) — that merge is bounded by real
+# overlap, the crawl it replaces was not.
+
+def _service_nodes(intersection: set[int], minor_nodes: set[int], street_degree: dict[int, int],
+                   service_degree: dict[int, int]) -> set[int]:
+    """Intersection nodes that are one only because a non-aisle service way meets the street
+    there (or two service ways meet). Aisle-only ("minor") nodes keep their own rule."""
+    if profiles.get().junction.service_cluster_m <= 0:
+        return set()
+    return {nid for nid in intersection
+            if nid not in minor_nodes and service_degree[nid] > 0
+            and street_degree[nid] - service_degree[nid] <= 2}
+
+
+def _cluster_service_nodes(uf: "_UnionFind", chains: list["_Chain"], intersection: set[int],
+                           service_nodes: set[int], minor_nodes: set[int],
+                           node_xy: dict[int, tuple[float, float]], chain_limit,
+                           radius: float) -> int:
+    """Union-find step for the chains that touch a service node (see the module comment
+    above). ``chain_limit(chain, a, b)`` is the street cluster radius for a chain (gore / dual
+    carriageway aware). Returns the number of street-service links that the generic radius
+    would have fused and this rule kept apart."""
+    def is_street(nid: Optional[int]) -> bool:
+        return nid in intersection and nid not in service_nodes and nid not in minor_nodes
+
+    def is_service_chain(ch: _Chain) -> bool:
+        return any(s.way.tags.get("highway") == "service" for s in ch.segments)
+
+    at: dict[int, list[tuple[_Chain, int, int, float]]] = defaultdict(list)
+    touching: list[tuple[_Chain, int, int, float]] = []
+    for ch in chains:
+        a, b = ch.nodes[0], ch.nodes[-1]
+        if a is None or b is None or a == b or a not in intersection or b not in intersection:
+            continue
+        if a not in service_nodes and b not in service_nodes:
+            continue
+        length = _polyline_length(ch.xy)
+        at[a].append((ch, a, b, length))
+        at[b].append((ch, b, a, length))
+        touching.append((ch, a, b, length))
+
+    # 1. street-street links that run *through* service nodes along the street: the service
+    #    node is on the carriageway between the two street nodes, so if they fuse it is inside
+    for src in sorted(n for n in intersection if is_street(n)):
+        stack: list[tuple[int, float, float, list[int]]] = [(src, 0.0, math.inf, [])]
+        seen: set[int] = set()
+        while stack:
+            node, dist_along, limit, via = stack.pop()
+            for ch, _here, nxt, length in at.get(node, ()):
+                if is_service_chain(ch) or nxt in seen or nxt == src:
+                    continue
+                total = dist_along + length
+                lim = min(limit, chain_limit(ch, node, nxt))
+                if total >= lim:
+                    continue
+                if nxt in service_nodes:
+                    seen.add(nxt)
+                    stack.append((nxt, total, lim, via + [nxt]))
+                elif is_street(nxt) and math.dist(node_xy[src], node_xy[nxt]) < lim:
+                    for n in via + [nxt]:
+                        uf.union(src, n)
+
+    # 2. a service node directly linked to a street node within the service radius joins it
+    n_suppressed = 0
+    for ch, a, b, length in touching:
+        if (a in service_nodes) == (b in service_nodes):
+            continue
+        s_node, t_node = (a, b) if a in service_nodes else (b, a)
+        if not is_street(t_node):
+            continue  # a minor (aisle) node: never merges (see minor_nodes)
+        close = length < radius and math.dist(node_xy[a], node_xy[b]) < radius
+        if close:
+            uf.union(t_node, s_node)
+        else:
+            lim = chain_limit(ch, a, b)
+            if length < lim and math.dist(node_xy[a], node_xy[b]) < lim:
+                n_suppressed += 1
+
+    # 3. service-service links within the radius, never spanning more than it
+    members: dict[int, list[int]] = {}
+    for nid in service_nodes:
+        members.setdefault(uf.find(nid), []).append(nid)
+    for ch, a, b, length in sorted(touching, key=lambda t: t[3]):
+        if a not in service_nodes or b not in service_nodes:
+            continue
+        if not (length < radius and math.dist(node_xy[a], node_xy[b]) < radius):
+            continue
+        ra, rb = uf.find(a), uf.find(b)
+        if ra == rb:
+            continue
+        group = members.get(ra, []) + members.get(rb, [])
+        if any(math.dist(node_xy[p], node_xy[q]) > radius for p in group for q in group):
+            continue
+        uf.union(a, b)
+        root = uf.find(a)
+        members.pop(ra, None)
+        members.pop(rb, None)
+        members[root] = group
+    return n_suppressed
+
+
 # --------------------------------------------------------------------------- the builder
 
 def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, float, float],
@@ -1138,15 +1261,22 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     degree: dict[int, int] = defaultdict(int)
     street_degree: dict[int, int] = defaultdict(int)
     aisle_degree: dict[int, int] = defaultdict(int)
+    # non-aisle highway=service ways (frontage roads, lot access, driveways, alleys); they
+    # count in street_degree too — service_degree only tells the clustering which
+    # intersection nodes exist because of a service way alone (_service_nodes)
+    service_degree: dict[int, int] = defaultdict(int)
     endpoint_ways: dict[int, list[_Piece]] = defaultdict(list)
     for p in pieces:
         aisle = is_parking_aisle(p.way.tags)
+        service = not aisle and p.way.tags.get("highway") == "service"
         for i, nid in enumerate(p.nodes):
             if nid is None:
                 continue
             d = 1 if i in (0, len(p.nodes) - 1) else 2
             degree[nid] += d
             (aisle_degree if aisle else street_degree)[nid] += d
+            if service:
+                service_degree[nid] += d
             if i in (0, len(p.nodes) - 1):
                 endpoint_ways[nid].append(p)
     intersection: set[int] = set()
@@ -1310,10 +1440,36 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     minor_nodes = {nid for nid in intersection
                    if aisle_degree[nid] > 0 and street_degree[nid] <= 2}
     stats["minor_junction_nodes"] = len(minor_nodes)
+    # service nodes: intersection nodes that exist because a frontage road / lot access /
+    # driveway meets the street (see _service_nodes and _cluster_service_nodes below). They
+    # never seed or extend a street junction; the generic loop skips their chains.
+    service_nodes = _service_nodes(intersection, minor_nodes, street_degree, service_degree)
+    stats["service_junction_nodes"] = len(service_nodes)
+
+    def chain_limit(ch: _Chain, a: int, b: int) -> float:
+        """Cluster radius for the chain ``ch`` between intersection nodes ``a`` and ``b``."""
+        # a chain of grade-separated (freeway) ways links two gores, not two halves of one
+        # intersection: clustering them would swallow the whole speed-change lane into a
+        # single "junction" the width of the freeway (P.junction.gore_cluster_m, 0 by
+        # default). A bridge deck is never inside a junction either: the two ramp terminals
+        # of a diamond interchange are one cluster radius apart, and swallowing the deck
+        # between them would put the overpass on the junction's plane, i.e. on the freeway.
+        grade_separated = all(s.way.tags.get("highway") in P.lane.grade_separated_classes
+                              for s in ch.segments)
+        spans_levels = any(is_bridge(s.way.tags) or osm_layer(s.way.tags) != 0
+                           for s in ch.segments)
+        limit = (P.junction.gore_cluster_m if (grade_separated or spans_levels)
+                 else P.junction.cluster_m)
+        if dual_nodes and (a in dual_nodes or b in dual_nodes):
+            limit = min(limit, P.junction.dual_carriageway_cluster_m)
+        return limit
+
     n_dual_suppressed = 0
     for ch in chains:
         nodes = ch.nodes
         a, b = nodes[0], nodes[-1]
+        if a in service_nodes or b in service_nodes:
+            continue  # _cluster_service_nodes
         if a in minor_nodes or b in minor_nodes:
             # A lot entrance never merges with the intersection up the street — that would pull
             # the block between them into one cluster and pave it. Two nodes joined by a chain
@@ -1327,20 +1483,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                 uf.union(a, b)
             continue
         if a in intersection and b in intersection and a != b:
-            # a chain of grade-separated (freeway) ways links two gores, not two halves of one
-            # intersection: clustering them would swallow the whole speed-change lane into a
-            # single "junction" the width of the freeway (P.junction.gore_cluster_m, 0 by
-            # default). A bridge deck is never inside a junction either: the two ramp terminals
-            # of a diamond interchange are one cluster radius apart, and swallowing the deck
-            # between them would put the overpass on the junction's plane, i.e. on the freeway.
-            grade_separated = all(s.way.tags.get("highway") in P.lane.grade_separated_classes
-                                  for s in ch.segments)
-            spans_levels = any(is_bridge(s.way.tags) or osm_layer(s.way.tags) != 0
-                               for s in ch.segments)
-            limit = (P.junction.gore_cluster_m if (grade_separated or spans_levels)
-                     else P.junction.cluster_m)
-            if dual_nodes and (a in dual_nodes or b in dual_nodes):
-                limit = min(limit, P.junction.dual_carriageway_cluster_m)
+            limit = chain_limit(ch, a, b)
             if (_polyline_length(ch.xy) < limit
                     and math.dist(node_xy[a], node_xy[b]) < limit):
                 uf.union(a, b)
@@ -1349,6 +1492,10 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                   and math.dist(node_xy[a], node_xy[b]) < P.junction.cluster_m):
                 n_dual_suppressed += 1
     stats["dual_merges_suppressed"] = n_dual_suppressed
+    if service_nodes:
+        stats["service_merges_suppressed"] = _cluster_service_nodes(
+            uf, chains, intersection, service_nodes, minor_nodes, node_xy, chain_limit,
+            P.junction.service_cluster_m)
 
     def make_clusters() -> tuple[list[_Cluster], dict[int, _Cluster]]:
         groups: dict[int, list[int]] = defaultdict(list)
