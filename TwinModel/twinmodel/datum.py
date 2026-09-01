@@ -44,6 +44,9 @@ log = logging.getLogger("twinmodel.datum")
 SEGMENT_M = 1.0
 REACH_PAD_M = 1.0
 K_NEIGHBOURS = 64  # far-field fallback only
+# how far a layer-restricted query may reach for a road of its own layer before it gives up and
+# takes the nearest road of any layer (see RoadDatum.nearest)
+LAYER_FALLBACK_M = 20.0
 # regional (twinmodel.profiles, read at call time): P.elevation.datum_max_dist_m,
 # P.elevation.junction_blend_m, P.elevation.connecting_blend_m
 
@@ -72,7 +75,8 @@ class RoadDatum:
     def __init__(self, roads: Iterable[Road], elevation: Optional[Elevation] = None,
                  max_dist: Optional[float] = None, segment: float = SEGMENT_M,
                  reach_pad: float = REACH_PAD_M, k: int = K_NEIGHBOURS,
-                 cross_slope: float = 0.0, cross_slope_cap: float = 10.0):
+                 cross_slope: float = 0.0, cross_slope_cap: float = 10.0,
+                 layer_fallback: float = LAYER_FALLBACK_M):
         """``max_dist`` defaults to the active profile's ``elevation.datum_max_dist_m``."""
         if max_dist is None:
             max_dist = profiles.get().elevation.datum_max_dist_m
@@ -82,6 +86,8 @@ class RoadDatum:
         self.k = int(k)
         self.cross_slope = float(cross_slope)
         self.cross_slope_cap = float(cross_slope_cap)
+        self.layer_fallback = float(layer_fallback)
+        self._layer_trees: dict[int, tuple[Optional[cKDTree], np.ndarray]] = {}
         lines, covers, s_arrays, z_arrays, wl, wr = [], [], [], [], [], []
         pts, zs, rid = [], [], []
         road_layers: list[int] = []
@@ -130,6 +136,15 @@ class RoadDatum:
     @property
     def empty(self) -> bool:
         return self.tree is None
+
+    def _layer_tree(self, layer: int) -> tuple[Optional[cKDTree], np.ndarray]:
+        """(KD-tree over the 1 m samples of the roads on ``layer``, their global indices)."""
+        hit = self._layer_trees.get(layer)
+        if hit is None:
+            idx = np.flatnonzero(self.layers[self.rid] == layer)
+            hit = ((cKDTree(self.xy[idx]) if len(idx) else None), idx)
+            self._layer_trees[layer] = hit
+        return hit
 
     # -- core ----------------------------------------------------------------------------
     def _project(self, q: np.ndarray, i: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -204,6 +219,22 @@ class RoadDatum:
             z_out[pi[win]] = z[win]
             d_out[pi[win]] = dist[win]
         miss = np.isnan(z_out)
+        if miss.any() and layer is not None:
+            # just past the end of a deck (its surface polygon reaches a little further than the
+            # coverage buffer) the any-road fallback below drops the vertex onto the street 6 m
+            # underneath — a cliff at the end of the viaduct. Stay on the layer while one of its
+            # roads is within ``layer_fallback``; only beyond that is the layer genuinely absent.
+            tree_l, idx_l = self._layer_tree(int(layer))
+            if tree_l is not None:
+                mi = np.flatnonzero(miss)
+                d1, i1 = tree_l.query(q[mi], k=1)
+                take = np.atleast_1d(d1) <= self.layer_fallback
+                if take.any():
+                    gi = idx_l[np.atleast_1d(i1)[take]]
+                    z1, d1p = self._project(q[mi[take]], gi)
+                    z_out[mi[take]] = z1
+                    d_out[mi[take]] = d1p
+                    miss = np.isnan(z_out)
         if miss.any():
             # nothing on ``layer`` covers these points: fall back to the nearest sample of any
             # road, as without a layer. Restricting the fallback too would drag a point beside

@@ -369,15 +369,49 @@ its own `drivable` / `sidewalk` / `verge` / `crossing` surfaces (tagged `layer`)
 and markings, and `RoadDatum.z(x, y, layer=...)` only considers roads of that layer, so the
 mesh does not fuse a deck onto the carriageway 6 m below it.
 
-A DTM has the deck removed, so elevation is handled from both sides: a bridge deck takes a
-straight profile between its abutments (`cli.apply_bridge_profiles`, the whole chain of linked
-bridge roads at once, abutment z = the highest DEM sample within
+A DTM has the deck removed, so elevation is handled from both sides: a *deck*
+(`cli.deck_road_ids` — `bridge=*` **or** `layer > 0`, a viaduct is often tagged only with the
+layer) takes a straight profile between its abutments (`cli.apply_bridge_profiles`, the whole
+chain of linked deck roads at once, abutment z = the highest DEM sample within
 `ElevationRules.bridge_abutment_m` of the chain end); and the roads *under* a deck have the DEM
 masked over the deck footprint and interpolated across (`road_profile_from_dem(mask=...)`, only
 where the deck crosses the road's interior — a deck that reaches the road's end is the same
 street continuing over the bridge). `validate` reports `grade_separation`: the minimum z gap
 between driving waypoints of different layers that share an xy, which must be
 `>= MIN_CLEARANCE_M` (4.5 m).
+
+**Clipped decks.** A chain end with no approach road is *free*: the bbox cut the structure
+(SF SoMa's I-80 is elevated right across the tile and its ramps leave it on every side), so no
+abutment exists anywhere in the data and the DEM there is bare earth — the street the viaduct
+flies over. `anchor_z` reports whether an end is a real abutment; a free end is lifted until the
+deck clears every plain road on a lower layer whose carriageway its footprint passes over by
+`ElevationRules.min_clearance_m` (6.0 m: AASHTO/Caltrans want 16 ft 6 in to the soffit and the
+structure adds about a metre). Both ends free shifts the chain rigidly, so its DEM-derived grade
+survives; one end free pivots about the real abutment and ignores crossings within
+`clearance_abutment_skip_m` of it. Roads that *meet* the chain — linked, or arms of a junction
+it reaches — are never counted as crossed, exactly as `validate.grade_separation` excludes them.
+`ElevationRules.max_deck_lift_m` caps the result.
+
+**Abutment welds.** The deck's abutment z is the top of the DEM step beside it, while the
+approach's own smoothed profile is dragged down by the half smoothing window
+`road_profile_from_dem` extends *past* the road end — straight over the deck, into the trench of
+the road below. The two sides then disagree by 1–2 m (US-101 × Mathilda: 1.77 m), a real ledge
+in the exported surface. `cli.weld_deck_abutments` pulls the approach onto the deck (the side
+whose z comes from ground the DTM actually shows), fading the offset out over
+`ElevationRules.abutment_blend_m` (40 m) and densifying the reference line so the ramp has
+vertices; it walks on into the next road when the first is shorter than the blend, and stops at
+junctions, whose plane `harmonize_junction_z` re-fits afterwards. In a CARLA soak that ledge
+shows up twice: as `static.road` scrapes on the step, and as `static.terrain`, because CARLA's
+runtime terrain heightfield hugs the lowest paved z per raster cell and read the deck's height
+in the cells beside the approach.
+
+`RoadDatum.z(x, y, layer=...)` keeps a layer-restricted query on its own layer while a road of
+that layer is within `datum.LAYER_FALLBACK_M` (20 m) before falling back to the nearest road of
+any layer — a deck's surface polygon reaches a little past its coverage buffer, and the plain
+fallback dropped those vertices onto the street 6 m below, a cliff at the end of the viaduct.
+
+`tools/gradesep_preview.py TWIN OUT.png CX CY HALF` renders an oblique 3D view of a crossing
+(surfaces coloured by layer, tightest z gap annotated) for eyeballing all of the above.
 
 ## Rules for all workers
 
