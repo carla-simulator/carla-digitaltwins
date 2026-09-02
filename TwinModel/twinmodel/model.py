@@ -36,8 +36,11 @@ SurfaceSource = Literal["osm_tags", "area_highway", "imagery"]
 #                        spawns no ATrafficLightBase and never appears as a traffic.traffic_light
 #                        actor. Walkers ignore it either way (AWalkerAIController never reads a
 #                        traffic light), so it is a prop with a phase written in the xodr.
+# "priority_road"        StVO 306 / VC B3: the major road through an unsignalised junction.
+#                        CARLA parses it as an inert sign (no USignComponent model), which is
+#                        exactly right -- the *minor* approaches carry the 205/206 that stops.
 SignalKind = Literal["traffic_light", "traffic_light_arrow", "traffic_light_ped",
-                     "stop", "yield", "speed_limit", "crosswalk"]
+                     "stop", "yield", "priority_road", "speed_limit", "crosswalk"]
 # every kind that is a signal head of a junction's stage plan
 TRAFFIC_LIGHT_KINDS = ("traffic_light", "traffic_light_arrow", "traffic_light_ped")
 MarkingKind = Literal["solid", "broken"]

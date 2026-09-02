@@ -53,9 +53,18 @@ TL_TYPES_EXTRA = (PED_TYPE,)
 ARROW_NAME_PREFIX = "Signal_3Light_Arrow"
 
 
+# Static regulatory signals of an unsignalised junction: give way (205), stop (206) and
+# priority road (306). They carry a <validity> for the same reason a traffic light does --
+# without one MapBuilder::GenerateDefaultValiditiesForSignalReferences synthesises the oncoming
+# side -- but they are never in a <controller>.
+REG_TYPES = {"205": "yield", "206": "stop", "306": "priority_road"}
+
+
 def _signal_class(stype: str, name: str) -> str:
     if stype == PED_TYPE:
         return "ped"
+    if stype in REG_TYPES:
+        return REG_TYPES[stype]
     return "arrow" if name.startswith(ARROW_NAME_PREFIX) else "through"
 
 
@@ -97,7 +106,7 @@ def check(xodr_path: str | Path) -> dict:
             continue
         for s in sigs.findall("signal"):
             stype = s.get("type", "")
-            if stype != TL_TYPE and stype not in TL_TYPES_EXTRA:
+            if stype != TL_TYPE and stype not in TL_TYPES_EXTRA and stype not in REG_TYPES:
                 continue
             signals[s.get("id")] = {
                 "id": s.get("id"), "type": stype, "road_id": rid, "s": float(s.get("s", 0.0)),
@@ -162,6 +171,32 @@ def check(xodr_path: str | Path) -> dict:
     for sid, sig in sorted(signals.items()):
         cids = sig_ctl.get(sid, [])
         kind = sig["kind"]
+        if kind in REG_TYPES.values():
+            # a static sign is never in a <controller>: nothing ticks it
+            if cids:
+                bad("R_CONTROLLED", signal=sid, controllers=cids, kind=kind,
+                    detail="a stop / give-way / priority-road sign is not a stage of anything")
+            road_el = roads.get(sig["road_id"])
+            ltypes = _lane_types_at(road_el, sig["s"]) if road_el is not None else {}
+            want_negative = sig["orientation"] == "+"
+            for (a, b) in sig["validities"]:
+                lo, hi = (a, b) if a <= b else (b, a)
+                for lane in range(lo, hi + 1):
+                    if lane == 0:
+                        continue
+                    lt = ltypes.get(lane)
+                    if lt is None:
+                        bad("R_NOLANE", signal=sid, road=sig["road_id"], lane=lane, kind=kind,
+                            detail="validity names a lane the road does not have at s")
+                    elif lt != "driving":
+                        bad("R_TYPE", signal=sid, road=sig["road_id"], lane=lane, lane_type=lt,
+                            kind=kind, detail="a regulatory sign governs driving lanes")
+                    elif sig["orientation"] in ("+", "-") and \
+                            ((lane < 0) != want_negative):
+                        bad("R_SIDE", signal=sid, road=sig["road_id"], lane=lane, kind=kind,
+                            orientation=sig["orientation"],
+                            detail="RHT: orientation '+' governs the negative (right) lanes")
+            continue
         if not cids and kind != "ped":
             # a pedestrian head may be uncontrolled: it drives no ATrafficLightBase, so a
             # controller only documents the phase it would walk in, and a single-stage

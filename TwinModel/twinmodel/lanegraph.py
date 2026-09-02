@@ -3337,6 +3337,19 @@ def _dedicated_turn_lanes(moves: dict[tuple[str, int], set[str]], road_id: str,
     return ded if (ded and other) else []
 
 
+# Priority order of the OSM highway classes, most major first. Used to pick the major road of
+# an unsignalised junction; a ``*_link`` ranks just below its parent class.
+_HIGHWAY_RANK: dict[str, int] = {"motorway": 90, "trunk": 80, "primary": 70, "secondary": 60,
+                                 "tertiary": 50, "unclassified": 40, "residential": 30,
+                                 "living_street": 20, "service": 10}
+_HIGHWAY_RANK.update({f"{k}_link": v - 5 for k, v in list(_HIGHWAY_RANK.items())
+                      if k in ("motorway", "trunk", "primary", "secondary", "tertiary")})
+
+
+def _highway_rank(highway: str) -> int:
+    return _HIGHWAY_RANK.get(highway or "", 0)
+
+
 def _make_signal(sid: str, kind: str, road: Road, s: float, t: float, forward: bool, **kw) -> Signal:
     pos = point_on_road(road, s, t)
     h = _heading_along(road.reference_line, s)
@@ -3344,6 +3357,78 @@ def _make_signal(sid: str, kind: str, road: Road, s: float, t: float, forward: b
         h = _wrap(h + math.pi)
     return Signal(id=sid, kind=kind, road_id=road.id, s=float(s), t=float(t), position=pos,
                   heading=float(h), orientation="+" if forward else "-", **kw)
+
+
+def _unsignalised_control(model: TwinModel, clusters: list[_Cluster], road_end_cluster: dict,
+                          plain_roads: list[Road], signalised: set[str],
+                          osm_regulated: set[tuple[str, bool]], all_way_clusters: set[str],
+                          next_id, stats: dict) -> list[Signal]:
+    """Regulatory signs on the approaches of every junction that has no traffic light.
+
+    Without one the Traffic Manager treats the crossing as free: ``LocalizationStage`` only
+    stops for a ``1000001`` junction entry and ``TrafficLightStage`` for a stop/yield
+    ``RoadInfoSignal``, so an unsigned intersection is one nobody yields at.
+
+    The rule is ``JunctionRules.unsignalised_control`` (US profiles: an all-way stop, MUTCD
+    2B.07; EU: give way on the minor approaches and a priority road through). An OSM
+    ``highway=stop`` / ``highway=give_way`` node on an approach always wins, and a ``stop=all``
+    node makes its junction an all-way stop whatever the profile says.
+    """
+    P = profiles.get()
+    default_rule = P.junction.unsignalised_control
+    out: list[Signal] = []
+    n_junctions = 0
+    per_rule: dict[str, int] = defaultdict(int)
+    per_kind: dict[str, int] = defaultdict(int)
+    for c in clusters:
+        if c.id in signalised or c.kind == "gore":
+            continue
+        approaches: list[tuple[Road, bool, list[Lane]]] = []
+        for r in plain_roads:
+            for end in ("start", "end"):
+                if road_end_cluster[r.id][end] is not c:
+                    continue
+                forward = end == "end"
+                lanes = [l for l in r.lanes if l.type == "driving"
+                         and (l.direction == "forward") == forward]
+                if lanes:
+                    approaches.append((r, forward, lanes))
+        if len(approaches) < 2:
+            continue  # a dead end or a single arm: nothing to give way to
+        # A cluster that is only a road split / continuation -- two approaches and no movement
+        # that crosses another -- is not an intersection and gets nothing.
+        turns = {r.tags.get("turn") for r in model.roads if r.junction_id == c.id}
+        if len(approaches) <= 2 and not (turns - {"through", None}):
+            continue
+        rule = "all_way_stop" if c.id in all_way_clusters else default_rule
+        n_junctions += 1
+        per_rule[rule] += 1
+        if rule in ("priority_right", "osm"):
+            continue  # the default rule of the road, or whatever OSM already said
+        # major = the highest (highway class, lane count); an all-way stop has no major road,
+        # and when every approach ties there is no priority road either -- everyone gives way
+        weight = {(r.id, fwd): (_highway_rank(r.highway), len(lanes))
+                  for r, fwd, lanes in approaches}
+        best = max(weight.values())
+        major = {k for k, v in weight.items() if v == best}
+        if rule == "all_way_stop" or len(major) == len(weight):
+            major = set()
+        minor_kind = "stop" if rule in ("all_way_stop", "minor_stop") else "yield"
+        for r, forward, lanes in approaches:
+            if (r.id, forward) in osm_regulated:
+                per_kind["osm"] += 1
+                continue
+            kind = "priority_road" if (r.id, forward) in major else minor_kind
+            s = r.length if forward else 0.0
+            out.append(_make_signal(next_id(), kind, r, s, _signal_side(r, forward), forward,
+                                    validities=_lane_runs(l.id for l in lanes),
+                                    tags={"junction_id": c.id, "control": rule,
+                                          "source": "unsignalised_control"}))
+            per_kind[kind] += 1
+    stats["unsignalised_junctions"] = n_junctions
+    stats["unsignalised_control_rules"] = dict(per_rule)
+    stats["unsignalised_control_signals"] = dict(per_kind)
+    return out
 
 
 def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list[_Cluster],
@@ -3479,6 +3564,10 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
     n_ped_heads = 0
     n_ped_merged = 0
     ped_at: list[tuple[str, float]] = []
+    # approaches an OSM highway=stop / give_way node already governs: those always win over
+    # JunctionRules.unsignalised_control
+    osm_regulated: set[tuple[str, bool]] = set()
+    all_way_clusters: set[str] = set()
     for nid, n in tagged.items():
         hw = n.tags.get("highway")
         if hw not in ("crossing", "stop", "give_way"):
@@ -3570,14 +3659,31 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
             if direction not in ("forward", "backward"):
                 # unsigned: put it at the road end nearest to the node (stop lines sit at the end)
                 forward = s > line2d.length / 2 or not any(l.id > 0 and l.type == "driving" for l in road.lanes)
+            # the same correctness fix the traffic lights got: without a <validity> CARLA
+            # synthesises one for the oncoming side (MapBuilder::GenerateDefaultValidities-
+            # ForSignalReferences), so the sign governs lanes nobody drives on
+            appr = [l.id for l in road.lanes if l.type == "driving"
+                    and (l.direction == "forward") == forward]
             signals.append(_make_signal(next_id(), "stop" if hw == "stop" else "yield", road, s,
                                         _signal_side(road, forward), forward, osm_node_id=nid,
-                                        tags={"node_xy": [pt.x, pt.y]}))
+                                        validities=_lane_runs(appr),
+                                        tags={"node_xy": [pt.x, pt.y], "source": "osm"}))
+            osm_regulated.add((road.id, forward))
+            if hw == "stop" and str(n.tags.get("stop", "")).lower() == "all":
+                cl = min((cc for cc in clusters if cc.kind != "gore"),
+                         key=lambda cc: pt.distance(cc.hull), default=None)
+                if cl is not None and pt.distance(cl.hull) <= P.junction.signal_search_m:
+                    all_way_clusters.add(cl.id)
     stats["signal_nodes_unplaced"] = n_unplaced
     stats["crossings_clamped"] = n_clamped
     stats["crossings_in_junction"] = n_in_junction
     stats["pedestrian_heads"] = n_ped_heads
     stats["pedestrian_heads_merged"] = n_ped_merged
+
+    # ---- unsignalised junctions: something must govern them (Phase 5b)
+    signals.extend(_unsignalised_control(model, clusters, road_end_cluster, plain_roads,
+                                         set(signalised), osm_regulated, all_way_clusters,
+                                         next_id, stats))
 
     # speed limits at road start (forward) / end (backward)
     for r in plain_roads:

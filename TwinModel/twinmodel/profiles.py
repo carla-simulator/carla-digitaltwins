@@ -217,6 +217,18 @@ class JunctionRules:
     # OSM maps a crossing as one node per direction of travel; two of them landing this close
     # on the same road are one crossing and get one head, or the baked rigs coincide
     signal_ped_merge_m: float = 1.5
+    # ---- unsignalised junctions (lanegraph._unsignalised_control) --------------------------
+    # A crossing with no traffic_signals node is still *governed* by something. Without a sign
+    # the Traffic Manager treats it as a free crossing: nothing stops, nothing yields.
+    #   "all_way_stop":  a 206 stop on every approach (the US default for a minor crossing)
+    #   "minor_stop":    206 on the minor approaches, 306 priority-road on the major ones
+    #   "minor_yield":   205 give-way on the minor approaches, 306 on the major ones (EU)
+    #   "priority_right": nothing signed -- priorite a droite, the default rule of the road
+    #   "osm":           only what OSM tags (highway=stop / give_way) already say
+    # OSM stop / give_way nodes on an approach always win over the rule, and a ``stop=all``
+    # node makes its junction an all-way stop whatever the profile says.
+    unsignalised_control: Literal["all_way_stop", "minor_stop", "minor_yield",
+                                  "priority_right", "osm"] = "minor_yield"
 
     # ---- divided (dual) carriageways -------------------------------------------------------
     # A divided arterial is mapped in OSM as two ``oneway=yes`` ways with the same name/ref
@@ -546,6 +558,9 @@ US_URBAN = StreetProfile(
                            plaza_radius_m=50.0, chamfer_scan_m=60.0, dead_end_stub_m=10.0,
                            stub_m=3.0, short_road_m=5.0, band_overlap_m2=0.5,
                            cover="bounded", plaza_max_area_factor=3.0, corner_opening="recess",
+                           # MUTCD 2B.07: an unsignalised US intersection of comparable streets
+                           # is an all-way stop, and MUTCD has no priority-road plate at all
+                           unsignalised_control="all_way_stop",
                            # divided arterials (Howard/Folsom in SoMa, El Camino Real /
                            # S Mathilda Ave in Sunnyvale): 25 m of median at most, junctions
                            # clustered over the median box only, 8 ft of explicit median lane

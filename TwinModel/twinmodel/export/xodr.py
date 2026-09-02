@@ -60,6 +60,9 @@ SIGNAL_TYPES: dict[str, tuple[str, str, str]] = {
     "traffic_light_ped": ("1000002", "-1", "yes"),
     "stop": ("206", "-1", "no"),
     "yield": ("205", "-1", "no"),
+    # the major road of an unsignalised junction (StVO 306 / Vienna Convention B3). MUTCD has
+    # no equivalent plate, which is why the US profiles sign an all-way stop instead.
+    "priority_road": ("306", "-1", "no"),
     "speed_limit": ("274", "", "no"),  # subtype filled with the km/h value
 }
 CROSSWALK_KIND = "crosswalk"
@@ -558,6 +561,7 @@ def _signal_attrs(sig: Signal) -> dict[str, str]:
                                     "traffic_light_ped": "Signal_2Light_Pedestrian01",
                                     "stop": "Sign_Stop",
                                     "yield": "Sign_Yield",
+                                    "priority_road": "Sign_PriorityRoad",
                                     "speed_limit": f"Speed_{subtype}"}[sig.kind]
     # Stamp the build profile's primary ISO country instead of the stock "OpenDRIVE"
     # sentinel: the type/subtype vocabulary stays SignalType.h (StVO codes) either way, but
