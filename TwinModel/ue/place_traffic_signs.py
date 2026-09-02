@@ -14,8 +14,10 @@ module: an ATrafficSignBase with a pole and a plate) is spawned at the signal, r
 + 90 and 0.25 m forward exactly like ``ATrafficLightManager::SpawnSignals`` would spawn the
 stock blueprint. The actor's TrafficSignState is set from the signal, so at runtime the manager
 adopts it (``GetClosestTrafficSignActor``, 5 m) and attaches the USignComponent instead of
-spawning ``BP_SpeedLimit30`` and friends on top of it. Signals the runtime has no state for
-(10 / 20 km/h) get a purely visual sign, which is also what the stock path does (nothing).
+spawning ``BP_SpeedLimit30`` and friends on top of it. Speed limits carry their km/h value
+(dedicated ETrafficSignState or the custom SpeedLimit state + SpeedLimitKmh), so every
+value the xodr has is adopted; with ``--style auto`` US signals get MUTCD plates printed in
+the nearest mph while the actor still reports the km/h limit.
 
 Actors are labelled ``SIGN_<signal id>``; a re-run replaces them.
 """
@@ -39,23 +41,55 @@ PLATE_SCALE = {"SM_OctogonalShape": 1.6, "SM_CircleShape": 0.75, "SM_InvertedTri
                "SM_DangerSignShape": 0.8, "SM_RomboidShape": 0.75}
 
 
+KMH_PER_MPH = 1.60934
+# regional style per ISO country of the OpenDRIVE signal (twin builds stamp it; stock maps say "OpenDRIVE")
+STYLE_BY_COUNTRY = {"US": "MUTCD", "CN": "GB"}
+
+
+def style_for(signal, requested):
+    if requested != "auto":
+        return requested
+    return STYLE_BY_COUNTRY.get((signal.get("country") or "").upper(), "VC")
+
+
 def pick(manifest, style, stype, subtype):
-    """Best catalog entry for an OpenDRIVE signal: exact type + subtype, same style."""
+    """Best catalog entry for an OpenDRIVE signal: exact type + subtype, same style.
+
+    The OpenDRIVE subtype of a speed limit is always km/h. MUTCD plates are printed in mph
+    (their manifest subtype is the mph number), so for that style the plate nearest to
+    kmh / 1.609 is chosen; the actor keeps the km/h value for the runtime."""
     best = None
+    want_mph = None
+    if stype == "274" and style == "MUTCD":
+        try:
+            want_mph = float(subtype) / KMH_PER_MPH
+        except ValueError:
+            return None
     for da_path, info in manifest.items():
         if info["style"] != style or info["xodr_type"] != stype:
             continue
         sub = info.get("xodr_subtype") or ""
-        if stype == "274":
+        if want_mph is not None:
+            try:
+                mph = float(sub)
+            except ValueError:
+                continue
+            score = (abs(mph - want_mph), len(info["name"]))
+        elif stype == "274":
             if sub != subtype:
                 continue
-        elif sub not in ("", "-1", subtype):
-            continue
-        # prefer the plain sign over variants (_2, _mirrored, school ...)
-        score = len(info["name"])
+            score = (0.0, len(info["name"]))  # prefer the plain sign over variants (_2, _mirrored, school ...)
+        else:
+            if sub not in ("", "-1", subtype):
+                continue
+            score = (0.0, len(info["name"]))
         if best is None or score < best[0]:
             best = (score, da_path, info)
-    return None if best is None else (best[1], best[2])
+    if best is None:
+        return None
+    if want_mph is not None and best[0][0] > 5.0:
+        return None  # no plate within 5 mph of the limit
+    return best[1], best[2]
 
 
 def ground_z(world, x, y, z_hint):
@@ -94,9 +128,8 @@ def place_one(world, pole, pole_h, mesh, mat, loc, yaw, plate_yaw, plate_z, labe
     actor.set_editor_property("style", style)
     if signal is not None:
         actor.set_editor_property("signal_id", str(signal["id"]))
-        actor.set_editor_property("xodr_type", signal["type"])
-        actor.set_editor_property("xodr_subtype", signal.get("subtype") or "")
-        actor.set_editor_property("traffic_sign_state", unreal.GeoTrafficSign.state_for_signal(signal["type"], signal.get("subtype") or ""))
+        # type / subtype + the runtime state; speed limits keep their km/h value whatever the plate prints
+        actor.configure_for_signal(signal["type"], signal.get("subtype") or "")
     actor.set_actor_label(label)
     try:
         actor.set_editor_property("is_spatially_loaded", False)  # the runtime looks them up with GetAllActorsOfClass
@@ -158,7 +191,8 @@ def main(argv):
     ap.add_argument("--camera-dist", type=float, default=11.0)
     ap.add_argument("--remove-catalog", action="store_true", help="only remove a previously placed museum (SIGNCAT_*) and save")
     ap.add_argument("--plate-offset", nargs=2, type=float, default=list(PLATE_OFFSET_CM), metavar=("DX", "DY"), help="plate offset from the pole axis in actor space (cm)")
-    ap.add_argument("--style", default="VC", choices=["VC", "MUTCD", "GB"])
+    ap.add_argument("--style", default="auto", choices=["auto", "VC", "MUTCD", "GB"],
+                    help="regional style; auto = by the signal's country (US: MUTCD mph plates, CN: GB, else VC)")
     ap.add_argument("--pole", default=DEFAULT_POLE)
     ap.add_argument("--map-root", default=MAP_ROOT)
     ap.add_argument("--yaw-offset", type=float, default=90.0, help="added to the signal yaw (CARLA's convention: +90)")
@@ -205,7 +239,8 @@ def main(argv):
         report["catalog_rows"] = place_catalog_rows(world, manifest, pole, pole_h, args)
     for s in signals:
         key = "%s-%s" % (s["type"], s.get("subtype") or "")
-        hit = pick(manifest, args.style, s["type"], s.get("subtype") or "")
+        style = style_for(s, args.style)
+        hit = pick(manifest, style, s["type"], s.get("subtype") or "")
         if hit is None:
             report["unmatched"][key] = report["unmatched"].get(key, 0) + 1
             continue
@@ -224,7 +259,7 @@ def main(argv):
                             s["y"] * 100.0 + fwd.y * args.forward_m * 100.0,
                             (s["z"] - float(s.get("z_offset") or 0.0)) * 100.0)
         actor = place_one(world, pole, pole_h, mesh, mat, loc, yaw, args.plate_yaw, args.plate_height_m * 100.0,
-                          "SIGN_%s" % s["id"], info["name"], args.style, signal=s)
+                          "SIGN_%s" % s["id"], info["name"], style, signal=s)
         if actor is None:
             report["failed"].append(s["id"])
             continue
