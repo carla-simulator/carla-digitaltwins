@@ -175,3 +175,130 @@ def test_placer_controller_map_rejects_a_signal_in_two_controllers(tmp_path, xod
                    '</OpenDRIVE>')
     with pytest.raises(RuntimeError):
         ns["controllers_from_xodr"](str(bad))
+
+
+# ------------------------------------------- protected turns (Phase 5) and pedestrian heads
+
+SUNNYVALE = Path(__file__).parent / "fixtures" / "sunnyvale_overpass.json"
+SV_BBOX = (37.369, -122.042, 37.374, -122.034)
+
+
+def test_dedicated_turn_lane_needs_a_sibling_going_elsewhere():
+    """A lane whose only movements are left turns is a *dedicated* turn lane -- but only if
+    another lane of the same approach goes somewhere else. An approach that turns as a whole
+    (a one-lane slip road) needs no arrow: its through signal already governs the movement."""
+    from twinmodel.lanegraph import _dedicated_turn_lanes
+    moves = {("r1", -1): {"left"}, ("r1", -2): {"through"}, ("r1", -3): {"through", "right"}}
+    assert _dedicated_turn_lanes(moves, "r1", [-1, -2, -3], ("left",)) == [-1]
+    # every lane turns left -> no arrow
+    only = {("r1", -1): {"left"}, ("r1", -2): {"left"}}
+    assert _dedicated_turn_lanes(only, "r1", [-1, -2], ("left",)) == []
+    # a shared left+through lane is not dedicated
+    shared = {("r1", -1): {"left", "through"}, ("r1", -2): {"through"}}
+    assert _dedicated_turn_lanes(shared, "r1", [-1, -2], ("left",)) == []
+    # two dedicated lanes side by side are one arrow signal over both
+    two = {("r1", -1): {"left"}, ("r1", -2): {"left"}, ("r1", -3): {"through"}}
+    assert _dedicated_turn_lanes(two, "r1", [-1, -2, -3], ("left",)) == [-1, -2]
+
+
+@pytest.fixture(scope="module")
+def us_model():
+    """A US twin: unlike Eixample's one-way grid it has real dedicated left-turn lanes.
+
+    The active profile is process-global, so it is restored on teardown -- otherwise every
+    later test module would build with US curb heights and lane widths.
+    """
+    previous = profiles.get()
+    profiles.activate("us_suburban")
+    try:
+        yield build_lanegraph(load_fixture(SUNNYVALE), LocalFrame.from_bbox(*SV_BBOX), SV_BBOX,
+                              name="sunnyvale")
+    finally:
+        profiles.activate(previous)
+
+
+def test_protected_turn_is_its_own_signal_on_its_own_lane(us_model):
+    """One ATrafficLightBase carries one ETrafficLightState (TrafficLightBase.h:110) and every
+    client/TM call is per actor, so a protected turn cannot be a second head of the through
+    signal: it is a second <signal>, validated over exactly the dedicated lane(s)."""
+    arrows = [s for s in us_model.signals if s.kind == "traffic_light_arrow"]
+    assert arrows, "the US fixture must have at least one dedicated left-turn lane"
+    by_road_through = {}
+    for s in us_model.signals:
+        if s.kind == "traffic_light":
+            by_road_through.setdefault(s.road_id, []).append(s)
+    for a in arrows:
+        assert a.validities, f"{a.id} has no <validity>"
+        arrow_lanes = {l for lo, hi in a.validities for l in range(lo, hi + 1)}
+        assert arrow_lanes
+        # disjoint from every through signal of the same approach: a lane may not carry two
+        # trigger boxes with different states
+        for t in by_road_through.get(a.road_id, []):
+            if t.orientation != a.orientation:
+                continue
+            through_lanes = {l for lo, hi in t.validities for l in range(lo, hi + 1)}
+            assert not (arrow_lanes & through_lanes), f"{a.id} and {t.id} share {arrow_lanes & through_lanes}"
+        # and the arrow pole clears the through pole by more than the 50 cm radius
+        # UMapLogicParser::ApplyLaneIdsFromMapLogic adopts within
+        through = [t for t in by_road_through.get(a.road_id, []) if t.orientation == a.orientation]
+        for t in through:
+            assert abs(t.s - a.s) >= 0.6, f"{a.id} is {abs(t.s - a.s):.2f} m from {t.id}"
+
+
+def test_protected_turn_gets_a_leading_stage_of_its_own(us_model):
+    """The arrow's stage may hold no through movement -- that is the whole point of a
+    protected turn -- and it runs *before* the through stage of its own approach."""
+    ctl_of = {c.id: c for c in us_model.controllers}
+    kind_of = {s.id: s.kind for s in us_model.signals}
+    arrows = [s for s in us_model.signals if s.kind == "traffic_light_arrow"]
+    assert arrows
+    for a in arrows:
+        assert a.controller_id, f"{a.id} is in no controller"
+        ctl = ctl_of[a.controller_id]
+        kinds = {kind_of[sid] for sid in ctl.signal_ids}
+        assert "traffic_light" not in kinds, f"{ctl.id} mixes a protected turn with a through movement"
+        through = next(s for s in us_model.signals
+                       if s.kind == "traffic_light" and s.id == a.tags["through_signal"])
+        assert ctl.sequence < ctl_of[through.controller_id].sequence, \
+            f"{a.id} must lead {through.id}, not follow it"
+
+
+def test_pedestrian_heads_are_type_1000002_over_sidewalk_lanes(model):
+    """A pedestrian head is a phased prop: OpenDRIVE type 1000002, which CARLA does not know,
+    so SignalType::IsTrafficLight is false, no ATrafficLightBase is generated and no client
+    sees a traffic.traffic_light for it. Its <validity> names sidewalk lanes, which is also
+    why UTrafficLightComponent::InitializeSign gives it no trigger box."""
+    peds = [s for s in model.signals if s.kind == "traffic_light_ped"]
+    crossings = [s for s in model.signals if s.kind == "crosswalk"]
+    assert peds and len(peds) <= len(crossings)
+    lanes_of = {(r.id): {l.id: l.type for l in r.lanes} for r in model.roads}
+    for p in peds:
+        assert p.validities, f"{p.id} has no <validity>"
+        for lo, hi in p.validities:
+            for lane in range(lo, hi + 1):
+                assert lanes_of[p.road_id][lane] == "sidewalk", \
+                    f"{p.id} validates {lane} which is {lanes_of[p.road_id][lane]}"
+
+
+def test_pedestrian_head_walks_when_its_own_street_is_red(model):
+    """The head is put in a stage that greens no approach of the street it crosses."""
+    ctl_of = {c.id: c for c in model.controllers}
+    # only the *vehicle* members of a stage matter: the other pedestrian heads in it are props
+    veh_road = {s.id: s.road_id for s in model.signals
+                if s.kind in ("traffic_light", "traffic_light_arrow")}
+    peds = [s for s in model.signals if s.kind == "traffic_light_ped" and s.controller_id]
+    assert peds
+    for p in peds:
+        green_roads = {veh_road[sid] for sid in ctl_of[p.controller_id].signal_ids
+                       if sid in veh_road}
+        assert p.road_id not in green_roads, \
+            f"{p.id} crosses {p.road_id} in stage {p.controller_id}, which greens it"
+
+
+def test_pedestrian_heads_do_not_change_the_vehicle_plan(model):
+    """Adding pedestrian heads must not move a vehicle light into another stage."""
+    veh = {s.id: s.controller_id for s in model.signals if s.kind == "traffic_light"}
+    assert len(veh) == 27
+    for c in model.controllers:
+        veh_here = [s for s in c.signal_ids if s in veh]
+        assert all(veh[s] == c.id for s in veh_here)

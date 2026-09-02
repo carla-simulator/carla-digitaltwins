@@ -7,7 +7,9 @@ server needed):
 
 Per signal: id, type, subtype, road id, s / t, orientation, country, x / y / z (m, CARLA frame)
 and yaw (deg) of ``Landmark.transform`` -- the same pose the runtime would spawn its own actor
-at. Default type filter: traffic lights (1000001).
+at, plus ``kind``: "through", "arrow" (a protected turn: its own signal, its own stage, type
+1000001) or "ped" (a pedestrian head, type 1000002 -- never a traffic.traffic_light actor).
+Default type filter: 1000001 and 1000002.
 
 Traffic lights additionally carry what a rig selector needs:
   ``validities``        the lane ranges the signal governs (from ``<validity>``);
@@ -29,6 +31,20 @@ import carla
 
 THROUGH_DEG = 30.0
 JUNCTION_WALK_M = 90.0
+TL_TYPE = "1000001"
+PED_TYPE = "1000002"
+# a protected-turn head keeps type 1000001 (SignalType::IsTrafficLight and InMemoryMap.cpp's
+# junction-entry test key on that literal), so the name is the only marker
+ARROW_NAME_PREFIX = "Signal_3Light_Arrow"
+
+
+def signal_kind(lm) -> str:
+    """"through" / "arrow" / "ped" for a traffic-light landmark; "" for anything else."""
+    if lm.type == PED_TYPE:
+        return "ped"
+    if lm.type != TL_TYPE:
+        return ""
+    return "arrow" if str(lm.name).startswith(ARROW_NAME_PREFIX) else "through"
 
 
 def _wrap(a: float) -> float:
@@ -73,7 +89,7 @@ def _crossings_by_road(xodr_path):
     return out
 
 
-def main(xodr_path: str, out_path: str, kinds=("1000001",), crossing_m: float = 25.0) -> int:
+def main(xodr_path: str, out_path: str, kinds=(TL_TYPE, PED_TYPE), crossing_m: float = 25.0) -> int:
     with open(xodr_path) as f:
         text = f.read()
     cmap = carla.Map("xodr_signals", text)
@@ -87,12 +103,13 @@ def main(xodr_path: str, out_path: str, kinds=("1000001",), crossing_m: float = 
                "country": lm.country, "road_id": lm.road_id, "s": lm.s, "t": lm.t,
                "orientation": str(lm.orientation), "z_offset": lm.z_offset, "h_offset": lm.h_offset,
                "x": t.location.x, "y": t.location.y, "z": t.location.z, "yaw": t.rotation.yaw,
-               "validities": [list(v) for v in lm.get_lane_validities()]}
-        if lm.type == "1000001":
-            lanes = sorted({l for a, b in rec["validities"]
-                            for l in range(min(a, b), max(a, b) + 1) if l != 0})
+               "validities": [list(v) for v in lm.get_lane_validities()],
+               "kind": signal_kind(lm)}
+        lanes = sorted({l for a, b in rec["validities"]
+                        for l in range(min(a, b), max(a, b) + 1) if l != 0})
+        rec["lanes"] = lanes
+        if lm.type == TL_TYPE:
             rec["n_driving_lanes"] = len(lanes)
-            rec["lanes"] = lanes
             turns = {_turn_of(cmap, lm.road_id, l, lm.s) for l in lanes}
             rec["turns"] = sorted(x for x in turns if x)
             rec["has_crossing"] = any(abs(s - lm.s) <= crossing_m
@@ -108,7 +125,9 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("xodr")
     ap.add_argument("out")
-    ap.add_argument("--types", nargs="*", default=["1000001"], help="signal types to keep (empty = all)")
+    ap.add_argument("--types", nargs="*", default=[TL_TYPE, PED_TYPE],
+                    help="signal types to keep (empty = all); default: traffic lights (1000001, "
+                         "through + protected turn) and pedestrian heads (1000002)")
     ap.add_argument("--crossing-m", type=float, default=25.0,
                     help="a crosswalk this close on the same road marks the signal has_crossing")
     a = ap.parse_args()

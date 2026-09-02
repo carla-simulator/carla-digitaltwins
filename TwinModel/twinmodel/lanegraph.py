@@ -3294,6 +3294,49 @@ def _stage_plan(headings: list[float]) -> list[list[int]]:
     return stages
 
 
+def _turn_movements(model: TwinModel, junction_id: str) -> dict[tuple[str, int], set[str]]:
+    """``(approach road id, its lane id)`` -> the movements that lane makes through ``junction_id``.
+
+    The turn graph is already in the model: ``make_connection`` writes ``turn`` / ``from_lane``
+    / ``to_lane`` / ``to_road`` onto every connecting road, and the connecting road's
+    predecessor is the approach it leaves. This is the twin's *own* labelling, not a heading
+    comparison recomputed from the exported geometry.
+    """
+    out: dict[tuple[str, int], set[str]] = defaultdict(set)
+    for r in model.roads:
+        if r.junction_id != junction_id:
+            continue
+        pred = r.predecessor
+        turn = r.tags.get("turn")
+        from_lane = r.tags.get("from_lane")
+        if pred is None or pred.element != "road" or turn is None or from_lane is None:
+            continue
+        out[(pred.id, int(from_lane))].add(str(turn))
+    return out
+
+
+def _dedicated_turn_lanes(moves: dict[tuple[str, int], set[str]], road_id: str,
+                          lane_ids: Iterable[int], turns: Iterable[str]) -> list[int]:
+    """The lanes of one approach whose only movements are in ``turns`` -- a *dedicated* turn
+    lane, as opposed to a shared left+through lane.
+
+    Empty unless at least one other lane of the same approach goes somewhere else: an approach
+    that turns as a whole (a one-lane slip road) needs no separate arrow, its through signal
+    already governs the movement.
+    """
+    want = set(turns)
+    ded, other = [], False
+    for lid in lane_ids:
+        mv = moves.get((road_id, int(lid)))
+        if not mv:
+            continue  # a lane with no connection through this junction says nothing
+        if mv <= want:
+            ded.append(int(lid))
+        else:
+            other = True
+    return ded if (ded and other) else []
+
+
 def _make_signal(sid: str, kind: str, road: Road, s: float, t: float, forward: bool, **kw) -> Signal:
     pos = point_on_road(road, s, t)
     h = _heading_along(road.reference_line, s)
@@ -3330,6 +3373,10 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
     tl_nodes = [nid for nid, n in tagged.items() if n.tags.get("highway") == "traffic_signals"]
     tl_pts = MultiPoint([xy_of[n] for n in tl_nodes]) if tl_nodes else None
     n_tl_junctions = 0
+    # filled per signalised junction, read by the pedestrian heads further down
+    signalised: dict[str, _Cluster] = {}
+    stage_roads: dict[str, list[tuple[str, set[str]]]] = {}
+    by_ctl_id: dict[str, Controller] = {}
     for c in clusters:
         if tl_pts is None:
             break
@@ -3340,6 +3387,8 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
             continue
         n_tl_junctions += 1
         approach_sigs: list[Signal] = []
+        arrow_of: dict[int, Signal] = {}   # index into approach_sigs -> its protected-turn signal
+        moves = _turn_movements(model, c.id)
         for r in plain_roads:
             for end in ("start", "end"):
                 if road_end_cluster[r.id][end] is not c:
@@ -3356,29 +3405,65 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
                 # traffic those are the negative (right) lanes for a forward approach and the
                 # positive ones for a backward approach -- the opposite of the side CARLA
                 # synthesises when a signal carries no validity at all.
-                approach_sigs.append(
-                    _make_signal(next_id(), "traffic_light", r, s, _signal_side(r, forward), forward,
-                                 osm_node_id=nearest,
-                                 validities=_lane_runs(l.id for l in lanes),
-                                 tags={"junction_id": c.id}))
+                ded = _dedicated_turn_lanes(moves, r.id, [l.id for l in lanes],
+                                            P.junction.signal_arrow_turns)
+                through_lanes = [l.id for l in lanes if l.id not in ded]
+                base = _make_signal(next_id(), "traffic_light", r, s, _signal_side(r, forward),
+                                    forward, osm_node_id=nearest,
+                                    validities=_lane_runs(through_lanes or [l.id for l in lanes]),
+                                    tags={"junction_id": c.id})
+                approach_sigs.append(base)
+                if not ded:
+                    continue
+                # A protected turn cannot be a second head of the through signal: one
+                # ATrafficLightBase carries one ETrafficLightState and every client and TM call
+                # is per actor. It gets its own signal, its own validity over exactly the
+                # dedicated lane(s), and (below) its own leading stage.
+                off = P.junction.signal_arrow_offset_m
+                s_arrow = min(max(s - off if forward else s + off, 0.0), r.length)
+                arrow = _make_signal(base.id + "a", "traffic_light_arrow", r, s_arrow,
+                                     _signal_side(r, forward), forward, osm_node_id=nearest,
+                                     validities=_lane_runs(ded),
+                                     tags={"junction_id": c.id, "through_signal": base.id,
+                                           "arrow_turn": ",".join(sorted(P.junction.signal_arrow_turns))})
+                arrow_of[len(approach_sigs) - 1] = arrow
         if not approach_sigs:
             continue
         # One <controller> per stage. The runtime ticks exactly one controller per group and
         # round-robins them (ATrafficLightGroup::Tick / NextController), so this is the whole
         # signal plan; a single controller per junction meant every approach went green at once.
         stages = _stage_plan([sig.heading for sig in approach_sigs])
-        for k, members in enumerate(stages):
+        # A stage's protected turns run as a *leading* stage of their own, in which nothing else
+        # is green. Opposing and parallel left turns never conflict with each other, so the
+        # arrows of one through stage share one arrow stage (the standard dual protected left).
+        plan: list[list[Signal]] = []
+        for members in stages:
             if not members:
                 continue
+            arrows = [arrow_of[i] for i in members if i in arrow_of]
+            if arrows:
+                plan.append(arrows)
+            plan.append([approach_sigs[i] for i in members])
+        for k, members_sig in enumerate(plan):
             ctl = Controller(id=f"ctl{c.id[1:]}_p{k}", junction_id=c.id, sequence=k)
-            for i in members:
-                approach_sigs[i].controller_id = ctl.id
-                ctl.signal_ids.append(approach_sigs[i].id)
+            for sig in members_sig:
+                sig.controller_id = ctl.id
+                ctl.signal_ids.append(sig.id)
             controllers.append(ctl)
+            by_ctl_id[ctl.id] = ctl
         signals.extend(approach_sigs)
+        signals.extend(arrow_of[i] for i in sorted(arrow_of))
+        # the stage plan of this junction, for the pedestrian heads below: which approach roads
+        # are green in each stage, in stage order
+        stage_roads[c.id] = [(ctl.id, {sig.road_id for sig in members_sig})
+                             for ctl, members_sig in zip(controllers[-len(plan):], plan)]
+        signalised[c.id] = c
         stats.setdefault("signal_stages_hist", {})
-        n_stages = len([s for s in stages if s])
+        n_stages = len(plan)
         stats["signal_stages_hist"][n_stages] = stats["signal_stages_hist"].get(n_stages, 0) + 1
+        if arrow_of:
+            stats["junctions_with_protected_turns"] = stats.get("junctions_with_protected_turns", 0) + 1
+            stats["protected_turn_signals"] = stats.get("protected_turn_signals", 0) + len(arrow_of)
     stats["junctions_with_traffic_lights"] = n_tl_junctions
 
     # crossings, stop, give_way: attach to the road that carries the node (else nearest road)
@@ -3391,6 +3476,9 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
     n_unplaced = 0
     n_clamped = 0
     n_in_junction = 0
+    n_ped_heads = 0
+    n_ped_merged = 0
+    ped_at: list[tuple[str, float]] = []
     for nid, n in tagged.items():
         hw = n.tags.get("highway")
         if hw not in ("crossing", "stop", "give_way"):
@@ -3439,6 +3527,43 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
                                         | {"node_xy": [pt.x, pt.y],
                                            "width": parse_length(n.tags.get("crossing:width")) or P.crossing.width}
                                         | ({"in_junction": in_junction[0]} if in_junction else {})))
+            # A pedestrian head at every crossing of a signalised junction. Type 1000002 is a
+            # type CARLA does not know: no ATrafficLightBase is generated, MatchSignalAndActor
+            # never matches it and TrafficSignsModels has no entry, so it never shows up as a
+            # traffic.traffic_light actor -- and it would get no trigger box anyway, since
+            # UTrafficLightComponent::InitializeSign skips every non-Driving lane. It carries
+            # the phase it *would* run in, over the road's sidewalk lanes.
+            if not P.junction.signal_ped_heads:
+                continue
+            cl = min((cc for cc in signalised.values()
+                      if pt.distance(cc.hull) <= P.junction.signal_ped_search_m),
+                     key=lambda cc: pt.distance(cc.hull), default=None)
+            sidewalks = _lane_runs(l.id for l in road.lanes if l.type == "sidewalk")
+            if cl is None or not sidewalks:
+                continue
+            # OSM maps a crossing as one node per direction of travel, and two of them can land
+            # on the same road at the same s: one head per spot, or the baked rigs coincide
+            if any(abs(q[1] - s) < P.junction.signal_ped_merge_m
+                   for q in ped_at if q[0] == road.id):
+                n_ped_merged += 1
+                continue
+            ped_at.append((road.id, s))
+            # derived from the crossing's own id (never from ``next_id``) so that adding
+            # pedestrian heads does not renumber every crosswalk <object> after them
+            ped = _make_signal(signals[-1].id + "p", "traffic_light_ped", road, s,
+                               _signal_side(road, True), True, osm_node_id=nid,
+                               validities=sidewalks,
+                               tags={"junction_id": cl.id, "crossing_signal": signals[-1].id,
+                                     "node_xy": [pt.x, pt.y]})
+            # walk when the street being crossed is red: the first stage that greens no
+            # approach of this road. A one-stage junction leaves the head uncontrolled.
+            for cid, roads_green in stage_roads.get(cl.id, []):
+                if road.id not in roads_green:
+                    ped.controller_id = cid
+                    by_ctl_id[cid].signal_ids.append(ped.id)
+                    break
+            signals.append(ped)
+            n_ped_heads += 1
         else:
             direction = n.tags.get("direction", "").lower()
             forward = direction != "backward"
@@ -3451,6 +3576,8 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
     stats["signal_nodes_unplaced"] = n_unplaced
     stats["crossings_clamped"] = n_clamped
     stats["crossings_in_junction"] = n_in_junction
+    stats["pedestrian_heads"] = n_ped_heads
+    stats["pedestrian_heads_merged"] = n_ped_merged
 
     # speed limits at road start (forward) / end (backward)
     for r in plain_roads:

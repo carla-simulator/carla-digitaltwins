@@ -39,8 +39,8 @@ import numpy as np
 from lxml import etree
 
 from .. import profiles
-from ..model import (AUX_EPS, Controller, Lane, Marking, Road, Signal, TwinModel, aux_span,
-                     aux_width_at)
+from ..model import (AUX_EPS, TRAFFIC_LIGHT_KINDS, Controller, Lane, Marking, Road, Signal,
+                     TwinModel, aux_span, aux_width_at)
 
 log = logging.getLogger("twinmodel.export.xodr")
 
@@ -48,6 +48,16 @@ log = logging.getLogger("twinmodel.export.xodr")
 SIGNAL_TYPES: dict[str, tuple[str, str, str]] = {
     # kind -> (type, subtype, dynamic)
     "traffic_light": ("1000001", "-1", "yes"),
+    # A protected turn is a *separate* signal: its own id, its own <validity> over the turn
+    # lane(s) and its own <controller>, because one ATrafficLightBase carries exactly one
+    # ETrafficLightState. It keeps type 1000001 so SignalType::IsTrafficLight and
+    # InMemoryMap.cpp's literal "1000001" junction-entry test still fire and the Traffic
+    # Manager stops for it.
+    "traffic_light_arrow": ("1000001", "-1", "yes"),
+    # A pedestrian head is type 1000002, which CARLA knows nothing about: no ATrafficLightBase
+    # is generated for it, MatchSignalAndActor never matches it and TrafficSignsModels has no
+    # entry, so it never becomes a traffic.traffic_light actor a client script would see.
+    "traffic_light_ped": ("1000002", "-1", "yes"),
     "stop": ("206", "-1", "no"),
     "yield": ("205", "-1", "no"),
     "speed_limit": ("274", "", "no"),  # subtype filled with the km/h value
@@ -541,8 +551,14 @@ def _signal_attrs(sig: Signal) -> dict[str, str]:
         subtype = str(kmh)
         value = kmh
         unit = "km/h"
-    name = sig.tags.get("name") or {"traffic_light": "Signal_3Light_Post01", "stop": "Sign_Stop",
-                                    "yield": "Sign_Yield", "speed_limit": f"Speed_{subtype}"}[sig.kind]
+    # The name is what an offline reader (tools/xodr_tl_check.py, tools/xodr_signals.py) and a
+    # prop selector key on to tell an arrow head from a through head: both are type 1000001.
+    name = sig.tags.get("name") or {"traffic_light": "Signal_3Light_Post01",
+                                    "traffic_light_arrow": "Signal_3Light_ArrowLeft01",
+                                    "traffic_light_ped": "Signal_2Light_Pedestrian01",
+                                    "stop": "Sign_Stop",
+                                    "yield": "Sign_Yield",
+                                    "speed_limit": f"Speed_{subtype}"}[sig.kind]
     # Stamp the build profile's primary ISO country instead of the stock "OpenDRIVE"
     # sentinel: the type/subtype vocabulary stays SignalType.h (StVO codes) either way, but
     # the country attribute is the geo-style hint a prop selector can key on (CARLA parses it
@@ -599,7 +615,7 @@ def _controllers(model: TwinModel) -> list[Controller]:
             incoming_to_junction.setdefault(c.incoming_road, j.id)
     by_id: dict[str, Controller] = {}
     for sig in model.signals:
-        if sig.kind != "traffic_light" or sig.controller_id is None:
+        if sig.kind not in TRAFFIC_LIGHT_KINDS or sig.controller_id is None:
             continue
         if sig.controller_id not in by_id:
             try:

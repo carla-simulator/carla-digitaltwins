@@ -27,7 +27,19 @@ Direction = Literal["forward", "backward"]
 SurfaceKind = Literal["drivable", "sidewalk", "island", "crossing", "median", "parking", "ground", "verge",
                       "tunnel_wall", "tunnel_ceiling"]
 SurfaceSource = Literal["osm_tags", "area_highway", "imagery"]
-SignalKind = Literal["traffic_light", "stop", "yield", "speed_limit", "crosswalk"]
+# "traffic_light"        the through head of an approach (OpenDRIVE type 1000001)
+# "traffic_light_arrow"  a protected-turn head: its own signal id, its own <validity> over the
+#                        dedicated turn lane(s) and its own <controller> (stage). Still type
+#                        1000001 -- InMemoryMap.cpp tests that literal to find junction entries,
+#                        and the Traffic Manager must obey an arrow exactly like a through head.
+# "traffic_light_ped"    a pedestrian head: type 1000002, which CARLA does not know, so it
+#                        spawns no ATrafficLightBase and never appears as a traffic.traffic_light
+#                        actor. Walkers ignore it either way (AWalkerAIController never reads a
+#                        traffic light), so it is a prop with a phase written in the xodr.
+SignalKind = Literal["traffic_light", "traffic_light_arrow", "traffic_light_ped",
+                     "stop", "yield", "speed_limit", "crosswalk"]
+# every kind that is a signal head of a junction's stage plan
+TRAFFIC_LIGHT_KINDS = ("traffic_light", "traffic_light_arrow", "traffic_light_ped")
 MarkingKind = Literal["solid", "broken"]
 MarkingColor = Literal["white", "yellow"]
 ContactPoint = Literal["start", "end"]

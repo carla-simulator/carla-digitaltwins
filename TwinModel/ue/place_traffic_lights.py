@@ -123,15 +123,25 @@ def load_rigs(path):
     return {os.path.splitext(os.path.basename(path))[0]: path}
 
 
+# A protected turn and a pedestrian crossing are their *own* OpenDRIVE signals (the exporter
+# writes kind "arrow"/"ped" into tl_signals.json), and no European pole has an arrow or a
+# pedestrian head to show, so the kind wins over --style.
+KIND_RIG = {"arrow": "na_arrow_left", "ped": "na_ped_only"}
+PED_TYPE = "1000002"
+
+
 def pick_rig(sig, rigs, style, default):
     """Choose a rig preset for one traffic-light signal.
 
     ``tl_signals.json`` carries what the choice needs (tools/xodr_signals.py):
-    ``n_driving_lanes`` (how wide the approach is), ``turns`` (which movements leave it) and
-    ``has_crossing``. The North-American presets are only reachable with ``--style na``;
-    ``--style eu`` keeps every approach on the European pole, which is what a European twin
-    should look like whatever its lane count.
+    ``kind`` ("through" / "arrow" / "ped"), ``n_driving_lanes`` (how wide the approach is),
+    ``turns`` (which movements leave it) and ``has_crossing``. The North-American presets are
+    only reachable with ``--style na``; ``--style eu`` keeps every *through* approach on the
+    European pole, which is what a European twin should look like whatever its lane count.
     """
+    forced = KIND_RIG.get(sig.get("kind"))
+    if forced and forced in rigs:
+        return rigs[forced]
     if style != "na":
         return rigs.get(default) or next(iter(rigs.values()))
     n = int(sig.get("n_driving_lanes") or 1)
@@ -191,7 +201,9 @@ def main(argv):
 
     t0 = time.time()
     with open(args.signals) as f:
-        signals = [s for s in json.load(f) if s.get("type", "1000001") == "1000001"]
+        signals = [s for s in json.load(f)
+                   if s.get("type", "1000001") in ("1000001", PED_TYPE)]
+    ped_ids = {str(s["id"]) for s in signals if s.get("kind") == "ped"}
     map_path = "%s/%s/%s" % (args.map_root, args.name, args.name)
     content = unreal.Paths.project_content_dir()
     xodr_dir = os.path.join(content, "Carla", "Maps", "Twins", args.name, "OpenDrive")
@@ -229,7 +241,9 @@ def main(argv):
         log("removed %d previously baked lights" % len(stale))
 
     rig_cls = unreal.TrafficLightActor
-    report = {"placed": 0, "failed": [], "labels": [], "rigs": {}, "junctions": {}, "timing": {}}
+    report = {"placed": 0, "failed": [], "labels": [], "rigs": {}, "junctions": {}, "timing": {},
+              "kinds": {}}
+    placed_at = {}
     for s in signals:
         label = "TL_%s" % s["id"]
         sid = str(s["id"])
@@ -243,6 +257,7 @@ def main(argv):
                     else pick_rig(s, rigs, args.style, args.default_rig))
         report["rigs"][sid] = os.path.splitext(os.path.basename(rig_path))[0]
         report["junctions"][sid] = junction
+        report["kinds"][sid] = s.get("kind", "through")
         report["timing"][sid] = {"stages": n_stages, "green": green,
                                  "amber": args.amber, "red": args.red}
         yaw = float(s["yaw"]) + args.yaw_offset
@@ -287,17 +302,49 @@ def main(argv):
             pass
         report["placed"] += 1
         report["labels"].append(label)
+        placed_at[sid] = (loc.x, loc.y, loc.z)
         if report["placed"] == 1:
             log("first rig: %d mesh components, baked as %s at (%.0f, %.0f, %.0f)" % (n_mesh, label, loc.x, loc.y, loc.z))
+
+    # No two rigs may sit inside UMapLogicParser::ApplyLaneIdsFromMapLogic's 50 cm match
+    # radius: it adopts the nearest actor, so a protected-turn pole 20 cm from its through pole
+    # would be handed the through signal's identity (or steal it). The exporter puts the arrow
+    # JunctionRules.signal_arrow_offset_m upstream of the through pole for exactly this reason.
+    MIN_SEPARATION_M = 0.60
+    close = []
+    ids = sorted(placed_at)
+    for i, a in enumerate(ids):
+        for b in ids[i + 1:]:
+            pa, pb = placed_at[a], placed_at[b]
+            d = ((pa[0] - pb[0]) ** 2 + (pa[1] - pb[1]) ** 2 + (pa[2] - pb[2]) ** 2) ** 0.5 / 100.0
+            if d < MIN_SEPARATION_M:
+                close.append({"a": a, "b": b, "m": round(d, 3)})
+    report["min_separation_m"] = MIN_SEPARATION_M
+    report["too_close"] = close
+    if close:
+        warn("%d rig pair(s) closer than %.2f m: %s" % (len(close), MIN_SEPARATION_M, close[:5]))
 
     # move the logic file next to the xodr (what FindPathToXODRFile + InitializeTrafficLights read)
     dst = os.path.join(xodr_dir, "map_logic.json")
     if os.path.exists(plugin_logic):
         os.makedirs(xodr_dir, exist_ok=True)
+        # A pedestrian head is a prop, not a traffic light: dropping its entry from
+        # map_logic.json is what keeps UMapLogicParser from turning it into an
+        # ADigitalTwinsTrafficLight -- i.e. an ATrafficLightBase that every client script would
+        # see as a traffic.traffic_light actor. Walkers never read a light anyway
+        # (AWalkerAIController), so the baked rig stays a static, correctly-styled prop.
+        with open(plugin_logic) as f:
+            logic = json.load(f)
+        kept = [e for e in logic.get("TrafficLights", []) if str(e.get("SignalID")) not in ped_ids]
+        n_dropped = len(logic.get("TrafficLights", [])) - len(kept)
+        logic["TrafficLights"] = kept
+        with open(plugin_logic, "w") as f:
+            json.dump(logic, f, indent=1)
         shutil.move(plugin_logic, dst)
-        with open(dst) as f:
-            n_logic = len(json.load(f).get("TrafficLights", []))
-        log("map_logic.json -> %s (%d entries)" % (dst, n_logic))
+        n_logic = len(kept)
+        report["ped_entries_dropped"] = n_dropped
+        log("map_logic.json -> %s (%d entries, %d pedestrian heads left out on purpose)"
+            % (dst, n_logic, n_dropped))
         report["map_logic"] = dst
         report["map_logic_entries"] = n_logic
         # drop the empty per-map plugin folder the tool created
@@ -319,8 +366,12 @@ def main(argv):
     n_bad_junction = sum(1 for v in report["junctions"].values() if v < 0)
     log("placed %d / %d rigs, %d failed, saved=%s, %.0f s" % (
         report["placed"], len(signals), len(report["failed"]), ok, report["seconds"]))
-    log("rigs used: %s; junctions resolved: %d, unresolved (-1): %d" % (
+    kinds = {}
+    for k in report["kinds"].values():
+        kinds[k] = kinds.get(k, 0) + 1
+    log("rigs used: %s; kinds: %s; junctions resolved: %d, unresolved (-1): %d" % (
         ", ".join("%s x%d" % kv for kv in sorted(used.items())),
+        ", ".join("%s x%d" % kv for kv in sorted(kinds.items())),
         len(report["junctions"]) - n_bad_junction, n_bad_junction))
     rep = args.report or os.path.join(os.path.dirname(os.path.abspath(args.signals)), "traffic_lights_report.json")
     with open(rep, "w") as f:

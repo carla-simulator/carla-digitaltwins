@@ -42,7 +42,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import carla  # noqa: E402
 
 FIXED_DT = 0.05
-STATE_NAME = {carla.TrafficLightState.Red: "Red", carla.TrafficLightState.Yellow: "Yellow",
+TL_TYPE = "1000001"
+# A pedestrian head. CARLA knows nothing about type 1000002: SignalType::IsTrafficLight is
+# false, MatchSignalAndActor never matches it and TrafficSignsModels has no entry, so no
+# ATrafficLightBase is generated and no client sees a traffic.traffic_light actor for it. It is
+# classified separately here and a ped landmark showing up as an actor is a *failure*, while a
+# ped landmark with no trigger volume is the intent (InitializeSign skips non-Driving lanes).
+PED_TYPE = "1000002"
+# a protected turn keeps type 1000001, so its name is the only marker
+ARROW_NAME_PREFIX = "Signal_3Light_Arrow"
+STATE_NAME ={carla.TrafficLightState.Red: "Red", carla.TrafficLightState.Yellow: "Yellow",
               carla.TrafficLightState.Green: "Green", carla.TrafficLightState.Off: "Off",
               carla.TrafficLightState.Unknown: "Unknown"}
 
@@ -81,11 +90,19 @@ def main() -> int:
 
     landmarks = {}
     for lm in cmap.get_all_landmarks():
+        if lm.type == PED_TYPE:
+            kind = "ped"
+        elif lm.type != TL_TYPE:
+            kind = ""
+        else:
+            kind = "arrow" if str(lm.name).startswith(ARROW_NAME_PREFIX) else "through"
         landmarks[str(lm.id)] = {
-            "type": lm.type, "road_id": lm.road_id, "s": lm.s, "t": lm.t,
-            "orientation": str(lm.orientation),
+            "type": lm.type, "name": lm.name, "kind": kind, "road_id": lm.road_id,
+            "s": lm.s, "t": lm.t, "orientation": str(lm.orientation),
             "validities": [list(v) for v in lm.get_lane_validities()],
         }
+    lm_kinds = Counter(v["kind"] for v in landmarks.values() if v["kind"])
+    log("landmarks: " + ", ".join(f"{n} {k}" for k, n in sorted(lm_kinds.items())))
 
     tls = sorted(world.get_actors().filter("traffic.traffic_light"), key=lambda a: a.id)
     log(f"{len(tls)} traffic.traffic_light actors")
@@ -180,11 +197,28 @@ def main() -> int:
             if (w["lane_id"] < 0) != want_negative:
                 oncoming.append({"signal": l["opendrive_id"], "road_id": w["road_id"],
                                  "lane_id": w["lane_id"], "orientation": o})
+    actor_odids = {l["opendrive_id"] for l in lights}
+    ped_as_actor = sorted(sid for sid, lm in landmarks.items()
+                          if lm["kind"] == "ped" and sid in actor_odids)
+    vehicle_no_actor = sorted(sid for sid, lm in landmarks.items()
+                              if lm["kind"] in ("through", "arrow") and sid not in actor_odids)
+    arrows = [l for l in lights if (l.get("landmark") or {}).get("kind") == "arrow"]
     report = {
         "map": cmap.name,
         "port": args.port,
         "frames": args.frames,
         "n_lights": len(lights),
+        "n_landmarks_by_kind": dict(lm_kinds),
+        # a pedestrian head must never reach a client as a traffic.traffic_light actor
+        "n_ped_landmarks_as_actor": len(ped_as_actor),
+        "ped_landmarks_as_actor": ped_as_actor,
+        # ... and every vehicle head (through or protected turn) must have exactly one actor
+        "n_vehicle_landmarks_without_actor": len(vehicle_no_actor),
+        "vehicle_landmarks_without_actor": vehicle_no_actor,
+        "arrow_lights": [{"opendrive_id": l["opendrive_id"],
+                          "n_stop_waypoints": l["n_stop_waypoints"],
+                          "affected_lanes": l["affected_lanes"],
+                          "group": l["group"]} for l in arrows],
         "n_lights_no_trigger_volume": len(no_trigger),
         "lights_no_trigger_volume": sorted(no_trigger),
         "n_affected_lane_waypoints": sum(l["n_affected_lane_waypoints"] for l in lights),
@@ -218,6 +252,15 @@ def main() -> int:
         log(f"wrote {args.out}")
 
     print(f"  lights                       : {report['n_lights']}")
+    print("  landmarks by kind            : " +
+          ", ".join(f"{n} {k}" for k, n in sorted(report["n_landmarks_by_kind"].items())))
+    print(f"  ped heads seen as an actor   : {report['n_ped_landmarks_as_actor']} (must be 0)")
+    print(f"  vehicle heads with no actor  : {report['n_vehicle_landmarks_without_actor']} (must be 0)")
+    if report["arrow_lights"]:
+        print("  protected turns              : " + ", ".join(
+            f"{a['opendrive_id']} {a['n_stop_waypoints']} stop wp on lane(s) "
+            f"{sorted({w['lane_id'] for w in a['affected_lanes']})}"
+            for a in report["arrow_lights"]))
     print(f"  with NO trigger volume       : {report['n_lights_no_trigger_volume']}")
     print(f"  affected lanes on oncoming   : {report['n_lanes_on_oncoming_side']} "
           f"/ {report['n_affected_lane_waypoints']}")

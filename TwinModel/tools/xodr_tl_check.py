@@ -41,8 +41,22 @@ from pathlib import Path
 from lxml import etree
 
 TL_TYPE = "1000001"
-# extra dynamic signal types this project may introduce (arrow / pedestrian heads)
-TL_TYPES_EXTRA = ("1000002",)
+# Pedestrian heads. A type CARLA does not know: SignalType::IsTrafficLight is false, so no
+# ATrafficLightBase is generated, MatchSignalAndActor never matches it and TrafficSignsModels
+# has no entry -- it never becomes a traffic.traffic_light actor. Its validity therefore names
+# *sidewalk* lanes and it produces no trigger box, which is the intent, not a violation.
+PED_TYPE = "1000002"
+TL_TYPES_EXTRA = (PED_TYPE,)
+# A protected-turn head keeps type 1000001 (SignalType::IsTrafficLight and InMemoryMap.cpp's
+# literal junction-entry test both key on it), so the only offline marker is the name the
+# exporter writes.
+ARROW_NAME_PREFIX = "Signal_3Light_Arrow"
+
+
+def _signal_class(stype: str, name: str) -> str:
+    if stype == PED_TYPE:
+        return "ped"
+    return "arrow" if name.startswith(ARROW_NAME_PREFIX) else "through"
 
 
 def _lane_types_at(road_el, s: float) -> dict[int, str]:
@@ -89,6 +103,7 @@ def check(xodr_path: str | Path) -> dict:
                 "id": s.get("id"), "type": stype, "road_id": rid, "s": float(s.get("s", 0.0)),
                 "t": float(s.get("t", 0.0)), "orientation": s.get("orientation", "+"),
                 "name": s.get("name", ""), "validities": _validities(s),
+                "kind": _signal_class(stype, s.get("name", "")),
             }
 
     # root controllers, in document order
@@ -143,9 +158,14 @@ def check(xodr_path: str | Path) -> dict:
                        "emission order (JunctionParser.cpp:71 drops sequence)")
 
     # ---- per signal
+    lanes_of: dict[str, set[int]] = {}
     for sid, sig in sorted(signals.items()):
         cids = sig_ctl.get(sid, [])
-        if not cids:
+        kind = sig["kind"]
+        if not cids and kind != "ped":
+            # a pedestrian head may be uncontrolled: it drives no ATrafficLightBase, so a
+            # controller only documents the phase it would walk in, and a single-stage
+            # junction has no stage in which its own street is red
             bad("S_NOCTL", signal=sid, detail="traffic light in no <controller>")
         elif len(cids) > 1:
             bad("S_MULTICTL", signal=sid, controllers=cids,
@@ -159,6 +179,8 @@ def check(xodr_path: str | Path) -> dict:
         road_el = roads.get(sig["road_id"])
         ltypes = _lane_types_at(road_el, sig["s"]) if road_el is not None else {}
         want_negative = sig["orientation"] == "+"
+        want_type = "sidewalk" if kind == "ped" else "driving"
+        lanes_of[sid] = set()
         for (a, b) in sig["validities"]:
             if a == 0 and b == 0:
                 bad("V_ZERO", signal=sid, detail="fromLane=0 toLane=0 is dropped by "
@@ -168,20 +190,49 @@ def check(xodr_path: str | Path) -> dict:
             for lane in range(lo, hi + 1):
                 if lane == 0:
                     continue
+                lanes_of[sid].add(lane)
                 lt = ltypes.get(lane)
                 if lt is None:
                     bad("V_NOLANE", signal=sid, road=sig["road_id"], lane=lane,
                         detail="validity names a lane the road does not have at s")
                     continue
-                if lt != "driving":
-                    bad("V_TYPE", signal=sid, road=sig["road_id"], lane=lane, lane_type=lt,
-                        detail="InitializeSign skips non-Driving lanes -> no trigger box")
-                if sig["orientation"] in ("+", "-"):
+                if lt != want_type:
+                    bad("P_TYPE" if kind == "ped" else "V_TYPE", signal=sid, road=sig["road_id"],
+                        lane=lane, lane_type=lt,
+                        detail="a pedestrian head validates the sidewalk lanes it stands beside"
+                               if kind == "ped" else
+                               "InitializeSign skips non-Driving lanes -> no trigger box")
+                # a crossing spans the road, so a pedestrian head validates the sidewalk on
+                # *both* sides; the travel-side rule is about driving lanes only
+                if kind != "ped" and sig["orientation"] in ("+", "-"):
                     on_own_side = (lane < 0) if want_negative else (lane > 0)
                     if not on_own_side:
                         bad("V_SIDE", signal=sid, road=sig["road_id"], lane=lane,
                             orientation=sig["orientation"],
                             detail="RHT: orientation '+' validates the negative (right) lanes")
+
+    # ---- protected turns: a separate signal, a separate stage, separate lanes
+    ctl_kinds: dict[str, set[str]] = defaultdict(set)
+    for cid, c in controllers.items():
+        for s in c["signal_ids"]:
+            if s in signals:
+                ctl_kinds[cid].add(signals[s]["kind"])
+    for sid, sig in sorted(signals.items()):
+        if sig["kind"] != "arrow":
+            continue
+        for cid in sig_ctl.get(sid, []):
+            if "through" in ctl_kinds.get(cid, set()):
+                bad("A_SHARED_STAGE", signal=sid, controller=cid,
+                    detail="a protected turn must be green while the conflicting through "
+                           "movement is red, so it needs a stage of its own")
+        for other, osig in signals.items():
+            if other == sid or osig["road_id"] != sig["road_id"] or osig["kind"] == "ped":
+                continue
+            overlap = lanes_of.get(sid, set()) & lanes_of.get(other, set())
+            if overlap:
+                bad("A_LANE_OVERLAP", signal=sid, other=other, lanes=sorted(overlap),
+                    detail="two traffic lights claiming the same lane give it two trigger "
+                           "boxes with different states")
 
     # ---- summary
     per_junction = {}
@@ -198,9 +249,13 @@ def check(xodr_path: str | Path) -> dict:
             "n_signals": len(sig_ids),
         }
     n_val = sum(len(s["validities"]) for s in signals.values())
+    by_kind: dict[str, int] = defaultdict(int)
+    for s in signals.values():
+        by_kind[s["kind"]] += 1
     report = {
         "xodr": str(xodr_path),
         "n_traffic_light_signals": len(signals),
+        "signals_by_kind": dict(by_kind),
         "n_validity_elements": n_val,
         "n_signals_without_validity": sum(1 for s in signals.values() if not s["validities"]),
         "n_root_controllers": len(controllers),
@@ -228,7 +283,8 @@ def main(argv=None) -> int:
         Path(a.json).write_text(json.dumps(rep, indent=1))
     if not a.quiet:
         print(f"{rep['xodr']}")
-        print(f"  traffic-light signals : {rep['n_traffic_light_signals']}")
+        print(f"  traffic-light signals : {rep['n_traffic_light_signals']} "
+              + "(" + ", ".join(f"{n} {k}" for k, n in sorted(rep["signals_by_kind"].items())) + ")")
         print(f"  <validity> elements   : {rep['n_validity_elements']} "
               f"({rep['n_signals_without_validity']} signals with none)")
         print(f"  root <controller>     : {rep['n_root_controllers']}")

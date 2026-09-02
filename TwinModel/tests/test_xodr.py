@@ -369,3 +369,52 @@ def test_signal_country_follows_profile():
         assert 'country="ES"' in export_xodr(m)
     with profiles.use(profiles.US_SUBURBAN):
         assert 'country="US"' in export_xodr(m)
+
+
+def test_arrow_and_pedestrian_signal_types(tmp_path):
+    """A protected turn keeps type 1000001 -- ``SignalType::IsTrafficLight`` and
+    ``InMemoryMap.cpp``'s literal junction-entry test both key on it, and the Traffic Manager
+    must stop for an arrow exactly as for a through head. A pedestrian head gets 1000002, a
+    type CARLA does not know: ``MatchSignalAndActor`` never matches it and
+    ``TrafficSignsModels`` has no entry, so it spawns nothing and no client sees a
+    ``traffic.traffic_light`` for it. Only the ``name`` tells an arrow from a through head.
+    """
+    from shapely.geometry import Point
+
+    from twinmodel.model import Signal
+    from tests import synthetic_xodr
+    m = junction_model()
+    a = m.road("a")
+    m.signals += [
+        Signal(id="tl_a_arrow", kind="traffic_light_arrow", road_id="a", s=a.length - 2.5,
+               t=-(synthetic_xodr.W + 0.5), position=Point(-17.5, -3.75),
+               controller_id="ctl_j1", validities=[(-1, -1)]),
+        Signal(id="tl_a_ped", kind="traffic_light_ped", road_id="a", s=a.length - 6.0,
+               t=-(synthetic_xodr.W + 0.5), position=Point(-21.0, -3.75),
+               validities=[(-2, -2), (2, 2)]),
+    ]
+    root = etree.fromstring(export_xodr(m).encode())
+    sig = {s.get("id"): s for s in root.iter("signal")}
+    assert sig["tl_a_arrow"].get("type") == "1000001"
+    assert sig["tl_a_arrow"].get("name").startswith("Signal_3Light_Arrow")
+    assert not sig["tl_a"].get("name").startswith("Signal_3Light_Arrow")
+    assert sig["tl_a_ped"].get("type") == "1000002"
+    assert sig["tl_a_ped"].get("dynamic") == "yes"
+    # the pedestrian head validates the sidewalk lanes it stands beside, so InitializeSign
+    # (which skips every non-Driving lane) gives it no trigger box -- the intent
+    lane_type = {}
+    for r in root.iter("road"):
+        for ln in r.iter("lane"):
+            lane_type[(r.get("id"), int(ln.get("id")))] = ln.get("type")
+    rid = sig["tl_a_ped"].getparent().getparent().get("id")
+    ped_lanes = [int(v.get("fromLane")) for v in sig["tl_a_ped"].findall("validity")]
+    assert ped_lanes and all(lane_type[(rid, l)] == "sidewalk" for l in ped_lanes)
+    arrow_lanes = [int(v.get("fromLane")) for v in sig["tl_a_arrow"].findall("validity")]
+    assert arrow_lanes == [-1] and lane_type[(rid, -1)] == "driving"
+    # and CARLA round-trips both, including the type it knows nothing about
+    cmap = carla.Map("arrow_ped", export_xodr(m))
+    got = {str(lm.id): (lm.type, [tuple(v) for v in lm.get_lane_validities()])
+           for lm in cmap.get_all_landmarks()}
+    assert got["tl_a_arrow"] == ("1000001", [(-1, -1)])
+    assert got["tl_a_ped"][0] == "1000002"
+    assert sorted(got["tl_a_ped"][1]) == [(-2, -2), (2, 2)]

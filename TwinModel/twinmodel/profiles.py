@@ -198,6 +198,25 @@ class JunctionRules:
     signal_amber_s: float = 3.0
     signal_allred_s: float = 2.0
     signal_ped_stage: bool = False
+    # ---- protected turns and pedestrian heads (lanegraph._build_signals) -------------------
+    # An approach whose turn graph has a *dedicated* turn lane (a lane whose only outgoing
+    # movements through the junction are that turn, next to at least one lane that goes
+    # somewhere else) gets a second signal of kind "traffic_light_arrow": its own id, its own
+    # <validity> over exactly that lane run, and its own leading stage in which nothing else is
+    # green. One ATrafficLightBase carries one ETrafficLightState, so a protected turn cannot
+    # be a second head of the through signal -- it has to be a second signal.
+    signal_arrow_turns: tuple[str, ...] = ("left",)
+    # the arrow pole stands this far upstream of the through pole on the same kerb. It must
+    # clear UMapLogicParser::ApplyLaneIdsFromMapLogic's 50 cm match radius by a margin, or the
+    # two rigs would fight over each other's SignId.
+    signal_arrow_offset_m: float = 1.5
+    # a pedestrian head (kind "traffic_light_ped", type 1000002) at every crossing of a
+    # signalised junction, validated over the road's sidewalk lanes
+    signal_ped_heads: bool = True
+    signal_ped_search_m: float = 40.0   # crossing within this of a signalised cluster hull
+    # OSM maps a crossing as one node per direction of travel; two of them landing this close
+    # on the same road are one crossing and get one head, or the baked rigs coincide
+    signal_ped_merge_m: float = 1.5
 
     # ---- divided (dual) carriageways -------------------------------------------------------
     # A divided arterial is mapped in OSM as two ``oneway=yes`` ways with the same name/ref
