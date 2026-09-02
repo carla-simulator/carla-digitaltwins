@@ -1,5 +1,6 @@
 """Tests for twinmodel.export.ue (glb + manifest bake export) on the synthetic models."""
 from __future__ import annotations
+from shapely.ops import unary_union
 
 import json
 import math
@@ -182,9 +183,18 @@ def test_export_ue_writes_assets_and_manifest(tmp_path, model):
         tri = p[d["faces"]]
         area = 0.5 * np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1)
         assert (area > 1e-9).all()
-        # metric planar UVs on horizontal geometry
-        if a["kind"] not in ("curb", "building"):
-            assert np.allclose(d["uvs"], np.column_stack([p[:, 0], -p[:, 1]]), atol=1e-3)
+        # metric planar UVs on horizontal geometry (walls -- curbs, buildings, the plate
+        # prisms' sides (riser), the boundary wall -- carry (along, height))
+        if a["kind"] not in ("curb", "building", "boundary", "riser"):
+            horiz = ue.gltf_to_model(d["normals"])[:, 2] > 0.99
+            assert horiz.any()
+            assert np.allclose(d["uvs"][horiz], np.column_stack([p[horiz, 0], -p[horiz, 1]]), atol=1e-3)
+        # winding agrees with the declared normal on EVERY face (front face on the normal
+        # side): Unreal culls the back face, so a wall wound the other way is invisible
+        # from outside and lit from the wrong side where the material is two-sided
+        n = ue.gltf_to_model(d["normals"])
+        geo = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+        assert ((geo * n[d["faces"][:, 0]]).sum(axis=1) > 0).all(), a["kind"]
     assert man["stats"]["assets"] == len(man["assets"])
     assert man["stats"]["spawn_points"] == len(man["spawn_points"]) > 0
     assert man["stats"]["triangles"] == sum(a["triangles"] for a in man["assets"])
@@ -405,7 +415,13 @@ def test_rotated_eixample_crossing_bars_run_along_the_road(tmp_path):
     man = ue.export_ue(m, tmp_path / "ue", name="t", tile_m=0.0, buildings=False)
     a = next(a for a in man["assets"] if a["kind"] == "marking_white")
     g = ue.read_glb(tmp_path / "ue" / a["file"])
-    assert len(g["faces"]) == 2 * len(hinted)
+    # the bars are tessellated on the OVERLAY_GRID (so they can follow the road mesh): more
+    # than one quad each, but exactly the stripes' area
+    p = ue.gltf_to_model(g["positions"])
+    tri = p[g["faces"]]
+    area = 0.5 * np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1).sum()
+    assert len(g["faces"]) >= 2 * len(hinted)
+    assert area == pytest.approx(sum(st.area for st in hinted), rel=0.01)
 
 
 def test_crossing_walk_dir_none_without_a_road():
@@ -414,22 +430,37 @@ def test_crossing_walk_dir_none_without_a_road():
     assert ue.crossing_walk_dir(m, s, EIXAMPLE_ROTATED_CROSSING) is None
 
 
-# --------------------------------------------------------------------------- skirts
+# --------------------------------------------------------------------------- plate prisms
 
-def test_skirt_lines_skip_the_curbed_edges():
-    from shapely.ops import unary_union
+def test_curb_and_riser_faces_map_onto_the_curb_texture_band(tmp_path):
+    """CARLA's curb texture is an atlas: the stone face is its bottom band, the rest is
+    filler. Curb strips and plate risers must sample that band (like the stock SM_Curb),
+    with one repeat per CURB_TEX_REPEAT_M along the face."""
     m = build_surfaces(synthetic.straight_road())
-    raised = unary_union([s.geometry for s in m.surfaces if s.kind in ue.SKIRT_KINDS])
-    cover = unary_union([c.geometry for c in m.curbs]).buffer(0.06)
-    lines = ue.skirt_lines(raised, cover)
-    assert lines
-    total = sum(l.length for l in lines)
-    boundary = sum(l.length for l in ue._boundary_lines(raised))
-    curbed = sum(c.geometry.length for c in m.curbs)
-    # the skirted length is the free boundary: everything except the curbed edges
-    assert total == pytest.approx(boundary - curbed, rel=0.02)
-    for l in lines:  # nothing left on a curb line (endpoints may touch the buffer)
-        assert l.intersection(cover).length < 0.15
+    man = ue.export_ue(m, tmp_path / "ue", name="t", tile_m=0.0, buildings=False)
+    for kind in ("curb", "riser"):
+        a = next(a for a in man["assets"] if a["kind"] == kind)
+        d = ue.read_glb(tmp_path / "ue" / a["file"])
+        p = ue.gltf_to_model(d["positions"])
+        uv = d["uvs"]
+        assert uv[:, 1].min() == pytest.approx(ue.CURB_TEX_V_TOP, abs=1e-4)
+        assert uv[:, 1].max() == pytest.approx(ue.CURB_TEX_V_BOTTOM, abs=1e-4)
+        # top edge of every face on the top of the band, bottom edge (>= band height below)
+        # on its bottom row
+        top = p[:, 2] >= p[:, 2].max() - 1e-6
+        assert np.allclose(uv[top, 1], ue.CURB_TEX_V_TOP, atol=1e-4)
+        # u advances one repeat per CURB_TEX_REPEAT_M of face length: quads are
+        # (a_bottom, b_bottom, b_top, a_top), so consecutive bottom vertices span one segment
+        q = p.reshape(-1, 4, 3)
+        seg = np.linalg.norm(q[:, 1, :2] - q[:, 0, :2], axis=1)
+        du = uv.reshape(-1, 4, 2)[:, 1, 0] - uv.reshape(-1, 4, 2)[:, 0, 0]
+        assert np.allclose(du * ue.CURB_TEX_REPEAT_M, seg, rtol=1e-4, atol=1e-4)  # float32 UVs
+    # a 15 cm curb face spans the whole band; a riser (down to -SKIRT_DROP) only its top
+    a = next(a for a in man["assets"] if a["kind"] == "riser")
+    d = ue.read_glb(tmp_path / "ue" / a["file"])
+    p = ue.gltf_to_model(d["positions"])
+    below = p[:, 2] < p[:, 2].max() - ue.CURB_TEX_BAND_M - 1e-6
+    assert below.any() and np.allclose(d["uvs"][below, 1], ue.CURB_TEX_V_BOTTOM, atol=1e-4)
 
 
 def test_raised_plates_carry_skirts_down_under_the_ground_slab(tmp_path):
@@ -438,14 +469,30 @@ def test_raised_plates_carry_skirts_down_under_the_ground_slab(tmp_path):
     man = ue.export_ue(m, tmp_path / "ue", name="t", tile_m=0.0, buildings=False)
     a = next(a for a in man["assets"] if a["kind"] == "curb")
     d = ue.read_glb(tmp_path / "ue" / a["file"])
+    n = ue.gltf_to_model(d["normals"])
+    # curb strips: all vertical, unit normals
+    assert np.allclose(n[:, 2], 0.0) and np.allclose(np.linalg.norm(n, axis=1), 1.0)
+    # the plates are closed prisms: their side walls (the riser assets, curb concrete) reach
+    # from the raised top down under the ground slab (datum z = 0 here), along the whole perimeter
+    a = next(a for a in man["assets"] if a["kind"] == "riser")
+    assert a["material"] == "curb" and a["semantic"] == "SideWalk"
+    d = ue.read_glb(tmp_path / "ue" / a["file"])
     p = ue.gltf_to_model(d["positions"])
     n = ue.gltf_to_model(d["normals"])
-    # curb strips + skirts: all vertical, unit normals
-    assert np.allclose(n[:, 2], 0.0) and np.allclose(np.linalg.norm(n, axis=1), 1.0)
-    # the skirts reach from the raised top down under the ground slab (datum z = 0 here)
-    assert p[:, 2].max() == pytest.approx(P.sidewalk.z, abs=1e-6)
-    assert p[:, 2].min() == pytest.approx(-ue.SKIRT_DROP, abs=1e-6)
+    wall = np.abs(n[:, 2]) < 1e-6
+    assert wall.any() and np.allclose(np.linalg.norm(n[wall], axis=1), 1.0)
+    assert p[wall][:, 2].max() == pytest.approx(P.sidewalk.z, abs=1e-6)
+    assert p[wall][:, 2].min() == pytest.approx(-ue.SKIRT_DROP, abs=1e-6)
     assert ue.SKIRT_DROP > ue.GROUND_PLANE_DROP  # ends below the slab: no gap, no z-fight
+    # wall length == perimeter of the (inset) plates: no edge left open
+    plates = unary_union([s.geometry for s in m.surfaces if s.kind in ue.SKIRT_KINDS])
+    rings = ue.plate_wall_rings(plates)
+    tri = p[d["faces"]]
+    wall_faces = np.abs(n[d["faces"][:, 0]][:, 2]) < 1e-6
+    area = 0.5 * np.linalg.norm(np.cross(tri[wall_faces, 1] - tri[wall_faces, 0],
+                                         tri[wall_faces, 2] - tri[wall_faces, 0]), axis=1).sum()
+    # vertical rectangles of height top + drop along the whole perimeter (flat datum here)
+    assert area == pytest.approx(sum(r.length for r in rings) * (P.sidewalk.z + ue.SKIRT_DROP), rel=0.02)
 
 
 def test_sidewalk_top_sits_a_curb_height_above_the_road_edge(tmp_path):
@@ -461,6 +508,14 @@ def test_sidewalk_top_sits_a_curb_height_above_the_road_edge(tmp_path):
         return np.concatenate(out)
 
     side, driv = pts("sidewalk"), pts("drivable")
+    # only the plate tops (the sidewalk assets also carry the prism walls now)
+    tops = []
+    for a in man["assets"]:
+        if a["kind"] == "sidewalk":
+            g = ue.read_glb(tmp_path / "ue" / a["file"])
+            nn = ue.gltf_to_model(g["normals"])
+            tops.append(ue.gltf_to_model(g["positions"])[nn[:, 2] > 0.99])
+    side = np.concatenate(tops)
     # for every sidewalk vertex near the carriageway, the top is exactly the curb height
     # above the nearest road vertex — the riser an ambulance sees at the curb
     d2 = ((side[:, None, :2] - driv[None, :, :2]) ** 2).sum(-1)

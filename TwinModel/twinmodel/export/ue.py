@@ -15,7 +15,9 @@ Assets. ``<name>_L<layer>_<kind>_<i>_<j>``: ``kind`` is the surface kind (``driv
 datum; zebra stripes of every crossing surface are added to ``marking_white``), or
 ``building`` (footprints extruded to ``Building.effective_height``); ``<i>_<j>`` is the
 ``tile_m`` grid cell (World Partition streams per cell). UVs are metric planar (1 unit = 1 m,
-``u = x``, ``v = -y`` on horizontal faces; ``u`` = distance along, ``v`` = height on walls/curbs).
+``u = x``, ``v = -y`` on horizontal faces; ``u`` = distance along, ``v`` = height on building
+walls; curbs and the plate risers (``riser``) map onto the stone band of CARLA's curb texture,
+see ``CURB_TEX_*``).
 """
 from __future__ import annotations
 
@@ -55,27 +57,59 @@ KIND_MATERIAL: dict[str, tuple[str, str]] = {
     "verge": ("grass", "Terrain"),
     "ground": ("ground", "Terrain"),
     "curb": ("curb", "SideWalk"),
+    # side walls of the raised plates (sidewalk / island / median / verge / grass): concrete
+    # like the curbs, so a plate edge without a curb reads as a riser, not as paving on end
+    "riser": ("curb", "SideWalk"),
     "marking_white": ("marking_white", "RoadLine"),
     "marking_yellow": ("marking_yellow", "RoadLine"),
     "building": ("building", "Building"),
     "groundplane": ("ground", "Terrain"),
+    # invisible collision wall around the ground slab (the baker hides the actor in game)
+    "boundary": ("ground", "Static"),
 }
 # glTF base colours (preview only; the baker swaps in CARLA materials)
 _BASE_COLORS = dict(MATERIALS)
 _BASE_COLORS["building"] = (0.72, 0.66, 0.58)
+_BASE_COLORS["riser"] = MATERIALS.get("curb", (0.6, 0.6, 0.6))
 _BASE_COLORS["groundplane"] = (0.45, 0.50, 0.40)
 
 ZEBRA_STRIPE = 0.5   # m, stripe width along the crossing
 ZEBRA_GAP = 0.5      # m
 ZEBRA_MIN_LEN = 2.0  # m, crossings shorter than this get no stripes
-# raised plates (sidewalk / island / median / verge / grass fill, all at curb-top level) get a
-# vertical skirt along every free edge — without it they read as planes floating over the
-# ground slab; the drivable-side edges already carry the curb strips
+# raised plates (sidewalk / island / median / verge / grass fill, all at curb-top level) are
+# closed prisms: the top plate plus a vertical wall along the WHOLE perimeter (outer rings and
+# holes) from the plate top down to under the ground slab. Earlier bakes only skirted the
+# "free" edges and relied on the curb strips for the road side; every edge the curb lines
+# missed (7.5 % of the shared road/sidewalk boundary on Eixample) showed the void underneath
+# as a black slot, and the plates read as floating planes.
 SKIRT_KINDS = frozenset({"sidewalk", "island", "median", "verge", "ground"})
+PLATE_WALL_INSET = 0.02  # m, the wall sits this far inside the plate edge so the curb strips (on
+                         # the exact boundary, 15 cm tall) stay in front of it instead of z-fighting
+# curb / riser UVs follow CARLA's curb material (MI_CurbDirty01 -> T_CurbDirty01_d, Scale 1):
+# the texture is an atlas whose curb-stone face is the bottom band (UE v 0.846..1.0, the rest
+# is streaky filler); the stock SM_Curb maps its 15.3 cm face onto v 0.813..0.994 with one
+# repeat per 0.86 m of length, which puts the filler on the top quarter of the face (measured
+# on out/look_demo/v11/curb_edge_a_rgb), so the band here starts at the filler boundary.
+# Metric (along, height) UVs put the whole face on the filler.
+CURB_TEX_REPEAT_M = 0.86   # m of curb per texture repeat along the face
+CURB_TEX_V_TOP = 0.85      # UE v at the top edge of the stone face
+CURB_TEX_V_BOTTOM = 0.994  # UE v at its bottom edge
+CURB_TEX_BAND_M = 0.153    # m of face height the band spans (below that: the bottom row)
 BUILDING_SINK = 0.3  # m, walls start this far below the lowest datum sample so no gap shows
 GROUND_PLANE_DROP = 0.35  # m below the datum: closes the block courtyards without z-fighting
 SKIRT_DROP = GROUND_PLANE_DROP + 0.15  # m below the datum: the skirt ends under the ground slab
 GROUND_PLANE_GRID = 20.0  # m subdivision so the slab follows the datum
+GROUND_PLANE_MARGIN = 50.0  # m of apron around the outermost surface: an actor that leaves the
+                            # road at the map edge lands on terrain, not in the void
+BOUNDARY_WALL_HEIGHT = 6.0  # m, invisible collision wall on the apron's perimeter
+# on-road overlays (crossing plates, zebra bars, lane markings) take their z from the road
+# triangles they lie on, not from the datum function: two different triangulations of the same
+# datum disagree by up to (h^2 / 8) * curvature between vertices, and a 3 mm overlay sampled at
+# its own corners ended up under the road surface on every slope (missing zebra bars). Fine
+# subdivision keeps the overlay's own interpolation error negligible.
+OVERLAY_GRID = 1.0    # m, crossing plates and zebra bars
+MARKING_GRID = 2.5    # m, lane markings
+ROAD_GAP_SEARCH = 0.3  # m, slots narrower than this between the road and a raised plate are paved
 SPAWN_SPACING = 30.0  # m between spawn points along a lane
 SPAWN_MARGIN = 10.0   # m kept free at both road ends
 SPAWN_Z = 0.5         # m above the datum (CARLA vehicles need ~0.5 m clearance to spawn)
@@ -368,53 +402,51 @@ def _boundary_lines(geom: BaseGeometry) -> list[LineString]:
     return out
 
 
-def skirt_lines(geom: BaseGeometry, cover: Optional[BaseGeometry]) -> list[LineString]:
-    """Free edges of a raised plate: its boundary minus the segments already carrying a curb
-    strip (``cover``: the curb lines buffered a little)."""
-    out: list[LineString] = []
-    for ring in _boundary_lines(geom):
-        stack = [ring.difference(cover) if cover is not None else ring]
-        while stack:
-            g = stack.pop()
-            if g.is_empty:
-                continue
-            if isinstance(g, LineString):
-                if g.length > 0.05:
-                    out.append(g)
-            elif hasattr(g, "geoms"):
-                stack.extend(g.geoms)
-    return out
+def _curb_band_uv(along: float, z_top: float, z: float, band_m: float = CURB_TEX_BAND_M) -> list[float]:
+    """UV on a curb-material face: ``u`` along the face in texture repeats, ``v`` on the stone
+    band of ``T_CurbDirty01`` measured down from the top edge; below ``band_m`` the bottom row
+    (plain concrete) is stretched -- that part is under the road surface or a foundation."""
+    t = min(1.0, max(0.0, (z_top - z) / band_m)) if band_m > 0 else 0.0
+    return [along / CURB_TEX_REPEAT_M, CURB_TEX_V_TOP + t * (CURB_TEX_V_BOTTOM - CURB_TEX_V_TOP)]
 
 
-def _add_skirt_strip(mb: MeshBuilder, model: TwinModel, line: LineString, z_top_offset: float,
-                     layer: Optional[int], subdivide: bool) -> int:
-    """Vertical wall from a raised plate's top edge down to under the ground slab
-    (``SKIRT_DROP``): the riser that keeps sidewalks / islands / grass from reading as planes
-    floating over the slab. Same construction as the curb strips: flat per-segment normals
-    facing away from the material, (along, height) UVs."""
-    if subdivide:
-        line = line.segmentize(profiles.get().elevation.mesh_grid_m)
+def _add_wall_ring(mb: MeshBuilder, line: LineString, z_top: np.ndarray, z_bottom: np.ndarray,
+                   outward_right: bool = True, curb_uv: Optional[float] = None) -> int:
+    """Vertical quad strip along ``line`` between per-vertex ``z_bottom`` and ``z_top``. The
+    outward normal is the right-hand normal of each segment (``outward_right``), or the left one.
+    UVs are metric (along, height), or with ``curb_uv`` (band height in m) the curb-material
+    band mapping of :func:`_curb_band_uv`."""
     xy = np.asarray(line.coords, dtype=np.float64)[:, :2]
     if len(xy) < 2:
         return 0
-    z1 = _z(model, xy, z_top_offset, layer)
-    z0 = _z(model, xy, 0.0, layer) - SKIRT_DROP
     seg = np.diff(xy, axis=0)
     seg_len = np.hypot(seg[:, 0], seg[:, 1])
     along = np.concatenate([[0.0], np.cumsum(seg_len)])
     verts, nrms, uvs, faces = [], [], [], []
     k = 0
+    sign = 1.0 if outward_right else -1.0
     for i in np.nonzero(seg_len > 1e-6)[0]:
         d = seg[i] / seg_len[i]
-        n = np.array([d[1], -d[0], 0.0])
+        n = np.array([sign * d[1], -sign * d[0], 0.0])
         a, b = xy[i], xy[i + 1]
-        quad = np.array([[a[0], a[1], z0[i]], [b[0], b[1], z0[i + 1]],
-                         [b[0], b[1], z1[i + 1]], [a[0], a[1], z1[i]]])
+        quad = np.array([[a[0], a[1], z_bottom[i]], [b[0], b[1], z_bottom[i + 1]],
+                         [b[0], b[1], z_top[i + 1]], [a[0], a[1], z_top[i]]])
         verts.append(quad)
         nrms.append(np.tile(n, (4, 1)))
-        uvs.append(np.array([[along[i], 0.0], [along[i + 1], 0.0],
-                             [along[i + 1], z1[i + 1] - z0[i + 1]], [along[i], z1[i] - z0[i]]]))
-        faces.append(np.array([[k, k + 2, k + 1], [k, k + 3, k + 2]]))
+        if curb_uv is None:
+            uvs.append(np.array([[along[i], 0.0], [along[i + 1], 0.0],
+                                 [along[i + 1], z_top[i + 1] - z_bottom[i + 1]], [along[i], z_top[i] - z_bottom[i]]]))
+        else:
+            uvs.append(np.array([_curb_band_uv(along[i], z_top[i], z_bottom[i], curb_uv),
+                                 _curb_band_uv(along[i + 1], z_top[i + 1], z_bottom[i + 1], curb_uv),
+                                 _curb_band_uv(along[i + 1], z_top[i + 1], z_top[i + 1], curb_uv),
+                                 _curb_band_uv(along[i], z_top[i], z_top[i], curb_uv)]))
+        # front face on the normal side: with (a_bottom, b_bottom, b_top, a_top) the CCW order
+        # seen from the right-hand side of a->b is (0, 1, 2), (0, 2, 3)
+        if outward_right:
+            faces.append(np.array([[k, k + 1, k + 2], [k, k + 2, k + 3]]))
+        else:
+            faces.append(np.array([[k, k + 2, k + 1], [k, k + 3, k + 2]]))
         k += 4
     if not verts:
         return 0
@@ -422,8 +454,134 @@ def _add_skirt_strip(mb: MeshBuilder, model: TwinModel, line: LineString, z_top_
     return 2 * len(verts)
 
 
+def plate_wall_rings(geom: BaseGeometry, inset: float = PLATE_WALL_INSET) -> list[LineString]:
+    """Perimeter rings (outer CCW, holes CW -> right-hand normal points out of the material) of a
+    raised plate, inset by ``inset`` so the wall hides behind the curb strips on the road side."""
+    g = geom.buffer(-inset, join_style="mitre", mitre_limit=2.0) if inset > 0 else geom
+    return _boundary_lines(g)
+
+
+def _add_plate_walls(mb_of, model: TwinModel, geom: BaseGeometry, z_top_offset: float,
+                     layer: Optional[int], subdivide: bool, tile_m: float) -> int:
+    """Closed-prism side walls of a raised plate: every perimeter ring, plate top down to
+    ``SKIRT_DROP`` under the datum. ``mb_of(tile)`` returns the builder for a tile."""
+    n = 0
+    for ring in plate_wall_rings(geom):
+        if ring.length < 0.05:
+            continue
+        line = ring.segmentize(profiles.get().elevation.mesh_grid_m) if subdivide else ring
+        xy = np.asarray(line.coords, dtype=np.float64)[:, :2]
+        z1 = _z(model, xy, z_top_offset, layer)
+        z0 = _z(model, xy, 0.0, layer) - SKIRT_DROP
+        cen = line.centroid
+        n += _add_wall_ring(mb_of(_tile_index(cen.x, cen.y, tile_m)), line, z1, z0,
+                            curb_uv=CURB_TEX_BAND_M)
+    return n
+
+
+class RoadMeshZ:
+    """z lookup on an already tessellated road surface (the drivable / parking triangles of
+    one layer), so overlays sit exactly on the triangles they cover. Points outside every
+    triangle fall back to the datum."""
+
+    def __init__(self, tris: np.ndarray):
+        # tris: (n, 3, 3) xyz
+        self.tris = np.asarray(tris, dtype=np.float64).reshape(-1, 3, 3)
+        polys = [Polygon(t[:, :2]) for t in self.tris]
+        self.tree = shapely.STRtree(polys) if polys else None
+
+    @classmethod
+    def from_builders(cls, builders: Iterable[MeshBuilder]) -> "RoadMeshZ":
+        tris = []
+        for b in builders:
+            pos, _, _, faces = b.arrays()
+            if len(faces):
+                tris.append(pos[faces])
+        return cls(np.concatenate(tris) if tris else np.zeros((0, 3, 3)))
+
+    def z(self, model: TwinModel, xy: np.ndarray, layer: Optional[int]) -> np.ndarray:
+        xy = np.asarray(xy, dtype=np.float64).reshape(-1, 2)
+        out = _z(model, xy, 0.0, layer)
+        if self.tree is None or len(xy) == 0:
+            return out
+        pts = shapely.points(xy[:, 0], xy[:, 1])
+        qi, ti = self.tree.query(pts, predicate="intersects")
+        done = np.zeros(len(xy), dtype=bool)
+        for q, t in zip(qi, ti):
+            if done[q]:
+                continue
+            a, b, c = self.tris[t]
+            v0, v1 = b[:2] - a[:2], c[:2] - a[:2]
+            v2 = xy[q] - a[:2]
+            den = v0[0] * v1[1] - v1[0] * v0[1]
+            if abs(den) < 1e-12:
+                continue
+            l1 = (v2[0] * v1[1] - v1[0] * v2[1]) / den
+            l2 = (v0[0] * v2[1] - v2[0] * v0[1]) / den
+            l0 = 1.0 - l1 - l2
+            out[q] = l0 * a[2] + l1 * b[2] + l2 * c[2]
+            done[q] = True
+        return out
+
+
+def _add_overlay(mb: MeshBuilder, model: TwinModel, geom: BaseGeometry, z_offset: float,
+                 layer: Optional[int], roadz: Optional[RoadMeshZ], grid: float) -> int:
+    """A thin on-road overlay (crossing plate, zebra bar, marking) tessellated on a fine grid
+    with z from the road mesh (+ ``z_offset``)."""
+    n = 0
+    for poly in _grid_split(geom, grid):
+        verts, faces = triangulate_polygon(poly)
+        if len(faces) == 0:
+            continue
+        z = roadz.z(model, verts, layer) if roadz is not None else _z(model, verts, 0.0, layer)
+        base = mb.add_vertices(np.column_stack([verts, z + z_offset]))
+        mb.add_faces("overlay", faces, base)
+        n += len(faces)
+    return n
+
+
+def _add_marking_overlay(mb_of, model: TwinModel, mk, roadz: Optional[RoadMeshZ], tile_m: float) -> int:
+    """``mesh._add_marking`` on the road mesh: dash pieces / continuous quads via ``_add_overlay``."""
+    from shapely.ops import substring
+    M = profiles.get().marking
+    line = shapely.force_2d(mk.geometry)
+    if mk.kind == "broken":
+        pieces = []
+        s, L = 0.0, line.length
+        while s < L:
+            e = min(L, s + M.broken_dash)
+            if e - s > 0.05:
+                pieces.append(substring(line, s, e))
+            s += M.broken_dash + M.broken_gap
+    else:
+        pieces = [line]
+    width = mk.width or M.width
+    n = 0
+    for piece in pieces:
+        quad = piece.buffer(width / 2.0, cap_style="flat", join_style="mitre", mitre_limit=2.0)
+        cen = quad.centroid
+        n += _add_overlay(mb_of(_tile_index(cen.x, cen.y, tile_m)), model, quad, M.z, mk.layer,
+                          roadz, MARKING_GRID)
+    return n
+
+
+def road_plate_gaps(road: BaseGeometry, plates: BaseGeometry, cover: BaseGeometry,
+                    search: float = ROAD_GAP_SEARCH) -> BaseGeometry:
+    """Slots between the road and the raised plates that no surface covers (polygon slivers
+    left by the two independent boundary constructions): paved as drivable so the ground slab
+    never shows through the curb line."""
+    if road.is_empty or plates.is_empty:
+        return shapely.Polygon()
+    band = road.buffer(search).intersection(plates.buffer(search))
+    gap = band.difference(cover)
+    return gap.buffer(0.005)  # a hair of overlap into both neighbours: no hairline seam
+
+
 def _add_curb_strip(mb: MeshBuilder, model: TwinModel, curb: CurbLine, subdivide: bool) -> int:
-    """Vertical curb face as a strip of quads with flat per-segment normals and (along, height) UVs."""
+    """Vertical curb face: a wall ring from the datum up ``curb.height`` with the curb-material
+    band spanning the whole face. The face looks towards the low side; by construction
+    (surfaces.py) the high side is on the left of the line, so the outward normal is the
+    right-hand one."""
     line = shapely.force_2d(curb.geometry)
     if subdivide:
         line = line.segmentize(profiles.get().elevation.mesh_grid_m)
@@ -431,32 +589,7 @@ def _add_curb_strip(mb: MeshBuilder, model: TwinModel, curb: CurbLine, subdivide
     if len(xy) < 2:
         return 0
     z0 = _z(model, xy, 0.0, curb.layer)
-    z1 = z0 + curb.height
-    # the curb face looks towards the low side; by construction (surfaces.py) the high side
-    # is on the left of the line, so the outward normal is the right-hand normal
-    seg = np.diff(xy, axis=0)
-    seg_len = np.hypot(seg[:, 0], seg[:, 1])
-    keep = seg_len > 1e-6
-    along = np.concatenate([[0.0], np.cumsum(seg_len)])
-    verts, nrms, uvs, faces = [], [], [], []
-    k = 0
-    for i in np.nonzero(keep)[0]:
-        d = seg[i] / seg_len[i]
-        n = np.array([d[1], -d[0], 0.0])
-        a, b = xy[i], xy[i + 1]
-        quad = np.array([[a[0], a[1], z0[i]], [b[0], b[1], z0[i + 1]],
-                         [b[0], b[1], z1[i + 1]], [a[0], a[1], z1[i]]])
-        verts.append(quad)
-        nrms.append(np.tile(n, (4, 1)))
-        uvs.append(np.array([[along[i], 0.0], [along[i + 1], 0.0],
-                             [along[i + 1], curb.height], [along[i], curb.height]]))
-        # outward-facing winding: CCW when seen from the normal side
-        faces.append(np.array([[k, k + 2, k + 1], [k, k + 3, k + 2]]) )
-        k += 4
-    if not verts:
-        return 0
-    mb.add(np.concatenate(verts), np.concatenate(nrms), np.concatenate(uvs), np.concatenate(faces))
-    return 2 * len(verts)
+    return _add_wall_ring(mb, line, z0 + curb.height, z0, curb_uv=curb.height)
 
 
 def building_geometry(model: TwinModel, b: Building, level_height: float, default_levels: int
@@ -534,7 +667,7 @@ def _add_building(mb: MeshBuilder, model: TwinModel, b: Building, level_height: 
                 nrms.append(np.tile(nrm, (4, 1)))
                 uvs.append(np.array([[along[i], 0.0], [along[i + 1], 0.0],
                                      [along[i + 1], roof - base], [along[i], roof - base]]))
-                faces.append(np.array([[k, k + 2, k + 1], [k, k + 3, k + 2]]))
+                faces.append(np.array([[k, k + 1, k + 2], [k, k + 2, k + 3]]))  # CCW from outside
                 k += 4
             if verts:
                 mb.add(np.concatenate(verts), np.concatenate(nrms), np.concatenate(uvs),
@@ -626,50 +759,83 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
             builders[key] = MeshBuilder()
         return builders[key]
 
-    # surfaces (each kind its own asset; crossings also get zebra stripes)
+    # base surfaces: roads (drivable / parking) and the raised plates; crossings that lie on
+    # the drivable surface are overlays (below), crossings that are cut out of it are road.
     M = profiles.get().marking
+    road_union = unary_union([s.geometry for s in model.surfaces if s.kind in ("drivable", "parking")])
+    road_cover = road_union.buffer(0.02) if not road_union.is_empty else None
+    plates_union = unary_union([s.geometry for s in model.surfaces if s.kind in SKIRT_KINDS])
+    cover_union = unary_union([s.geometry for s in model.surfaces])
+    overlays: list[tuple] = []   # (surface, polygon) crossings drawn on the road mesh
+    n_cross_overlay = n_cross_base = 0
     for s in model.surfaces:
         kind = s.kind if s.kind in KIND_MATERIAL else "drivable"
         layer = s.tags.get("layer")
-        for tile, piece in _tiles_of(s.geometry, tile_m):
-            _add_surface(mb(layer, kind, tile), model, piece, s.z_offset, kind, subdivide, layer)
         if s.kind == "crossing":
             for poly in _polygons(s.geometry):
-                walk = crossing_walk_dir(model, s, poly)
-                for stripe in zebra_stripes(poly, along=walk):
-                    c = stripe.centroid
-                    _add_surface(mb(layer, "marking_white", _tile_index(c.x, c.y, tile_m)), model,
-                                 stripe, s.z_offset + M.z, "marking_white", subdivide, layer)
+                if road_cover is not None and road_cover.contains(poly):
+                    overlays.append((s, poly))
+                    n_cross_overlay += 1
+                else:
+                    n_cross_base += 1
+                    for tile, piece in _tiles_of(poly, tile_m):
+                        _add_surface(mb(layer, kind, tile), model, piece, s.z_offset, kind, subdivide, layer)
+            continue
+        for tile, piece in _tiles_of(s.geometry, tile_m):
+            _add_surface(mb(layer, kind, tile), model, piece, s.z_offset, kind, subdivide, layer)
+    # slots between the road and the raised plates get paved (see road_plate_gaps)
+    gaps = road_plate_gaps(road_union, plates_union, cover_union)
+    n_gap_m2 = float(gaps.area) if not gaps.is_empty else 0.0
+    for poly in _polygons(gaps):
+        for tile, piece in _tiles_of(poly, tile_m):
+            _add_surface(mb(0, "drivable", tile), model, piece, 0.0, "drivable", subdivide, None)
+    # the road mesh per layer: what overlays sit on
+    roadz: dict[int, RoadMeshZ] = {}
+    for layer in sorted({int(k[0]) for k in builders}):
+        roadz[layer] = RoadMeshZ.from_builders(b for (lay, kind, _), b in builders.items()
+                                               if lay == layer and kind in ("drivable", "parking", "crossing"))
+    def rz(layer):
+        return roadz.get(int(layer or 0))
+    # crossing plates + zebra bars on the road mesh
+    for s, poly in overlays:
+        layer = s.tags.get("layer")
+        for tile, piece in _tiles_of(poly, tile_m):
+            _add_overlay(mb(layer, "crossing", tile), model, piece, s.z_offset, layer, rz(layer), OVERLAY_GRID)
+    for s in model.surfaces:
+        if s.kind != "crossing":
+            continue
+        layer = s.tags.get("layer")
+        for poly in _polygons(s.geometry):
+            walk = crossing_walk_dir(model, s, poly)
+            for stripe in zebra_stripes(poly, along=walk):
+                c = stripe.centroid
+                _add_overlay(mb(layer, "marking_white", _tile_index(c.x, c.y, tile_m)), model,
+                             stripe, s.z_offset + M.z, layer, rz(layer), OVERLAY_GRID)
     for c in model.curbs:
         cen = c.geometry.centroid
         _add_curb_strip(mb(c.layer, "curb", _tile_index(cen.x, cen.y, tile_m)), model, c, subdivide)
-    # skirts: the free edges of every raised plate get a vertical face down under the ground
-    # slab. One union per (layer, top height) so flush neighbours (sidewalk | grass fill)
-    # produce no interior double wall; the drivable-side edges are excluded — they already
-    # carry the curb strips on the same boundary (a second coplanar face would z-fight).
-    # Skirts live in the ``curb`` assets: visually they are the curb/riser band.
-    curb_by_layer: dict[int, list[BaseGeometry]] = {}
-    for c in model.curbs:
-        curb_by_layer.setdefault(int(c.layer or 0), []).append(c.geometry)
-    curb_cover = {lay: unary_union(gs).buffer(0.06) for lay, gs in curb_by_layer.items()}
-    skirt_groups: dict[tuple[int, float], list[BaseGeometry]] = {}
+    # raised plates are closed prisms: one union per (layer, top height) so flush neighbours
+    # (sidewalk | grass fill) share no interior wall, then a wall along the whole perimeter of
+    # every polygon, inset a hair behind the curb strips. Walls live in the ``riser`` assets
+    # (curb concrete, SideWalk semantic).
+    plate_groups: dict[tuple[int, float], list[BaseGeometry]] = {}
     for s in model.surfaces:
         if s.kind in SKIRT_KINDS:
             key = (int(s.tags.get("layer") or 0), round(float(s.z_offset), 4))
-            skirt_groups.setdefault(key, []).append(s.geometry)
-    for (layer, z_top), geoms in sorted(skirt_groups.items()):
-        for line in skirt_lines(unary_union(geoms), curb_cover.get(layer)):
-            cen = line.centroid
-            _add_skirt_strip(mb(layer, "curb", _tile_index(cen.x, cen.y, tile_m)), model, line,
-                             z_top, layer, subdivide)
+            plate_groups.setdefault(key, []).append(s.geometry)
+    n_wall_faces = 0
+    for (layer, z_top), geoms in sorted(plate_groups.items()):
+        n_wall_faces += _add_plate_walls(lambda tile, lay=layer: mb(lay, "riser", tile), model,
+                                         unary_union(geoms), z_top, layer, subdivide, tile_m)
     for mk in model.markings:
         if mk.geometry is None or mk.geometry.is_empty:
             continue
         kind = "marking_yellow" if mk.color == "yellow" else "marking_white"
-        cen = mk.geometry.centroid
-        _add_marking(mb(mk.layer, kind, _tile_index(cen.x, cen.y, tile_m)), model, mk, subdivide)
-    # a datum-following slab under everything: block courtyards and map borders would
-    # otherwise be holes straight to the sky
+        _add_marking_overlay(lambda tile, k=kind, lay=mk.layer: mb(lay, k, tile), model, mk,
+                             rz(mk.layer), tile_m)
+    # a datum-following slab under everything, with a wide apron: block courtyards and map
+    # borders would otherwise be holes straight to the sky, and an actor leaving the road at
+    # the edge would fall into the void. An invisible wall on the apron's rim catches the rest.
     minx, miny, maxx, maxy = None, None, None, None
     for srf in model.surfaces:
         b0 = srf.geometry.bounds
@@ -679,7 +845,8 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
             minx, miny = min(minx, b0[0]), min(miny, b0[1])
             maxx, maxy = max(maxx, b0[2]), max(maxy, b0[3])
     if minx is not None:
-        slab = box(minx - 5.0, miny - 5.0, maxx + 5.0, maxy + 5.0)
+        slab = box(minx - GROUND_PLANE_MARGIN, miny - GROUND_PLANE_MARGIN,
+                   maxx + GROUND_PLANE_MARGIN, maxy + GROUND_PLANE_MARGIN)
         for tile, piece in _tiles_of(slab, tile_m):
             b = mb(0, "groundplane", tile)
             for poly in _grid_split(piece, GROUND_PLANE_GRID):
@@ -689,6 +856,16 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
                 zz = np.asarray(model.sample_z(verts[:, 0], verts[:, 1]), dtype=np.float64)
                 base0 = b.add_vertices(np.column_stack([verts, zz - GROUND_PLANE_DROP]))
                 b.add_faces("groundplane", faces, base0)
+        # boundary wall: CW ring so the right-hand normal points inward (faces the map)
+        rim = LineString(shapely.geometry.polygon.orient(slab, -1.0).exterior.coords).segmentize(GROUND_PLANE_GRID)
+        xy = np.asarray(rim.coords)[:, :2]
+        zg = np.asarray(model.sample_z(xy[:, 0], xy[:, 1]), dtype=np.float64) - GROUND_PLANE_DROP
+        n_boundary = _add_wall_ring(mb(0, "boundary", (0, 0)), rim, zg + BOUNDARY_WALL_HEIGHT, zg)
+    else:
+        n_boundary = 0
+    log.info("crossings: %d on the road mesh, %d as road; paved %.1f m2 of road/plate slots; "
+             "%d plate wall faces; %d boundary wall faces", n_cross_overlay, n_cross_base,
+             n_gap_m2, n_wall_faces, n_boundary)
     n_clipped = n_skipped = 0
     buildings_out: list[dict] = []
     if buildings:

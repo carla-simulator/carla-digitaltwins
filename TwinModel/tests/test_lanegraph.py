@@ -81,7 +81,7 @@ def test_lanes_defaults_two_way_residential():
     assert types[2] == "sidewalk" and types[-2] == "sidewalk"
     assert {l.direction for l in spec.lanes if l.id == 1} == {"backward"}
     assert spec.center_marking is not None and spec.center_marking.color == "white"
-    assert all(l.width == 3.3 for l in spec.lanes if l.type == "driving")  # 2026-09-01 ambulance pass
+    assert all(l.width == 3.5 for l in spec.lanes if l.type == "driving")  # 2026-09-02 second ambulance pass
 
 
 def test_lanes_oneway_overrides():
@@ -92,7 +92,9 @@ def test_lanes_oneway_overrides():
     assert spec.oneway and spec.n_forward == 3 and spec.n_backward == 0
     right = [l for l in spec.lanes if l.id < 0]
     assert [l.type for l in right] == ["driving", "driving", "driving", "biking", "sidewalk"]
-    assert all(abs(l.width - 3.0) < 1e-9 for l in right if l.type == "driving")
+    # width=9 / 3 lanes = 3.0 m, floored to LaneRules.min_width (3.3 m): a tagged width that
+    # cannot pass an ambulance is not honoured
+    assert all(abs(l.width - profiles.get().lane.min_width) < 1e-9 for l in right if l.type == "driving")
     assert all(abs(l.speed_limit - 50 / 3.6) < 1e-9 for l in right if l.type == "driving")
     assert right[0].tags["turn"] == ["left", "through"] and right[2].tags["turn"] == ["right"]
     assert right[0].marking.kind == "broken" and right[2].marking.kind == "solid"
@@ -317,12 +319,12 @@ def test_set_core_width_keeps_lane_order_and_recentres():
     spec = lanes_for_way({"oneway": "yes", "width": "6"}, "living_street")
     r = Road(id="x", reference_line=LineString([(0, 0, 0), (50, 0, 0)]), lanes=spec.lanes)
     assert _core_width(r) == pytest.approx(6.0)
-    _set_core_width(r, 3.0)
-    assert _core_width(r) == pytest.approx(3.0)
+    _set_core_width(r, 3.5)  # >= LaneRules.min_width (3.3 since the 2026-09-02 widening)
+    assert _core_width(r) == pytest.approx(3.5)
     assert [l.type for l in r.lanes_right()] == ["driving", "sidewalk"]  # shoulder removed
     ids = [l.id for l in r.lanes]
     assert ids == sorted(ids, reverse=True) and 0 not in ids
-    assert r.reference_line.coords[0][1] == pytest.approx(-1.5)  # carriageway centre stays put
+    assert r.reference_line.coords[0][1] == pytest.approx(-1.25)  # carriageway centre stays put
 
 
 def test_crossings_stay_on_their_road(model):
@@ -483,10 +485,10 @@ def test_canyon_cross_section_from_building_faces(model):
     st = model.metadata["lanegraph"]
     assert st["canyon_roads"] >= 20
     bld = streetspace.building_union(model)
-    for name, w_lo, w_hi, c_lo, c_hi in (("Pau Claris", 18.5, 22.0, 9.5, 11.0),
-                                         ("Roger de Ll", 18.5, 21.0, 9.5, 11.0),
-                                         ("Carrer de Val", 18.5, 21.0, 9.5, 13.5),
-                                         ("Arag", 28.0, 31.0, 17.0, 18.0)):
+    for name, w_lo, w_hi, c_lo, c_hi in (("Pau Claris", 18.5, 22.0, 9.5, 11.5),
+                                         ("Roger de Ll", 18.5, 21.0, 9.5, 11.5),
+                                         ("Carrer de Val", 18.5, 21.0, 9.5, 14.5),
+                                         ("Arag", 28.0, 31.0, 17.0, 19.5)):
         canyon = [r for r in _by_name(model, name) if r.tags.get("cross_section_source") == "buildings"]
         assert canyon, name
         for r in canyon:
@@ -516,7 +518,8 @@ def test_canyon_cross_section_from_building_faces(model):
     for r in _by_name(model, "Passeig de Gr"):
         assert r.tags["cross_section_source"] == "tags", r.id
     main = [r for r in _by_name(model, "Passeig de Gr") if "lateral" not in r.name]
-    assert main and all(abs(r.width_left() + r.width_right() - 19.5) < 1e-6 for r in main)
+    # 6 tagged lanes at the eu_dense 3.5 m urban lane width (was 19.5 with 3.25 m lanes)
+    assert main and all(abs(r.width_left() + r.width_right() - 21.0) < 1e-6 for r in main)
     # never a driving lane narrower than MIN_LANE_WIDTH anywhere
     for r in model.roads:
         for l in r.lanes:

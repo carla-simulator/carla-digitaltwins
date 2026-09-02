@@ -364,20 +364,21 @@ _EU_CLASSES = {
     "motorway_link":  ClassDefaults(3.5,  1, None, shoulder=1.5, shoulder_inner=0.75),
     "trunk":          ClassDefaults(3.5,  2, None, shoulder=1.5),
     "trunk_link":     ClassDefaults(3.5,  1, None, shoulder=1.0),
-    "primary":        ClassDefaults(3.5,  2, 2.0),
-    "primary_link":   ClassDefaults(3.5,  1, 2.0),
-    "secondary":      ClassDefaults(3.25, 2, 2.0),
-    "secondary_link": ClassDefaults(3.25, 1, 2.0),
-    "tertiary":       ClassDefaults(3.25, 2, 2.0),
-    "tertiary_link":  ClassDefaults(3.25, 1, 2.0),
-    "unclassified":   ClassDefaults(3.25, 2, 2.0),
-    # 2026-09-01 ambulance pass: the 3.0 m classes widened to 3.25-3.3 m — a 2.3 m emergency
-    # vehicle plus mirrors needs ~2.6 m clear, and the taper floor used to cut these lanes to
-    # 2.75 m (see LaneRules.min_width below, raised to 3.0 in the same change).
-    "residential":    ClassDefaults(3.3,  2, 2.0),
-    "living_street":  ClassDefaults(3.3,  2, 2.0),
-    "pedestrian":     ClassDefaults(3.3,  1, 2.0),
-    "service":        ClassDefaults(3.25, 2, None),
+    "primary":        ClassDefaults(3.6,  2, 2.0),
+    "primary_link":   ClassDefaults(3.6,  1, 2.0),
+    "secondary":      ClassDefaults(3.5,  2, 2.0),
+    "secondary_link": ClassDefaults(3.5,  1, 2.0),
+    "tertiary":       ClassDefaults(3.5,  2, 2.0),
+    "tertiary_link":  ClassDefaults(3.5,  1, 2.0),
+    "unclassified":   ClassDefaults(3.5,  2, 2.0),
+    # 2026-09-01 ambulance pass widened the 3.0 m classes to 3.25-3.3 m; 2026-09-02 second
+    # pass: CARLA's ambulance is 2.35 m wide and the fire truck 2.90 m (plus mirrors), and the
+    # Traffic Manager cuts corners on the chamfered junctions, so every urban class now sits at
+    # 3.5-3.6 m with a 3.3 m taper floor (LaneRules.min_width below).
+    "residential":    ClassDefaults(3.5,  2, 2.0),
+    "living_street":  ClassDefaults(3.5,  2, 2.0),
+    "pedestrian":     ClassDefaults(3.5,  1, 2.0),
+    "service":        ClassDefaults(3.5,  2, None),
 }
 _DRIVABLE = frozenset({"motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link",
                        "secondary", "secondary_link", "tertiary", "tertiary_link", "unclassified",
@@ -387,14 +388,16 @@ EU_DENSE = StreetProfile(
     name="eu_dense",
     signal_country="ES",
     description="Dense European city (Barcelona Eixample calibration): buildings at the curb, "
-                "3.25–3.75 m lanes, white centre lines, 4 m zebra crossings.",
+                "3.5–3.8 m lanes, white centre lines, 4 m zebra crossings.",
     countries=frozenset({"ES", "PT", "FR", "IT", "DE", "AT", "CH", "NL", "BE", "LU", "DK", "SE",
                          "NO", "FI", "PL", "CZ", "SK", "HU", "GR", "RO", "BG", "HR", "SI", "EE",
                          "LV", "LT", "IE"}),
     lane=LaneRules(
-        classes=_EU_CLASSES, fallback=ClassDefaults(3.25, 2, 2.0),
-        # min_width 2.75 -> 3.0 on 2026-09-01: the taper floor must still pass an ambulance
-        min_width=3.0, max_width=3.75, canyon_max_width=3.5, bike_width=1.5,
+        classes=_EU_CLASSES, fallback=ClassDefaults(3.5, 2, 2.0),
+        # min_width 2.75 -> 3.0 (2026-09-01) -> 3.3 (2026-09-02): the taper floor must still
+        # pass an ambulance / fire truck; canyon lanes may widen up to 3.8 m before the
+        # leftover becomes parking
+        min_width=3.3, max_width=4.0, canyon_max_width=3.8, bike_width=1.5,
         parking_width={"parallel": 2.0, "diagonal": 4.5, "perpendicular": 5.0},
         parking_min=2.0, parking_max=2.5, drivable_classes=_DRIVABLE, service_min_length=30.0),
     sidewalk=SidewalkRules(min_width=1.5, max_width=6.0, canyon_fraction=0.22, z=0.15,

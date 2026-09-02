@@ -557,6 +557,14 @@ def place(world, manifest, mesh_paths, name):
         smc.set_editor_property("mobility", unreal.ComponentMobility.STATIC)
         if not smc.set_static_mesh(mesh):
             smc.set_editor_property("static_mesh", mesh)
+        if a["kind"] == "boundary":
+            # collision-only wall around the terrain apron: invisible to every camera
+            # (hidden actors are not rendered, so segmentation never sees it), still solid
+            actor.set_actor_hidden_in_game(True)
+            try:
+                actor.set_editor_property("is_spatially_loaded", False)
+            except Exception:
+                pass
         placed.append(a["asset"])
     # spawn points
     n_sp = 0

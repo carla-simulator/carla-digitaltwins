@@ -27,10 +27,14 @@ CARRIAGEWAY = ("driving", "parking", "biking", "shoulder")
 #   living_street / pedestrian lanes 3.0 -> 3.3 m, service 3.0 -> 3.25 m, min_width (taper
 #   floor) 2.75 -> 3.0 m: a 2.3 m ambulance could not hold the old lanes. The extra road is a
 #   taper piece split at the new floor; junctions and connections are unchanged.
+# - d1a5dd259e6d... / (194, 15, 129): 2026-09-02 second ambulance pass — every EU_DENSE urban
+#   class at 3.5-3.6 m, min_width (taper floor) 3.0 -> 3.3 m, canyon_max_width 3.5 -> 3.8 m,
+#   max_width 3.75 -> 4.0 m (CARLA's ambulance is 2.35 m wide, the fire truck 2.90 m). One
+#   taper piece fewer (the wider floor no longer splits it); junctions and connections unchanged.
 # EU_DENSE must reproduce the pin exactly: a different value means the default build changed
 # behaviour, not just its plumbing.
-EU_DENSE_CHECKSUM = "603eb47de33263660e3f8df1f8b35b0abad58b740305957f20eb04d43cb8a440"
-EU_DENSE_COUNTS = (195, 15, 129)  # roads (incl. connecting), junctions, connections
+EU_DENSE_CHECKSUM = "d1a5dd259e6dff6f9c53037f4613da17a7b61bc08caa78556548bb87843fc39c"
+EU_DENSE_COUNTS = (194, 15, 129)  # roads (incl. connecting), junctions, connections
 
 
 def _digest(model) -> tuple[str, tuple[int, int, int]]:
