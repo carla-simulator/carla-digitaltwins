@@ -5,6 +5,12 @@ Editor Python (headless):
     UnrealEditor-Cmd <CarlaUnreal.uproject> -run=pythonscript -script="/abs/ue/place_traffic_lights.py \\
         --name EixampleDemo --signals /abs/tl_signals.json --rig /abs/ue/rigs/eu_pole.json"
 
+``--rig`` also takes a *directory* of presets, in which case each signal gets one from
+``pick_rig`` (by lane count, turn movements and whether the approach carries a crossing) or
+from ``--rig-map`` ``{"<signal id>": "<rig name>"}``. ``--style eu`` (the default) keeps every
+approach on ``--default-rig``; ``--style na`` lets the selector reach the North-American mast
+arm / gantry / pedestrian presets in ``ue/rigs/``.
+
 The rig is carla-digitaltwins' ``ATrafficLightActor`` (CarlaTools' "Traffic Light Tool"): a
 pole / head / module description driven by the TrafficLights2025 DataTables, whose rows carry
 a style (NorthAmerican / European / Asian). The tool's JSON preset format is used verbatim
@@ -68,14 +74,80 @@ def controllers_from_xodr(xodr_path):
 
 
 def junctions_from_xodr(xodr_path):
-    """road id -> junction id ("-1" outside junctions)."""
+    """controller id -> junction id, from ``<junction id=J><controller id=C/></junction>``.
+
+    This used to map ``road/@id -> road/@junction``, which is always "-1" for a traffic light:
+    the signal sits on the *approach* road, and an approach road is by definition outside the
+    junction. Every light in map_logic.json therefore had ``JunctionID: -1``. The controller
+    ref is the real link -- and it is the same one CARLA follows
+    (``ATrafficLightManager::RegisterLightComponentFromOpenDRIVE``: signal -> controller ->
+    junction).
+    """
     out = {}
     if not xodr_path or not os.path.exists(xodr_path):
         return out
     root = ET.parse(xodr_path).getroot()
-    for r in root.iter("road"):
-        out[r.get("id")] = r.get("junction", "-1")
+    for j in root.iter("junction"):
+        for c in j.findall("controller"):
+            out[c.get("id")] = j.get("id")
     return out
+
+
+def stages_per_junction(xodr_path):
+    """junction id -> number of ``<controller>`` refs (= signal stages) it carries."""
+    out = {}
+    if not xodr_path or not os.path.exists(xodr_path):
+        return out
+    root = ET.parse(xodr_path).getroot()
+    for j in root.iter("junction"):
+        n = len(j.findall("controller"))
+        if n:
+            out[j.get("id")] = n
+    return out
+
+
+# Green time by how many stages the junction cycles through, so a 3- or 4-stage plan does not
+# make a vehicle wait a minute at a red (cycle = stages x (green + amber + all-red)).
+# Index = stage count, clamped; mirrors twinmodel.profiles.JunctionRules.signal_green_s.
+STAGE_GREEN_S = [10.0, 10.0, 10.0, 8.0, 6.0]
+
+
+def load_rigs(path):
+    """``--rig`` as either one preset file or a directory of them -> {stem: abs path}."""
+    if os.path.isdir(path):
+        rigs = {os.path.splitext(f)[0]: os.path.join(path, f)
+                for f in sorted(os.listdir(path)) if f.endswith(".json")}
+        if not rigs:
+            raise RuntimeError("no *.json rig presets in " + path)
+        return rigs
+    return {os.path.splitext(os.path.basename(path))[0]: path}
+
+
+def pick_rig(sig, rigs, style, default):
+    """Choose a rig preset for one traffic-light signal.
+
+    ``tl_signals.json`` carries what the choice needs (tools/xodr_signals.py):
+    ``n_driving_lanes`` (how wide the approach is), ``turns`` (which movements leave it) and
+    ``has_crossing``. The North-American presets are only reachable with ``--style na``;
+    ``--style eu`` keeps every approach on the European pole, which is what a European twin
+    should look like whatever its lane count.
+    """
+    if style != "na":
+        return rigs.get(default) or next(iter(rigs.values()))
+    n = int(sig.get("n_driving_lanes") or 1)
+    turns = set(sig.get("turns") or ())
+    order = []
+    if n >= 4 or (n >= 3 and "left" in turns):
+        order.append("na_gantry_8head")     # wide approach, or one with its own left movement
+    if n >= 2:
+        order.append("na_mast_2head")       # mast arm reaching over the carriageway
+    if sig.get("has_crossing"):
+        order.append("na_pole_ped")         # kerbside pole with a pedestrian head
+    order.append(default)
+    for name in order:
+        if name in rigs:
+            return rigs[name]
+    return next(iter(rigs.values()))
 
 
 def find_actor_by_label(label):
@@ -93,14 +165,27 @@ def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("--name", required=True, help="baked level name under /Game/Carla/Maps/Twins")
     ap.add_argument("--signals", required=True, help="JSON list of traffic-light landmarks (m, deg)")
-    ap.add_argument("--rig", required=True, help="Traffic Light Tool preset JSON")
+    ap.add_argument("--rig", required=True,
+                    help="Traffic Light Tool preset JSON, or a directory of them")
+    ap.add_argument("--rig-map", default=None,
+                    help='JSON {"<signal id>": "<rig name or path>"} overriding the selector')
+    ap.add_argument("--style", default="eu", choices=("eu", "na"),
+                    help="rig family the fallback selector may draw from (default: eu, which "
+                         "always uses --default-rig)")
+    ap.add_argument("--default-rig", default="eu_pole")
     ap.add_argument("--map-root", default=MAP_ROOT)
-    ap.add_argument("--red", type=float, default=2.0)
-    ap.add_argument("--green", type=float, default=10.0)
+    ap.add_argument("--red", type=float, default=2.0,
+                    help="all-red clearance at the end of each stage")
+    ap.add_argument("--green", type=float, default=None,
+                    help="green time (default: by the junction's stage count, STAGE_GREEN_S)")
     ap.add_argument("--amber", type=float, default=3.0)
     ap.add_argument("--yaw-offset", type=float, default=90.0,
                     help="added to the signal yaw (CARLA's convention: +90)")
-    ap.add_argument("--forward-m", type=float, default=0.25)
+    # 0, not 0.25: the transform in tl_signals.json is carla.Landmark.transform, which already
+    # contains CARLA's own +0.25 m traffic-light nudge (MapBuilder.cpp:858). Adding it again
+    # put the rig ~0.5 m from the road point and left only 25 cm of the 50 cm match radius
+    # UMapLogicParser::ApplyLaneIdsFromMapLogic searches in.
+    ap.add_argument("--forward-m", type=float, default=0.0)
     ap.add_argument("--report", default=None)
     args = ap.parse_args(argv)
 
@@ -112,8 +197,16 @@ def main(argv):
     xodr_dir = os.path.join(content, "Carla", "Maps", "Twins", args.name, "OpenDrive")
     xodr = os.path.join(xodr_dir, args.name + ".xodr")
     ctl_of = controllers_from_xodr(xodr)
-    jn_of = junctions_from_xodr(xodr)
-    log("%d traffic-light signals, %d controllers, rig %s" % (len(signals), len(set(ctl_of.values())), args.rig))
+    junction_of_ctl = junctions_from_xodr(xodr)
+    stages_of = stages_per_junction(xodr)
+    rigs = load_rigs(args.rig)
+    rig_map = {}
+    if args.rig_map:
+        with open(args.rig_map) as f:
+            rig_map = json.load(f)
+    log("%d traffic-light signals, %d controllers, %d rig preset(s) %s, style=%s%s" % (
+        len(signals), len(set(ctl_of.values())), len(rigs), sorted(rigs), args.style,
+        ", %d rig-map overrides" % len(rig_map) if rig_map else ""))
 
     # the tool appends map_logic.json under a per-map plugin folder; start clean
     plugin_logic_dir = os.path.join(unreal.Paths.project_plugins_dir(), args.name, "Content", "Maps", "OpenDrive")
@@ -136,9 +229,22 @@ def main(argv):
         log("removed %d previously baked lights" % len(stale))
 
     rig_cls = unreal.TrafficLightActor
-    report = {"placed": 0, "failed": [], "labels": []}
+    report = {"placed": 0, "failed": [], "labels": [], "rigs": {}, "junctions": {}, "timing": {}}
     for s in signals:
         label = "TL_%s" % s["id"]
+        sid = str(s["id"])
+        ctl = ctl_of.get(sid, "")
+        junction = int(junction_of_ctl.get(ctl, "-1"))
+        n_stages = stages_of.get(junction_of_ctl.get(ctl), 1)
+        green = args.green if args.green is not None else \
+            STAGE_GREEN_S[min(n_stages, len(STAGE_GREEN_S) - 1)]
+        override = rig_map.get(sid)
+        rig_path = (rigs.get(override, override) if override
+                    else pick_rig(s, rigs, args.style, args.default_rig))
+        report["rigs"][sid] = os.path.splitext(os.path.basename(rig_path))[0]
+        report["junctions"][sid] = junction
+        report["timing"][sid] = {"stages": n_stages, "green": green,
+                                 "amber": args.amber, "red": args.red}
         yaw = float(s["yaw"]) + args.yaw_offset
         rot = unreal.Rotator(roll=0.0, pitch=0.0, yaw=yaw)
         fwd = rot.get_forward_vector()
@@ -151,13 +257,16 @@ def main(argv):
             warn("signal %s: spawn failed" % s["id"])
             continue
         try:
-            rig.set_editor_property("json_file", unreal.FilePath(args.rig))
+            rig.set_editor_property("json_file", unreal.FilePath(rig_path))
             rig.build_from_json()
-            rig.set_editor_property("signal_id", str(s["id"]))
-            rig.set_editor_property("traffic_light_group_id", ctl_of.get(str(s["id"]), ""))
-            rig.set_editor_property("junction_id", int(jn_of.get(str(s.get("road_id")), "-1") or -1))
+            rig.set_editor_property("signal_id", sid)
+            rig.set_editor_property("traffic_light_group_id", ctl)
+            rig.set_editor_property("junction_id", junction)
+            # ExportLogicToJSON writes these into map_logic.json, and MapLogicParser applies
+            # them to the UTrafficLightController named by TrafficLightGroupID -- i.e. per
+            # stage, not per junction.
             rig.set_editor_property("red_duration", args.red)
-            rig.set_editor_property("green_duration", args.green)
+            rig.set_editor_property("green_duration", green)
             rig.set_editor_property("amber_duration", args.amber)
             n_mesh = len(rig.get_components_by_class(unreal.StaticMeshComponent))
             rig.bake(args.name, label)
@@ -204,8 +313,15 @@ def main(argv):
     ok = save_all()
     report["level_saved"] = bool(ok)
     report["seconds"] = round(time.time() - t0, 1)
+    used = {}
+    for name in report["rigs"].values():
+        used[name] = used.get(name, 0) + 1
+    n_bad_junction = sum(1 for v in report["junctions"].values() if v < 0)
     log("placed %d / %d rigs, %d failed, saved=%s, %.0f s" % (
         report["placed"], len(signals), len(report["failed"]), ok, report["seconds"]))
+    log("rigs used: %s; junctions resolved: %d, unresolved (-1): %d" % (
+        ", ".join("%s x%d" % kv for kv in sorted(used.items())),
+        len(report["junctions"]) - n_bad_junction, n_bad_junction))
     rep = args.report or os.path.join(os.path.dirname(os.path.abspath(args.signals)), "traffic_lights_report.json")
     with open(rep, "w") as f:
         json.dump(report, f, indent=1)
