@@ -136,19 +136,25 @@ METRIC_UV_FALLBACK = {"Scale X": 0.5, "Scale Y": 0.5, "Base Scale": 5.0, "Base S
 # those textures already repeat about every metre, and scaling them down made walls featureless
 # (out/look_eixample/iter3). The kerb/riser UVs are hand-mapped onto a texture band anyway.
 
-# Second variability axis: a pool member at index > 0 gets its parameters nudged, keyed by the
-# master it ultimately sits on. Amplitudes are relative (0.15 = +-15 %) and are only applied to
-# parameters the parent chain actually sets, so nothing is invented from a guessed neutral.
-# NEVER jitter Puddles* / Raindrops* / Wetness: those are the weather system's knobs
+# Second variability axis: a pool member at index > 0 gets its tiling nudged, keyed by the
+# master it ultimately sits on. Amplitudes are relative (0.15 = +-15 %).
+#
+# The jitter is applied ONLY to the parameters the baker already computes itself -- the
+# metric-UV rescale above. Reading some other shipped parameter and writing it back scaled
+# looked tempting but is not safe: what comes back is whichever value the override chain or
+# the master default happens to hold, and writing that as an explicit override pins a value
+# the material may have been getting from somewhere else. The first attempt did exactly that
+# and moved the pavement's texel density on EixampleDemo. So: perturb what we own, leave
+# everything else at the parent's shipped state, and let the pool carry the variety.
+#
+# NEVER jitter Puddles* / Raindrops* / Wetness either: those are the weather system's knobs
 # (Weather.cpp pushes them through the WeatherMaterialParameters MPC).
 JITTER_PARAMS = {
-    "M_GeneralMaster": {"Scale X": 0.15, "Scale Y": 0.15, "Saturation": 0.08,
-                        "Brightness": 0.08, "Roughness Correction": 0.10},
-    "M_RoadMaster": {"Base Scale": 0.10, "Base Scale 2": 0.10, "MacroVary": 0.15,
-                     "ColorSaturation": 0.08},
-    "M_AutomaterialLandscape_2MatMaster": {"Blend Tiling": 0.12, "Color Variation": 0.15},
-    "M_AutomaterialLandscape_3MatMaster": {"Blend Tiling": 0.12, "Color Variation": 0.15},
-    "M_GenericMaterialMaster": {"Saturation": 0.08, "Brightness": 0.08},
+    "M_GeneralMaster": {"Scale X": 0.15, "Scale Y": 0.15},
+    "M_RoadMaster": {"Base Scale": 0.10, "Base Scale 2": 0.10},
+    "M_AutomaterialLandscape_2MatMaster": {"Scale X": 0.15, "Scale Y": 0.15},
+    "M_AutomaterialLandscape_3MatMaster": {"Scale X": 0.15, "Scale Y": 0.15},
+    "M_GenericMaterialMaster": {},
 }
 
 

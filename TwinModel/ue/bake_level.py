@@ -166,13 +166,10 @@ def mic_scalars(key, parent, name, index):
             out[pname] = float(shipped) * twin_materials.METRIC_UV_FACTOR
     master = base_master_name(parent)
     for pname, factor in twin_materials.jitter_factors(name, key, index, master).items():
+        # only the parameters this function owns: an override written for anything else would
+        # pin a value the material may have been resolving elsewhere (see JITTER_PARAMS)
         if pname in out:
             out[pname] = out[pname] * factor
-            continue
-        shipped = chain_scalar(parent, pname)
-        if shipped is None or shipped == 0.0:
-            continue   # not set by the material: never invent a value from a guessed neutral
-        out[pname] = float(shipped) * factor
     return out
 
 

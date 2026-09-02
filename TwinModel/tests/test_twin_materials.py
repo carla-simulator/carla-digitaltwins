@@ -92,6 +92,15 @@ def test_metric_uv_params_only_cover_the_uv_tiled_keys():
             assert p in tm.METRIC_UV_FALLBACK
 
 
+def test_jitter_only_names_parameters_the_baker_computes_itself():
+    """The jitter perturbs the metric-UV rescale, nothing else. Writing an override for a
+    parameter read back off the parent pins a value the material may have been resolving
+    somewhere else -- the first attempt did that and moved EixampleDemo's pavement density."""
+    owned = {p for params in tm.METRIC_UV_PARAMS.values() for p in params}
+    for master, params in tm.JITTER_PARAMS.items():
+        assert set(params) <= owned, (master, set(params) - owned)
+
+
 def test_jitter_never_touches_a_weather_parameter():
     """Puddles / Raindrops / Wetness are pushed by Weather.cpp through the
     WeatherMaterialParameters MPC -- a per-MIC override would fight the weather system."""

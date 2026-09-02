@@ -64,11 +64,20 @@ def asset_from_name(asset_name):
 
 
 def mesh_folders(name, mesh_root_fmt):
+    """Candidate folders, every spelling of every semantic tag.
+
+    Content/Carla/Static ships BOTH ``Sidewalk`` and ``SideWalk`` (two real directories that
+    differ only in case). On Linux the engine's case-insensitive file mapper makes
+    ``does_directory_exist`` say yes to either, but the asset registry only knows the one it
+    scanned -- so ``list_assets("/Game/Carla/Static/SideWalk/...")`` can come back empty while
+    every asset in it loads fine by object path. Both spellings are scanned and listed.
+    """
     out = []
     for sem in SEMANTICS:
-        d = mesh_root_fmt.format(semantic=sem, name=name)
-        if EAL.does_directory_exist(d):
-            out.append(d)
+        for spelling in {sem, sem.replace("Walk", "walk"), sem.replace("walk", "Walk")}:
+            d = mesh_root_fmt.format(semantic=spelling, name=name)
+            if d not in out and EAL.does_directory_exist(d):
+                out.append(d)
     return out
 
 
@@ -79,7 +88,19 @@ def static_meshes_in(folder, recursive=False):
         obj = EAL.load_asset(path)
         if isinstance(obj, unreal.StaticMesh):
             out.append((path, obj))
+        else:
+            warn("%s is not a static mesh (or would not load)" % path)
     return out
+
+
+def resolve_asset_path(name, mesh_root_fmt, a):
+    """Object path of a manifest asset, trying every spelling of its semantic folder."""
+    sem = a.get("semantic") or ""
+    for spelling in (sem, sem.replace("Walk", "walk"), sem.replace("walk", "Walk")):
+        path = "%s/%s" % (mesh_root_fmt.format(semantic=spelling, name=name), a["asset"])
+        if asset_exists(path):
+            return path
+    return None
 
 
 def repaint_mesh(mesh, mic):
@@ -139,20 +160,39 @@ def main(argv):
     if not folders:
         raise RuntimeError("no twin mesh folder for %s under %s" % (name, args.mesh_root))
     log("mesh folders: %s" % ", ".join(folders))
-    found = []
-    for d in folders:
-        found.extend(static_meshes_in(d))
-    log("found %d twin static meshes" % len(found))
+    reg = unreal.AssetRegistryHelpers.get_asset_registry()
+    reg.scan_paths_synchronous(folders, True)
 
     records = {}
-    for path, _mesh in found:
-        an = path.rsplit("/", 1)[-1]
-        a = by_asset.get(an) or asset_from_name(an)
-        if a is None:
-            report["unmatched"].append(path)
-            warn("cannot tell the surface kind of %s; left untouched" % path)
+    # 1. every manifest asset, by object path (authoritative: a folder listing can miss a
+    #    directory whose case the asset registry spells differently)
+    missing = []
+    for an, a in sorted(by_asset.items()):
+        path = resolve_asset_path(name, args.mesh_root, a)
+        if path is None:
+            missing.append(an)
             continue
         records[path] = a
+    if missing:
+        report["missing"] = missing
+        warn("%d manifest asset(s) not found in the project: %s" % (len(missing), ", ".join(missing[:8])))
+    # 2. anything else in the mesh folders (leftovers from an earlier bake of the same level):
+    #    repaint them too, so no reference to a legacy MIC survives
+    seen = {p.rsplit("/", 1)[-1] for p in records}
+    for d in folders:
+        for path, _mesh in static_meshes_in(d):
+            an = path.rsplit("/", 1)[-1]
+            if path in records or an in seen:
+                continue   # the same package reached through the other folder spelling
+            seen.add(an)
+            a = by_asset.get(an) or asset_from_name(an)
+            if a is None:
+                report["unmatched"].append(path)
+                warn("cannot tell the surface kind of %s; left untouched" % path)
+                continue
+            records[path] = a
+    log("%d twin static meshes to repaint (%d from the manifest, %d extra)"
+        % (len(records), len(by_asset) - len(missing), len(records) - len(by_asset) + len(missing)))
     keys = {asset_key(a) for a in records.values()} | {"sidewalk"}   # sidewalk: the roof caps
 
     mats = make_material_instances(name, keys, mat_dir)
@@ -189,7 +229,18 @@ def main(argv):
             n_roofs += 1
     report["roofs_repainted"] = n_roofs
 
-    if not args.keep_legacy:
+    # The pre-pool MICs go only once nothing points at them any more -- deleting one while a
+    # mesh still references it leaves that surface on the default grid material.
+    # delete_legacy_mics checks the referencers of each; a mesh we found but could not classify
+    # is the one case that check cannot see through, so it blocks the sweep. A manifest asset
+    # that has no mesh in the project at all is not a gap (EixampleDemo was baked with
+    # --buildings procedural, so its 10 facade slab assets were never imported).
+    if args.keep_legacy:
+        report["legacy"] = {"skipped": "--keep-legacy"}
+    elif report["unmatched"]:
+        report["legacy"] = {"skipped": "%d unclassified twin mesh(es)" % len(report["unmatched"])}
+        warn("legacy MICs left in place: %s" % report["legacy"]["skipped"])
+    else:
         report["legacy"] = delete_legacy_mics(name, mat_dir, sorted(keys))
 
     report["meshes_repainted"] = n_saved
