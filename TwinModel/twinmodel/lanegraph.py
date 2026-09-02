@@ -3637,22 +3637,38 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
                 n_ped_merged += 1
                 continue
             ped_at.append((road.id, s))
-            # derived from the crossing's own id (never from ``next_id``) so that adding
-            # pedestrian heads does not renumber every crosswalk <object> after them
-            ped = _make_signal(signals[-1].id + "p", "traffic_light_ped", road, s,
-                               _signal_side(road, True), True, osm_node_id=nid,
-                               validities=sidewalks,
-                               tags={"junction_id": cl.id, "crossing_signal": signals[-1].id,
-                                     "node_xy": [pt.x, pt.y]})
-            # walk when the street being crossed is red: the first stage that greens no
-            # approach of this road. A one-stage junction leaves the head uncontrolled.
-            for cid, roads_green in stage_roads.get(cl.id, []):
-                if road.id not in roads_green:
-                    ped.controller_id = cid
-                    by_ctl_id[cid].signal_ids.append(ped.id)
-                    break
-            signals.append(ped)
-            n_ped_heads += 1
+            # A real crossing carries a head at *each* end, on the kerb just outside the
+            # carriageway, and each faces along the crossing towards the other one -- that is
+            # what the pedestrian waiting on the far kerb reads. So: two signals per crossing,
+            # aimed across the road with @hOffset (CARLA turns it into the landmark's yaw,
+            # MapBuilder::ComputeSignalTransform: yaw = -(tangent + hOffset)), not along it
+            # like a vehicle head. Right kerb (t < 0) looks towards +t, left kerb towards -t.
+            crossing_id = signals[-1].id
+            heading_here = _heading_along(line2d, s)
+            for suffix, side_forward, h_off in (("pa", True, -math.pi / 2),
+                                                ("pb", False, math.pi / 2)):
+                ped = _make_signal(crossing_id + suffix, "traffic_light_ped", road, s,
+                                   _signal_side(road, side_forward), True, osm_node_id=nid,
+                                   validities=sidewalks, h_offset=h_off,
+                                   tags={"junction_id": cl.id, "crossing_signal": crossing_id,
+                                         "crossing_end": "right" if side_forward else "left",
+                                         "node_xy": [pt.x, pt.y]})
+                # _make_signal derives the heading from the road. Keep the same convention a
+                # vehicle head uses -- Signal.heading is the landmark's own yaw, and the face
+                # looks the *opposite* way (CARLA spawns the rig at yaw + 90 and its lamps sit
+                # on the actor's +Y) -- so a ped head on the right kerb carries h - pi/2 and
+                # its lamps end up looking towards +t, across the carriageway.
+                ped.heading = _wrap(heading_here + h_off)
+                # walk when the street being crossed is red: the first stage that greens no
+                # approach of this road. A one-stage junction leaves the head uncontrolled.
+                # Both heads of one crossing share that stage.
+                for cid, roads_green in stage_roads.get(cl.id, []):
+                    if road.id not in roads_green:
+                        ped.controller_id = cid
+                        by_ctl_id[cid].signal_ids.append(ped.id)
+                        break
+                signals.append(ped)
+                n_ped_heads += 1
         else:
             direction = n.tags.get("direction", "").lower()
             forward = direction != "backward"

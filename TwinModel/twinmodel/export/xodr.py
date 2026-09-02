@@ -569,7 +569,8 @@ def _signal_attrs(sig: Signal) -> dict[str, str]:
     # into Signal::GetCountry() / carla.Landmark.country and currently ignores it).
     country = profiles.get().signal_country
     attrs = dict(id=sig.id, s=sig.s, t=sig.t, name=name, dynamic=dynamic, orientation=sig.orientation,
-                 zOffset=0, country=country, type=stype, subtype=subtype, hOffset=0, pitch=0, roll=0)
+                 zOffset=0, country=country, type=stype, subtype=subtype,
+                 hOffset=sig.h_offset, pitch=0, roll=0)
     if value is not None:
         attrs.update(value=value, unit=unit)
     return attrs

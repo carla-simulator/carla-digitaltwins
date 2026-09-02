@@ -231,6 +231,11 @@ class Signal:
     # orientation '+' to lanes [1, max], i.e. the oncoming side) -- so a traffic light with no
     # validity gets zero trigger boxes on a twin approach road and stops nobody.
     validities: list[tuple[int, int]] = field(default_factory=list)
+    # extra yaw of the sign face relative to the road tangent, radians -> OpenDRIVE @hOffset.
+    # CARLA turns it into the landmark's yaw (MapBuilder::ComputeSignalTransform:
+    # yaw = -(tangent + hOffset)), so it is how a signal is aimed anywhere but along the road
+    # -- a pedestrian head faces *across* the carriageway, not along it.
+    h_offset: float = 0.0
     osm_node_id: Optional[int] = None
     tags: dict[str, Any] = field(default_factory=dict)
 

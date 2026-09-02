@@ -270,7 +270,8 @@ def test_pedestrian_heads_are_type_1000002_over_sidewalk_lanes(model):
     why UTrafficLightComponent::InitializeSign gives it no trigger box."""
     peds = [s for s in model.signals if s.kind == "traffic_light_ped"]
     crossings = [s for s in model.signals if s.kind == "crosswalk"]
-    assert peds and len(peds) <= len(crossings)
+    # one head at each end of a crossing, so an even number and at most two per crossing
+    assert peds and len(peds) % 2 == 0 and len(peds) <= 2 * len(crossings)
     lanes_of = {(r.id): {l.id: l.type for l in r.lanes} for r in model.roads}
     for p in peds:
         assert p.validities, f"{p.id} has no <validity>"
@@ -302,3 +303,31 @@ def test_pedestrian_heads_do_not_change_the_vehicle_plan(model):
     for c in model.controllers:
         veh_here = [s for s in c.signal_ids if s in veh]
         assert all(veh[s] == c.id for s in veh_here)
+
+
+def test_pedestrian_heads_stand_at_the_two_ends_of_their_crossing(model):
+    """One head at each kerb, 0.5 m outside the carriageway, each looking along the crossing
+    towards the other -- which is how a real pair is mounted, and what the pedestrian waiting
+    on the far kerb reads. The aim is carried by @hOffset: CARLA builds the landmark's yaw as
+    ``-(tangent + hOffset)`` (MapBuilder::ComputeSignalTransform), so a head aimed anywhere but
+    along the road needs one."""
+    P = profiles.get()
+    pairs: dict[str, list] = {}
+    for s in model.signals:
+        if s.kind == "traffic_light_ped":
+            pairs.setdefault(s.tags["crossing_signal"], []).append(s)
+    assert pairs
+    for crossing, heads in pairs.items():
+        assert len(heads) == 2, f"{crossing} has {len(heads)} heads"
+        b, a = sorted(heads, key=lambda s: s.t)    # a = left kerb (t > 0), b = right (t < 0)
+        assert a.t > 0 and b.t < 0, (a.t, b.t)     # one on each side of the reference line
+        assert a.road_id == b.road_id and abs(a.s - b.s) < 1e-6
+        # aimed across the road, in opposite directions, and 0.5 m outside the carriageway
+        assert abs(abs(_wrap(a.heading - b.heading)) - math.pi) < 1e-6
+        assert abs(abs(a.h_offset) - math.pi / 2) < 1e-9
+        assert abs(_wrap(a.h_offset + b.h_offset)) < 1e-9
+        road = model.road(a.road_id)
+        assert abs(a.t - (road.width_left() + P.junction.signal_lateral_m)) < 1e-6
+        assert abs(b.t + (road.width_right() + P.junction.signal_lateral_m)) < 1e-6
+        # both are in the same stage: one crossing, one walk phase
+        assert a.controller_id == b.controller_id
