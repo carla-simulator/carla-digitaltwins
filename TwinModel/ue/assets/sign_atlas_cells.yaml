@@ -7,6 +7,11 @@ grid:
   rows: 4
 index_base: 1
 origin: top-left
+review:
+  date: '2026-09-02'
+  by: user
+  scope: 195 cells lacking code or OpenDRIVE type
+  verdict: all labels confirmed; codes/OpenDRIVE types not added
 atlases:
 - texture: /CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_GuideSignAtlas_01
   style: GB
