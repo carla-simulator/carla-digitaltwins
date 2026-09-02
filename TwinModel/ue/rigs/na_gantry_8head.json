@@ -314,7 +314,8 @@
         }
        ]
       }
-     ]
+     ],
+     "SignalID": "@through"
     },
     {
      "Transform": {
@@ -606,7 +607,8 @@
         }
        ]
       }
-     ]
+     ],
+     "SignalID": "@through"
     },
     {
      "Transform": {
@@ -798,7 +800,8 @@
         }
        ]
       }
-     ]
+     ],
+     "SignalID": "@through"
     },
     {
      "Transform": {
@@ -990,7 +993,8 @@
         }
        ]
       }
-     ]
+     ],
+     "SignalID": "@left"
     },
     {
      "Transform": {
@@ -1182,7 +1186,8 @@
         }
        ]
       }
-     ]
+     ],
+     "SignalID": "@through"
     },
     {
      "Transform": {
@@ -1374,7 +1379,8 @@
         }
        ]
       }
-     ]
+     ],
+     "SignalID": "@through"
     },
     {
      "Transform": {
@@ -1566,7 +1572,8 @@
         }
        ]
       }
-     ]
+     ],
+     "SignalID": "@through"
     },
     {
      "Transform": {
@@ -1758,7 +1765,8 @@
         }
        ]
       }
-     ]
+     ],
+     "SignalID": "@through"
     }
    ]
   }

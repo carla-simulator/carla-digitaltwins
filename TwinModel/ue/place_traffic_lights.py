@@ -160,6 +160,40 @@ def pick_rig(sig, rigs, style, default):
     return next(iter(rigs.values()))
 
 
+def rig_entry(value):
+    """A --rig-map value: either a rig name/path, or {"rig": ..., "signals": {token: signal}}.
+
+    The symbolic tokens ("@through", "@left", "@ped") appear as the ``SignalID`` of a head in
+    the preset; the placer substitutes them before building, so one baked rig can carry heads
+    that belong to different OpenDRIVE signals. ``@through`` defaults to the signal the rig is
+    placed at.
+    """
+    if isinstance(value, dict):
+        return value.get("rig"), dict(value.get("signals") or {})
+    return value, {}
+
+
+def substitute_head_signals(rig_path, anchor_signal, tokens):
+    """The preset's text with every head ``SignalID`` token replaced by a real signal id.
+
+    Returns (json text, {signal id: [head prefixes]}). A head whose SignalID is missing or
+    unresolved falls back to the anchor, which is what ExportLogicToJSON does for an empty one.
+    """
+    with open(rig_path) as f:
+        rig = json.load(f)
+    table = {"@through": anchor_signal}
+    table.update(tokens or {})
+    bound = {}
+    for pi, pole in enumerate(rig.get("Poles", [])):
+        for hi, head in enumerate(pole.get("Heads", [])):
+            sid = head.get("SignalID") or "@through"
+            if sid.startswith("@"):
+                sid = table.get(sid, anchor_signal)
+            head["SignalID"] = sid
+            bound.setdefault(sid, []).append("Pole_%02d_Head_%02d" % (pi, hi))
+    return json.dumps(rig), bound
+
+
 def find_actor_by_label(label):
     sub = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
     for a in sub.get_all_level_actors():
@@ -191,6 +225,9 @@ def main(argv):
     ap.add_argument("--amber", type=float, default=3.0)
     ap.add_argument("--yaw-offset", type=float, default=90.0,
                     help="added to the signal yaw (CARLA's convention: +90)")
+    ap.add_argument("--ped-yaw-offset", type=float, default=90.0,
+                    help="the same, for a pedestrian head (type 1000002), whose signal yaw "
+                         "already looks across the crossing through its @hOffset")
     # 0, not 0.25: the transform in tl_signals.json is carla.Landmark.transform, which already
     # contains CARLA's own +0.25 m traffic-light nudge (MapBuilder.cpp:858). Adding it again
     # put the rig ~0.5 m from the road point and left only 25 cm of the 50 cm match radius
@@ -216,6 +253,18 @@ def main(argv):
     if args.rig_map:
         with open(args.rig_map) as f:
             rig_map = json.load(f)
+    # a signal bound to another rig's head gets no rig of its own: the gantry carrying it is
+    # split into one ADigitalTwinsTrafficLight per signal at load time (UMapLogicParser), and
+    # a second actor for the same signal would be a duplicate opendrive id.
+    claimed = {}
+    for anchor, value in rig_map.items():
+        for token, sid in rig_entry(value)[1].items():
+            if str(sid) != str(anchor):
+                claimed[str(sid)] = str(anchor)
+    if claimed:
+        log("%d signal(s) carried by another rig's heads: %s"
+            % (len(claimed), ", ".join("%s on %s" % kv for kv in sorted(claimed.items()))))
+        signals = [s for s in signals if str(s["id"]) not in claimed]
     log("%d traffic-light signals, %d controllers, %d rig preset(s) %s, style=%s%s" % (
         len(signals), len(set(ctl_of.values())), len(rigs), sorted(rigs), args.style,
         ", %d rig-map overrides" % len(rig_map) if rig_map else ""))
@@ -252,7 +301,7 @@ def main(argv):
         n_stages = stages_of.get(junction_of_ctl.get(ctl), 1)
         green = args.green if args.green is not None else \
             STAGE_GREEN_S[min(n_stages, len(STAGE_GREEN_S) - 1)]
-        override = rig_map.get(sid)
+        override, tokens = rig_entry(rig_map.get(sid))
         rig_path = (rigs.get(override, override) if override
                     else pick_rig(s, rigs, args.style, args.default_rig))
         report["rigs"][sid] = os.path.splitext(os.path.basename(rig_path))[0]
@@ -260,7 +309,12 @@ def main(argv):
         report["kinds"][sid] = s.get("kind", "through")
         report["timing"][sid] = {"stages": n_stages, "green": green,
                                  "amber": args.amber, "red": args.red}
-        yaw = float(s["yaw"]) + args.yaw_offset
+        # A pedestrian head is aimed *across* the crossing by the signal's own @hOffset, which
+        # CARLA has already folded into the landmark yaw here; the offset added on top is only
+        # the rig model's convention (its lamps sit on the actor's +Y, so the spawn yaw is the
+        # signal yaw + 90, exactly as ATrafficLightManager::SpawnSignals does).
+        yaw_offset = args.ped_yaw_offset if s.get("kind") == "ped" else args.yaw_offset
+        yaw = float(s["yaw"]) + yaw_offset
         rot = unreal.Rotator(roll=0.0, pitch=0.0, yaw=yaw)
         fwd = rot.get_forward_vector()
         loc = unreal.Vector(s["x"] * 100.0 + fwd.x * args.forward_m * 100.0,
@@ -272,8 +326,14 @@ def main(argv):
             warn("signal %s: spawn failed" % s["id"])
             continue
         try:
+            # Built from text, not from the file: the preset's head SignalID tokens are
+            # resolved to real signal ids here, and ExportLogicToJSON carries them into
+            # map_logic.json as the "Heads" array UMapLogicParser splits the rig by.
             rig.set_editor_property("json_file", unreal.FilePath(rig_path))
-            rig.build_from_json()
+            rig_text, bound = substitute_head_signals(rig_path, sid, tokens)
+            rig.build_from_json_string(rig_text)
+            if len(bound) > 1:
+                report.setdefault("split_rigs", {})[sid] = bound
             rig.set_editor_property("signal_id", sid)
             rig.set_editor_property("traffic_light_group_id", ctl)
             rig.set_editor_property("junction_id", junction)
@@ -300,6 +360,14 @@ def main(argv):
             baked.set_editor_property("is_spatially_loaded", False)
         except Exception:
             pass
+        # UMapLogicParser looks the rig up by this tag first. An actor *label* is
+        # editor-only data; a tag is a plain runtime UPROPERTY, so the binding survives a
+        # cook. Without it the parser falls back to the nearest actor within 50 cm -- which
+        # is a guess, and wrong for two rigs sharing a junction corner.
+        try:
+            baked.set_editor_property("tags", [unreal.Name(label)])
+        except Exception as exc:
+            warn("could not tag %s: %s" % (label, exc))
         report["placed"] += 1
         report["labels"].append(label)
         placed_at[sid] = (loc.x, loc.y, loc.z)

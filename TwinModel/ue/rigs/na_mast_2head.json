@@ -272,7 +272,8 @@
         }
        ]
       }
-     ]
+     ],
+     "SignalID": "@through"
     },
     {
      "Transform": {
@@ -464,7 +465,8 @@
         }
        ]
       }
-     ]
+     ],
+     "SignalID": "@left"
     }
    ]
   }
