@@ -345,9 +345,82 @@ def stage_merge(curated: Path, autofill: Path, out: Path) -> dict:
     return doc
 
 
+def write_map(doc: dict, out: Path) -> None:
+    with open(out, "w") as f:
+        f.write("# Curated traffic-sign catalog: one entry per atlas cell / one-off texture.\n"
+                "# Built by tools/sign_catalog.py merge from out/signs/curated/*.yaml; hand-edit here afterwards.\n"
+                "# Cells are 1-based (x = column, y = row, (1,1) top-left); see tools/sign_catalog.py.\n")
+        yaml.safe_dump(doc, f, sort_keys=False, allow_unicode=True, width=160)
+    with open(out.with_suffix(".json"), "w") as f:
+        json.dump(doc, f, indent=1, ensure_ascii=False)
+
+
+def stage_apply_review(map_path: Path, review_dir: Path, out: Path | None = None) -> dict:
+    """Fold the answers of the review page (tools/sign_review_page.py) into the catalog map.
+
+    ``review_dir`` holds one JSON document per cell as the artifact database exports them
+    (``<review_dir>/review/<AtlasShort>__<x>_<y>.json`` or flat ``<review_dir>/*.json``): fields
+    atlas, x, y, verdict (ok | wrong | notsign), name, code, xodr, sub, note.
+    """
+    doc = load_map(map_path)
+    by_atlas = {a["texture"].split("/")[-1]: a for a in doc["atlases"]}
+    files = sorted(review_dir.rglob("*.json"))
+    stats = {"docs": 0, "renamed": 0, "blanked": 0, "coded": 0, "xodr": 0, "unmatched": 0, "unanswered": 0}
+    for f in files:
+        with open(f) as fh:
+            r = json.load(fh)
+        if not isinstance(r, dict) or "atlas" not in r:
+            continue
+        stats["docs"] += 1
+        atlas = by_atlas.get(r["atlas"])
+        cell = next((c for c in atlas["cells"] if c["x"] == r["x"] and c["y"] == r["y"]), None) if atlas else None
+        if cell is None:
+            stats["unmatched"] += 1
+            continue
+        verdict = r.get("verdict") or ""
+        if verdict == "notsign":
+            cell.clear()
+            cell.update({"x": r["x"], "y": r["y"], "blank": True})
+            stats["blanked"] += 1
+            continue
+        if verdict == "wrong" and r.get("name"):
+            new = re.sub(r"[^a-z0-9]+", "_", r["name"].lower()).strip("_")
+            if new and new != cell.get("name"):
+                cell["description"] = "%s (was: %s — %s)" % (r["name"].strip(), cell.get("name", ""), cell.get("description", ""))
+                cell["name"] = new
+                stats["renamed"] += 1
+        if not verdict and not (r.get("code") or r.get("xodr")):
+            stats["unanswered"] += 1
+        code = (r.get("code") or "").strip()
+        if code and code != cell.get("meaning"):
+            cell["meaning"] = code
+            stats["coded"] += 1
+        xodr = (r.get("xodr") or "").strip()
+        if xodr and xodr != "other":
+            sub = (r.get("sub") or "").strip()
+            val = "%s-%s" % (xodr, sub) if sub else xodr
+            if val != str(cell.get("xodr", "")):
+                cell["xodr"] = val
+                stats["xodr"] += 1
+        note = (r.get("note") or "").strip()
+        if note:
+            cell["description"] = (cell.get("description", "") + " [review: %s]" % note).strip()
+        # keep key order stable for the diff
+        ordered = {k: cell[k] for k in CELL_KEYS if k in cell and cell[k] not in ("", None)}
+        cell.clear()
+        cell.update(ordered)
+    write_map(doc, out or map_path)
+    print("applied review: %s -> %s" % (json.dumps(stats), out or map_path))
+    return doc
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="stage", required=True)
+    r = sub.add_parser("apply-review", help="fold the review page's answers (exported JSON docs) into the map")
+    r.add_argument("--map", required=True)
+    r.add_argument("--review", required=True, help="directory with the exported review/*.json documents")
+    r.add_argument("--out", default=None, help="write here instead of overwriting --map")
     m = sub.add_parser("merge")
     m.add_argument("--curated", required=True)
     m.add_argument("--autofill", required=True)
@@ -367,6 +440,9 @@ def main(argv=None):
         return 0
     if args.stage == "merge":
         stage_merge(Path(args.curated), Path(args.autofill), Path(args.out))
+        return 0
+    if args.stage == "apply-review":
+        stage_apply_review(Path(args.map), Path(args.review), Path(args.out) if args.out else None)
         return 0
     doc = load_map(Path(args.map))
     shapes = None
