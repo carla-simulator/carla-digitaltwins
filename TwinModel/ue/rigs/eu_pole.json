@@ -1,0 +1,247 @@
+{
+ "Poles": [
+  {
+   "BaseMesh": "SM_TrafficLight_Black_Base",
+   "ExtensibleMesh": "SM_TrafficLight_Black_Pole04",
+   "CapMesh": "SM_TrafficLight_Black_Pole04_Cap",
+   "Transform": {
+    "Location": {
+     "X": 0,
+     "Y": 0,
+     "Z": 0
+    },
+    "Rotation": {
+     "Pitch": 0,
+     "Yaw": 0,
+     "Roll": 0
+    },
+    "Scale": {
+     "X": 1.0,
+     "Y": 1.0,
+     "Z": 1.0
+    }
+   },
+   "Offset": {
+    "Location": {
+     "X": 0,
+     "Y": 0,
+     "Z": 0
+    },
+    "Rotation": {
+     "Pitch": 0,
+     "Yaw": 0,
+     "Roll": 0
+    },
+    "Scale": {
+     "X": 1.0,
+     "Y": 1.0,
+     "Z": 1.0
+    }
+   },
+   "Style": "European",
+   "Orientation": "Vertical",
+   "PoleHeight": 360,
+   "Heads": [
+    {
+     "Transform": {
+      "Location": {
+       "X": 0,
+       "Y": 8,
+       "Z": 250
+      },
+      "Rotation": {
+       "Pitch": 0,
+       "Yaw": 0,
+       "Roll": 0
+      },
+      "Scale": {
+       "X": 1.0,
+       "Y": 1.0,
+       "Z": 1.0
+      }
+     },
+     "Offset": {
+      "Location": {
+       "X": 0,
+       "Y": 0,
+       "Z": 0
+      },
+      "Rotation": {
+       "Pitch": 0,
+       "Yaw": 0,
+       "Roll": 0
+      },
+      "Scale": {
+       "X": 1.0,
+       "Y": 1.0,
+       "Z": 1.0
+      }
+     },
+     "Style": "European",
+     "Attachment": "StandardBracket",
+     "Orientation": "Vertical",
+     "bHasBackplate": false,
+     "Modules": [
+      {
+       "ModuleMesh": "SM_TrafficLights_Black_Module_01",
+       "Transform": {
+        "Location": {
+         "X": 0,
+         "Y": 0,
+         "Z": 0
+        },
+        "Rotation": {
+         "Pitch": 0,
+         "Yaw": 0,
+         "Roll": 0
+        },
+        "Scale": {
+         "X": 1.0,
+         "Y": 1.0,
+         "Z": 1.0
+        }
+       },
+       "Offset": {
+        "Location": {
+         "X": 0,
+         "Y": 0,
+         "Z": 0
+        },
+        "Rotation": {
+         "Pitch": 0,
+         "Yaw": 0,
+         "Roll": 0
+        },
+        "Scale": {
+         "X": 1.0,
+         "Y": 1.0,
+         "Z": 1.0
+        }
+       },
+       "bHasVisor": true,
+       "Lights": [
+        {
+         "LightType": "SolidColorGreen",
+         "EmissiveIntensity": 50000,
+         "EmissiveColor": {
+          "R": 0.100902,
+          "G": 1.0,
+          "B": 0.297537,
+          "A": 1.0
+         }
+        }
+       ]
+      },
+      {
+       "ModuleMesh": "SM_TrafficLights_Black_Module_01",
+       "Transform": {
+        "Location": {
+         "X": 0,
+         "Y": 0,
+         "Z": 26.209
+        },
+        "Rotation": {
+         "Pitch": 0,
+         "Yaw": 0,
+         "Roll": 0
+        },
+        "Scale": {
+         "X": 1.0,
+         "Y": 1.0,
+         "Z": 1.0
+        }
+       },
+       "Offset": {
+        "Location": {
+         "X": 0,
+         "Y": 0,
+         "Z": 0
+        },
+        "Rotation": {
+         "Pitch": 0,
+         "Yaw": 0,
+         "Roll": 0
+        },
+        "Scale": {
+         "X": 1.0,
+         "Y": 1.0,
+         "Z": 1.0
+        }
+       },
+       "bHasVisor": true,
+       "Lights": [
+        {
+         "LightType": "SolidColorAmber",
+         "EmissiveIntensity": 50000,
+         "EmissiveColor": {
+          "R": 0.930111,
+          "G": 0.3564,
+          "B": 0.014444,
+          "A": 1.0
+         }
+        }
+       ]
+      },
+      {
+       "ModuleMesh": "SM_TrafficLights_Black_Module_01",
+       "Transform": {
+        "Location": {
+         "X": 0,
+         "Y": 0,
+         "Z": 52.418
+        },
+        "Rotation": {
+         "Pitch": 0,
+         "Yaw": 0,
+         "Roll": 0
+        },
+        "Scale": {
+         "X": 1.0,
+         "Y": 1.0,
+         "Z": 1.0
+        }
+       },
+       "Offset": {
+        "Location": {
+         "X": 0,
+         "Y": 0,
+         "Z": 0
+        },
+        "Rotation": {
+         "Pitch": 0,
+         "Yaw": 0,
+         "Roll": 0
+        },
+        "Scale": {
+         "X": 1.0,
+         "Y": 1.0,
+         "Z": 1.0
+        }
+       },
+       "bHasVisor": true,
+       "Lights": [
+        {
+         "LightType": "SolidColorRed",
+         "EmissiveIntensity": 50000,
+         "EmissiveColor": {
+          "R": 1.0,
+          "G": 0.052026,
+          "B": 0.061974,
+          "A": 1.0
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "TrafficLightGroupID": "",
+ "JunctionID": 0,
+ "SignalID": "",
+ "RedDuration": 2,
+ "GreenDuration": 10,
+ "AmberDuration": 3,
+ "AmberBlinkInterval": 0.25
+}

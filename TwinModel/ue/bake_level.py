@@ -19,7 +19,11 @@ What it does (DESIGN.md §Baker):
                          PlayerStart, BP_Carla_Sky)
   4. OpenDRIVE           <Content>/Carla/Maps/Twins/<Name>/OpenDrive/<Name>.xodr, which is where
                          UOpenDrive::GetXODR looks for a level saved under Maps/Twins/<Name>/
-  5. report              <manifest dir>/bake_report.json
+  5. buildings           ``--buildings procedural``: instead of the manifest's extruded facade
+                         slabs, every footprint is fed to carla-digitaltwins' BP_BuildingGen
+                         (modular Nanite facade atoms as ISM instances + a generated roof cap),
+                         see place_buildings(). Needs the CarlaDigitalTwinsTool content mounted.
+  6. report              <manifest dir>/bake_report.json
 
 Idempotent: re-running replaces the meshes and recreates the level.
 """
@@ -327,10 +331,9 @@ def finish_mesh(mesh, mic, kind, nanite=True):
 #      falloff 0.1 / start 75 / SkyAtmosphereAmbientContributionColorScale 0.14, and the
 #      CameraParameters/PostProcessComponent grading block (6200K, sat .6, contrast 1.4,
 #      gamma 1.2, exposure bias 1.2 in EV 10-12, AO .5/r200, sharpen 3, vignette .7).
-#   3. There is no PostProcessVolume actor in Town10HD_Opt, but sensors only absorb world PP
-#      from an *unbound enabled APostProcessVolume* (SceneCaptureSensor BeginPlay), so baked
-#      twins additionally get PPV_Town10Look carrying the same grading -- that is what makes
-#      the look reach sensor.camera.* too.
+#   3. There is no PostProcessVolume actor in Town10HD_Opt, and baked twins get none either
+#      (see the note at the end of place(): an absorbed volume stacks on the sensors' own
+#      camera defaults and blows sensor.camera.* out -- out/look_eixample/iter1).
 
 TOWN10_WEATHER = {  # MapDefaults.json inline snapshot (camelCase = FJsonObjectConverter names)
     "cloudiness": 30, "precipitation": 0, "precipitationDeposits": 0, "windIntensity": 10,
@@ -599,6 +602,419 @@ def place(world, manifest, mesh_paths, name):
     return placed, n_sp
 
 
+# --------------------------------------------------------------------------- procedural buildings
+# carla-digitaltwins' BP_BuildingGen, driven per footprint through its ProcessPoints function
+# (its stock BuildingGeneration entry rejects every footprint -- CheckIfBuildingIsValid is
+# broken -- so the baker calls the row placer directly). Sizing semantics decoded from the
+# graph (T3D export, 2026-09-02):
+#   * per contour segment N = floor(dist / atom width) modules of width dist/N, every atom
+#     (walls and the corner on the last module) scaled X = slot / atom width, Z = 1;
+#   * ``Plane`` and ``SlopeStyle`` are assumed to be 100x100 cm vertical unit wall quads
+#     (pivot at the right end, extending along -X like the atoms): planes fill segments
+#     shorter than one atom (scale dist/100 x band/100), the slope fills the leftover band
+#     under the cornice (scale slot/100 x remainder/SlopeHeight) and the short-segment top
+#     row. Feeding a real atom there produces the 5x-wide stretched slabs of trial 32.
+#   * so heights are snapped to door + n*window + top (+1 cm) rows: no leftover band.
+# Atom families: only kits with a consistent 500 cm module and all seven slots are used.
+BGEN_BP = "/CarlaDigitalTwinsTool/Blueprints/BP_BuildingGen"
+BGEN_PIECES = "/CarlaDigitalTwinsTool/Static/Building/Buildings/BuildingPieces"
+PDA_CLASS = "/CarlaDigitalTwinsTool/Blueprints/PDA_ModuleWithGlass.PDA_ModuleWithGlass_C"
+ATOM_ROOT = "/Game/Carla/Static/Building/TwinAtoms"  # PDAs + filler quads (ATagger: Building)
+UNITWALL_OBJ = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "unitwall.obj")
+FAMILIES = {
+    # Eixample-scale apartment block: 500 x 350 cm window modules, 100 cm cornice
+    "Skysc21": {
+        "bottom": ["Btt/SM_Skysc21_Btt_Wall_A", "Btt/SM_Skysc21_Btt_Wall_B"],
+        "bottom_corner": ["Btt/SM_Skysc21_Btt_Corner_A", "Btt/SM_Skysc21_Btt_Corner_B"],
+        "door": ["Btt/SM_Skysc21_Btt_Door_A", "Btt/SM_Skysc21_Btt_Door_B"],
+        "mid": ["Mid/SM_Skysc21_Mid_Wall_A", "Mid/SM_Skysc21_Mid_Wall_B", "Mid/SM_Skysc21_Mid_Wall_C"],
+        "mid_corner": ["Mid/SM_Skysc21_Mid_Corner_A", "Mid/SM_Skysc21_Mid_Corner_B",
+                       "Mid/SM_Skysc21_Mid_Corner_C"],
+        # SM_Skysc21_Top_Wall1 ships with the VR-editor red placeholder material: excluded
+        "top": ["Top/SM_Skysc21_Top_Wall"],
+        "top_corner": ["Top/SM_Skysc21_Top_Corner"],
+    },
+    # glass office: 500 x 500 cm modules, full-storey top
+    "Skysc19": {
+        "bottom": ["Btt/SM_Skysc19_Btt_Wall"], "bottom_corner": ["Btt/SM_Skysc19_Btt_Corner"],
+        "door": ["Btt/SM_Skysc19_Btt_Door"], "mid": ["Mid/SM_Skysc19_Mid_Wall"],
+        "mid_corner": ["Mid/SM_Skysc19_Mid_Corner"], "top": ["Top/SM_Skysc19_Top_Wall"],
+        "top_corner": ["Top/SM_Skysc19_Top_Corner"],
+    },
+}
+DEFAULT_FAMILY = "Skysc21"
+# The filler quad (short segments + slope band) is scaled non-uniformly, so whatever it
+# carries gets stretched: an atom's baked atlas turns into streaks (out/look_demo/iter3/tl_0),
+# a plain painted plaster reads as a party wall. Tiling materials only.
+FILLER_MATERIAL = "/CarlaDigitalTwinsTool/Static/Building/01_ProceduralBuildings/FacadeMaterials/MI_Facade_Painted_Color_05"
+CATEGORY_FAMILIES = {  # OSM building=* -> candidate families (picked by building id)
+    "office": ["Skysc19", "Skysc21"], "commercial": ["Skysc19"], "public": ["Skysc19"],
+    "civic": ["Skysc19"], "school": ["Skysc19"], "hotel": ["Skysc21", "Skysc19"],
+}
+
+
+def _bounds(mesh):
+    bb = mesh.get_bounding_box()
+    return bb.max - bb.min
+
+
+def load_family(fam):
+    """Load a family's meshes; returns dict slot -> [StaticMesh] plus the module dimensions."""
+    spec = FAMILIES[fam]
+    out = {}
+    for slot, rels in spec.items():
+        out[slot] = []
+        for rel in rels:
+            path = "%s/%s" % (BGEN_PIECES, rel)
+            mesh = unreal.EditorAssetLibrary.load_asset(path)
+            if mesh is None:
+                warn("atom %s missing" % path)
+                continue
+            out[slot].append(mesh)
+    for slot in ("bottom", "bottom_corner", "door", "mid", "mid_corner", "top", "top_corner"):
+        if not out.get(slot):
+            raise RuntimeError("family %s has no %s atom" % (fam, slot))
+    sB, sD, sW, sT = (_bounds(out[s][0]) for s in ("bottom", "door", "mid", "top"))
+    out["dims"] = {"bottom_bb_width": sB.x, "bottom_bb_height": sB.z,
+                   "door_bb_width": sD.x, "door_bb_height": sD.z,
+                   "window_bb_width": sW.x, "window_bb_height": sW.z,
+                   "top_atom_bb_width": sT.x, "top_atom_bb_height": sT.z}
+    return out
+
+
+def snap_height_cm(h_cm, dims):
+    """door + n*window + top (+1 cm so the slope band is a sliver, never a stretched row)."""
+    n = max(1, int(round((h_cm - dims["door_bb_height"] - dims["top_atom_bb_height"])
+                         / dims["window_bb_height"])))
+    return dims["door_bb_height"] + n * dims["window_bb_height"] + dims["top_atom_bb_height"] + 1.0, n
+
+
+def family_for(b):
+    cands = CATEGORY_FAMILIES.get(b.get("category") or "", [DEFAULT_FAMILY])
+    return cands[int(b.get("id", 0)) % len(cands)]
+
+
+def ensure_unit_wall(fam, material):
+    """100x100 cm two-sided vertical quad (x in [-100,0], z in [0,100]) carrying the family's
+    facade material: the generator's Plane/Slope filler."""
+    path = "%s/SM_TwinUnitWall_%s" % (ATOM_ROOT, fam)
+    if asset_exists(path):
+        quad = load_asset(path)
+    else:
+        unreal.EditorAssetLibrary.make_directory(ATOM_ROOT)
+        t = unreal.AssetImportTask()
+        t.set_editor_property("filename", UNITWALL_OBJ)
+        t.set_editor_property("destination_path", ATOM_ROOT)
+        t.set_editor_property("destination_name", "SM_TwinUnitWall_%s" % fam)
+        t.set_editor_property("automated", True)
+        t.set_editor_property("replace_existing", True)
+        t.set_editor_property("save", False)
+        unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([t])
+        quad = None
+        for ip in list(t.get_editor_property("imported_object_paths") or []):
+            o = unreal.load_object(None, ip)
+            if isinstance(o, unreal.StaticMesh):
+                quad = o
+        if quad is None and asset_exists(path):
+            quad = load_asset(path)
+        if quad is None:
+            raise RuntimeError("unit wall import failed (%s)" % UNITWALL_OBJ)
+    if material is not None:
+        quad.set_material(0, material)
+    sz = _bounds(quad)
+    if abs(sz.x - 100.0) > 0.5 or abs(sz.z - 100.0) > 0.5:
+        raise RuntimeError("unit wall %s is %.1f x %.1f, expected 100 x 100" % (path, sz.x, sz.z))
+    unreal.EditorAssetLibrary.save_loaded_asset(quad)
+    return quad
+
+
+def ensure_pdas(fam, meshes):
+    """The bottom-row pins of ProcessPoints are still PDA_ModuleWithGlass lists (the mid/top
+    pins were migrated to plain StaticMesh lists): one data asset per bottom atom."""
+    pda_cls = unreal.load_object(None, PDA_CLASS)
+    if pda_cls is None:
+        raise RuntimeError("PDA class %s not found" % PDA_CLASS)
+    folder = "%s/%s" % (ATOM_ROOT, fam)
+    unreal.EditorAssetLibrary.make_directory(folder)
+    fac = unreal.DataAssetFactory()
+    fac.set_editor_property("data_asset_class", pda_cls)
+    tools = unreal.AssetToolsHelpers.get_asset_tools()
+    out = {}
+    for slot in ("bottom", "bottom_corner", "door"):
+        out[slot] = []
+        for mesh in meshes[slot]:
+            name = "DA_%s_%s" % (slot, mesh.get_name()[3:])
+            path = "%s/%s" % (folder, name)
+            if asset_exists(path):
+                da = load_asset(path)
+            else:
+                da = tools.create_asset(name, folder, None, fac)
+                da.set_editor_property("Module", mesh)
+                unreal.EditorAssetLibrary.save_loaded_asset(da)
+            out[slot].append(da)
+    return out
+
+
+def _always_loaded(actor):
+    try:
+        actor.set_editor_property("is_spatially_loaded", False)
+    except Exception:
+        pass
+
+
+def _ism_components(actor):
+    return list(actor.get_components_by_class(unreal.InstancedStaticMeshComponent))
+
+
+def _instance_count(actor):
+    return sum(c.get_instance_count() for c in _ism_components(actor))
+
+
+def place_buildings(world, manifest, name, mats, roof_material=None):
+    """Modular facades for every manifest building through BP_BuildingGen.ProcessPoints.
+
+    Per building: a host actor at the origin (the generator adds ISM components to it and
+    places instances in world XY at z = 0), then every instance is lifted to the twin's
+    base_z, and the roof cap (StreetMapComponent.GenerateTopOfBuilding, from the .osm the
+    twin_buildings writer produced with the row-snapped heights) is spawned at base_z too.
+    """
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import twin_buildings
+
+    report = {"buildings": 0, "instances": 0, "roofs": 0, "families": {}, "skipped": 0,
+              "hosts_over_limit": 0}
+    blds = [b for b in manifest.get("buildings", ()) if b.get("rings_ue")]
+    if not blds:
+        warn("manifest has no buildings; nothing to generate")
+        return report
+    unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous(
+        ["/CarlaDigitalTwinsTool", ATOM_ROOT], True)
+    bgen_bp = unreal.EditorAssetLibrary.load_asset(BGEN_BP)
+    bgen_cls = unreal.load_object(None, BGEN_BP + ".BP_BuildingGen_C")
+    if bgen_bp is None or bgen_cls is None:
+        raise RuntimeError("BP_BuildingGen not mounted at %s (CarlaDigitalTwinsTool content)" % BGEN_BP)
+    # the variables ProcessPoints reads from the object are not instance-editable in the
+    # shipped BP; unlock them in memory (the BP package is excluded from the save below)
+    for v in ("CurrentActor", "BatchSize", "BuildingLevelFloorFactor", "StreetMapActor", "MapName"):
+        try:
+            unreal.BlueprintEditorLibrary.set_blueprint_variable_instance_editable(bgen_bp, v, True)
+        except Exception:
+            pass
+    try:
+        unreal.BlueprintEditorLibrary.compile_blueprint(bgen_bp)
+    except Exception as exc:
+        warn("compile BP_BuildingGen: %s" % exc)
+
+    # families, fillers, PDAs
+    fams = {}
+    for fam in sorted({family_for(b) for b in blds}):
+        meshes = load_family(fam)
+        if asset_exists(FILLER_MATERIAL):
+            wall_mat = load_asset(FILLER_MATERIAL)
+        else:
+            wall_mat = meshes["mid"][0].get_material(0)
+            warn("filler material %s missing; short segments will show %s stretched"
+                 % (FILLER_MATERIAL, wall_mat.get_name() if wall_mat else None))
+        meshes["quad"] = ensure_unit_wall(fam, wall_mat)
+        log("family %s filler quad material: %s" % (fam, wall_mat.get_name() if wall_mat else None))
+        meshes["pda"] = ensure_pdas(fam, meshes)
+        fams[fam] = meshes
+        log("family %s: %s" % (fam, {k: round(v, 1) for k, v in meshes["dims"].items()}))
+
+    # one row-snapped .osm (the roof cap reads the way's height tag), one StreetMap import
+    rings = []
+    snapped = []
+    for b in blds:
+        fam = family_for(b)
+        hs, n = snap_height_cm(float(b["height_m"]) * 100.0, fams[fam]["dims"])
+        snapped.append((b, fam, hs, n))
+    osm_manifest = {"buildings": [dict(b, height_m=hs / 100.0, levels=n) for b, fam, hs, n in snapped]}
+    base = os.path.dirname(os.path.abspath(manifest["_path"]))
+    osm_path = os.path.join(base, "buildings.osm")
+    n_ways = twin_buildings.write_buildings_osm(osm_manifest, osm_path)
+    import_dir = "%s/%s/Import" % (MAP_ROOT, name)
+    t = unreal.AssetImportTask()
+    t.set_editor_property("filename", osm_path)
+    t.set_editor_property("destination_path", import_dir)
+    t.set_editor_property("destination_name", "SM_%s_buildings" % name)
+    t.set_editor_property("automated", True)
+    t.set_editor_property("replace_existing", True)
+    t.set_editor_property("save", False)
+    t.set_editor_property("factory", unreal.StreetMapFactory())
+    unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([t])
+    paths = list(t.get_editor_property("imported_object_paths") or [])
+    street_map = unreal.load_object(None, paths[0]) if paths else None
+    if street_map is None:
+        raise RuntimeError("StreetMap import of %s failed" % osm_path)
+    sm_blds = list(street_map.get_editor_property("buildings"))
+    log("buildings.osm: %d ways -> StreetMap %d buildings" % (n_ways, len(sm_blds)))
+    # the importer keeps way order, but match rings by their first vertex to be safe
+    first = {}
+    for i, sb in enumerate(sm_blds):
+        pts = list(sb.get_editor_property("building_points"))
+        if pts:
+            first.setdefault((round(pts[0].x), round(pts[0].y)), i)
+    sma = spawn(world, unreal.StreetMapActor, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0),
+                "TwinStreetMap", "Twin/Buildings")
+    if sma is None:
+        raise RuntimeError("could not spawn the StreetMap actor")
+    smc = sma.get_editor_property("street_map_component")
+    smc.set_editor_property("street_map", street_map)
+    roof_dir = "Game/Carla/Static/Building/Twins/%s/Roofs" % name
+    # idempotent: the roof generator saves a package per building under this folder and
+    # aborts ("cannot be saved as it has only been partially loaded") if one already exists
+    if unreal.EditorAssetLibrary.does_directory_exist("/" + roof_dir):
+        unreal.EditorAssetLibrary.delete_directory("/" + roof_dir)
+        log("cleared previous roof meshes under /%s" % roof_dir)
+    if roof_material is None:
+        roof_material = (mats.get("sidewalk") or mats.get("road") or [None])[0]
+
+    t0 = time.time()
+    outer = None  # new_object's default outer is the transient package
+    for bi, (b, fam, hs, n) in enumerate(snapped):
+        ring = b["rings_ue"][0]
+        key = (round(ring[0][0]), round(ring[0][1]))
+        si = first.get(key, bi if bi < len(sm_blds) else None)
+        if si is None:
+            report["skipped"] += 1
+            continue
+        sb = sm_blds[si]
+        pts = list(sb.get_editor_property("building_points"))
+        if len(pts) < 3:
+            report["skipped"] += 1
+            continue
+        meshes = fams[fam]
+        host = spawn(world, unreal.Actor, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0),
+                     "Bldg_%s" % b.get("id", bi), "Twin/Buildings")
+        if host is None:
+            report["skipped"] += 1
+            continue
+        # always loaded: World Partition streams only around the player/spectator, and
+        # CARLA sensors are not streaming sources -- a camera two blocks away from the
+        # spectator would otherwise look at an empty footprint (out/look_demo/iter1)
+        _always_loaded(host)
+        gen = unreal.new_object(bgen_cls, outer=outer) if outer is not None else unreal.new_object(bgen_cls)
+        for k, v in (("CurrentActor", host), ("BatchSize", 100), ("BuildingLevelFloorFactor", 3.0),
+                     ("StreetMapActor", sma), ("MapName", name)):
+            try:
+                gen.set_editor_property(k, v)
+            except Exception as exc:
+                if bi == 0:
+                    warn("BP_BuildingGen.%s: %s" % (k, str(exc).splitlines()[0][:100]))
+        kw = {"building_points": [unreal.Vector2D(p.x, p.y) for p in pts],
+              "max_number_of_doors": 2, "height": hs, "building_levels": n,
+              "slope_height": 100.0, "plane": meshes["quad"],
+              "bottom_style": meshes["pda"]["bottom"],
+              "bottom_corner_style": meshes["pda"]["bottom_corner"],
+              "bottom_door_style": meshes["pda"]["door"],
+              "mid_style": meshes["mid"], "mid_corner_style": meshes["mid_corner"],
+              "top_style": meshes["top"], "top_corner_style": meshes["top_corner"],
+              "slope_style": [meshes["quad"]]}
+        kw.update(meshes["dims"])
+        try:
+            gen.call_method("ProcessPoints", (), kw)
+        except Exception as exc:
+            if outer is None and bi == 0:
+                # a world-context node in the graph: retry with the world as outer
+                warn("ProcessPoints with a transient generator failed (%s); using world outer"
+                     % str(exc).splitlines()[0][:120])
+                outer = world
+                gen = unreal.new_object(bgen_cls, outer=outer)
+                gen.set_editor_property("CurrentActor", host)
+                gen.call_method("ProcessPoints", (), kw)
+            else:
+                warn("building %s ProcessPoints: %s" % (b.get("id"), str(exc).splitlines()[0][:150]))
+                report["skipped"] += 1
+                continue
+        n_inst = _instance_count(host)
+        if n_inst == 0 and bi == 0 and outer is None:
+            warn("transient generator placed nothing; using world outer")
+            outer = world
+            gen = unreal.new_object(bgen_cls, outer=outer)
+            gen.set_editor_property("CurrentActor", host)
+            gen.call_method("ProcessPoints", (), kw)
+            n_inst = _instance_count(host)
+        # lift the building onto the twin's terrain
+        dz = float(b.get("base_z_cm", 0.0))
+        if dz:
+            for c in _ism_components(host):
+                cnt = c.get_instance_count()
+                if not cnt:
+                    continue
+                tfs = []
+                for i in range(cnt):
+                    tf = c.get_instance_transform(i, True)
+                    loc = tf.translation
+                    tf.translation = unreal.Vector(loc.x, loc.y, loc.z + dz)
+                    tfs.append(tf)
+                c.batch_update_instances_transforms(0, tfs, True, True, True)
+        for c in _ism_components(host):
+            try:
+                c.set_editor_property("mobility", unreal.ComponentMobility.STATIC)
+            except Exception:
+                pass
+        # roof cap
+        try:
+            roof = smc.call_method("GenerateTopOfBuilding", (),
+                                   {"index": si, "map_name": roof_dir, "material_instance": roof_material})
+        except Exception as exc:
+            roof = None
+            warn("building %s roof: %s" % (b.get("id"), str(exc).splitlines()[0][:150]))
+        if roof is not None:
+            try:
+                ns = roof.get_editor_property("nanite_settings")
+                ns.set_editor_property("enabled", True)
+                roof.set_editor_property("nanite_settings", ns)
+            except Exception:
+                pass
+            ra = spawn(world, unreal.StaticMeshActor, unreal.Vector(pts[0].x, pts[0].y, dz),
+                       unreal.Rotator(0, 0, 0), "Roof_%s" % b.get("id", bi), "Twin/Buildings")
+            if ra is not None:
+                _always_loaded(ra)
+                rc = ra.get_editor_property("static_mesh_component")
+                rc.set_editor_property("mobility", unreal.ComponentMobility.STATIC)
+                if not rc.set_static_mesh(roof):
+                    rc.set_editor_property("static_mesh", roof)
+                report["roofs"] += 1
+        report["buildings"] += 1
+        report["instances"] += n_inst
+        report["families"][fam] = report["families"].get(fam, 0) + 1
+        if bi % 50 == 0:
+            log("building %d/%d (%s, %d rows, %d instances so far)" %
+                (bi + 1, len(snapped), fam, n, report["instances"]))
+    # the StreetMap actor only served the roof generator (it would otherwise render its own
+    # extruded footprints on top of the atoms)
+    try:
+        sma.destroy_actor()
+    except Exception as exc:
+        warn("destroy StreetMap actor: %s" % exc)
+    report["seconds"] = round(time.time() - t0, 1)
+    log("procedural buildings: %d buildings, %d instances, %d roofs, %d skipped in %.1f s %s" % (
+        report["buildings"], report["instances"], report["roofs"], report["skipped"],
+        report["seconds"], report["families"]))
+    return report
+
+
+def save_all(exclude_prefixes=("/CarlaDigitalTwinsTool",)):
+    """Level + WP external actors + new content, but never the mounted plugin packages
+    (the BP variable unlock above dirties BP_BuildingGen in memory)."""
+    les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
+    ok = les.save_current_level()
+    unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, False)
+    try:
+        dirty = list(unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages())
+    except Exception as exc:
+        warn("get_dirty_content_packages: %s; saving all dirty packages" % exc)
+        unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
+        return ok
+    keep = [p for p in dirty if not any(p.get_name().startswith(x) for x in exclude_prefixes)]
+    skipped = len(dirty) - len(keep)
+    if keep:
+        unreal.EditorLoadingAndSavingUtils.save_packages(keep, True)
+    log("saved %d content packages (%d plugin packages left unsaved)" % (len(keep), skipped))
+    return ok
+
+
 def copy_xodr(manifest, name):
     src = manifest.get("xodr")
     if not src or not os.path.exists(src):
@@ -632,6 +1048,11 @@ def main(argv):
     ap.add_argument("--no-nanite", action="store_true")
     ap.add_argument("--skip-import", action="store_true", help="reuse already imported meshes")
     ap.add_argument("--report", default=None)
+    ap.add_argument("--buildings", choices=("slabs", "procedural"), default="slabs",
+                    help="slabs: the manifest's extruded facade meshes; procedural: "
+                         "BP_BuildingGen modular facades from the footprints")
+    ap.add_argument("--roof-material", default=None,
+                    help="material path for the procedural roof caps (default: the twin's sidewalk MIC)")
     args = ap.parse_args(argv)
 
     t_start = time.time()
@@ -639,6 +1060,10 @@ def main(argv):
         manifest = json.load(f)
     manifest["_path"] = os.path.abspath(args.manifest)
     name = args.name
+    if args.buildings == "procedural":
+        n_all = len(manifest["assets"])
+        manifest["assets"] = [a for a in manifest["assets"] if a["kind"] != "building"]
+        log("procedural buildings: dropping %d facade slab assets" % (n_all - len(manifest["assets"])))
     map_dir = "%s/%s" % (args.map_root, name)
     map_path = "%s/%s" % (map_dir, name)
     mat_dir = "%s/Materials" % map_dir
@@ -673,13 +1098,14 @@ def main(argv):
     placed, n_sp = place(world, manifest, mesh_paths, name)
     report["actors_placed"] = len(placed)
     report["spawn_points_placed"] = n_sp
+    if args.buildings == "procedural":
+        roof_mat = load_asset(args.roof_material) if args.roof_material else None
+        report["procedural_buildings"] = place_buildings(world, manifest, name, mats, roof_mat)
     xodr = copy_xodr(manifest, name)
     report["xodr"] = xodr
     report["map_default_weather"] = write_map_default_weather(name)
 
-    les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
-    ok = les.save_current_level()
-    unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
+    ok = save_all()
     log("saved level: %s" % ok)
     report["level_saved"] = bool(ok)
 
