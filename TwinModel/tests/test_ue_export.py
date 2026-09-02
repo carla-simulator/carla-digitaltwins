@@ -475,7 +475,7 @@ def test_raised_plates_carry_skirts_down_under_the_ground_slab(tmp_path):
     # the plates are closed prisms: their side walls (the riser assets, curb concrete) reach
     # from the raised top down under the ground slab (datum z = 0 here), along the whole perimeter
     a = next(a for a in man["assets"] if a["kind"] == "riser")
-    assert a["material"] == "curb" and a["semantic"] == "SideWalk"
+    assert a["material"] == "riser" and a["semantic"] == "SideWalk"
     d = ue.read_glb(tmp_path / "ue" / a["file"])
     p = ue.gltf_to_model(d["positions"])
     n = ue.gltf_to_model(d["normals"])

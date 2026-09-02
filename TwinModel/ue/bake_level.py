@@ -37,48 +37,16 @@ import traceback
 
 import unreal
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import twin_materials  # noqa: E402  (pure Python: the pools + the deterministic variant pick)
+
 MAP_ROOT = "/Game/Carla/Maps/Twins"
 MESH_ROOT = "/Game/Carla/Static/{semantic}/Twins/{name}"
 
-# material key (manifest) -> CARLA material to instance (see OpenDriveGenerator.h defaults and
-# the Town10HD lane markings; curbs/facades from GenericMaterials)
-MATERIAL_PARENTS = {
-    "road": "/Game/Carla/Static/GenericMaterials/Roads/MI_RoadAsphalt_Town15.MI_RoadAsphalt_Town15",
-    "sidewalk": "/Game/Carla/Static/GenericMaterials/Sidewalk/MI_Sidewalk_Apartment.MI_Sidewalk_Apartment",
-    "curb": "/Game/Carla/Static/GenericMaterials/Gutters_Curbs/Curb/MI_CurbDirty01.MI_CurbDirty01",
-    "marking_white": "/Game/Carla/Static/GenericMaterials/Roads/MI_Road_Asphalt_B_LaneMarkingWhite.MI_Road_Asphalt_B_LaneMarkingWhite",
-    "marking_yellow": "/Game/Carla/Static/GenericMaterials/Roads/MI_Road_Asphalt_B_LaneMarkingYellow.MI_Road_Asphalt_B_LaneMarkingYellow",
-    "grass": "/Game/Carla/Static/GenericMaterials/Ground/MI_LargeLandscape_Grass.MI_LargeLandscape_Grass",
-    # Grass for the ground slab. Town15's own ground meshes use MI_VertexPaintGround01
-    # (M_VertexPaintCB), but that is a vertex-colour layer blend whose unpainted base layer is
-    # brown dirt -- on a baked slab with default (white) vertex colours it reads as a flat tan
-    # plane (verified in out/look_eixample/iter1). MI_LargeLandscape_Grass (T_Ground_Grass_*,
-    # the grass the big UE5-native landscapes use) samples plain UVs and works on a static mesh.
-    "ground": "/Game/Carla/Static/GenericMaterials/Ground/MI_LargeLandscape_Grass.MI_LargeLandscape_Grass",
-    "building": "/Game/Carla/Static/GenericMaterials/Facade/MI_Facade01.MI_Facade01",
-}
-
-# Scalar overrides applied on our MICs. The bake's UVs are metric planar (1 uv unit = 1 m)
-# while the CARLA masters are tuned for meshes whose UVs are roughly UE-cm sized, so tiling
-# ("Scale"/"Tiling") parameters need ~100x the parent's value for the same texel density:
-# MI_LargeLandscape_Grass ships Scale X/Y 0.005 (one tile per ~2 m of cm-UV), so metric UVs
-# need 0.5. Values are either a float (global parameter) or (float, layer_index) for
-# M_VertexPaintCB-style material-layer parameters (Bottom=0, MidLower=1, MidUpper=2, Top=3),
-# which need association=LAYER_PARAMETER to resolve.
-MATERIAL_SCALARS = {
-    "ground": {"Scale X": 0.5, "Scale Y": 0.5},    # grass tile every ~2 m, like the landscapes
-    "grass": {"Scale X": 0.5, "Scale Y": 0.5},
-    # the road master's base albedo layers ship Base Scale 0.05/0.06 (cm UVs); x100 for the
-    # metric bake so the asphalt grain reads at Town15 density instead of pale stretched patches
-    "road": {"Base Scale": 5.0, "Base Scale 2": 6.0},
-    # facades/curbs keep their shipped tiling: with metric UVs the facade textures already
-    # repeat about every metre, which reads fine (scaling them down just made walls featureless
-    # -- out/look_eixample/iter3)
-}
-# a few facade variants so neighbouring tiles do not all look the same. MI_Facade05/07 were
-# dropped: on the big flat twin walls they render as near-black glossy slabs (dark curtain-wall
-# textures with nothing to reflect -- out/look_eixample/iter4)
-BUILDING_VARIANTS = ["MI_Facade01", "MI_Facade03", "MI_Brick01"]
+# material key (manifest) -> POOL of CARLA materials to instance, and the metric-UV / jitter
+# rules that go with them. All of it lives in twin_materials.py (no unreal import, unit-tested
+# in tests/test_twin_materials.py); see that module's docstring for why every entry is there.
+MATERIAL_PARENTS = twin_materials.MATERIAL_PARENTS
 SKY_BP = "/Game/Carla/Blueprints/LevelDesign/BP_Carla_Sky.BP_Carla_Sky_C"
 NO_COLLISION_KINDS = {"marking_white", "marking_yellow"}
 
@@ -106,25 +74,128 @@ def load_asset(path):
     return a
 
 
+def chain_scalar(mat, pname):
+    """Value ``pname`` has on a material instance chain (the shipped tuning), or None.
+
+    Walks the MIC's own override array up through every parent instance, then asks the master
+    for the parameter's default. Reading rather than guessing is what makes the metric-UV fix
+    and the per-MIC jitter safe: we only ever rescale a parameter the CARLA material already
+    sets, never invent a value from an assumed neutral.
+    """
+    obj = mat
+    for _ in range(8):
+        if obj is None:
+            break
+        try:
+            entries = obj.get_editor_property("scalar_parameter_values") or []
+        except Exception:
+            entries = []
+        for e in entries:
+            try:
+                info = e.get_editor_property("parameter_info")
+                if str(info.get_editor_property("name")) == pname:
+                    return float(e.get_editor_property("parameter_value"))
+            except Exception:
+                continue
+        if not isinstance(obj, unreal.MaterialInstance):
+            break
+        try:
+            obj = obj.get_editor_property("parent")
+        except Exception:
+            break
+    try:
+        base = mat.get_base_material() if hasattr(mat, "get_base_material") else None
+        if base is not None:
+            v = unreal.MaterialEditingLibrary.get_material_default_scalar_parameter_value(base, pname)
+            if v:
+                return float(v)
+    except Exception:
+        pass
+    return None
+
+
+def base_master_name(mat):
+    """Short name of the UMaterial a (possibly nested) instance ultimately sits on."""
+    try:
+        base = mat.get_base_material() if hasattr(mat, "get_base_material") else None
+        if base is not None:
+            return base.get_name()
+    except Exception:
+        pass
+    obj = mat
+    for _ in range(8):
+        if not isinstance(obj, unreal.MaterialInstance):
+            break
+        nxt = None
+        try:
+            nxt = obj.get_editor_property("parent")
+        except Exception:
+            pass
+        if nxt is None:
+            break
+        obj = nxt
+    return obj.get_name() if obj is not None else ""
+
+
+def mic_scalars(key, parent, name, index):
+    """{parameter: value} to write on pool member ``index`` of ``key``.
+
+    Two independent axes, both derived from the parent's own shipped values:
+      * the metric-UV rescale (the bake's UVs are 1 unit = 1 m, the masters are tuned for
+        cm-sized UVs -> x100 on the tiling parameter), for the keys in METRIC_UV_PARAMS;
+      * the per-MIC jitter of twin_materials.jitter_factors, so a pool member listed twice
+        (or a second member on the same master) does not render identically. Index 0 is never
+        jittered, so the canonical look of every key is exactly what it was before pools.
+    """
+    out = {}
+    for pname in twin_materials.METRIC_UV_PARAMS.get(key, ()):
+        shipped = chain_scalar(parent, pname)
+        if shipped is None or shipped <= 0.0:
+            fallback = twin_materials.METRIC_UV_FALLBACK.get(pname)
+            if fallback is None:
+                continue
+            warn("%s does not set %s; using the %.3f fallback for the metric UVs"
+                 % (parent.get_name(), pname, fallback))
+            out[pname] = float(fallback)
+        elif shipped >= 0.5:
+            # already in the metric range (a pool member authored for UV-sized meshes rather
+            # than for cm UVs); x100 would turn its texture into noise
+            log("%s ships %s = %.3f (already metric); left alone" % (parent.get_name(), pname, shipped))
+            out[pname] = float(shipped)
+        else:
+            out[pname] = float(shipped) * twin_materials.METRIC_UV_FACTOR
+    master = base_master_name(parent)
+    for pname, factor in twin_materials.jitter_factors(name, key, index, master).items():
+        if pname in out:
+            out[pname] = out[pname] * factor
+            continue
+        shipped = chain_scalar(parent, pname)
+        if shipped is None or shipped == 0.0:
+            continue   # not set by the material: never invent a value from a guessed neutral
+        out[pname] = float(shipped) * factor
+    return out
+
+
 def make_material_instances(name, materials, mat_dir):
-    """MI_<Name>_<key> for every key, parented to the CARLA material. Returns key -> MIC."""
+    """MI_<Name>_<key>_<i> for every member of every key's pool, parented to the CARLA
+    material. Returns key -> [MIC] in pool order (index 0 = the canonical look).
+
+    Pool members whose asset does not exist are dropped with a warning, never a crash: a
+    content repo missing one GenericMaterials instance must still bake.
+    """
     tools = unreal.AssetToolsHelpers.get_asset_tools()
     unreal.EditorAssetLibrary.make_directory(mat_dir)
     out = {}
     for key in sorted(materials):
-        parent_path = MATERIAL_PARENTS.get(key)
-        if parent_path is None:
-            warn("no CARLA material for key %s; using road" % key)
-            parent_path = MATERIAL_PARENTS["road"]
-        variants = [parent_path]
-        if key == "building":
-            base = parent_path.rsplit("/", 1)[0]
-            variants = ["%s/%s.%s" % (base if "Brick" not in v else base, v, v) for v in BUILDING_VARIANTS]
+        variants = twin_materials.pool(key)
+        if not variants:
+            warn("no CARLA material pool for key %s; using road" % key)
+            variants = twin_materials.pool("road")
         for i, ppath in enumerate(variants):
-            mi_name = "MI_%s_%s" % (name, key) if i == 0 else "MI_%s_%s_%d" % (name, key, i)
+            mi_name = twin_materials.mic_name(name, key, i)
             mi_path = "%s/%s" % (mat_dir, mi_name)
             if not asset_exists(ppath):
-                warn("parent material %s missing" % ppath)
+                warn("parent material %s missing; dropped from the %s pool" % (ppath, key))
                 continue
             parent = load_asset(ppath)
             if asset_exists(mi_path):
@@ -133,32 +204,44 @@ def make_material_instances(name, materials, mat_dir):
                 mic = tools.create_asset(mi_name, mat_dir, unreal.MaterialInstanceConstant,
                                          unreal.MaterialInstanceConstantFactoryNew())
             unreal.MaterialEditingLibrary.set_material_instance_parent(mic, parent)
-            scalars = MATERIAL_SCALARS.get(key, {})
-            if scalars:
-                # MaterialEditingLibrary.set_material_instance_scalar_parameter_value refuses
-                # names it cannot resolve on the parent (these masters route parameters
-                # through material functions/layers), so write the override array directly --
-                # the same thing the details panel serializes.
-                entries = []
-                for pname, val in scalars.items():
-                    if isinstance(val, tuple):
-                        value, layer = val
-                        info = unreal.MaterialParameterInfo(
-                            name=pname,
-                            association=unreal.MaterialParameterAssociation.LAYER_PARAMETER,
-                            index=int(layer))
-                    else:
-                        value = val
-                        info = unreal.MaterialParameterInfo(name=pname)
-                    e = unreal.ScalarParameterValue()
-                    e.set_editor_property("parameter_info", info)
-                    e.set_editor_property("parameter_value", float(value))
-                    entries.append(e)
-                mic.set_editor_property("scalar_parameter_values", entries)
-                unreal.MaterialEditingLibrary.update_material_instance(mic)
+            scalars = mic_scalars(key, parent, name, i)
+            # MaterialEditingLibrary.set_material_instance_scalar_parameter_value refuses
+            # names it cannot resolve on the parent (these masters route parameters
+            # through material functions/layers), so write the override array directly --
+            # the same thing the details panel serializes. Writing the whole array also
+            # clears a previous bake's overrides, which is what a repaint wants.
+            entries = []
+            for pname, val in sorted(scalars.items()):
+                e = unreal.ScalarParameterValue()
+                e.set_editor_property("parameter_info", unreal.MaterialParameterInfo(name=pname))
+                e.set_editor_property("parameter_value", float(val))
+                entries.append(e)
+            mic.set_editor_property("scalar_parameter_values", entries)
+            unreal.MaterialEditingLibrary.update_material_instance(mic)
             unreal.EditorAssetLibrary.save_asset(mi_path, only_if_is_dirty=False)
+            log("  %s -> %s%s" % (mi_name, ppath.rsplit("/", 1)[-1].split(".")[0],
+                                  (" " + json.dumps({k: round(v, 4) for k, v in sorted(scalars.items())}))
+                                  if scalars else ""))
             out.setdefault(key, []).append(mic)
     return out
+
+
+def asset_key(a):
+    """Surface key of a manifest asset. Taken from the asset kind so a level baked before a
+    key split (``riser`` left ``curb`` on 2026-09-02) repaints onto the new pools."""
+    return twin_materials.KIND_KEY.get(a.get("kind"), a.get("material"))
+
+
+def pick_variant(name, asset, variants):
+    """The pool member an asset uses: deterministic, seeded with the map name so a rebake is a
+    no-op and two twins do not land on the same variant sequence."""
+    key = asset_key(asset)
+    if key == "building":
+        i = twin_materials.building_variant_index(name, key, asset.get("id", asset.get("asset", "")),
+                                                  len(variants))
+    else:
+        i = twin_materials.variant_index(name, key, asset.get("tile"), len(variants))
+    return variants[i], i
 
 
 def interchange_options():
@@ -879,8 +962,10 @@ def place_buildings(world, manifest, name, mats, roof_material=None):
     if unreal.EditorAssetLibrary.does_directory_exist("/" + roof_dir):
         unreal.EditorAssetLibrary.delete_directory("/" + roof_dir)
         log("cleared previous roof meshes under /%s" % roof_dir)
-    if roof_material is None:
-        roof_material = (mats.get("sidewalk") or mats.get("road") or [None])[0]
+    # roof caps: the sidewalk pool (concrete/gravel-ish paving reads as a flat roof), one
+    # member per building from the same deterministic hash so a block of roofs is not one colour
+    roof_pool = [roof_material] if roof_material is not None else \
+        (mats.get("sidewalk") or mats.get("road") or [None])
 
     t0 = time.time()
     outer = None  # new_object's default outer is the transient package
@@ -967,9 +1052,11 @@ def place_buildings(world, manifest, name, mats, roof_material=None):
             except Exception:
                 pass
         # roof cap
+        roof_mic = roof_pool[twin_materials.building_variant_index(
+            name, "roof", b.get("id", bi), len(roof_pool))]
         try:
             roof = smc.call_method("GenerateTopOfBuilding", (),
-                                   {"index": si, "map_name": roof_dir, "material_instance": roof_material})
+                                   {"index": si, "map_name": roof_dir, "material_instance": roof_mic})
         except Exception as exc:
             roof = None
             warn("building %s roof: %s" % (b.get("id"), str(exc).splitlines()[0][:150]))
@@ -1085,25 +1172,24 @@ def main(argv):
     log("bake %s: %d assets, %d spawn points, xodr %s" % (
         name, len(manifest["assets"]), len(manifest["spawn_points"]), manifest.get("xodr")))
 
-    mats = make_material_instances(name, {a["material"] for a in manifest["assets"]}, mat_dir)
+    mats = make_material_instances(name, {asset_key(a) for a in manifest["assets"]}, mat_dir)
     report["materials"] = {k: [m.get_path_name() for m in v] for k, v in mats.items()}
 
     mesh_paths = import_meshes(manifest, args.mesh_root, name, replace=not args.skip_import)
     by_asset = {a["asset"]: a for a in manifest["assets"]}
-    n_build = 0
+    variant_of = {}
     for asset_name, path in sorted(mesh_paths.items()):
         a = by_asset[asset_name]
         mesh = load_asset(path)
-        variants = mats.get(a["material"]) or mats.get("road")
-        if a["material"] == "building":
-            mic = variants[n_build % len(variants)]
-            n_build += 1
-        else:
-            mic = variants[0]
+        variants = mats.get(asset_key(a)) or mats.get("road")
+        mic, vi = pick_variant(name, a, variants)
+        variant_of[asset_name] = vi
         info = finish_mesh(mesh, mic, a["kind"], nanite=not args.no_nanite)
         info["path"] = path
+        info["variant"] = vi
         report["assets"][asset_name] = info
         unreal.EditorAssetLibrary.save_asset(path, only_if_is_dirty=False)
+    report["variants"] = variant_of
     log("finished %d meshes (nanite on: %d)" % (
         len(report["assets"]), sum(1 for i in report["assets"].values() if i.get("nanite"))))
 

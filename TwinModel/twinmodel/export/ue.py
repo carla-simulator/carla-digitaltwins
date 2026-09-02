@@ -58,8 +58,11 @@ KIND_MATERIAL: dict[str, tuple[str, str]] = {
     "ground": ("ground", "Terrain"),
     "curb": ("curb", "SideWalk"),
     # side walls of the raised plates (sidewalk / island / median / verge / grass): concrete
-    # like the curbs, so a plate edge without a curb reads as a riser, not as paving on end
-    "riser": ("curb", "SideWalk"),
+    # like the curbs, so a plate edge without a curb reads as a riser, not as paving on end.
+    # Own material key since 2026-09-02 (it shared "curb" before): the baker gives kerbs
+    # Town15's kerb material and leaves the risers on the CurbDirty atlas these UVs are
+    # calibrated against, so a plate edge no longer reads as a kerb (ue/twin_materials.py).
+    "riser": ("riser", "SideWalk"),
     "marking_white": ("marking_white", "RoadLine"),
     "marking_yellow": ("marking_yellow", "RoadLine"),
     "building": ("building", "Building"),
