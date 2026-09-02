@@ -1,0 +1,4107 @@
+{
+ "version": 1,
+ "grid": {
+  "cols": 4,
+  "rows": 4
+ },
+ "index_base": 1,
+ "origin": "top-left",
+ "atlases": [
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_GuideSignAtlas_01",
+   "style": "GB",
+   "category": "Guide",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "dead_end",
+     "description": "Dead end / no through road (blue plate, white T with red bar)",
+     "xodr": "357",
+     "shape": "SM_VertRect_02"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "lanes_increase",
+     "description": "Number of lanes increases: two lanes ahead, the right lane splits into a third",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "expressway_end",
+     "description": "End of expressway (Shuiguan Expressway, text 水官高速; motorway pictogram struck through)",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "distance_100m",
+     "description": "Distance plate 100 m (green supplementary plate)",
+     "shape": "SM_HorRect_03"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "parking",
+     "description": "Parking (white P on blue)",
+     "osm": "amenity=parking",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "direction_left",
+     "description": "Direction indication: white arrow pointing left on blue plate",
+     "shape": "SM_HorRect_03"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "direction_right",
+     "description": "Direction indication: white arrow pointing right on blue plate",
+     "shape": "SM_HorRect_04"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "bus_lane",
+     "description": "Bus lane (bus pictogram between dashed lane lines, down arrow)",
+     "shape": "SM_HorRect_05"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "blank": true
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_InformationSignAtlas_01",
+   "style": "GB",
+   "category": "Information",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "hotel",
+     "description": "Hotel / lodging (bed pictogram, green frame)",
+     "osm": "tourism=hotel",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "fuel_station",
+     "description": "Fuel station (petrol pump pictogram, green frame)",
+     "osm": "amenity=fuel",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "restaurant",
+     "description": "Restaurant (crossed knife and fork, green frame)",
+     "osm": "amenity=restaurant",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "telephone",
+     "description": "Telephone (handset pictogram, green frame)",
+     "osm": "amenity=telephone",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "blank": true
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_MandatorySignAtlas_01",
+   "style": "GB",
+   "category": "Mandatory",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "turn_left",
+     "description": "Turn left only (curved white arrow on blue circle)",
+     "xodr": "211-10",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "turn_right",
+     "description": "Turn right only (curved white arrow on blue circle)",
+     "xodr": "211",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "straight_or_left",
+     "description": "Straight ahead or turn left",
+     "xodr": "214-10",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "straight_or_right",
+     "description": "Straight ahead or turn right",
+     "xodr": "214",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "keep_right",
+     "description": "Keep right / pass on the right (diagonal down-right arrow)",
+     "xodr": "222",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "keep_left",
+     "description": "Keep left / pass on the left (diagonal down-left arrow)",
+     "xodr": "222-10",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "go_right",
+     "description": "Mandatory direction right (horizontal white arrow pointing right)",
+     "xodr": "209",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "go_left",
+     "description": "Mandatory direction left (horizontal white arrow pointing left)",
+     "xodr": "209-10",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "roundabout",
+     "description": "Roundabout (three circling arrows on blue circle)",
+     "xodr": "215",
+     "osm": "junction=roundabout",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "name": "bicycles_only",
+     "description": "Bicycle lane / non-motor vehicles only (bicycle on blue circle)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "name": "straight_ahead",
+     "description": "Straight ahead only (vertical white arrow on blue circle)",
+     "xodr": "209-30",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "name": "pedestrians_only",
+     "description": "Pedestrian path / pedestrians only (adult and child on blue circle)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "blank": true
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_PrioritySignAtlas_01",
+   "style": "GB",
+   "category": "Priority",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "priority_road",
+     "description": "Main road has priority (bold white arrow crossed by a thin bar on blue square)",
+     "xodr": "306",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "give_way_oncoming",
+     "description": "Give way to oncoming traffic (black down arrow, red up arrow in red ring)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "priority_oncoming",
+     "description": "Priority over oncoming traffic (red down arrow, white up arrow on blue square)",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "stop",
+     "description": "STOP (red octagon with 停)",
+     "xodr": "206",
+     "osm": "highway=stop",
+     "shape": "SM_OctogonalShape"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "give_way",
+     "description": "Give way / yield (inverted red triangle with 让)",
+     "xodr": "205",
+     "osm": "highway=give_way",
+     "shape": "SM_InvertedTriangleShape"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "blank": true
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_ProhibitorySignAtlas_01",
+   "style": "GB",
+   "category": "Prohibitory",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "no_left_turn",
+     "description": "No left turn (curved left arrow struck through)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "no_right_turn",
+     "description": "No right turn (curved right arrow struck through)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "no_u_turn_left",
+     "description": "No U-turn (U-turn to the left struck through)",
+     "xodr": "272",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "no_overtaking",
+     "description": "No overtaking (two cars/arrows, overtaking arrow struck through)",
+     "xodr": "276",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "no_overtaking_end",
+     "description": "End of no-overtaking zone (grey overtaking pictogram with diagonal stripes)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "height_limit_3_5m",
+     "description": "Height limit 3.5 m",
+     "xodr": "265",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "weight_limit_10t",
+     "description": "Weight limit 10 t",
+     "xodr": "263",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "no_u_turn_right",
+     "description": "No U-turn (U-turn to the right struck through)",
+     "xodr": "272",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "max_speed_40_end",
+     "description": "End of 40 speed limit (grey 40 with diagonal stripes)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "name": "no_vehicles",
+     "description": "No vehicles / closed to all traffic (empty red ring on white)",
+     "xodr": "250",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "name": "no_entry",
+     "description": "No entry (red disc with white horizontal bar)",
+     "xodr": "267",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "name": "no_motor_vehicles",
+     "description": "No motor vehicles (car struck through)",
+     "xodr": "251",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "name": "no_trucks",
+     "description": "No trucks / goods vehicles (lorry struck through)",
+     "xodr": "253",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "name": "no_motorcycles",
+     "description": "No motorcycles (motorcycle with rider struck through)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "name": "no_pedestrians",
+     "description": "No pedestrians (walking person struck through)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "name": "no_bicycles",
+     "description": "No bicycles (bicycle struck through)",
+     "xodr": "254",
+     "shape": "SM_CircleShape"
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_ProhibitorySignAtlas_02",
+   "style": "GB",
+   "category": "Prohibitory",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "no_parking",
+     "description": "No parking (blue disc, red ring, single red slash)",
+     "xodr": "286",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "no_stopping",
+     "description": "No stopping (blue disc, red ring, red cross)",
+     "xodr": "283",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "max_speed_5",
+     "description": "Maximum speed 5 km/h",
+     "xodr": "274-5",
+     "osm": "maxspeed=5",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "max_speed_10",
+     "description": "Maximum speed 10 km/h",
+     "xodr": "274-10",
+     "osm": "maxspeed=10",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "max_speed_20",
+     "description": "Maximum speed 20 km/h",
+     "xodr": "274-20",
+     "osm": "maxspeed=20",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "max_speed_30",
+     "description": "Maximum speed 30 km/h",
+     "xodr": "274-30",
+     "osm": "maxspeed=30",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "max_speed_40",
+     "description": "Maximum speed 40 km/h",
+     "xodr": "274-40",
+     "osm": "maxspeed=40",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "max_speed_50",
+     "description": "Maximum speed 50 km/h",
+     "xodr": "274-50",
+     "osm": "maxspeed=50",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "max_speed_60",
+     "description": "Maximum speed 60 km/h",
+     "xodr": "274-60",
+     "osm": "maxspeed=60",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "name": "max_speed_70",
+     "description": "Maximum speed 70 km/h",
+     "xodr": "274-70",
+     "osm": "maxspeed=70",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "name": "max_speed_80",
+     "description": "Maximum speed 80 km/h",
+     "xodr": "274-80",
+     "osm": "maxspeed=80",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "name": "max_speed_90",
+     "description": "Maximum speed 90 km/h",
+     "xodr": "274-90",
+     "osm": "maxspeed=90",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "name": "max_speed_100",
+     "description": "Maximum speed 100 km/h",
+     "xodr": "274-100",
+     "osm": "maxspeed=100",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "name": "max_speed_110",
+     "description": "Maximum speed 110 km/h",
+     "xodr": "274-110",
+     "osm": "maxspeed=110",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "name": "max_speed_120",
+     "description": "Maximum speed 120 km/h",
+     "xodr": "274-120",
+     "osm": "maxspeed=120",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "name": "max_speed_130",
+     "description": "Maximum speed 130 km/h",
+     "xodr": "274-130",
+     "osm": "maxspeed=130",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_ProhibitorySignAtlas_03",
+   "style": "GB",
+   "category": "Prohibitory",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "end_max_speed_5",
+     "description": "End of 5 km/h speed limit (black ring, diagonal stripes over 5)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "end_max_speed_10",
+     "description": "End of 10 km/h speed limit (black ring, diagonal stripes over 10)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "end_max_speed_20",
+     "description": "End of 20 km/h speed limit (black ring, diagonal stripes over 20)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "end_max_speed_30",
+     "description": "End of 30 km/h speed limit (black ring, diagonal stripes over 30)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "end_max_speed_40",
+     "description": "End of 40 km/h speed limit (black ring, diagonal stripes over 40)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "end_max_speed_50",
+     "description": "End of 50 km/h speed limit (black ring, diagonal stripes over 50)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "end_max_speed_60",
+     "description": "End of 60 km/h speed limit (black ring, diagonal stripes over 60)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "end_max_speed_70",
+     "description": "End of 70 km/h speed limit (black ring, diagonal stripes over 70)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "end_max_speed_80",
+     "description": "End of 80 km/h speed limit (black ring, diagonal stripes over 80)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "name": "end_max_speed_90",
+     "description": "End of 90 km/h speed limit (black ring, diagonal stripes over 90)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "name": "end_max_speed_100",
+     "description": "End of 100 km/h speed limit (black ring, diagonal stripes over 100)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "name": "end_max_speed_110",
+     "description": "End of 110 km/h speed limit (black ring, diagonal stripes over 110)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "name": "end_max_speed_120",
+     "description": "End of 120 km/h speed limit (black ring, diagonal stripes over 120)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "name": "end_max_speed_130",
+     "description": "End of 130 km/h speed limit (black ring, diagonal stripes over 130)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "blank": true
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_WarningSignAtlas_01",
+   "style": "GB",
+   "category": "Warning",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "roundabout_ahead",
+     "description": "Roundabout ahead (three circling arrows)",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "curve_left",
+     "description": "Dangerous curve to the left",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "curve_right",
+     "description": "Dangerous curve to the right",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "steep_hill_down",
+     "description": "Steep descent ahead (slope with arrow pointing downhill)",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "road_narrows_both",
+     "description": "Road narrows on both sides",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "road_narrows_right",
+     "description": "Road narrows on the right side",
+     "xodr": "121",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "road_narrows_left",
+     "description": "Road narrows on the left side",
+     "xodr": "121",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "two_way_traffic",
+     "description": "Two-way traffic ahead (opposing up and down arrows)",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "falling_rocks_left",
+     "description": "Falling rocks from the left",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "name": "falling_rocks_right",
+     "description": "Falling rocks from the right",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "name": "crosswind",
+     "description": "Dangerous crosswind (windsock)",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "name": "crossroads",
+     "description": "Crossroads ahead (plus-shaped junction)",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "name": "side_road_merge_left",
+     "description": "Side road joining at an angle from the left",
+     "xodr": "121",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "name": "side_road_merge_right",
+     "description": "Side road joining at an angle from the right",
+     "xodr": "121",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "name": "side_road_left",
+     "description": "T-junction with side road on the left",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "name": "side_road_right",
+     "description": "T-junction with side road on the right",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_WarningSignAtlas_02",
+   "style": "GB",
+   "category": "Warning",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "cattle_crossing",
+     "description": "Cattle / livestock crossing (cow pictogram)",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "wild_animals",
+     "description": "Wild animals crossing (leaping deer)",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "traffic_signals_ahead",
+     "description": "Traffic signals ahead (red-yellow-green light)",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "uneven_road",
+     "description": "Uneven road surface (two humps)",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "road_hump",
+     "description": "Road hump / speed bump ahead (single hump)",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "road_works",
+     "description": "Road works ahead (worker digging, orange background)",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "icy_road",
+     "description": "Beware of ice and snow (snowflake on black triangle)",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "traffic_queue",
+     "description": "Traffic congestion / queue ahead (queue of cars on black triangle)",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "double_curve_first_left",
+     "description": "Double bend, first to the left then to the right",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "name": "slippery_road",
+     "description": "Slippery road (skidding car)",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "name": "road_dip",
+     "description": "Dip in the road ahead (hollow in road line)",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "name": "double_curve_first_right",
+     "description": "Double bend, first to the right then to the left",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "name": "pedestrian_crossing",
+     "description": "Pedestrian crossing ahead (walking figure on zebra)",
+     "xodr": "133",
+     "osm": "highway=crossing",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "name": "children",
+     "description": "Children crossing / school zone (two running children)",
+     "xodr": "133",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "name": "bicycle_crossing",
+     "description": "Bicycles crossing (bicycle pictogram)",
+     "xodr": "138",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "blank": true
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_GuideSignAtlas_01",
+   "style": "MUTCD",
+   "category": "Guide",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "distance_plaque_500_ft",
+     "description": "Yellow supplemental plaque reading 500 FT",
+     "meaning": "W16-2a",
+     "shape": "SM_HorRect_03",
+     "category": "Warning"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "freeway_ends",
+     "description": "Yellow diamond reading FREEWAY ENDS",
+     "meaning": "W19-3",
+     "shape": "SM_RomboidShape",
+     "category": "Warning"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "freeway_entrance",
+     "description": "Green guide sign reading FREEWAY ENTRANCE",
+     "meaning": "D13-3",
+     "shape": "SM_HorRect_04"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "lane_control_left_only_left_or_through",
+     "description": "Advance lane control: left lane turns left ONLY, next lane left or through",
+     "meaning": "R3-8",
+     "shape": "SM_SquareShape",
+     "category": "Mandatory"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "lane_control_through_or_right_right_only",
+     "description": "Advance lane control: left lane through or right, right lane turns right ONLY",
+     "meaning": "R3-8",
+     "shape": "SM_SquareShape",
+     "category": "Mandatory"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "one_way_left",
+     "description": "ONE WAY with arrow pointing left",
+     "meaning": "R6-2",
+     "shape": "SM_VertRect_03",
+     "category": "Mandatory"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "one_way_right",
+     "description": "ONE WAY with arrow pointing right",
+     "meaning": "R6-2",
+     "shape": "SM_VertRect_03",
+     "category": "Mandatory"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "no_parking_bus_stop",
+     "description": "Red-on-white NO PARKING BUS STOP with right arrow",
+     "meaning": "R7-107",
+     "xodr": "286",
+     "osm": "highway=bus_stop",
+     "shape": "SM_VertRect_07",
+     "category": "Prohibitory"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "parking_2_hr_830am_530pm",
+     "description": "Green 2 HR PARKING 8:30 AM TO 5:30 PM with double arrow",
+     "meaning": "R7-108",
+     "shape": "SM_VertRect_02",
+     "category": "Information"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "name": "dead_end",
+     "description": "Yellow diamond reading DEAD END",
+     "meaning": "W14-1",
+     "xodr": "357",
+     "shape": "SM_RomboidShape",
+     "category": "Warning"
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "blank": true
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_InformationSignAtlas_01",
+   "style": "MUTCD",
+   "category": "Information",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "lodging",
+     "description": "Blue square with white bed pictogram (lodging)",
+     "meaning": "D9-9",
+     "osm": "tourism=hotel",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "gas_station",
+     "description": "Blue square with white fuel pump pictogram (gas)",
+     "meaning": "D9-7",
+     "osm": "amenity=fuel",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "telephone",
+     "description": "Blue square with white telephone handset pictogram",
+     "meaning": "D9-1",
+     "osm": "amenity=telephone",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "food",
+     "description": "Blue square with white fork and knife on a plate (food)",
+     "meaning": "D9-8",
+     "osm": "amenity=restaurant",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "blank": true
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_MandatorySignAtlas_01",
+   "style": "MUTCD",
+   "category": "Mandatory",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "turn_left_only",
+     "description": "Curved left arrow over the word ONLY (left turn only lane)",
+     "meaning": "R3-5L",
+     "xodr": "209",
+     "shape": "SM_VertRect_03"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "keep_right",
+     "description": "KEEP RIGHT text with right-pointing arrow",
+     "meaning": "R4-7a",
+     "xodr": "222",
+     "shape": "SM_VertRect_03"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "roundabout_circulation",
+     "description": "Three black arrows circling counter-clockwise (roundabout circulation)",
+     "meaning": "R6-5P",
+     "xodr": "215",
+     "osm": "junction=roundabout",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "pedestrian_crosswalk_text",
+     "description": "Black-on-white text PEDESTRIAN CROSSWALK",
+     "xodr": "133",
+     "osm": "highway=crossing",
+     "shape": "SM_HorRect_03"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "straight_only",
+     "description": "Straight-up arrow over the word ONLY (through only lane)",
+     "meaning": "R3-5a",
+     "xodr": "209",
+     "shape": "SM_VertRect_03"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "turn_right_only",
+     "description": "Curved right arrow over the word ONLY (right turn only lane)",
+     "meaning": "R3-5",
+     "xodr": "209",
+     "shape": "SM_VertRect_03"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "straight_or_left",
+     "description": "Forked arrow: straight ahead or left turn",
+     "meaning": "R3-6L",
+     "xodr": "214",
+     "shape": "SM_VertRect_03"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "straight_or_right",
+     "description": "Forked arrow: straight ahead or right turn",
+     "meaning": "R3-6",
+     "xodr": "214",
+     "shape": "SM_VertRect_03"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "bike_lane",
+     "description": "Bicycle pictogram over the text BIKE LANE",
+     "meaning": "R3-17",
+     "osm": "cycleway=lane",
+     "shape": "SM_HorRect_09"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "blank": true
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_PrioritySignAtlas_01",
+   "style": "MUTCD",
+   "category": "Priority",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "to_oncoming_traffic_plaque",
+     "description": "Black-on-white plaque TO ONCOMING TRAFFIC (used under YIELD)",
+     "meaning": "R1-2aP",
+     "shape": "SM_HorRect_07"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "yield",
+     "description": "Red and white inverted triangle reading YIELD",
+     "meaning": "R1-2",
+     "xodr": "205",
+     "osm": "highway=give_way",
+     "shape": "SM_InvertedTriangleShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "stop",
+     "description": "Red octagon reading STOP",
+     "meaning": "R1-1",
+     "xodr": "206",
+     "osm": "highway=stop",
+     "shape": "SM_OctogonalShape"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "blank": true
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_01",
+   "style": "MUTCD",
+   "category": "Prohibitory",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "weight_limit_10_tons",
+     "description": "Black-on-white text WEIGHT LIMIT 10 TONS",
+     "meaning": "R12-1",
+     "xodr": "263",
+     "shape": "SM_VertRect_03"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "no_u_turn_mirrored",
+     "description": "No U-turn symbol, mirrored variant (arrowhead descends on the right)",
+     "meaning": "R3-4",
+     "xodr": "272",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "no_right_turn",
+     "description": "Red circle and slash over a right-turn arrow",
+     "meaning": "R3-1",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "no_left_turn",
+     "description": "Red circle and slash over a left-turn arrow",
+     "meaning": "R3-2",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "no_u_turn",
+     "description": "Red circle and slash over a U-turn arrow (arrowhead descends on the left)",
+     "meaning": "R3-4",
+     "xodr": "272",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "do_not_pass",
+     "description": "Black-on-white text DO NOT PASS",
+     "meaning": "R4-1",
+     "xodr": "276",
+     "shape": "SM_VertRect_03"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "pass_with_care",
+     "description": "Black-on-white text PASS WITH CARE",
+     "meaning": "R4-2",
+     "shape": "SM_VertRect_03"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "do_not_enter",
+     "description": "Red circle with white bar reading DO NOT ENTER",
+     "meaning": "R5-1",
+     "xodr": "267",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "no_trucks",
+     "description": "Red circle and slash over a truck pictogram",
+     "meaning": "R5-2",
+     "xodr": "253",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "name": "no_motor_vehicles",
+     "description": "Black-on-white text NO MOTOR VEHICLES",
+     "meaning": "R5-3",
+     "xodr": "251",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "name": "no_bicycles",
+     "description": "Red circle and slash over a bicycle pictogram",
+     "meaning": "R5-6",
+     "xodr": "254",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "name": "road_closed",
+     "description": "Black-on-white text ROAD CLOSED",
+     "meaning": "R11-2",
+     "xodr": "250",
+     "shape": "SM_HorRect_04"
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "name": "no_stopping_any_time",
+     "description": "Red-on-white text NO STOPPING ANY TIME with double arrow",
+     "meaning": "R7-4",
+     "xodr": "283",
+     "shape": "SM_VertRect_07"
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "name": "no_parking_symbol",
+     "description": "Red circle and slash over a black letter P (no parking)",
+     "meaning": "R8-3",
+     "xodr": "286",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "name": "no_pedestrians",
+     "description": "Red circle and slash over a walking-pedestrian pictogram",
+     "meaning": "R9-3",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "name": "no_motor_driven_cycles",
+     "description": "Black-on-white text NO MOTOR-DRIVEN CYCLES",
+     "shape": "SM_HorRect_07"
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_02",
+   "style": "MUTCD",
+   "category": "Prohibitory",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "low_clearance_12ft_6in",
+     "description": "Yellow diamond with up/down arrows reading 12'-6\" (low clearance)",
+     "meaning": "W12-2",
+     "xodr": "265",
+     "shape": "SM_RomboidShape",
+     "category": "Warning"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "end_max_speed_5",
+     "description": "Black-on-white text END 5 MPH LIMIT",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "end_max_speed_10",
+     "description": "Black-on-white text END 10 MPH LIMIT",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "end_max_speed_15",
+     "description": "Black-on-white text END 15 MPH LIMIT",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "end_max_speed_20",
+     "description": "Black-on-white text END 20 MPH LIMIT",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "end_max_speed_25",
+     "description": "Black-on-white text END 25 MPH LIMIT",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "end_max_speed_30",
+     "description": "Black-on-white text END 30 MPH LIMIT",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "end_max_speed_35",
+     "description": "Black-on-white text END 35 MPH LIMIT",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "end_max_speed_40",
+     "description": "Black-on-white text END 40 MPH LIMIT",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "name": "end_max_speed_45",
+     "description": "Black-on-white text END 45 MPH LIMIT",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "name": "end_max_speed_50",
+     "description": "Black-on-white text END 50 MPH LIMIT",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "name": "end_max_speed_55",
+     "description": "Black-on-white text END 55 MPH LIMIT",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "name": "end_max_speed_60",
+     "description": "Black-on-white text END 60 MPH LIMIT",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "name": "end_max_speed_65",
+     "description": "Black-on-white text END 65 MPH LIMIT",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "name": "end_max_speed_70",
+     "description": "Black-on-white text END 70 MPH LIMIT",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "name": "end_max_speed_75",
+     "description": "Black-on-white text END 75 MPH LIMIT",
+     "shape": "SM_VertRect_10"
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_03",
+   "style": "MUTCD",
+   "category": "Prohibitory",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "end_speed_limit_80",
+     "description": "END 80 MPH LIMIT (end of 80 mph speed zone)",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "end_speed_limit_85",
+     "description": "END 85 MPH LIMIT (end of 85 mph speed zone)",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "end_speed_limit_90",
+     "description": "END 90 MPH LIMIT (end of 90 mph speed zone)",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "end_speed_limit_95",
+     "description": "END 95 MPH LIMIT (end of 95 mph speed zone)",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "end_speed_limit_100",
+     "description": "END 100 MPH LIMIT (end of 100 mph speed zone)",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "end_speed_limit_105",
+     "description": "END 105 MPH LIMIT (end of 105 mph speed zone)",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "end_speed_limit_110",
+     "description": "END 110 MPH LIMIT (end of 110 mph speed zone)",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "end_speed_limit_115",
+     "description": "END 115 MPH LIMIT (end of 115 mph speed zone)",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "end_speed_limit_120",
+     "description": "END 120 MPH LIMIT (end of 120 mph speed zone)",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "name": "end_speed_limit_125",
+     "description": "END 125 MPH LIMIT (end of 125 mph speed zone)",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "name": "end_speed_limit_130",
+     "description": "END 130 MPH LIMIT (end of 130 mph speed zone)",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "name": "end_speed_limit_135",
+     "description": "END 135 MPH LIMIT (end of 135 mph speed zone)",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "name": "end_speed_limit_140",
+     "description": "END 140 MPH LIMIT (end of 140 mph speed zone)",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "name": "end_speed_limit_145",
+     "description": "END 145 MPH LIMIT (end of 145 mph speed zone)",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "name": "end_speed_limit_150",
+     "description": "END 150 MPH LIMIT (end of 150 mph speed zone)",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "name": "end_speed_limit_155",
+     "description": "END 155 MPH LIMIT (end of 155 mph speed zone)",
+     "shape": "SM_VertRect_10"
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_04",
+   "style": "MUTCD",
+   "category": "Prohibitory",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "max_speed_5",
+     "description": "SPEED LIMIT 5 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-5",
+     "osm": "maxspeed=5 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "max_speed_10",
+     "description": "SPEED LIMIT 10 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-10",
+     "osm": "maxspeed=10 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "max_speed_15",
+     "description": "SPEED LIMIT 15 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-15",
+     "osm": "maxspeed=15 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "max_speed_20",
+     "description": "SPEED LIMIT 20 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-20",
+     "osm": "maxspeed=20 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "school_speed_limit_20_when_flashing",
+     "description": "SCHOOL SPEED LIMIT 20 WHEN FLASHING (yellow-green SCHOOL header)",
+     "meaning": "S5-1",
+     "xodr": "274-20",
+     "shape": "SM_VertRect_05"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "max_speed_30",
+     "description": "SPEED LIMIT 30 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-30",
+     "osm": "maxspeed=30 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "max_speed_35",
+     "description": "SPEED LIMIT 35 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-35",
+     "osm": "maxspeed=35 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "max_speed_40",
+     "description": "SPEED LIMIT 40 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-40",
+     "osm": "maxspeed=40 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "max_speed_45",
+     "description": "SPEED LIMIT 45 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-45",
+     "osm": "maxspeed=45 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "name": "max_speed_50",
+     "description": "SPEED LIMIT 50 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-50",
+     "osm": "maxspeed=50 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "name": "max_speed_55",
+     "description": "SPEED LIMIT 55 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-55",
+     "osm": "maxspeed=55 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "name": "max_speed_60",
+     "description": "SPEED LIMIT 60 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-60",
+     "osm": "maxspeed=60 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "name": "max_speed_65",
+     "description": "SPEED LIMIT 65 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-65",
+     "osm": "maxspeed=65 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "name": "max_speed_70",
+     "description": "SPEED LIMIT 70 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-70",
+     "osm": "maxspeed=70 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "name": "max_speed_75",
+     "description": "SPEED LIMIT 75 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-75",
+     "osm": "maxspeed=75 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "name": "max_speed_80",
+     "description": "SPEED LIMIT 80 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-80",
+     "osm": "maxspeed=80 mph",
+     "shape": "SM_VertRect_10"
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_05",
+   "style": "MUTCD",
+   "category": "Prohibitory",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "max_speed_85",
+     "description": "SPEED LIMIT 85 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-85",
+     "osm": "maxspeed=85 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "max_speed_90",
+     "description": "SPEED LIMIT 90 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-90",
+     "osm": "maxspeed=90 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "max_speed_95",
+     "description": "SPEED LIMIT 95 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-95",
+     "osm": "maxspeed=95 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "max_speed_100",
+     "description": "SPEED LIMIT 100 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-100",
+     "osm": "maxspeed=100 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "max_speed_105",
+     "description": "SPEED LIMIT 105 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-105",
+     "osm": "maxspeed=105 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "max_speed_110",
+     "description": "SPEED LIMIT 110 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-110",
+     "osm": "maxspeed=110 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "max_speed_115",
+     "description": "SPEED LIMIT 115 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-115",
+     "osm": "maxspeed=115 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "max_speed_120",
+     "description": "SPEED LIMIT 120 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-120",
+     "osm": "maxspeed=120 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "max_speed_125",
+     "description": "SPEED LIMIT 125 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-125",
+     "osm": "maxspeed=125 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "name": "max_speed_130",
+     "description": "SPEED LIMIT 130 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-130",
+     "osm": "maxspeed=130 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "name": "max_speed_135",
+     "description": "SPEED LIMIT 135 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-135",
+     "osm": "maxspeed=135 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "name": "max_speed_140",
+     "description": "SPEED LIMIT 140 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-140",
+     "osm": "maxspeed=140 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "name": "max_speed_145",
+     "description": "SPEED LIMIT 145 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-145",
+     "osm": "maxspeed=145 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "name": "max_speed_150",
+     "description": "SPEED LIMIT 150 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-150",
+     "osm": "maxspeed=150 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "name": "max_speed_155",
+     "description": "SPEED LIMIT 155 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-155",
+     "osm": "maxspeed=155 mph",
+     "shape": "SM_VertRect_10"
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "name": "max_speed_160",
+     "description": "SPEED LIMIT 160 (mph)",
+     "meaning": "R2-1",
+     "xodr": "274-160",
+     "osm": "maxspeed=160 mph",
+     "shape": "SM_VertRect_10"
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_WarningSignAtlas_01",
+   "style": "MUTCD",
+   "category": "Warning",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "side_road_right",
+     "description": "Side road entering from the right (T symbol)",
+     "meaning": "W2-2R",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "side_road_angled_left",
+     "description": "Side road joining at an acute angle from the left",
+     "meaning": "W2-3L",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "side_road_angled_right",
+     "description": "Side road joining at an acute angle from the right",
+     "meaning": "W2-3R",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "roundabout_ahead_warning",
+     "description": "Circular intersection / roundabout ahead (three circling arrows)",
+     "meaning": "W2-6",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "lane_ends_left",
+     "description": "Left lane ends, merge right",
+     "meaning": "W4-2L",
+     "xodr": "121",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "lane_ends_right",
+     "description": "Right lane ends, merge left",
+     "meaning": "W4-2R",
+     "xodr": "121",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "road_narrows_both",
+     "description": "Road narrows on both sides (both edges bend inward)",
+     "xodr": "121",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "two_way_traffic",
+     "description": "Two-way traffic (opposing up and down arrows)",
+     "meaning": "W6-3",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "sharp_turn_left",
+     "description": "Sharp turn to the left (right-angle arrow)",
+     "meaning": "W1-1L",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "name": "sharp_turn_right",
+     "description": "Sharp turn to the right (right-angle arrow)",
+     "meaning": "W1-1R",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "name": "curve_left",
+     "description": "Curve to the left (gentle bent arrow)",
+     "meaning": "W1-2L",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "name": "curve_right",
+     "description": "Curve to the right (gentle bent arrow)",
+     "meaning": "W1-2R",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "name": "reverse_turn_left",
+     "description": "Reverse turn, first to the left then to the right (zigzag arrow)",
+     "meaning": "W1-3L",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "name": "reverse_turn_right",
+     "description": "Reverse turn, first to the right then to the left (zigzag arrow)",
+     "meaning": "W1-3R",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "name": "cross_road",
+     "description": "Crossroad ahead (plus symbol)",
+     "meaning": "W2-1",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "name": "side_road_left",
+     "description": "Side road entering from the left (T symbol)",
+     "meaning": "W2-2L",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_WarningSignAtlas_02",
+   "style": "MUTCD",
+   "category": "Warning",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "pedestrian_crossing_warning",
+     "description": "Pedestrian crossing ahead (walking person symbol)",
+     "meaning": "W11-2",
+     "xodr": "133",
+     "osm": "highway=crossing",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "deer_crossing",
+     "description": "Deer crossing (leaping deer symbol)",
+     "meaning": "W11-3",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "cattle_crossing",
+     "description": "Cattle crossing (cow symbol)",
+     "meaning": "W11-4",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "watch_for_stopped_traffic",
+     "description": "WATCH FOR STOPPED TRAFFIC",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "snow_slide_area",
+     "description": "SNOW SLIDE AREA",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "workers_ahead",
+     "description": "Road workers ahead (orange construction diamond, worker with shovel)",
+     "meaning": "W21-1a",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "max_speed_20_school",
+     "description": "SCHOOL SPEED LIMIT 20 WHEN FLASHING (white plate, green school header)",
+     "meaning": "S5-1",
+     "xodr": "274-20",
+     "osm": "maxspeed=20",
+     "shape": "SM_VertRect_05",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "signal_ahead",
+     "description": "Traffic signal ahead (red, yellow, green light symbol)",
+     "meaning": "W3-3",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "steep_downgrade",
+     "description": "Steep hill / downgrade ahead (truck on slope symbol)",
+     "meaning": "W7-1",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "name": "bump",
+     "description": "BUMP",
+     "meaning": "W8-1",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "name": "dip",
+     "description": "DIP",
+     "meaning": "W8-2",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "name": "slippery_when_wet",
+     "description": "Slippery when wet (skidding car symbol)",
+     "meaning": "W8-5",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "name": "rough_road",
+     "description": "ROUGH ROAD",
+     "meaning": "W8-8",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "name": "fallen_rocks",
+     "description": "FALLEN ROCKS",
+     "meaning": "W8-14",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "name": "gusty_winds_area",
+     "description": "GUSTY WINDS AREA",
+     "meaning": "W8-21",
+     "xodr": "101",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "name": "bicycle_crossing",
+     "description": "Bicycle crossing (bicycle symbol)",
+     "meaning": "W11-1",
+     "xodr": "138",
+     "shape": "SM_RomboidShape"
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/Miscellaneous/T_MiscellaneousSignAtlas_01",
+   "style": "Miscellaneous",
+   "category": "Others",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "tow_away_zone",
+     "description": "Tow-away zone plaque (tow truck towing a car, white horizontal plate)",
+     "meaning": "R7-201a",
+     "shape": "SM_HorRect_06"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "blank": true
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/VC/T_VC_GuideSignAtlas_01",
+   "style": "VC",
+   "category": "Guide",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "motorway_end",
+     "description": "End of motorway (blue motorway pictogram crossed by a red diagonal bar)",
+     "meaning": "E5b",
+     "shape": "SM_VertRect_07"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "lane_directions_left_straight_right",
+     "description": "Lane pre-selection: left lane left or straight, middle lane straight, right lane right (blue plate with three lane arrows)",
+     "shape": "SM_VertRect_07"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "one_way_left",
+     "description": "ONE WAY, white arrow pointing left on blue plate",
+     "meaning": "E1",
+     "osm": "oneway=yes",
+     "shape": "SM_HorRect_12"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "one_way_right",
+     "description": "ONE WAY, white arrow pointing right on blue plate",
+     "meaning": "E1",
+     "osm": "oneway=yes",
+     "shape": "SM_HorRect_12"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "parking",
+     "description": "Parking, white P on blue square",
+     "meaning": "E14",
+     "osm": "amenity=parking",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "bus_stop",
+     "description": "Bus stop, black bus pictogram in white panel on blue plate",
+     "meaning": "E13",
+     "osm": "highway=bus_stop",
+     "shape": "SM_VertRect_02"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "dead_end",
+     "description": "Dead end / no through road, white T-road with red bar on blue square",
+     "meaning": "E2",
+     "xodr": "357",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "distance_200m",
+     "description": "Supplementary plate '200 m' (distance to the signed feature), black text on white",
+     "meaning": "H1",
+     "shape": "SM_HorRect_12",
+     "category": "Others"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "motorway",
+     "description": "Motorway begins (white motorway pictogram on blue)",
+     "meaning": "E5a",
+     "xodr": "330",
+     "shape": "SM_VertRect_07"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "blank": true
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/VC/T_VC_InformationSignAtlas_01",
+   "style": "VC",
+   "category": "Information",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "hotel_lodging",
+     "description": "Hotel / lodging, black bed pictogram in white panel on blue plate",
+     "osm": "tourism=hotel",
+     "shape": "SM_VertRect_02"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "restaurant",
+     "description": "Restaurant, crossed spoon and fork in white panel on blue plate",
+     "osm": "amenity=restaurant",
+     "shape": "SM_VertRect_02"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "telephone",
+     "description": "Telephone, black handset pictogram in white panel on blue plate",
+     "osm": "amenity=telephone",
+     "shape": "SM_VertRect_02"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "fuel_station",
+     "description": "Filling station, black fuel pump pictogram in white panel on blue plate",
+     "osm": "amenity=fuel",
+     "shape": "SM_VertRect_02"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "blank": true
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/VC/T_VC_MandatorySignAtlas_01",
+   "style": "VC",
+   "category": "Mandatory",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "cycle_track_mandatory",
+     "description": "Compulsory cycle track, white bicycle on blue circle",
+     "meaning": "D4",
+     "osm": "highway=cycleway",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "pedestrian_path_mandatory",
+     "description": "Compulsory footpath, white adult holding a child's hand on blue circle",
+     "meaning": "D5",
+     "osm": "highway=footway",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "straight_ahead_mandatory",
+     "description": "Straight ahead only, white up arrow on blue circle",
+     "meaning": "D1a",
+     "xodr": "209-30",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "turn_left_here_mandatory",
+     "description": "Turn left (here), white arrow pointing left on blue circle",
+     "meaning": "D1a",
+     "xodr": "211-10",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "turn_right_here_mandatory",
+     "description": "Turn right (here), white arrow pointing right on blue circle",
+     "meaning": "D1a",
+     "xodr": "211-20",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "turn_left_mandatory",
+     "description": "Turn left ahead, white bent arrow up-then-left on blue circle",
+     "meaning": "D1a",
+     "xodr": "209-10",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "turn_right_mandatory",
+     "description": "Turn right ahead, white bent arrow up-then-right on blue circle",
+     "meaning": "D1a",
+     "xodr": "209-20",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "straight_or_left_mandatory",
+     "description": "Straight ahead or turn left, white forked arrow on blue circle",
+     "meaning": "D1a",
+     "xodr": "214-10",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "straight_or_right_mandatory",
+     "description": "Straight ahead or turn right, white forked arrow on blue circle",
+     "meaning": "D1a",
+     "xodr": "214-20",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "name": "keep_left",
+     "description": "Pass this side (keep left), white diagonal arrow pointing down-left on blue circle",
+     "meaning": "D2",
+     "xodr": "222-10",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "name": "keep_right",
+     "description": "Pass this side (keep right), white diagonal arrow pointing down-right on blue circle",
+     "meaning": "D2",
+     "xodr": "222-20",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "name": "roundabout_mandatory",
+     "description": "Compulsory roundabout, three white arrows circulating counter-clockwise (right-hand traffic) on blue circle",
+     "meaning": "D3",
+     "xodr": "215",
+     "osm": "junction=roundabout",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "name": "roundabout_mandatory_clockwise",
+     "description": "Compulsory roundabout, three white arrows circulating clockwise (left-hand traffic variant) on blue circle",
+     "meaning": "D3",
+     "xodr": "215",
+     "osm": "junction=roundabout",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "name": "shared_cycle_pedestrian_path_mandatory",
+     "description": "Compulsory shared path for cyclists and pedestrians, bicycle above walking person on blue circle",
+     "meaning": "D11a",
+     "osm": "highway=path",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "blank": true
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/VC/T_VC_PrioritySignAtlas_01",
+   "style": "VC",
+   "category": "Priority",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "priority_road",
+     "description": "Priority road, yellow diamond with white border",
+     "meaning": "B3",
+     "xodr": "306",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "priority_road_end",
+     "description": "End of priority road, yellow diamond crossed by a black diagonal bar",
+     "meaning": "B4",
+     "xodr": "307",
+     "shape": "SM_RomboidShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "give_way_to_oncoming",
+     "description": "Give way to oncoming traffic, red up arrow and black down arrow in red-bordered circle",
+     "meaning": "B5",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "give_way_to_oncoming_2",
+     "description": "Give way to oncoming traffic, mirrored layout (red up arrow left, black down arrow right) in red-bordered circle",
+     "meaning": "B5",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "priority_over_oncoming",
+     "description": "Priority over oncoming traffic, white up arrow and red down arrow on blue square",
+     "meaning": "B6",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "priority_over_oncoming_2",
+     "description": "Priority over oncoming traffic, mirrored layout (white up arrow left, red down arrow right) on blue square",
+     "meaning": "B6",
+     "shape": "SM_SquareShape"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "give_way",
+     "description": "Give way / yield, inverted white triangle with red border",
+     "meaning": "B1",
+     "xodr": "205",
+     "osm": "highway=give_way",
+     "shape": "SM_InvertedTriangleShape"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "stop",
+     "description": "STOP, white text on red octagon",
+     "meaning": "B2a",
+     "xodr": "206",
+     "osm": "highway=stop",
+     "shape": "SM_OctogonalShape"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "pedestrian_crossing",
+     "description": "Pedestrian crossing, walking person on zebra inside white triangle on blue square",
+     "meaning": "E7",
+     "osm": "highway=crossing",
+     "shape": "SM_SquareShape",
+     "category": "Information"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "blank": true
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/VC/T_VC_ProhibitorySignAtlas_01",
+   "style": "VC",
+   "category": "Prohibitory",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "weight_limit_5t",
+     "description": "No vehicles over 5 t laden weight (5t)",
+     "meaning": "C7",
+     "xodr": "263",
+     "osm": "maxweight=5",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "max_speed_5",
+     "description": "Speed limit 5 km/h",
+     "meaning": "C14",
+     "xodr": "274-5",
+     "osm": "maxspeed=5",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "max_speed_10",
+     "description": "Speed limit 10 km/h",
+     "meaning": "C14",
+     "xodr": "274-10",
+     "osm": "maxspeed=10",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "max_speed_20",
+     "description": "Speed limit 20 km/h",
+     "meaning": "C14",
+     "xodr": "274-20",
+     "osm": "maxspeed=20",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "max_speed_30",
+     "description": "Speed limit 30 km/h",
+     "meaning": "C14",
+     "xodr": "274-30",
+     "osm": "maxspeed=30",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "max_speed_40",
+     "description": "Speed limit 40 km/h",
+     "meaning": "C14",
+     "xodr": "274-40",
+     "osm": "maxspeed=40",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "max_speed_50",
+     "description": "Speed limit 50 km/h",
+     "meaning": "C14",
+     "xodr": "274-50",
+     "osm": "maxspeed=50",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "max_speed_60",
+     "description": "Speed limit 60 km/h",
+     "meaning": "C14",
+     "xodr": "274-60",
+     "osm": "maxspeed=60",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "max_speed_70",
+     "description": "Speed limit 70 km/h",
+     "meaning": "C14",
+     "xodr": "274-70",
+     "osm": "maxspeed=70",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "name": "max_speed_80",
+     "description": "Speed limit 80 km/h",
+     "meaning": "C14",
+     "xodr": "274-80",
+     "osm": "maxspeed=80",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "name": "max_speed_90",
+     "description": "Speed limit 90 km/h",
+     "meaning": "C14",
+     "xodr": "274-90",
+     "osm": "maxspeed=90",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "name": "max_speed_100",
+     "description": "Speed limit 100 km/h",
+     "meaning": "C14",
+     "xodr": "274-100",
+     "osm": "maxspeed=100",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "name": "max_speed_110",
+     "description": "Speed limit 110 km/h",
+     "meaning": "C14",
+     "xodr": "274-110",
+     "osm": "maxspeed=110",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "name": "max_speed_120",
+     "description": "Speed limit 120 km/h",
+     "meaning": "C14",
+     "xodr": "274-120",
+     "osm": "maxspeed=120",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "name": "max_speed_130",
+     "description": "Speed limit 130 km/h",
+     "meaning": "C14",
+     "xodr": "274-130",
+     "osm": "maxspeed=130",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "name": "height_limit_3_5m",
+     "description": "No vehicles over 3.5 m height (3.5m between arrows)",
+     "meaning": "C6",
+     "xodr": "265",
+     "osm": "maxheight=3.5",
+     "shape": "SM_CircleShape"
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/VC/T_VC_ProhibitorySignAtlas_02",
+   "style": "VC",
+   "category": "Prohibitory",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "max_speed_50_end",
+     "description": "End of 50 km/h speed limit (grey 50 struck through)",
+     "meaning": "C17b",
+     "shape": "SM_CircleShape",
+     "category": "SpeedLimit"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "no_agricultural_vehicles",
+     "description": "No tractors / agricultural vehicles",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "no_overtaking_end",
+     "description": "End of no-overtaking zone (grey cars struck through)",
+     "meaning": "C17c",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "no_u_turn",
+     "description": "No U-turn (arrow turning back to the left)",
+     "meaning": "C12",
+     "xodr": "272",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "no_entry",
+     "description": "No entry (white bar on red disc)",
+     "meaning": "C1",
+     "xodr": "267",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "closed_to_all_vehicles",
+     "description": "Closed to all vehicles in both directions (empty red ring)",
+     "meaning": "C2",
+     "xodr": "250",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "no_motor_vehicles",
+     "description": "No motor vehicles (car pictogram)",
+     "meaning": "C3a",
+     "xodr": "251",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "no_motorcycles",
+     "description": "No motorcycles",
+     "meaning": "C3b",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "no_cycles",
+     "description": "No bicycles",
+     "meaning": "C3c",
+     "xodr": "254",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "name": "no_goods_vehicles",
+     "description": "No goods vehicles / trucks",
+     "meaning": "C3e",
+     "xodr": "253",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "name": "no_pedestrians",
+     "description": "No pedestrians",
+     "meaning": "C3h",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "name": "no_left_turn",
+     "description": "No left turn",
+     "meaning": "C11a",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "name": "no_right_turn",
+     "description": "No right turn",
+     "meaning": "C11b",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "name": "no_u_turn_2",
+     "description": "No U-turn, mirrored for left-hand traffic (arrow turning back to the right)",
+     "meaning": "C12",
+     "xodr": "272",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "name": "no_overtaking",
+     "description": "No overtaking (red car left, black car right)",
+     "meaning": "C13a",
+     "xodr": "276",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "name": "no_overtaking_2",
+     "description": "No overtaking, mirrored for left-hand traffic (black car left, red car right)",
+     "meaning": "C13a",
+     "xodr": "276",
+     "shape": "SM_CircleShape"
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/VC/T_VC_ProhibitorySignAtlas_03",
+   "style": "VC",
+   "category": "Prohibitory",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "no_parking",
+     "description": "No parking, blue circle with red border and one red diagonal bar",
+     "meaning": "C18",
+     "xodr": "286",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "no_stopping",
+     "description": "No stopping or parking, blue circle with red border and red diagonal cross",
+     "meaning": "C19",
+     "xodr": "283",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "no_carts_cycles_tractors_pedestrians",
+     "description": "No entry for animal-drawn vehicles, bicycles, tractors and pedestrians (four pictograms under a red cross)",
+     "shape": "SM_CircleShape"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "blank": true
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/VC/T_VC_WarningSignAtlas_01",
+   "style": "VC",
+   "category": "Warning",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "double_curve_first_right",
+     "description": "Double bend, first to the right",
+     "meaning": "A1d",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "roundabout_ahead",
+     "description": "Roundabout ahead (three circling arrows)",
+     "meaning": "A20",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "two_way_traffic",
+     "description": "Two-way traffic ahead (up and down arrows)",
+     "meaning": "A21",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "road_narrows_both",
+     "description": "Road narrows on both sides",
+     "meaning": "A3",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "curve_left_sharp",
+     "description": "Sharp bend to the left (right-angle arrow)",
+     "meaning": "A1a",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "road_narrows_left",
+     "description": "Road narrows on the left",
+     "meaning": "A3",
+     "xodr": "121",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "road_narrows_right",
+     "description": "Road narrows on the right",
+     "meaning": "A3",
+     "xodr": "121",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "crossroads_with_priority",
+     "description": "Crossroads ahead, you have priority over the side roads",
+     "meaning": "A19",
+     "xodr": "301",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "side_road_left_with_priority",
+     "description": "Side road joining from the left, you have priority",
+     "meaning": "A19",
+     "xodr": "301",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "name": "side_road_right_with_priority",
+     "description": "Side road joining from the right, you have priority",
+     "meaning": "A19",
+     "xodr": "301",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "name": "merging_road_left_with_priority",
+     "description": "Oblique side road merging from the left, you have priority",
+     "meaning": "A19",
+     "xodr": "301",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "name": "merging_road_right_with_priority",
+     "description": "Oblique side road merging from the right, you have priority",
+     "meaning": "A19",
+     "xodr": "301",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "name": "curve_left",
+     "description": "Bend to the left",
+     "meaning": "A1a",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "name": "curve_right",
+     "description": "Bend to the right",
+     "meaning": "A1b",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "name": "double_curve_first_left",
+     "description": "Double bend, first to the left",
+     "meaning": "A1c",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "name": "curve_right_sharp",
+     "description": "Sharp bend to the right (right-angle arrow)",
+     "meaning": "A1b",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/VC/T_VC_WarningSignAtlas_02",
+   "style": "VC",
+   "category": "Warning",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "road_works",
+     "description": "Road works ahead (man digging)",
+     "meaning": "A15",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "traffic_signals_ahead",
+     "description": "Traffic light signals ahead (red, amber, green lamps)",
+     "meaning": "A16",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "name": "traffic_queues",
+     "description": "Traffic queues likely ahead (three cars in a column)",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "name": "crosswind",
+     "description": "Dangerous crosswind (wind sock)",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "name": "pedestrians",
+     "description": "Pedestrians in the road ahead (walking man)",
+     "meaning": "A12",
+     "xodr": "133",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "name": "snow_or_ice",
+     "description": "Risk of snow or ice (snowflake)",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "name": "slippery_road",
+     "description": "Slippery road (skidding car)",
+     "meaning": "A7",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "name": "cattle",
+     "description": "Domestic animals / cattle crossing (cow)",
+     "meaning": "A14a",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "name": "wild_animals",
+     "description": "Wild animals crossing (leaping deer)",
+     "meaning": "A14b",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "name": "steep_descent_10",
+     "description": "Steep hill downwards 10%",
+     "meaning": "A2a",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "name": "steep_ascent_10",
+     "description": "Steep hill upwards 10%",
+     "meaning": "A2b",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "name": "uneven_road",
+     "description": "Uneven road (two bumps)",
+     "meaning": "A6",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "name": "road_hump",
+     "description": "Road hump / speed bump (single hump)",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "name": "dip",
+     "description": "Dip in the road (single hollow)",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "name": "falling_rocks",
+     "description": "Falling rocks from the right-hand cliff",
+     "meaning": "A9",
+     "xodr": "101",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "name": "cyclists",
+     "description": "Cyclists crossing or entering the road",
+     "meaning": "A13",
+     "xodr": "138",
+     "shape": "SM_DangerSignShape"
+    }
+   ]
+  },
+  {
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/VC/T_VC_WarningSignAtlas_03",
+   "style": "VC",
+   "category": "Warning",
+   "cells": [
+    {
+     "x": 1,
+     "y": 1,
+     "name": "children",
+     "description": "Children crossing warning, two children walking in red-bordered triangle",
+     "meaning": "A12",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 2,
+     "y": 1,
+     "name": "pedestrian_crossing_ahead",
+     "description": "Pedestrian crossing ahead warning, person on zebra in red-bordered triangle",
+     "meaning": "A11",
+     "xodr": "133",
+     "shape": "SM_DangerSignShape"
+    },
+    {
+     "x": 3,
+     "y": 1,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 1,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 2,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 3,
+     "blank": true
+    },
+    {
+     "x": 1,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 2,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 3,
+     "y": 4,
+     "blank": true
+    },
+    {
+     "x": 4,
+     "y": 4,
+     "blank": true
+    }
+   ]
+  }
+ ],
+ "uniques": [
+  {
+   "name": "arrow_sign",
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/Textures/VC/T_Arrow",
+   "style": "VC",
+   "category": "Guide",
+   "shape": "SM_ArrowShape",
+   "description": "Direction arrow plate",
+   "unique": true
+  },
+  {
+   "name": "uab_welcome",
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/Textures/VC/T_BenvigutsALaAutonoma",
+   "style": "VC",
+   "category": "Guide",
+   "shape": "SM_SlightRectangleShape",
+   "description": "Benvinguts a l'Autonoma (UAB campus welcome)",
+   "unique": true
+  },
+  {
+   "name": "uab_welcome_sided",
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/Textures/VC/T_BenvigutsALaAutonoma",
+   "style": "VC",
+   "category": "Guide",
+   "shape": "SM_SlightRectangleShapeSided",
+   "description": "Benvinguts a l'Autonoma, edge-pivoted plate",
+   "unique": true
+  },
+  {
+   "name": "campus_saludable",
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/Textures/VC/T_CampusSaludable",
+   "style": "VC",
+   "category": "Guide",
+   "shape": "SM_VerticalRectangle",
+   "description": "Campus Saludable (UAB) banner",
+   "unique": true
+  },
+  {
+   "name": "ciencies_biociencies",
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/Textures/VC/T_CienciesIBiociencies",
+   "style": "VC",
+   "category": "Guide",
+   "shape": "SM_VerticalRectangle",
+   "description": "Ciencies i Biociencies (UAB faculty) banner",
+   "unique": true
+  },
+  {
+   "name": "directions_double",
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/Textures/VC/T_DoubleSign",
+   "style": "VC",
+   "category": "Guide",
+   "shape": "SM_DoubleSign",
+   "description": "Two-arm direction sign",
+   "unique": true
+  },
+  {
+   "name": "double_arrow",
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/Textures/VC/t_DoubleArrow",
+   "style": "VC",
+   "category": "Guide",
+   "shape": "SM_SmallRectangle",
+   "description": "Double arrow plate",
+   "unique": true
+  },
+  {
+   "name": "long_thin_sign",
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/Textures/VC/T_LongThinSign",
+   "style": "VC",
+   "category": "Guide",
+   "shape": "SM_LongThinShape",
+   "description": "Long thin direction plate",
+   "unique": true
+  },
+  {
+   "name": "roundabout_cerdanyola",
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/Textures/VC/T_RoundAboutCerdanyola",
+   "style": "VC",
+   "category": "Guide",
+   "shape": "SM_SlightRectangleShape",
+   "description": "Roundabout directions (Cerdanyola)",
+   "unique": true
+  },
+  {
+   "name": "roundabout_cerdanyola_sided",
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/Textures/VC/T_RoundAboutCerdanyola",
+   "style": "VC",
+   "category": "Guide",
+   "shape": "SM_SlightRectangleShapeSided",
+   "description": "Roundabout directions (Cerdanyola), edge-pivoted",
+   "unique": true
+  },
+  {
+   "name": "uab_directions_01",
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/Textures/VC/T_UABDirections",
+   "style": "VC",
+   "category": "Guide",
+   "shape": "SM_LargeSlightRectangleShape",
+   "description": "UAB campus directions 1",
+   "unique": true
+  },
+  {
+   "name": "uab_directions_01_sided",
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/Textures/VC/T_UABDirections",
+   "style": "VC",
+   "category": "Guide",
+   "shape": "SM_LargeSlightRectangleShapeSided",
+   "description": "UAB campus directions 1, edge-pivoted",
+   "unique": true
+  },
+  {
+   "name": "uab_directions_02",
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/Textures/VC/T_UABDirections_02",
+   "style": "VC",
+   "category": "Guide",
+   "shape": "SM_LargeSlightRectangleShape",
+   "description": "UAB campus directions 2",
+   "unique": true
+  },
+  {
+   "name": "uab_directions_02_sided",
+   "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/Textures/VC/T_UABDirections_02",
+   "style": "VC",
+   "category": "Guide",
+   "shape": "SM_LargeSlightRectangleShapeSided",
+   "description": "UAB campus directions 2, edge-pivoted",
+   "unique": true
+  }
+ ]
+}
