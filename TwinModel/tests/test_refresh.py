@@ -87,12 +87,38 @@ def test_graft_keeps_geometry_and_signal_positions_but_takes_validities_and_cont
                  '<controller id="c7_p1" sequence="1"><control signalId="s1"/></controller>',
                  '<controller id="c7_p0"/><controller id="c7_p1"/>').replace('length="10"', 'length="11"')
     assert not geometry_identical(deployed, rebuilt) and topology_identical(deployed, rebuilt)
-    out = graft_signals(deployed, rebuilt)
+    out, st_graft = graft_signals(deployed, rebuilt)
     assert geometry_identical(deployed, out)
     st = xodr_stats(out)
     assert st["validities"] == 1 and st["controllers"] == 2 and st["controllers_per_junction"] == {"7": 2}
     assert 's="9.0"' in out and 's="10.0"' not in out  # the deployed s/t survive
     assert 'name="tl"' in out
+    assert st_graft["matched"] == 1 and st_graft["added"] == 0 and st_graft["max_s_shift"] == 1.0
+
+
+def test_graft_renumbers_matched_signals_and_adds_new_ones_next_to_their_anchor():
+    deployed = _x('<signal id="sig1" s="9.0" t="-2" type="1000001" orientation="+"/>')
+    # the rebuild renumbered the through light (sig1 -> sig7), moved it by 1 m, and added an arrow at
+    # the same stop line plus a pedestrian head 3 m before it; controllers speak the new ids
+    rebuilt = _x('<signal id="sig7" s="10.0" t="-2" type="1000001" orientation="+"><validity fromLane="-1" toLane="-1"/></signal>'
+                 '<signal id="sig8" s="10.0" t="-2" type="1000001" subtype="left" orientation="+" name="arrow"/>'
+                 '<signal id="sig9" s="7.0" t="-3" type="1000002" orientation="+"/>',
+                 '<controller id="c7_p0"><control signalId="sig7"/><control signalId="sig8"/></controller>',
+                 '<controller id="c7_p0"/>').replace('length="10"', 'length="11"')
+    out, st = graft_signals(deployed, rebuilt)
+    assert geometry_identical(deployed, out)
+    assert st == {"matched": 1, "added": 2, "added_by_anchor": 2, "added_by_end_offset": 0, "max_s_shift": 1.0, "clamped": 0}
+    assert 'id="sig1"' not in out and 'id="sig7" s="9.0"' in out
+    assert 'id="sig8" s="9.0000"' in out          # arrow: same stop line as its through light
+    assert 'id="sig9" s="6.0000"' in out          # ped head: 3 m before the anchor, on the old s
+    assert xodr_stats(out)["by_type"] == {"1000001": 2, "1000002": 1}
+
+
+def test_graft_refuses_when_a_deployed_signal_has_no_counterpart():
+    deployed = _x('<signal id="sig1" s="9.0" t="-2" type="1000001" orientation="+"/>')
+    rebuilt = _x('<signal id="sig1" s="1.0" t="-2" type="1000001" orientation="-"/>')
+    with pytest.raises(ValueError, match="no rebuilt counterpart"):
+        graft_signals(deployed, rebuilt)
 
 
 def test_graft_refuses_a_different_topology():

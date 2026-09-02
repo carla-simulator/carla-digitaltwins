@@ -171,32 +171,122 @@ def topology_diff(a: str, b: str) -> dict[str, list]:
 
 
 def topology_identical(a: str, b: str) -> bool:
+    """Roads (ids, junction membership, lane sections) and junction connections are the same.
+    Signals are *not* part of this: the exporter numbers them sequentially, so ids move whenever
+    a signal is added; ``graft_signals`` matches them by position instead."""
     d = topology_diff(a, b)
-    return not (d["roads"] or d["junctions"] or d["signals"])
+    return not (d["roads"] or d["junctions"])
 
 
-def graft_signals(deployed_text: str, new_text: str) -> str:
-    """Transplant the signal *semantics* of ``new_text`` (per-signal <validity>, the root
-    <controller>s and the junction <controller> refs) onto ``deployed_text``, keeping the deployed
-    geometry and every signal's own s/t. Requires ``topology_identical``. <signalReference>s of
-    the new build are not carried (their s lives on the new geometry)."""
+_SIG_ATTRS = ("name", "country", "value", "unit", "text", "dynamic", "height", "width", "hOffset", "zOffset",
+              "pitch", "roll", "subtype", "countryRevision")
+
+
+def _road_lengths(root) -> dict[str, float]:
+    return {rd.get("id"): float(rd.get("length")) for rd in root.iter("road")}
+
+
+def match_signals(old_root, new_root, tol_m: float = 15.0) -> tuple[dict, list, list]:
+    """Pair every deployed signal with a rebuilt one of the same (road, type, subtype, orientation)
+    by nearest s (one to one, closest pairs first). Returns (old id -> new signal element,
+    unmatched old ids, unmatched new signal elements)."""
+    def key(sig):
+        road = sig.getparent().getparent()
+        return (road.get("id"), sig.get("type"), sig.get("subtype") or "-1", sig.get("orientation"))
+    old_by, new_by = {}, {}
+    for s in old_root.iter("signal"):
+        old_by.setdefault(key(s), []).append(s)
+    for s in new_root.iter("signal"):
+        new_by.setdefault(key(s), []).append(s)
+    pairs, unmatched_old, unmatched_new = {}, [], []
+    for k, olds in old_by.items():
+        news = list(new_by.get(k, []))
+        cands = sorted(((abs(float(o.get("s")) - float(n.get("s"))), i, j) for i, o in enumerate(olds)
+                        for j, n in enumerate(news) if abs(float(o.get("s")) - float(n.get("s"))) <= tol_m))
+        used_o, used_n = set(), set()
+        for ds, i, j in cands:
+            if i in used_o or j in used_n:
+                continue
+            used_o.add(i); used_n.add(j)
+            pairs[olds[i].get("id")] = news[j]
+        unmatched_old += [olds[i].get("id") for i in range(len(olds)) if i not in used_o]
+        unmatched_new += [news[j] for j in range(len(news)) if j not in used_n]
+    for k, news in new_by.items():
+        if k not in old_by:
+            unmatched_new += news
+    return pairs, unmatched_old, unmatched_new
+
+
+def graft_signals(deployed_text: str, new_text: str, tol_m: float = 15.0) -> tuple[str, dict[str, Any]]:
+    """Transplant the signal semantics of ``new_text`` onto ``deployed_text``, keeping the deployed
+    geometry. Requires ``topology_identical``.
+
+    * a deployed signal matched to a rebuilt one (``match_signals``) keeps its own s/t and takes
+      the rebuilt signal's id, attributes and <validity> children -- the whole file then speaks
+      the rebuilt ids, which is what the rebuilt <controller>s reference;
+    * a rebuilt signal with no deployed counterpart (Phase 5 arrows, pedestrian heads, rule stops)
+      is added to the same road at ``s_anchor_old + (s_new - s_anchor_new)`` of the nearest matched
+      signal on that road (an arrow shares its through light's stop line exactly), or, if the road
+      has no matched signal, at the same offset from the nearer road end; t is the rebuilt one;
+    * a deployed signal with no counterpart within ``tol_m`` is an error (the signal set changed
+      in a way a refresh cannot express);
+    * root <controller>s and junction <controller> refs are replaced by the rebuilt ones.
+    Returns (xodr text, stats)."""
     from lxml import etree
     if not topology_identical(deployed_text, new_text):
         raise ValueError("topology differs; a graft would attach signals to the wrong lanes")
     old = _parse(deployed_text)
     new = _parse(new_text)
-    new_sig = {s.get("id"): s for s in new.iter("signal")}
-    for s in old.iter("signal"):
+    pairs, unmatched_old, unmatched_new = match_signals(old, new, tol_m)
+    if unmatched_old:
+        raise ValueError("%d deployed signal(s) have no rebuilt counterpart within %.0f m: %s" % (
+            len(unmatched_old), tol_m, ", ".join(unmatched_old[:8])))
+    len_old, len_new = _road_lengths(old), _road_lengths(new)
+    stats = {"matched": len(pairs), "added": len(unmatched_new), "added_by_anchor": 0, "added_by_end_offset": 0,
+             "max_s_shift": 0.0, "clamped": 0}
+    # anchors: per road, [(s_old, s_new)] of matched signals
+    anchors: dict[str, list[tuple[float, float]]] = {}
+    old_road_of: dict[str, Any] = {}
+    for s in list(old.iter("signal")):
+        src = pairs[s.get("id")]
+        road = s.getparent().getparent()
+        anchors.setdefault(road.get("id"), []).append((float(s.get("s")), float(src.get("s"))))
+        old_road_of[road.get("id")] = road
+        stats["max_s_shift"] = max(stats["max_s_shift"], abs(float(s.get("s")) - float(src.get("s"))))
         for v in s.findall("validity"):
             s.remove(v)
-        src = new_sig.get(s.get("id"))
-        if src is None:
-            continue
         for v in src.findall("validity"):
             s.append(etree.fromstring(etree.tostring(v)))
-        for k in ("name", "country", "value", "unit", "text", "dynamic"):
+        for k in _SIG_ATTRS:
             if src.get(k) is not None:
                 s.set(k, src.get(k))
+            elif s.get(k) is not None:
+                del s.attrib[k]
+        s.set("id", src.get("id"))
+    old_roads = {rd.get("id"): rd for rd in old.iter("road")}
+    for src in unmatched_new:
+        rid = src.getparent().getparent().get("id")
+        road = old_roads[rid]
+        s_new = float(src.get("s"))
+        if anchors.get(rid):
+            s_a_old, s_a_new = min(anchors[rid], key=lambda a: abs(a[1] - s_new))
+            s_old = s_a_old + (s_new - s_a_new)
+            stats["added_by_anchor"] += 1
+        else:
+            # no matched signal on this road: keep the offset from the nearer road end (signals
+            # sit at junction mouths, and a reference-line change moves the road's *ends*)
+            s_old = s_new if s_new <= len_new[rid] / 2 else len_old[rid] - (len_new[rid] - s_new)
+            stats["added_by_end_offset"] += 1
+        lo, hi = 0.0, max(0.0, len_old[rid])
+        if not (lo <= s_old <= hi):
+            stats["clamped"] += 1
+            s_old = min(max(s_old, lo), hi)
+        el = etree.fromstring(etree.tostring(src))
+        el.set("s", "%.4f" % s_old)
+        sigs = road.find("signals")
+        if sigs is None:
+            sigs = etree.SubElement(road, "signals")
+        sigs.append(el)
     # root controllers: drop the old ones, insert the new ones at the old position (or before junctions)
     old_ctls = old.findall("controller")
     anchor = old_ctls[0] if old_ctls else (old.find("junction"))
@@ -211,7 +301,8 @@ def graft_signals(deployed_text: str, new_text: str) -> str:
             j.remove(c)
         for c in new_j[j.get("id")].findall("controller"):
             j.append(etree.fromstring(etree.tostring(c)))
-    return etree.tostring(old, xml_declaration=True, encoding="UTF-8", pretty_print=True).decode()
+    stats["max_s_shift"] = round(stats["max_s_shift"], 2)
+    return etree.tostring(old, xml_declaration=True, encoding="UTF-8", pretty_print=True).decode(), stats
 
 
 def editor_commands(level: str, build_dir: Path, style: str, rig_map: Optional[str],
@@ -323,8 +414,9 @@ def refresh(args: argparse.Namespace) -> int:
         candidate_text = new_text
     elif out["topology_identical"] and args.mode in ("auto", "graft"):
         out["mode"] = "graft"
-        candidate_text = graft_signals(old_text, new_text)
+        candidate_text, out["graft"] = graft_signals(old_text, new_text)
         assert geometry_identical(old_text, candidate_text), "graft changed the geometry"
+        log.info("graft: %s", out["graft"])
     else:
         log.error("%s: the rebuilt xodr differs from the deployed one in topology (roads/lanes/links/"
                   "junctions/signal set), not only in signals -- the level needs a rebake, not a refresh "
