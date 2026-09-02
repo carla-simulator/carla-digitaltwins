@@ -7,9 +7,22 @@ Never loads a world: it attaches to whatever is running (stop every other client
 audit). Reports, as JSON and as a short console summary:
 
   * ``traffic.traffic_light`` actor count, and per actor ``get_opendrive_id()``,
-    ``len(get_light_boxes())``, ``len(get_affected_lane_waypoints())`` with each waypoint's
-    (road_id, lane_id, is_junction), ``[a.id for a in get_group_traffic_lights()]``,
-    ``get_pole_index()`` and the matching ``carla.Landmark`` (orientation, validities, road, s);
+    ``len(get_stop_waypoints())``, ``len(get_affected_lane_waypoints())`` with each waypoint's
+    (road_id, lane_id, is_junction), ``len(get_light_boxes())``,
+    ``[a.id for a in get_group_traffic_lights()]``, ``get_pole_index()`` and the matching
+    ``carla.Landmark`` (orientation, validities, road, s);
+
+Read ``n_stop_waypoints``, not ``n_light_boxes``, to ask "does this light stop anybody":
+``get_stop_waypoints`` sweeps the actor's **trigger volume** (client/TrafficLight.cpp:115), so
+it is 0 exactly when ``UTrafficLightComponent::InitializeSign`` built no box. ``get_light_boxes``
+does *not* return trigger volumes -- it is
+``UBoundingBoxCalculator::GetTrafficLightBoundingBox``, the bounding boxes of the mesh
+components carrying the ``TrafficLight`` semantic tag -- and a baked digital-twin rig carries
+no such tag, so it is 0 whether or not the light works.
+
+``lanes_on_oncoming_side`` counts affected lane waypoints that sit on the far side of the
+travel direction the landmark's orientation implies (right-hand traffic: '+' -> negative
+lanes). Every one of them is a lane the light claims to govern but no vehicle drives on.
   * group -> junction map, derived from the affected waypoints;
   * a ``--frames``-tick state trace: per-actor transitions, and per group the distinct sets of
     simultaneously-green members ("stages") with how many ticks each was observed.
@@ -156,11 +169,27 @@ def main() -> int:
     log(f"done in {time.time() - t0:.0f} s wall")
 
     zero_box = [l["opendrive_id"] for l in lights if l["n_light_boxes"] == 0]
+    no_trigger = [l["opendrive_id"] for l in lights if l["n_stop_waypoints"] == 0]
+    oncoming = []
+    for l in lights:
+        o = (l.get("landmark") or {}).get("orientation", "")
+        if o not in ("Positive", "Negative"):
+            continue
+        want_negative = o == "Positive"
+        for w in l["affected_lanes"]:
+            if (w["lane_id"] < 0) != want_negative:
+                oncoming.append({"signal": l["opendrive_id"], "road_id": w["road_id"],
+                                 "lane_id": w["lane_id"], "orientation": o})
     report = {
         "map": cmap.name,
         "port": args.port,
         "frames": args.frames,
         "n_lights": len(lights),
+        "n_lights_no_trigger_volume": len(no_trigger),
+        "lights_no_trigger_volume": sorted(no_trigger),
+        "n_affected_lane_waypoints": sum(l["n_affected_lane_waypoints"] for l in lights),
+        "n_lanes_on_oncoming_side": len(oncoming),
+        "lanes_on_oncoming_side": oncoming,
         "n_lights_zero_boxes": len(zero_box),
         "lights_zero_boxes": sorted(zero_box),
         "n_duplicate_opendrive_ids": len(lights) - len({l["opendrive_id"] for l in lights}),
@@ -189,12 +218,14 @@ def main() -> int:
         log(f"wrote {args.out}")
 
     print(f"  lights                       : {report['n_lights']}")
-    print(f"  with 0 light boxes           : {report['n_lights_zero_boxes']}")
+    print(f"  with NO trigger volume       : {report['n_lights_no_trigger_volume']}")
+    print(f"  affected lanes on oncoming   : {report['n_lanes_on_oncoming_side']} "
+          f"/ {report['n_affected_lane_waypoints']}")
     print(f"  duplicate opendrive ids      : {report['n_duplicate_opendrive_ids']}")
     print(f"  groups                       : {report['n_groups']}")
-    box_hist = Counter(l["n_light_boxes"] for l in lights)
-    print("  light boxes / light          : " +
-          ", ".join(f"{n}x{k}" for k, n in sorted(box_hist.items())))
+    sw_hist = Counter(l["n_stop_waypoints"] for l in lights)
+    print("  stop wps / light             : " +
+          ", ".join(f"{n}x{k}" for k, n in sorted(sw_hist.items())))
     wp_hist = Counter(l["n_affected_lane_waypoints"] for l in lights)
     print("  affected lane wps / light    : " +
           ", ".join(f"{n}x{k}" for k, n in sorted(wp_hist.items())))

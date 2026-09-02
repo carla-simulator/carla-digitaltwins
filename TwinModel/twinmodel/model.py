@@ -208,8 +208,14 @@ class Signal:
     position: Point  # model space, absolute (convenience; must agree with road/s/t)
     heading: float = 0.0
     value: Optional[float] = None  # speed limit in m/s for kind == speed_limit
-    controller_id: Optional[str] = None  # traffic lights: one controller per junction
+    controller_id: Optional[str] = None  # traffic lights: the stage (controller) this signal is in
     orientation: Literal["+", "-"] = "+"
+    # lane ranges (inclusive, *model* lane ids) this signal governs -> OpenDRIVE <validity>.
+    # Empty means "let CARLA synthesise one", which it does for the wrong travel side under
+    # right-hand traffic (MapBuilder::GenerateDefaultValiditiesForSignalReferences maps
+    # orientation '+' to lanes [1, max], i.e. the oncoming side) -- so a traffic light with no
+    # validity gets zero trigger boxes on a twin approach road and stops nobody.
+    validities: list[tuple[int, int]] = field(default_factory=list)
     osm_node_id: Optional[int] = None
     tags: dict[str, Any] = field(default_factory=dict)
 

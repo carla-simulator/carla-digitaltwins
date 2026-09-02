@@ -121,10 +121,14 @@ def junction_model() -> TwinModel:
     m = TwinModel(name="junction3", origin_lat=ORIGIN[0], origin_lon=ORIGIN[1], bbox_wgs84=BBOX,
                   roads=[a, b, n, c1, c2, c3], junctions=[j1])
     m.signals = [
+        # validities cover each approach's own travel side: forward (orientation "+") drives on
+        # the negative lanes under right-hand traffic, backward ("-") on the positive ones
         Signal(id="tl_a", kind="traffic_light", road_id="a", s=a.length - 1.0, t=-(W + 0.5),
-               position=Point(-R - 1.0, -(W + 0.5)), controller_id="ctl_j1"),
+               position=Point(-R - 1.0, -(W + 0.5)), controller_id="ctl_j1",
+               validities=[(-1, -1)]),
         Signal(id="tl_b", kind="traffic_light", road_id="b", s=1.0, t=(W + 0.5),
-               position=Point(R + 1.0, W + 0.5), orientation="-", controller_id="ctl_j1"),
+               position=Point(R + 1.0, W + 0.5), orientation="-", controller_id="ctl_j1",
+               validities=[(1, 1)]),
         Signal(id="stop_n", kind="stop", road_id="n", s=1.0, t=(W + 0.5),
                position=Point(W + 0.5, R + 1.0), orientation="-"),
         Signal(id="yield_b", kind="yield", road_id="b", s=20.0, t=-(W + 0.5),

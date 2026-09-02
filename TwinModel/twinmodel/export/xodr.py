@@ -555,6 +555,40 @@ def _signal_attrs(sig: Signal) -> dict[str, str]:
     return attrs
 
 
+def _validity_ranges(sig: Signal, sections: list, ids_per_section: list[dict[int, int]]
+                     ) -> list[tuple[int, int]]:
+    """``sig.validities`` (model lane ids) as OpenDRIVE lane-id runs at the signal's ``s``.
+
+    ``section_ids`` renumbers lanes contiguously outward inside each ``<laneSection>``, so a
+    road whose model ids are not contiguous (an auxiliary lane that ends mid-road) exports
+    different ids than the model carries. Translate through the section that covers ``sig.s``;
+    lanes absent there are dropped.
+    """
+    if not sig.validities:
+        return []
+    k = 0
+    for i, (s0, _s1, _lanes) in enumerate(sections):
+        if s0 <= sig.s + AUX_EPS:
+            k = i
+    ids = ids_per_section[k]
+    out: set[int] = set()
+    for a, b in sig.validities:
+        lo, hi = (a, b) if a <= b else (b, a)
+        for lid in range(lo, hi + 1):
+            if lid == 0:
+                continue
+            x = ids.get(lid)
+            if x is not None and x != 0:
+                out.add(x)
+    runs: list[tuple[int, int]] = []
+    for i in sorted(out):
+        if runs and i == runs[-1][1] + 1:
+            runs[-1] = (runs[-1][0], i)
+        else:
+            runs.append((i, i))
+    return runs
+
+
 def _controllers(model: TwinModel) -> list[Controller]:
     """Model controllers, or synthesised one-per-controller_id from the traffic lights."""
     if model.controllers:
@@ -720,7 +754,9 @@ def _write_road(parent, model: TwinModel, road: Road, ids: IdMap, signals: list[
                          (-half_t, width_s / 2), (-half_t, -width_s / 2)):
                 _sub(ol, "cornerLocal", u=u, v=v, z=0)
             continue
-        _sub(sigs, "signal", **_signal_attrs(sig))
+        se = _sub(sigs, "signal", **_signal_attrs(sig))
+        for lo, hi in _validity_ranges(sig, sections, ids_per_section):
+            _sub(se, "validity", fromLane=str(lo), toLane=str(hi))
     ud = _sub(r, "userData")
     _sub(ud, "twin", roadId=road.id, junctionId=road.junction_id or "")
 

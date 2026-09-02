@@ -250,6 +250,16 @@ def test_signals_positions_agree_with_road_s_t(model):
         if s.kind == "traffic_light":
             assert s.controller_id in ctl_ids
             assert s.s in (0.0, r.length)
+            # the light governs exactly its own approach's driving lanes, and under right-hand
+            # traffic those are negative for a forward approach ("+") / positive for "-"
+            assert s.validities, s.id
+            lanes = {l for a, b in s.validities for l in range(min(a, b), max(a, b) + 1)}
+            assert 0 not in lanes
+            forward = s.orientation == "+"
+            want = {l.id for l in r.lanes
+                    if l.type == "driving" and (l.direction == "forward") == forward}
+            assert lanes == want, s.id
+            assert all((l < 0) == forward for l in lanes), s.id
         if s.kind == "speed_limit":
             assert s.value and 2 < s.value < 40
     for c in model.controllers:

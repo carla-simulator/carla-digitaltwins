@@ -3213,6 +3213,21 @@ def _signal_side(road: Road, forward: bool) -> float:
     return road.width_left() + P.junction.signal_lateral_m
 
 
+def _lane_runs(ids: Iterable[int]) -> list[tuple[int, int]]:
+    """Contiguous inclusive runs of lane ids, e.g. ``[-3, -2, -1]`` -> ``[(-3, -1)]``.
+
+    Lane 0 is never part of a run (OpenDRIVE's centre lane; a ``(0, 0)`` validity is dropped
+    outright by ``MapBuilder::RemoveZeroLaneValiditySignalReferences``).
+    """
+    out: list[tuple[int, int]] = []
+    for i in sorted({int(x) for x in ids if int(x) != 0}):
+        if out and i == out[-1][1] + 1:
+            out[-1] = (out[-1][0], i)
+        else:
+            out.append((i, i))
+    return out
+
+
 def _make_signal(sid: str, kind: str, road: Road, s: float, t: float, forward: bool, **kw) -> Signal:
     pos = point_on_road(road, s, t)
     h = _heading_along(road.reference_line, s)
@@ -3271,8 +3286,13 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
                 s = r.length if forward else 0.0
                 anchor = point_on_road(r, s, 0.0)
                 nearest = min(near, key=lambda nid: anchor.distance(Point(xy_of[nid])))
+                # <validity> over exactly this approach's own driving lanes. Under right-hand
+                # traffic those are the negative (right) lanes for a forward approach and the
+                # positive ones for a backward approach -- the opposite of the side CARLA
+                # synthesises when a signal carries no validity at all.
                 sig = _make_signal(next_id(), "traffic_light", r, s, _signal_side(r, forward), forward,
                                    controller_id=ctl.id, osm_node_id=nearest,
+                                   validities=_lane_runs(l.id for l in lanes),
                                    tags={"junction_id": c.id})
                 signals.append(sig)
                 ctl.signal_ids.append(sig.id)

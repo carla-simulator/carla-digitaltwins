@@ -141,6 +141,11 @@ def test_signals_use_carla_types(junction_xodr, straight_xodr):
     assert sig["stop_n"].get("type") == "206" and sig["stop_n"].get("dynamic") == "no"
     assert sig["yield_b"].get("type") == "205"
     assert sig["tl_b"].get("orientation") == "-"
+    # every traffic light carries an explicit <validity>: without one CARLA synthesises the
+    # oncoming side (MapBuilder::GenerateDefaultValiditiesForSignalReferences) and builds no
+    # trigger box at all on a one-way-per-side twin approach
+    for sid in ("tl_a", "tl_b"):
+        assert sig[sid].findall("validity"), f"{sid} has no <validity>"
     ctl = root.findall("controller")
     assert len(ctl) == 1 and ctl[0].get("id") == "ctl_j1"
     assert {c.get("signalId") for c in ctl[0].findall("control")} == {"tl_a", "tl_b"}
@@ -152,6 +157,70 @@ def test_signals_use_carla_types(junction_xodr, straight_xodr):
     assert sp.get("type") == "274" and sp.get("subtype") == "30" and sp.get("unit") == "km/h"
     cw = sroot.find(".//object[@type='crosswalk']")
     assert cw is not None and len(cw.findall("outline/cornerLocal")) == 5
+
+
+def test_traffic_light_validity_covers_own_travel_side(junction_xodr):
+    """Each light validates the driving lanes of its *own* approach, and CARLA round-trips them.
+
+    The default CARLA would synthesise for a validity-less signal is the opposite side
+    (``MapBuilder::GenerateDefaultValiditiesForSignalReferences``: orientation '+' -> lanes
+    ``[1, max]``), which on a twin approach road -- sidewalk at +1, driving at -1..-n -- is not
+    a ``Driving`` lane at all, so ``UTrafficLightComponent::InitializeSign`` makes zero trigger
+    boxes and the light stops nobody.
+    """
+    m, text = junction_xodr
+    root = etree.fromstring(text.encode())
+    lane_type = {}   # (road id, lane id) -> type
+    for r in root.iter("road"):
+        for ln in r.iter("lane"):
+            lane_type[(r.get("id"), int(ln.get("id")))] = ln.get("type")
+
+    want_side = {"+": -1, "-": 1}
+    seen = {}
+    for sig in root.iter("signal"):
+        if sig.get("type") != "1000001":
+            continue
+        vals = sig.findall("validity")
+        assert vals, f"{sig.get('id')}: no <validity>"
+        rid = sig.getparent().getparent().get("id")
+        lanes = []
+        for v in vals:
+            a, b = int(v.get("fromLane")), int(v.get("toLane"))
+            assert not (a == 0 and b == 0), "a (0, 0) validity is dropped by MapBuilder"
+            lanes += list(range(min(a, b), max(a, b) + 1))
+        for lane in lanes:
+            assert lane != 0
+            assert lane_type[(rid, lane)] == "driving", f"{sig.get('id')}: lane {lane} not driving"
+            assert lane * want_side[sig.get("orientation")] > 0, \
+                f"{sig.get('id')}: lane {lane} is on the oncoming side of orientation " \
+                f"{sig.get('orientation')}"
+        seen[sig.get("id")] = sorted(lanes)
+    assert seen == {"tl_a": [-1], "tl_b": [1]}
+
+    # ... and the client parser gives them back verbatim
+    cmap = carla.Map(m.name, text)
+    got = {str(lm.id): sorted({v for a, b in
+                               [tuple(x) for x in lm.get_lane_validities()]
+                               for v in range(min(a, b), max(a, b) + 1)})
+           for lm in cmap.get_all_landmarks() if lm.type == "1000001"}
+    assert got == seen
+
+
+def test_validity_uses_opendrive_lane_ids_not_model_ids():
+    """``section_ids`` renumbers lanes contiguously outward; the validity must follow."""
+    from twinmodel.export.xodr import _validity_ranges
+    from twinmodel.model import Lane, Signal
+    from shapely.geometry import Point
+    sections = [(0.0, 100.0, [])]
+    # model ids -3, -2 survive but -1 was removed -> OpenDRIVE renumbers them -1, -2
+    ids_per_section = [{-3: -2, -2: -1, 1: 1}]
+    sig = Signal(id="s", kind="traffic_light", road_id="r", s=50.0, t=0.0, position=Point(0, 0),
+                 validities=[(-3, -1)])
+    assert _validity_ranges(sig, sections, ids_per_section) == [(-2, -1)]
+    # a lane the section does not carry is dropped rather than exported as a dangling id
+    sig.validities = [(-9, -9)]
+    assert _validity_ranges(sig, sections, ids_per_section) == []
+    _ = Lane
 
 
 def test_junction_and_links(junction_xodr):
