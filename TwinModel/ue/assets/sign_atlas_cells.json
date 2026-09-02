@@ -38,6 +38,7 @@
      "y": 1,
      "name": "expressway_end",
      "description": "End of expressway (Shuiguan Expressway, text 水官高速; motorway pictogram struck through)",
+     "xodr": "331-2",
      "shape": "SM_SquareShape"
     },
     {
@@ -45,6 +46,7 @@
      "y": 1,
      "name": "distance_100m",
      "description": "Distance plate 100 m (green supplementary plate)",
+     "xodr": "1004-30",
      "shape": "SM_HorRect_03"
     },
     {
@@ -52,6 +54,7 @@
      "y": 2,
      "name": "parking",
      "description": "Parking (white P on blue)",
+     "xodr": "314",
      "osm": "amenity=parking",
      "shape": "SM_SquareShape"
     },
@@ -60,6 +63,7 @@
      "y": 2,
      "name": "direction_left",
      "description": "Direction indication: white arrow pointing left on blue plate",
+     "xodr": "220-10",
      "shape": "SM_HorRect_03"
     },
     {
@@ -67,6 +71,7 @@
      "y": 2,
      "name": "direction_right",
      "description": "Direction indication: white arrow pointing right on blue plate",
+     "xodr": "220-20",
      "shape": "SM_HorRect_04"
     },
     {
@@ -74,6 +79,7 @@
      "y": 2,
      "name": "bus_lane",
      "description": "Bus lane (bus pictogram between dashed lane lines, down arrow)",
+     "xodr": "245",
      "shape": "SM_HorRect_05"
     },
     {
@@ -300,6 +306,7 @@
      "y": 3,
      "name": "bicycles_only",
      "description": "Bicycle lane / non-motor vehicles only (bicycle on blue circle)",
+     "xodr": "237",
      "shape": "SM_CircleShape"
     },
     {
@@ -315,6 +322,7 @@
      "y": 3,
      "name": "pedestrians_only",
      "description": "Pedestrian path / pedestrians only (adult and child on blue circle)",
+     "xodr": "239",
      "shape": "SM_CircleShape"
     },
     {
@@ -357,6 +365,7 @@
      "y": 1,
      "name": "give_way_oncoming",
      "description": "Give way to oncoming traffic (black down arrow, red up arrow in red ring)",
+     "xodr": "208",
      "shape": "SM_CircleShape"
     },
     {
@@ -364,6 +373,7 @@
      "y": 1,
      "name": "priority_oncoming",
      "description": "Priority over oncoming traffic (red down arrow, white up arrow on blue square)",
+     "xodr": "308",
      "shape": "SM_SquareShape"
     },
     {
@@ -481,6 +491,7 @@
      "y": 2,
      "name": "no_overtaking_end",
      "description": "End of no-overtaking zone (grey overtaking pictogram with diagonal stripes)",
+     "xodr": "280",
      "shape": "SM_CircleShape"
     },
     {
@@ -512,6 +523,7 @@
      "y": 3,
      "name": "max_speed_40_end",
      "description": "End of 40 speed limit (grey 40 with diagonal stripes)",
+     "xodr": "278-40",
      "shape": "SM_CircleShape"
     },
     {
@@ -551,6 +563,7 @@
      "y": 4,
      "name": "no_motorcycles",
      "description": "No motorcycles (motorcycle with rider struck through)",
+     "xodr": "255",
      "shape": "SM_CircleShape"
     },
     {
@@ -558,6 +571,7 @@
      "y": 4,
      "name": "no_pedestrians",
      "description": "No pedestrians (walking person struck through)",
+     "xodr": "259",
      "shape": "SM_CircleShape"
     },
     {
@@ -743,6 +757,7 @@
      "y": 1,
      "name": "end_max_speed_5",
      "description": "End of 5 km/h speed limit (black ring, diagonal stripes over 5)",
+     "xodr": "278-5",
      "shape": "SM_CircleShape"
     },
     {
@@ -750,6 +765,7 @@
      "y": 1,
      "name": "end_max_speed_10",
      "description": "End of 10 km/h speed limit (black ring, diagonal stripes over 10)",
+     "xodr": "278-10",
      "shape": "SM_CircleShape"
     },
     {
@@ -757,6 +773,7 @@
      "y": 1,
      "name": "end_max_speed_20",
      "description": "End of 20 km/h speed limit (black ring, diagonal stripes over 20)",
+     "xodr": "278-20",
      "shape": "SM_CircleShape"
     },
     {
@@ -764,6 +781,7 @@
      "y": 1,
      "name": "end_max_speed_30",
      "description": "End of 30 km/h speed limit (black ring, diagonal stripes over 30)",
+     "xodr": "278-30",
      "shape": "SM_CircleShape"
     },
     {
@@ -771,6 +789,7 @@
      "y": 2,
      "name": "end_max_speed_40",
      "description": "End of 40 km/h speed limit (black ring, diagonal stripes over 40)",
+     "xodr": "278-40",
      "shape": "SM_CircleShape"
     },
     {
@@ -778,6 +797,7 @@
      "y": 2,
      "name": "end_max_speed_50",
      "description": "End of 50 km/h speed limit (black ring, diagonal stripes over 50)",
+     "xodr": "278-50",
      "shape": "SM_CircleShape"
     },
     {
@@ -785,6 +805,7 @@
      "y": 2,
      "name": "end_max_speed_60",
      "description": "End of 60 km/h speed limit (black ring, diagonal stripes over 60)",
+     "xodr": "278-60",
      "shape": "SM_CircleShape"
     },
     {
@@ -792,6 +813,7 @@
      "y": 2,
      "name": "end_max_speed_70",
      "description": "End of 70 km/h speed limit (black ring, diagonal stripes over 70)",
+     "xodr": "278-70",
      "shape": "SM_CircleShape"
     },
     {
@@ -799,6 +821,7 @@
      "y": 3,
      "name": "end_max_speed_80",
      "description": "End of 80 km/h speed limit (black ring, diagonal stripes over 80)",
+     "xodr": "278-80",
      "shape": "SM_CircleShape"
     },
     {
@@ -806,6 +829,7 @@
      "y": 3,
      "name": "end_max_speed_90",
      "description": "End of 90 km/h speed limit (black ring, diagonal stripes over 90)",
+     "xodr": "278-90",
      "shape": "SM_CircleShape"
     },
     {
@@ -813,6 +837,7 @@
      "y": 3,
      "name": "end_max_speed_100",
      "description": "End of 100 km/h speed limit (black ring, diagonal stripes over 100)",
+     "xodr": "278-100",
      "shape": "SM_CircleShape"
     },
     {
@@ -820,6 +845,7 @@
      "y": 3,
      "name": "end_max_speed_110",
      "description": "End of 110 km/h speed limit (black ring, diagonal stripes over 110)",
+     "xodr": "278-110",
      "shape": "SM_CircleShape"
     },
     {
@@ -827,6 +853,7 @@
      "y": 4,
      "name": "end_max_speed_120",
      "description": "End of 120 km/h speed limit (black ring, diagonal stripes over 120)",
+     "xodr": "278-120",
      "shape": "SM_CircleShape"
     },
     {
@@ -834,6 +861,7 @@
      "y": 4,
      "name": "end_max_speed_130",
      "description": "End of 130 km/h speed limit (black ring, diagonal stripes over 130)",
+     "xodr": "278-130",
      "shape": "SM_CircleShape"
     },
     {
@@ -866,7 +894,7 @@
      "y": 1,
      "name": "curve_left",
      "description": "Dangerous curve to the left",
-     "xodr": "101",
+     "xodr": "103-10",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -874,7 +902,7 @@
      "y": 1,
      "name": "curve_right",
      "description": "Dangerous curve to the right",
-     "xodr": "101",
+     "xodr": "103-20",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -882,7 +910,7 @@
      "y": 1,
      "name": "steep_hill_down",
      "description": "Steep descent ahead (slope with arrow pointing downhill)",
-     "xodr": "101",
+     "xodr": "108",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -890,7 +918,7 @@
      "y": 2,
      "name": "road_narrows_both",
      "description": "Road narrows on both sides",
-     "xodr": "101",
+     "xodr": "120",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -898,7 +926,7 @@
      "y": 2,
      "name": "road_narrows_right",
      "description": "Road narrows on the right side",
-     "xodr": "121",
+     "xodr": "121-10",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -906,7 +934,7 @@
      "y": 2,
      "name": "road_narrows_left",
      "description": "Road narrows on the left side",
-     "xodr": "121",
+     "xodr": "121-20",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -914,7 +942,7 @@
      "y": 2,
      "name": "two_way_traffic",
      "description": "Two-way traffic ahead (opposing up and down arrows)",
-     "xodr": "101",
+     "xodr": "125",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -922,7 +950,7 @@
      "y": 3,
      "name": "falling_rocks_left",
      "description": "Falling rocks from the left",
-     "xodr": "101",
+     "xodr": "101-15",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -930,7 +958,7 @@
      "y": 3,
      "name": "falling_rocks_right",
      "description": "Falling rocks from the right",
-     "xodr": "101",
+     "xodr": "101-15",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -938,7 +966,7 @@
      "y": 3,
      "name": "crosswind",
      "description": "Dangerous crosswind (windsock)",
-     "xodr": "101",
+     "xodr": "117",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -946,7 +974,7 @@
      "y": 3,
      "name": "crossroads",
      "description": "Crossroads ahead (plus-shaped junction)",
-     "xodr": "101",
+     "xodr": "102",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -993,7 +1021,7 @@
      "y": 1,
      "name": "cattle_crossing",
      "description": "Cattle / livestock crossing (cow pictogram)",
-     "xodr": "101",
+     "xodr": "101-12",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -1001,7 +1029,7 @@
      "y": 1,
      "name": "wild_animals",
      "description": "Wild animals crossing (leaping deer)",
-     "xodr": "101",
+     "xodr": "142",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -1009,7 +1037,7 @@
      "y": 1,
      "name": "traffic_signals_ahead",
      "description": "Traffic signals ahead (red-yellow-green light)",
-     "xodr": "101",
+     "xodr": "131",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -1017,7 +1045,7 @@
      "y": 1,
      "name": "uneven_road",
      "description": "Uneven road surface (two humps)",
-     "xodr": "101",
+     "xodr": "112",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -1033,7 +1061,7 @@
      "y": 2,
      "name": "road_works",
      "description": "Road works ahead (worker digging, orange background)",
-     "xodr": "101",
+     "xodr": "123",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -1041,7 +1069,7 @@
      "y": 2,
      "name": "icy_road",
      "description": "Beware of ice and snow (snowflake on black triangle)",
-     "xodr": "101",
+     "xodr": "101-51",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -1049,7 +1077,7 @@
      "y": 2,
      "name": "traffic_queue",
      "description": "Traffic congestion / queue ahead (queue of cars on black triangle)",
-     "xodr": "101",
+     "xodr": "124",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -1057,7 +1085,7 @@
      "y": 3,
      "name": "double_curve_first_left",
      "description": "Double bend, first to the left then to the right",
-     "xodr": "101",
+     "xodr": "105-10",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -1065,7 +1093,7 @@
      "y": 3,
      "name": "slippery_road",
      "description": "Slippery road (skidding car)",
-     "xodr": "101",
+     "xodr": "114",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -1081,7 +1109,7 @@
      "y": 3,
      "name": "double_curve_first_right",
      "description": "Double bend, first to the right then to the left",
-     "xodr": "101",
+     "xodr": "105-20",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -1098,7 +1126,7 @@
      "y": 4,
      "name": "children",
      "description": "Children crossing / school zone (two running children)",
-     "xodr": "133",
+     "xodr": "136",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -1127,6 +1155,7 @@
      "name": "distance_plaque_500_ft",
      "description": "Yellow supplemental plaque reading 500 FT",
      "meaning": "W16-2a",
+     "xodr": "1004-34",
      "shape": "SM_HorRect_03",
      "category": "Warning"
     },
@@ -1136,6 +1165,7 @@
      "name": "freeway_ends",
      "description": "Yellow diamond reading FREEWAY ENDS",
      "meaning": "W19-3",
+     "xodr": "330-2",
      "shape": "SM_RomboidShape",
      "category": "Warning"
     },
@@ -1145,6 +1175,7 @@
      "name": "freeway_entrance",
      "description": "Green guide sign reading FREEWAY ENTRANCE",
      "meaning": "D13-3",
+     "xodr": "330-1",
      "shape": "SM_HorRect_04"
     },
     {
@@ -1171,6 +1202,7 @@
      "name": "one_way_left",
      "description": "ONE WAY with arrow pointing left",
      "meaning": "R6-2",
+     "xodr": "220-10",
      "shape": "SM_VertRect_03",
      "category": "Mandatory"
     },
@@ -1180,6 +1212,7 @@
      "name": "one_way_right",
      "description": "ONE WAY with arrow pointing right",
      "meaning": "R6-2",
+     "xodr": "220-20",
      "shape": "SM_VertRect_03",
      "category": "Mandatory"
     },
@@ -1200,6 +1233,7 @@
      "name": "parking_2_hr_830am_530pm",
      "description": "Green 2 HR PARKING 8:30 AM TO 5:30 PM with double arrow",
      "meaning": "R7-108",
+     "xodr": "314",
      "shape": "SM_VertRect_02",
      "category": "Information"
     },
@@ -1432,6 +1466,7 @@
      "name": "bike_lane",
      "description": "Bicycle pictogram over the text BIKE LANE",
      "meaning": "R3-17",
+     "xodr": "237",
      "osm": "cycleway=lane",
      "shape": "SM_HorRect_09"
     },
@@ -1635,6 +1670,7 @@
      "name": "pass_with_care",
      "description": "Black-on-white text PASS WITH CARE",
      "meaning": "R4-2",
+     "xodr": "280",
      "shape": "SM_VertRect_03"
     },
     {
@@ -1706,6 +1742,7 @@
      "name": "no_pedestrians",
      "description": "Red circle and slash over a walking-pedestrian pictogram",
      "meaning": "R9-3",
+     "xodr": "259",
      "shape": "SM_SquareShape"
     },
     {
@@ -1713,6 +1750,8 @@
      "y": 4,
      "name": "no_motor_driven_cycles",
      "description": "Black-on-white text NO MOTOR-DRIVEN CYCLES",
+     "meaning": "R5-8",
+     "xodr": "255",
      "shape": "SM_HorRect_07"
     }
    ]
@@ -1737,6 +1776,7 @@
      "y": 1,
      "name": "end_max_speed_5",
      "description": "Black-on-white text END 5 MPH LIMIT",
+     "xodr": "278-5",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1744,6 +1784,7 @@
      "y": 1,
      "name": "end_max_speed_10",
      "description": "Black-on-white text END 10 MPH LIMIT",
+     "xodr": "278-10",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1751,6 +1792,7 @@
      "y": 1,
      "name": "end_max_speed_15",
      "description": "Black-on-white text END 15 MPH LIMIT",
+     "xodr": "278-15",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1758,6 +1800,7 @@
      "y": 2,
      "name": "end_max_speed_20",
      "description": "Black-on-white text END 20 MPH LIMIT",
+     "xodr": "278-20",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1765,6 +1808,7 @@
      "y": 2,
      "name": "end_max_speed_25",
      "description": "Black-on-white text END 25 MPH LIMIT",
+     "xodr": "278-25",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1772,6 +1816,7 @@
      "y": 2,
      "name": "end_max_speed_30",
      "description": "Black-on-white text END 30 MPH LIMIT",
+     "xodr": "278-30",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1779,6 +1824,7 @@
      "y": 2,
      "name": "end_max_speed_35",
      "description": "Black-on-white text END 35 MPH LIMIT",
+     "xodr": "278-35",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1786,6 +1832,7 @@
      "y": 3,
      "name": "end_max_speed_40",
      "description": "Black-on-white text END 40 MPH LIMIT",
+     "xodr": "278-40",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1793,6 +1840,7 @@
      "y": 3,
      "name": "end_max_speed_45",
      "description": "Black-on-white text END 45 MPH LIMIT",
+     "xodr": "278-45",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1800,6 +1848,7 @@
      "y": 3,
      "name": "end_max_speed_50",
      "description": "Black-on-white text END 50 MPH LIMIT",
+     "xodr": "278-50",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1807,6 +1856,7 @@
      "y": 3,
      "name": "end_max_speed_55",
      "description": "Black-on-white text END 55 MPH LIMIT",
+     "xodr": "278-55",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1814,6 +1864,7 @@
      "y": 4,
      "name": "end_max_speed_60",
      "description": "Black-on-white text END 60 MPH LIMIT",
+     "xodr": "278-60",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1821,6 +1872,7 @@
      "y": 4,
      "name": "end_max_speed_65",
      "description": "Black-on-white text END 65 MPH LIMIT",
+     "xodr": "278-65",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1828,6 +1880,7 @@
      "y": 4,
      "name": "end_max_speed_70",
      "description": "Black-on-white text END 70 MPH LIMIT",
+     "xodr": "278-70",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1835,6 +1888,7 @@
      "y": 4,
      "name": "end_max_speed_75",
      "description": "Black-on-white text END 75 MPH LIMIT",
+     "xodr": "278-75",
      "shape": "SM_VertRect_10"
     }
    ]
@@ -1849,6 +1903,7 @@
      "y": 1,
      "name": "end_speed_limit_80",
      "description": "END 80 MPH LIMIT (end of 80 mph speed zone)",
+     "xodr": "278-80",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1856,6 +1911,7 @@
      "y": 1,
      "name": "end_speed_limit_85",
      "description": "END 85 MPH LIMIT (end of 85 mph speed zone)",
+     "xodr": "278-85",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1863,6 +1919,7 @@
      "y": 1,
      "name": "end_speed_limit_90",
      "description": "END 90 MPH LIMIT (end of 90 mph speed zone)",
+     "xodr": "278-90",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1870,6 +1927,7 @@
      "y": 1,
      "name": "end_speed_limit_95",
      "description": "END 95 MPH LIMIT (end of 95 mph speed zone)",
+     "xodr": "278-95",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1877,6 +1935,7 @@
      "y": 2,
      "name": "end_speed_limit_100",
      "description": "END 100 MPH LIMIT (end of 100 mph speed zone)",
+     "xodr": "278-100",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1884,6 +1943,7 @@
      "y": 2,
      "name": "end_speed_limit_105",
      "description": "END 105 MPH LIMIT (end of 105 mph speed zone)",
+     "xodr": "278-105",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1891,6 +1951,7 @@
      "y": 2,
      "name": "end_speed_limit_110",
      "description": "END 110 MPH LIMIT (end of 110 mph speed zone)",
+     "xodr": "278-110",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1898,6 +1959,7 @@
      "y": 2,
      "name": "end_speed_limit_115",
      "description": "END 115 MPH LIMIT (end of 115 mph speed zone)",
+     "xodr": "278-115",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1905,6 +1967,7 @@
      "y": 3,
      "name": "end_speed_limit_120",
      "description": "END 120 MPH LIMIT (end of 120 mph speed zone)",
+     "xodr": "278-120",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1912,6 +1975,7 @@
      "y": 3,
      "name": "end_speed_limit_125",
      "description": "END 125 MPH LIMIT (end of 125 mph speed zone)",
+     "xodr": "278-125",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1919,6 +1983,7 @@
      "y": 3,
      "name": "end_speed_limit_130",
      "description": "END 130 MPH LIMIT (end of 130 mph speed zone)",
+     "xodr": "278-130",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1926,6 +1991,7 @@
      "y": 3,
      "name": "end_speed_limit_135",
      "description": "END 135 MPH LIMIT (end of 135 mph speed zone)",
+     "xodr": "278-135",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1933,6 +1999,7 @@
      "y": 4,
      "name": "end_speed_limit_140",
      "description": "END 140 MPH LIMIT (end of 140 mph speed zone)",
+     "xodr": "278-140",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1940,6 +2007,7 @@
      "y": 4,
      "name": "end_speed_limit_145",
      "description": "END 145 MPH LIMIT (end of 145 mph speed zone)",
+     "xodr": "278-145",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1947,6 +2015,7 @@
      "y": 4,
      "name": "end_speed_limit_150",
      "description": "END 150 MPH LIMIT (end of 150 mph speed zone)",
+     "xodr": "278-150",
      "shape": "SM_VertRect_10"
     },
     {
@@ -1954,6 +2023,7 @@
      "y": 4,
      "name": "end_speed_limit_155",
      "description": "END 155 MPH LIMIT (end of 155 mph speed zone)",
+     "xodr": "278-155",
      "shape": "SM_VertRect_10"
     }
    ]
@@ -2354,7 +2424,7 @@
      "y": 2,
      "name": "road_narrows_both",
      "description": "Road narrows on both sides (both edges bend inward)",
-     "xodr": "121",
+     "xodr": "120",
      "shape": "SM_RomboidShape"
     },
     {
@@ -2478,7 +2548,7 @@
      "y": 1,
      "name": "watch_for_stopped_traffic",
      "description": "WATCH FOR STOPPED TRAFFIC",
-     "xodr": "101",
+     "xodr": "124",
      "shape": "SM_RomboidShape"
     },
     {
@@ -2693,6 +2763,7 @@
      "name": "motorway_end",
      "description": "End of motorway (blue motorway pictogram crossed by a red diagonal bar)",
      "meaning": "E5b",
+     "xodr": "330-2",
      "shape": "SM_VertRect_07"
     },
     {
@@ -2708,6 +2779,7 @@
      "name": "one_way_left",
      "description": "ONE WAY, white arrow pointing left on blue plate",
      "meaning": "E1",
+     "xodr": "220-10",
      "osm": "oneway=yes",
      "shape": "SM_HorRect_12"
     },
@@ -2717,6 +2789,7 @@
      "name": "one_way_right",
      "description": "ONE WAY, white arrow pointing right on blue plate",
      "meaning": "E1",
+     "xodr": "220-20",
      "osm": "oneway=yes",
      "shape": "SM_HorRect_12"
     },
@@ -2726,6 +2799,7 @@
      "name": "parking",
      "description": "Parking, white P on blue square",
      "meaning": "E14",
+     "xodr": "314",
      "osm": "amenity=parking",
      "shape": "SM_SquareShape"
     },
@@ -2735,6 +2809,7 @@
      "name": "bus_stop",
      "description": "Bus stop, black bus pictogram in white panel on blue plate",
      "meaning": "E13",
+     "xodr": "224",
      "osm": "highway=bus_stop",
      "shape": "SM_VertRect_02"
     },
@@ -2753,6 +2828,7 @@
      "name": "distance_200m",
      "description": "Supplementary plate '200 m' (distance to the signed feature), black text on white",
      "meaning": "H1",
+     "xodr": "1004-31",
      "shape": "SM_HorRect_12",
      "category": "Others"
     },
@@ -2912,6 +2988,7 @@
      "name": "cycle_track_mandatory",
      "description": "Compulsory cycle track, white bicycle on blue circle",
      "meaning": "D4",
+     "xodr": "237",
      "osm": "highway=cycleway",
      "shape": "SM_CircleShape"
     },
@@ -2921,6 +2998,7 @@
      "name": "pedestrian_path_mandatory",
      "description": "Compulsory footpath, white adult holding a child's hand on blue circle",
      "meaning": "D5",
+     "xodr": "239",
      "osm": "highway=footway",
      "shape": "SM_CircleShape"
     },
@@ -3031,6 +3109,7 @@
      "name": "shared_cycle_pedestrian_path_mandatory",
      "description": "Compulsory shared path for cyclists and pedestrians, bicycle above walking person on blue circle",
      "meaning": "D11a",
+     "xodr": "240",
      "osm": "highway=path",
      "shape": "SM_CircleShape"
     },
@@ -3075,6 +3154,7 @@
      "name": "give_way_to_oncoming",
      "description": "Give way to oncoming traffic, red up arrow and black down arrow in red-bordered circle",
      "meaning": "B5",
+     "xodr": "208",
      "shape": "SM_CircleShape"
     },
     {
@@ -3083,6 +3163,7 @@
      "name": "give_way_to_oncoming_2",
      "description": "Give way to oncoming traffic, mirrored layout (red up arrow left, black down arrow right) in red-bordered circle",
      "meaning": "B5",
+     "xodr": "208",
      "shape": "SM_CircleShape"
     },
     {
@@ -3091,6 +3172,7 @@
      "name": "priority_over_oncoming",
      "description": "Priority over oncoming traffic, white up arrow and red down arrow on blue square",
      "meaning": "B6",
+     "xodr": "308",
      "shape": "SM_SquareShape"
     },
     {
@@ -3099,6 +3181,7 @@
      "name": "priority_over_oncoming_2",
      "description": "Priority over oncoming traffic, mirrored layout (white up arrow left, red down arrow right) on blue square",
      "meaning": "B6",
+     "xodr": "308",
      "shape": "SM_SquareShape"
     },
     {
@@ -3127,6 +3210,7 @@
      "name": "pedestrian_crossing",
      "description": "Pedestrian crossing, walking person on zebra inside white triangle on blue square",
      "meaning": "E7",
+     "xodr": "350",
      "osm": "highway=crossing",
      "shape": "SM_SquareShape",
      "category": "Information"
@@ -3360,6 +3444,7 @@
      "name": "max_speed_50_end",
      "description": "End of 50 km/h speed limit (grey 50 struck through)",
      "meaning": "C17b",
+     "xodr": "278-50",
      "shape": "SM_CircleShape",
      "category": "SpeedLimit"
     },
@@ -3376,6 +3461,7 @@
      "name": "no_overtaking_end",
      "description": "End of no-overtaking zone (grey cars struck through)",
      "meaning": "C17c",
+     "xodr": "280",
      "shape": "SM_CircleShape"
     },
     {
@@ -3420,6 +3506,7 @@
      "name": "no_motorcycles",
      "description": "No motorcycles",
      "meaning": "C3b",
+     "xodr": "255",
      "shape": "SM_CircleShape"
     },
     {
@@ -3446,6 +3533,7 @@
      "name": "no_pedestrians",
      "description": "No pedestrians",
      "meaning": "C3h",
+     "xodr": "259",
      "shape": "SM_CircleShape"
     },
     {
@@ -3769,7 +3857,7 @@
      "y": 1,
      "name": "traffic_queues",
      "description": "Traffic queues likely ahead (three cars in a column)",
-     "xodr": "101",
+     "xodr": "124",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -3777,7 +3865,7 @@
      "y": 1,
      "name": "crosswind",
      "description": "Dangerous crosswind (wind sock)",
-     "xodr": "101",
+     "xodr": "117",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -3794,7 +3882,7 @@
      "y": 2,
      "name": "snow_or_ice",
      "description": "Risk of snow or ice (snowflake)",
-     "xodr": "101",
+     "xodr": "101-51",
      "shape": "SM_DangerSignShape"
     },
     {
@@ -3898,6 +3986,7 @@
      "name": "children",
      "description": "Children crossing warning, two children walking in red-bordered triangle",
      "meaning": "A12",
+     "xodr": "136",
      "shape": "SM_DangerSignShape"
     },
     {
