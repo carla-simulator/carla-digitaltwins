@@ -211,6 +211,58 @@ def _remove_jogs(coords: list[tuple[float, float]], max_len: Optional[float] = N
     return _dedupe(pts), n_removed
 
 
+def _fillet_corners(coords: list[tuple[float, float]], max_radius: Optional[float] = None,
+                    min_turn_deg: Optional[float] = None, step: Optional[float] = None
+                    ) -> tuple[list[tuple[float, float]], int]:
+    """Round every interior corner of a polyline with a tangent circular arc, sampled every
+    ``step`` m. OSM maps a road as a few straight legs between nodes; a lateral that swerves
+    around a chamfered corner is drawn as two 20-degree corners 10 m apart, and a road built on
+    that polyline kinks there (surface, curbs, markings and the vehicles' paths all follow the
+    corner: the saw-tooth laterals of Passeig de Gracia). The arc radius is ``max_radius``
+    capped so that the two tangent lengths of a corner never take more than half of either
+    adjacent leg (consecutive fillets cannot overlap and the end points never move). Corners
+    turning less than ``min_turn_deg`` are left alone. -> (coords, corners rounded).
+    Defaults: the profile's ``geometry.fillet_*`` and ``connect_sample_m``."""
+    G = profiles.get().geometry
+    max_radius = G.fillet_radius_m if max_radius is None else max_radius
+    min_turn_deg = G.fillet_min_turn_deg if min_turn_deg is None else min_turn_deg
+    step = G.connect_sample_m if step is None else step
+    pts = _dedupe(list(coords))
+    if len(pts) < 3 or max_radius <= 0.0:
+        return pts, 0
+    n = len(pts)
+    legs = [math.dist(pts[i], pts[i + 1]) for i in range(n - 1)]
+    out: list[tuple[float, float]] = [pts[0]]
+    n_round = 0
+    for i in range(1, n - 1):
+        a, b, c = pts[i - 1], pts[i], pts[i + 1]
+        h0, h1 = _heading(a, b), _heading(b, c)
+        turn = _wrap(h1 - h0)
+        if abs(turn) < math.radians(min_turn_deg) or abs(turn) > math.radians(150.0):
+            out.append(b)
+            continue
+        # tangent length t = R tan(turn/2), capped at half of either leg
+        half = abs(math.tan(turn / 2.0))
+        t = min(max_radius * half, 0.5 * legs[i - 1], 0.5 * legs[i])
+        if t < 0.05:
+            out.append(b)
+            continue
+        R = t / half
+        p_in = (b[0] - math.cos(h0) * t, b[1] - math.sin(h0) * t)
+        # centre: p_in offset to the inside of the turn
+        side = 1.0 if turn > 0 else -1.0
+        cx, cy = p_in[0] - math.sin(h0) * R * side, p_in[1] + math.cos(h0) * R * side
+        arc_len = R * abs(turn)
+        k = max(2, int(math.ceil(arc_len / step)))
+        for j in range(k + 1):
+            phi = h0 + turn * j / k
+            # point on the arc: centre + R * (inward normal rotated back)
+            out.append((cx + math.sin(phi) * R * side, cy - math.cos(phi) * R * side))
+        n_round += 1
+    out.append(pts[-1])
+    return _dedupe(out), n_round
+
+
 def _join_offset(a: list[tuple[float, float]], b: list[tuple[float, float]],
                  max_reach: float = 10.0) -> list[tuple[float, float]]:
     """Concatenate two reference lines that were offset separately from OSM lines meeting at a
@@ -1599,6 +1651,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
         road_nodes: dict[str, list[Optional[int]]] = {}
         n_internal = 0
         n_jogs = 0
+        n_fillets = 0
         n_canyon = 0
         n_dual_roads = [0]
         canyon_faces: dict[str, tuple[float, float]] = {}
@@ -1608,6 +1661,8 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             nodes = ch.nodes
             xy, nj = _remove_jogs(_dedupe(ch.xy))
             n_jogs += nj
+            xy, nr = _fillet_corners(xy)
+            n_fillets += nr
             if len(xy) < 2:
                 continue
             head = ch.segments[0]
@@ -1706,7 +1761,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                 r.tags["street_width_guarded"] = True
         stats["canyon_roads"] = n_canyon
         stats["dual_carriageways"] = n_dual_roads[0]
-        return roads, road_end_cluster, road_end_node, road_nodes, n_internal, n_jogs
+        return roads, road_end_cluster, road_end_node, road_nodes, n_internal, n_jogs, n_fillets
 
     # 7. trim roads at junctions (cluster hull buffered by half the road width + margin). Trims
     #    are s-intervals on the shifted, untrimmed line so an end can be re-cut (a neighbour
@@ -1807,7 +1862,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     while True:
         n_iter += 1
         clusters, node_cluster = make_clusters()
-        roads, road_end_cluster, road_end_node, road_nodes, n_internal, n_jogs = roads_from_chains(node_cluster)
+        roads, road_end_cluster, road_end_node, road_nodes, n_internal, n_jogs, n_fillets = roads_from_chains(node_cluster)
         orig_line = {r.id: _line2d(r.reference_line) for r in roads}
         max_half = defaultdict(float)
         for r in roads:
@@ -1853,6 +1908,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     stats["roads_internal_to_junctions"] = n_internal
     stats["roads_dropped_by_trim"] = len(dropped)
     stats["jogs_removed"] = n_jogs
+    stats["corners_rounded"] = n_fillets
     stats["ramps_skipped"] = n_ramps
     stats["chamfer_trims"] = n_chamfer[0]
     by_id = {r.id: r for r in roads}

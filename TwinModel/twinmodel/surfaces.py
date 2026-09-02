@@ -21,6 +21,7 @@ from typing import Iterable, Optional
 
 import numpy as np
 import shapely
+import shapely.prepared
 from shapely import wkt as shapely_wkt
 from shapely.geometry import (GeometryCollection, LineString, MultiLineString, MultiPolygon,
                               Point, Polygon, box)
@@ -41,6 +42,12 @@ SIMPLIFY_TOL = 0.05
 GRID = 0.001            # precision grid for all overlays (mm) -> robust shared boundaries
 MITRE_LIMIT = 2.0
 MIN_SURFACE_AREA = 0.5  # m^2, drop slivers below this
+# a raised part this thin (mean width = area / half perimeter) is a construction sliver between
+# two drivable pieces (a junction polygon and its arm's band, a plate cut twice), not a plate:
+# it is paved as drivable instead of standing as a 15 cm curb across the traffic path
+SLIVER_MEAN_WIDTH_M = 0.4
+SLIVER_MAX_AREA = 30.0
+SLIT_CLOSE_M = 0.25  # closing radius on the drivable surface (see build_surfaces step 2)
 MIN_ISLAND_AREA = 2.0   # m^2, smaller drivable holes are filled instead of becoming islands
 MAX_ISLAND_AREA = 400.0  # m^2, larger holes are city blocks (kept as holes, no island surface)
 EDGE_MARKING_INSET = 0.10  # outermost edge lines are drawn this far inside the carriageway
@@ -816,6 +823,69 @@ def junction_cover_polygon(model: TwinModel, j: Junction,
     return Polygon(poly.exterior, holes)
 
 
+# a step in the drivable boundary -- two near-parallel edges joined by a short jog across the
+# traffic direction -- is a wall to a vehicle hugging that edge (the sidewalk plate fills the
+# notch and carries a curb across the path). Steps this deep get a tapered pavement wedge.
+# Found at Carrer de Valencia / Passeig de Gracia (Eixample j2, the plaza is 2 m wider than the
+# road at the crossing): 121 collision events in 40 s, out/look_demo/bumps/.
+STEP_MIN_M = 0.25
+STEP_MAX_M = 5.0
+STEP_EDGE_MIN_M = 3.0           # both edges of a step must be at least this long
+STEP_PARALLEL_DEG = 12.0        # ... and within this heading
+STEP_JOG_DEG = 35.0             # the jog within this angle of perpendicular to them
+STEP_TAPER_ANGLE_DEG = 8.0      # the wedge closes at this angle to the edge
+STEP_TAPER_MIN_M = 6.0
+STEP_TAPER_MAX_M = 25.0
+
+
+def boundary_step_wedges(drivable: BaseGeometry, buildings: BaseGeometry | None = None) -> list[Polygon]:
+    """Wedges that fill every step of the drivable boundary (exterior rings and holes): for a
+    vertex run A-B-C-D with AB || CD, BC short and across them, a triangle on the base BC
+    whose apex lies ``STEP_TAPER_*`` m along the narrower side's edge, on the outside of the
+    polygon, so the edge turns continuously instead of stepping."""
+    tan_a = math.tan(math.radians(STEP_TAPER_ANGLE_DEG))
+    par = math.radians(STEP_PARALLEL_DEG)
+    jog = math.radians(STEP_JOG_DEG)
+    out: list[Polygon] = []
+    prepared = shapely.prepared.prep(drivable)
+    for poly in _parts(drivable):
+        for ring in [poly.exterior] + list(poly.interiors):
+            pts = np.asarray(ring.coords, dtype=np.float64)[:-1]
+            n = len(pts)
+            if n < 4:
+                continue
+            for i in range(n):
+                a, b, c, d = pts[i], pts[(i + 1) % n], pts[(i + 2) % n], pts[(i + 3) % n]
+                ab, bc, cd = b - a, c - b, d - c
+                lab, lbc, lcd = (float(np.linalg.norm(v)) for v in (ab, bc, cd))
+                if not (STEP_MIN_M <= lbc <= STEP_MAX_M) or lab < STEP_EDGE_MIN_M or lcd < STEP_EDGE_MIN_M:
+                    continue
+                hab, hbc, hcd = (math.atan2(v[1], v[0]) for v in (ab, bc, cd))
+                if abs((hcd - hab + math.pi) % (2 * math.pi) - math.pi) > par:
+                    continue
+                cross = abs((hbc - hab + math.pi) % (2 * math.pi) - math.pi)
+                if abs(cross - math.pi / 2) > jog:
+                    continue
+                depth = lbc * abs(math.sin(cross))
+                T = min(STEP_TAPER_MAX_M, max(STEP_TAPER_MIN_M, depth / tan_a))
+                # apex on the edge that continues on the narrower side: whichever triangle
+                # lies outside the polygon fills the notch
+                cands = [Polygon([tuple(b), tuple(c), tuple(c + cd / lcd * min(T, lcd))]),
+                         Polygon([tuple(c), tuple(b), tuple(b - ab / lab * min(T, lab))])]
+                for tri in cands:
+                    if tri.area < 0.05 or not tri.is_valid:
+                        continue
+                    if prepared.contains(Point(tri.centroid)):
+                        continue
+                    if buildings is not None and not buildings.is_empty:
+                        tri = _keep_touching(_clean(tri.difference(buildings)), LineString([tuple(b), tuple(c)]))
+                    for part in _parts(tri):
+                        if part.area > 0.05:
+                            out.append(part)
+                    break
+    return out
+
+
 def junction_polygon(model: TwinModel, j: Junction,
                      carriageways: dict[str, Polygon | MultiPolygon],
                      cover: str = "convex", plaza: BaseGeometry | None = None,
@@ -1251,6 +1321,7 @@ def build_surfaces(model: TwinModel,
     keep_out_cache: dict[float, BaseGeometry] = {}
     n_plaza = 0
     n_capped = 0
+    n_mouth_tapers = 0
     plaza_ratios: dict[str, float] = {}
     for j in model.junctions:
         if j.tags.get("polygon_source") == "surfaces":
@@ -1336,6 +1407,28 @@ def build_surfaces(model: TwinModel,
     # 2. drivable ---------------------------------------------------------------------------
     lanegraph_drivable = _clean(unary_union(list(carriageways.values()) + list(junction_polys.values())))
     lanegraph_drivable = _clean(lanegraph_drivable.simplify(SIMPLIFY_TOL, preserve_topology=True))
+    # steps in the boundary (junction pavement wider than its arm, a carriageway narrower than
+    # the plaza at a crossing, ...) become tapers; a second pass catches steps the first uncovered.
+    # Nothing added here may pave into a parking lot (its own surface, step 4b).
+    _lots = [shapely_wkt.loads(w) for w in model.metadata.get("parking_lots_wkt", []) or []]
+    _lots_union = _clean(unary_union(_lots)) if _lots else Polygon()
+    _base_drivable = lanegraph_drivable
+    for _pass in range(2):
+        wedges = boundary_step_wedges(lanegraph_drivable, buildings)
+        if not wedges:
+            break
+        n_mouth_tapers += len(wedges)
+        lanegraph_drivable = _clean(unary_union([lanegraph_drivable] + wedges))
+        lanegraph_drivable = _clean(lanegraph_drivable.simplify(SIMPLIFY_TOL, preserve_topology=True))
+    # morphological closing: slits and notches narrower than 2 x SLIT_CLOSE_M (a wedge base on
+    # the old step edge, a junction polygon and its arm's band meeting at a hair's distance)
+    # would otherwise stand as a 15 cm curb across the lane
+    lanegraph_drivable = _clean(lanegraph_drivable.buffer(SLIT_CLOSE_M, join_style="mitre")
+                                .buffer(-SLIT_CLOSE_M, join_style="mitre"))
+    if not _lots_union.is_empty:
+        added = _clean(lanegraph_drivable.difference(_base_drivable))
+        lanegraph_drivable = _clean(unary_union([_base_drivable, added.difference(_lots_union)]))
+    lanegraph_drivable = _clean(lanegraph_drivable.simplify(SIMPLIFY_TOL, preserve_topology=True))
     source = "osm_tags"
     layers = sorted({road_layer[rid] for rid in carriageways} | set(junction_layer.values()))
     refined_by_layer: dict[Optional[int], Polygon | MultiPolygon] = {}
@@ -1385,6 +1478,8 @@ def build_surfaces(model: TwinModel,
                 hole = Polygon(ring)
                 if hole.area < MIN_ISLAND_AREA:
                     continue
+                if hole.area / max(hole.length / 2.0, 1e-6) < SLIVER_MEAN_WIDTH_M:
+                    continue  # a slit between two drivable pieces, not an island: paved
                 keep_holes.append(ring)
                 in_lot = (not lots_union.is_empty
                           and lots_union.intersection(hole).area > 0.5 * hole.area)
@@ -1527,6 +1622,7 @@ def build_surfaces(model: TwinModel,
         raised_parts["sidewalk"].append((wrap, f"junction:{j.id}"))
 
     raised_union_parts: list[BaseGeometry] = []
+    paved_slivers: list[tuple[BaseGeometry, Optional[int]]] = []  # thin raised parts paved as drivable
     walk_parts: list[tuple[BaseGeometry, Optional[int]]] = []   # (geometry, OSM layer): sidewalk + median
     verge_parts: list[tuple[BaseGeometry, Optional[int]]] = []
     sidewalk_so_far: BaseGeometry = Polygon()
@@ -1564,6 +1660,10 @@ def build_surfaces(model: TwinModel,
                 # sidewalk wins where the two meet (corner aprons): sidewalk ∩ verge = 0
                 geom = _clean(geom.difference(sidewalk_so_far), min_area=MIN_SURFACE_AREA)
             for part in _parts(geom):
+                if (part.area <= SLIVER_MAX_AREA
+                        and part.area / max(part.length / 2.0, 1e-6) < SLIVER_MEAN_WIDTH_M):
+                    paved_slivers.append((part, lay))
+                    continue
                 rids = [rid for g, rid in group if not rid.startswith("junction:") and g.intersects(part)]
                 jids = [rid.split(":", 1)[1] for g, rid in group
                         if rid.startswith("junction:") and g.intersects(part)]
@@ -1579,6 +1679,12 @@ def build_surfaces(model: TwinModel,
             kept.append(geom)
         if kind == "sidewalk":
             sidewalk_so_far = _clean(unary_union(kept)) if kept else Polygon()
+
+    for k, (part, lay) in enumerate(paved_slivers):
+        model.surfaces.append(Surface(
+            id=f"drivable_sliver_{k}", kind="drivable", geometry=part, z_offset=0.0, source="osm_tags",
+            tags={"layer": lay, "sliver": True} if lay is not None else {"sliver": True}))
+    stats["slivers_paved"] = len(paved_slivers)
 
     # islands: whatever part of a small hole is not already sidewalk
     sidewalk_union = _clean(unary_union(raised_union_parts)) if raised_union_parts else Polygon()
@@ -1714,6 +1820,18 @@ def build_surfaces(model: TwinModel,
                     model.markings.append(Marking(kind=mk.kind, color=mk.color, width=mk.width,
                                                   geometry=line, layer=part_layer([r.id], [])))
 
+    # paved slivers never double a parking-lot surface (step 4b came after them)
+    parking_union = _clean(unary_union([s.geometry for s in model.surfaces if s.kind == "parking"]))
+    if not parking_union.is_empty:
+        keep = []
+        for s in model.surfaces:
+            if s.kind == "drivable" and s.tags.get("sliver"):
+                g = _clean(s.geometry.difference(parking_union), min_area=0.05)
+                if g.is_empty:
+                    continue
+                s.geometry = g
+            keep.append(s)
+        model.surfaces[:] = keep
     stats.update({
         "profile": P.name,
         "drivable_area": float(drivable.area),
@@ -1725,6 +1843,7 @@ def build_surfaces(model: TwinModel,
         "marking_count": len(model.markings),
         "junctions_with_polygon": len(junction_polys),
         "junctions_with_plaza": n_plaza,
+        "boundary_steps_tapered": n_mouth_tapers,
         "junctions_plaza_capped": n_capped,
         "plaza_ratio_max": float(max(plaza_ratios.values())) if plaza_ratios else 0.0,
         "junction_cover": cover,

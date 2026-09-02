@@ -25,7 +25,10 @@ IN = 0.0254
 # sha256 of tests/synthetic.four_way_junction() -> build_surfaces -> export_obj under EU_DENSE,
 # computed on 2026-09-01 *before* the profile refactor (the .obj carries no date; the .mtl is
 # not part of the digest, it gains a ``verge`` material).
-FOURWAY_OBJ_SHA256 = "b5f03361e4c876fbccd2c76c48fb7e6227238ccf3ec70ee9a0e07b3a8d1f7e3f"
+# Re-pinned 2026-09-02: the drivable surface now gets a 0.25 m morphological closing (slits and
+# notches -> pavement, surfaces.SLIT_CLOSE_M); on this scene it changes areas by 0.001 m2 (float
+# noise in the vertex list), no step or sliver is found (stats boundary_steps_tapered 0).
+FOURWAY_OBJ_SHA256 = "b0edb8773fbaf0760c394af99c34ac096c1441b8a661f9400b30341efdcf4ba8"
 
 
 def _union(model, kind):

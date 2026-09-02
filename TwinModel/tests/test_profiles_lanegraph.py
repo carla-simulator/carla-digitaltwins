@@ -31,9 +31,14 @@ CARRIAGEWAY = ("driving", "parking", "biking", "shoulder")
 #   class at 3.5-3.6 m, min_width (taper floor) 3.0 -> 3.3 m, canyon_max_width 3.5 -> 3.8 m,
 #   max_width 3.75 -> 4.0 m (CARLA's ambulance is 2.35 m wide, the fire truck 2.90 m). One
 #   taper piece fewer (the wider floor no longer splits it); junctions and connections unchanged.
+# - 00e2ee5d4009... / (194, 15, 129): 2026-09-02 corner fillets — every interior corner of a
+#   reference line is rounded with an arc (GeometryRules.fillet_radius_m 30 m, capped by the
+#   legs), so the laterals of Passeig de Gracia no longer saw-tooth at the OSM jog nodes;
+#   trimmed lines simplified at 3 cm instead of 10 cm. Lane widths/links unchanged except where
+#   a rounded line changed a taper split; junctions and connections unchanged.
 # EU_DENSE must reproduce the pin exactly: a different value means the default build changed
 # behaviour, not just its plumbing.
-EU_DENSE_CHECKSUM = "d1a5dd259e6dff6f9c53037f4613da17a7b61bc08caa78556548bb87843fc39c"
+EU_DENSE_CHECKSUM = "00e2ee5d40096ff29c0b42056938fc59cce7eb2fb549850b9186035d8bea7cd8"
 EU_DENSE_COUNTS = (194, 15, 129)  # roads (incl. connecting), junctions, connections
 
 

@@ -259,6 +259,9 @@ class GeometryRules:
     jog_min_turn_deg: float    # ... turning at least this at both ends, same heading after
     jog_transition_m: float
     street_width_outlier: float  # a piece's street width may deviate this much from its street's median
+    fillet_radius_m: float = 30.0   # round every interior corner of a reference line with an arc
+                                    # of (at most) this radius (0: keep the OSM corners)
+    fillet_min_turn_deg: float = 1.5  # ... when it turns at least this much
 
 
 @dataclass(frozen=True)
@@ -428,7 +431,7 @@ EU_DENSE = StreetProfile(
                            # carril de aceleracion ~200 m + cuna 75 m, deceleracion ~120 m + 75 m
                            gore_model="junction", gore_merge_lane_m=200.0, gore_merge_taper_m=75.0,
                            gore_diverge_lane_m=120.0, gore_diverge_taper_m=75.0),
-    geometry=GeometryRules(min_road_length=1.0, connect_sample_m=1.0, simplify_m=0.1,
+    geometry=GeometryRules(min_road_length=1.0, connect_sample_m=1.0, simplify_m=0.03,
                            width_step_m=1.0, taper_max_m=15.0, taper_pieces_max=3, jog_max_m=5.0,
                            jog_min_turn_deg=45.0, jog_transition_m=10.0, street_width_outlier=0.25),
     streetspace=StreetSpaceRules(canyon_min_fraction=0.6, max_face_dist_m=40.0, face_sample_step_m=4.0,
@@ -527,7 +530,7 @@ US_URBAN = StreetProfile(
                            gore_model="taper", gore_merge_lane_m=900 * FT, gore_merge_taper_m=300 * FT,
                            gore_diverge_lane_m=500 * FT, gore_diverge_taper_m=300 * FT,
                            gore_nose_m=2.5, gore_blend_m=40.0, gore_clear_m=5 * FT),
-    geometry=GeometryRules(min_road_length=1.0, connect_sample_m=1.0, simplify_m=0.1,
+    geometry=GeometryRules(min_road_length=1.0, connect_sample_m=1.0, simplify_m=0.03,
                            width_step_m=1.0, taper_max_m=25.0, taper_pieces_max=3, jog_max_m=5.0,
                            jog_min_turn_deg=45.0, jog_transition_m=10.0, street_width_outlier=0.25),
     streetspace=StreetSpaceRules(canyon_min_fraction=0.6, max_face_dist_m=40.0, face_sample_step_m=4.0,
