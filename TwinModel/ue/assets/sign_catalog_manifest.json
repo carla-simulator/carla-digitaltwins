@@ -12,7 +12,7 @@
    "unique": false,
    "x": 4,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "245",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Guide/DA_dead_end": {
@@ -41,8 +41,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_GuideSignAtlas_01",
    "unique": false,
    "x": 2,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "10",
+   "xodr_type": "220",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Guide/DA_direction_right": {
@@ -56,8 +56,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_GuideSignAtlas_01",
    "unique": false,
    "x": 3,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "20",
+   "xodr_type": "220",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Guide/DA_distance_100m": {
@@ -71,8 +71,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_GuideSignAtlas_01",
    "unique": false,
    "x": 4,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "30",
+   "xodr_type": "1004",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Guide/DA_expressway_end": {
@@ -86,8 +86,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_GuideSignAtlas_01",
    "unique": false,
    "x": 3,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "2",
+   "xodr_type": "331",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Guide/DA_lanes_increase": {
@@ -119,7 +119,7 @@
    "unique": false,
    "x": 1,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "314",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Information/DA_fuel_station": {
@@ -202,7 +202,7 @@
    "unique": false,
    "x": 2,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "237",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Mandatory/DA_go_left": {
@@ -277,7 +277,7 @@
    "unique": false,
    "x": 4,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "239",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Mandatory/DA_roundabout": {
@@ -401,7 +401,7 @@
    "unique": false,
    "x": 2,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "208",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Priority/DA_priority_oncoming": {
@@ -416,7 +416,7 @@
    "unique": false,
    "x": 3,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "308",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Priority/DA_priority_road": {
@@ -462,8 +462,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 2,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "10",
+   "xodr_type": "278",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Prohibitory/DA_end_max_speed_100": {
@@ -477,8 +477,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 3,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "100",
+   "xodr_type": "278",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Prohibitory/DA_end_max_speed_110": {
@@ -492,8 +492,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 4,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "110",
+   "xodr_type": "278",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Prohibitory/DA_end_max_speed_120": {
@@ -507,8 +507,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 1,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "120",
+   "xodr_type": "278",
    "y": 4
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Prohibitory/DA_end_max_speed_130": {
@@ -522,8 +522,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 2,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "130",
+   "xodr_type": "278",
    "y": 4
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Prohibitory/DA_end_max_speed_20": {
@@ -537,8 +537,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 3,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "20",
+   "xodr_type": "278",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Prohibitory/DA_end_max_speed_30": {
@@ -552,8 +552,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 4,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "30",
+   "xodr_type": "278",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Prohibitory/DA_end_max_speed_40": {
@@ -567,8 +567,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 1,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "40",
+   "xodr_type": "278",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Prohibitory/DA_end_max_speed_5": {
@@ -582,8 +582,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 1,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "5",
+   "xodr_type": "278",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Prohibitory/DA_end_max_speed_50": {
@@ -597,8 +597,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 2,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "50",
+   "xodr_type": "278",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Prohibitory/DA_end_max_speed_60": {
@@ -612,8 +612,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 3,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "60",
+   "xodr_type": "278",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Prohibitory/DA_end_max_speed_70": {
@@ -627,8 +627,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 4,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "70",
+   "xodr_type": "278",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Prohibitory/DA_end_max_speed_80": {
@@ -642,8 +642,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 1,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "80",
+   "xodr_type": "278",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Prohibitory/DA_end_max_speed_90": {
@@ -657,8 +657,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 2,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "90",
+   "xodr_type": "278",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Prohibitory/DA_height_limit_3_5m": {
@@ -687,8 +687,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_ProhibitorySignAtlas_01",
    "unique": false,
    "x": 1,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "40",
+   "xodr_type": "278",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Prohibitory/DA_no_bicycles": {
@@ -763,7 +763,7 @@
    "unique": false,
    "x": 2,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "255",
    "y": 4
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Prohibitory/DA_no_overtaking": {
@@ -793,7 +793,7 @@
    "unique": false,
    "x": 1,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "280",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Prohibitory/DA_no_parking": {
@@ -823,7 +823,7 @@
    "unique": false,
    "x": 3,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "259",
    "y": 4
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Prohibitory/DA_no_right_turn": {
@@ -1195,7 +1195,7 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_WarningSignAtlas_02",
    "unique": false,
    "x": 1,
-   "xodr_subtype": "",
+   "xodr_subtype": "12",
    "xodr_type": "101",
    "y": 1
   },
@@ -1211,7 +1211,7 @@
    "unique": false,
    "x": 2,
    "xodr_subtype": "",
-   "xodr_type": "133",
+   "xodr_type": "136",
    "y": 4
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Warning/DA_crossroads": {
@@ -1226,7 +1226,7 @@
    "unique": false,
    "x": 4,
    "xodr_subtype": "",
-   "xodr_type": "101",
+   "xodr_type": "102",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Warning/DA_crosswind": {
@@ -1241,7 +1241,7 @@
    "unique": false,
    "x": 3,
    "xodr_subtype": "",
-   "xodr_type": "101",
+   "xodr_type": "117",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Warning/DA_curve_left": {
@@ -1255,8 +1255,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_WarningSignAtlas_01",
    "unique": false,
    "x": 2,
-   "xodr_subtype": "",
-   "xodr_type": "101",
+   "xodr_subtype": "10",
+   "xodr_type": "103",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Warning/DA_curve_right": {
@@ -1270,8 +1270,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_WarningSignAtlas_01",
    "unique": false,
    "x": 3,
-   "xodr_subtype": "",
-   "xodr_type": "101",
+   "xodr_subtype": "20",
+   "xodr_type": "103",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Warning/DA_double_curve_first_left": {
@@ -1285,8 +1285,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_WarningSignAtlas_02",
    "unique": false,
    "x": 1,
-   "xodr_subtype": "",
-   "xodr_type": "101",
+   "xodr_subtype": "10",
+   "xodr_type": "105",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Warning/DA_double_curve_first_right": {
@@ -1300,8 +1300,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_WarningSignAtlas_02",
    "unique": false,
    "x": 4,
-   "xodr_subtype": "",
-   "xodr_type": "101",
+   "xodr_subtype": "20",
+   "xodr_type": "105",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Warning/DA_falling_rocks_left": {
@@ -1315,7 +1315,7 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_WarningSignAtlas_01",
    "unique": false,
    "x": 1,
-   "xodr_subtype": "",
+   "xodr_subtype": "15",
    "xodr_type": "101",
    "y": 3
   },
@@ -1330,7 +1330,7 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_WarningSignAtlas_01",
    "unique": false,
    "x": 2,
-   "xodr_subtype": "",
+   "xodr_subtype": "15",
    "xodr_type": "101",
    "y": 3
   },
@@ -1345,7 +1345,7 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_WarningSignAtlas_02",
    "unique": false,
    "x": 3,
-   "xodr_subtype": "",
+   "xodr_subtype": "51",
    "xodr_type": "101",
    "y": 2
   },
@@ -1408,7 +1408,7 @@
    "unique": false,
    "x": 1,
    "xodr_subtype": "",
-   "xodr_type": "101",
+   "xodr_type": "120",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Warning/DA_road_narrows_left": {
@@ -1422,7 +1422,7 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_WarningSignAtlas_01",
    "unique": false,
    "x": 3,
-   "xodr_subtype": "",
+   "xodr_subtype": "20",
    "xodr_type": "121",
    "y": 2
   },
@@ -1437,7 +1437,7 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/GB/T_GB_WarningSignAtlas_01",
    "unique": false,
    "x": 2,
-   "xodr_subtype": "",
+   "xodr_subtype": "10",
    "xodr_type": "121",
    "y": 2
   },
@@ -1453,7 +1453,7 @@
    "unique": false,
    "x": 2,
    "xodr_subtype": "",
-   "xodr_type": "101",
+   "xodr_type": "123",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Warning/DA_roundabout_ahead": {
@@ -1543,7 +1543,7 @@
    "unique": false,
    "x": 2,
    "xodr_subtype": "",
-   "xodr_type": "101",
+   "xodr_type": "114",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Warning/DA_steep_hill_down": {
@@ -1558,7 +1558,7 @@
    "unique": false,
    "x": 4,
    "xodr_subtype": "",
-   "xodr_type": "101",
+   "xodr_type": "108",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Warning/DA_traffic_queue": {
@@ -1573,7 +1573,7 @@
    "unique": false,
    "x": 4,
    "xodr_subtype": "",
-   "xodr_type": "101",
+   "xodr_type": "124",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Warning/DA_traffic_signals_ahead": {
@@ -1588,7 +1588,7 @@
    "unique": false,
    "x": 3,
    "xodr_subtype": "",
-   "xodr_type": "101",
+   "xodr_type": "131",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Warning/DA_two_way_traffic": {
@@ -1603,7 +1603,7 @@
    "unique": false,
    "x": 4,
    "xodr_subtype": "",
-   "xodr_type": "101",
+   "xodr_type": "125",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Warning/DA_uneven_road": {
@@ -1618,7 +1618,7 @@
    "unique": false,
    "x": 4,
    "xodr_subtype": "",
-   "xodr_type": "101",
+   "xodr_type": "112",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/GB/Warning/DA_wild_animals": {
@@ -1633,7 +1633,7 @@
    "unique": false,
    "x": 2,
    "xodr_subtype": "",
-   "xodr_type": "101",
+   "xodr_type": "142",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Guide/DA_freeway_entrance_D13_3": {
@@ -1647,8 +1647,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_GuideSignAtlas_01",
    "unique": false,
    "x": 3,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "1",
+   "xodr_type": "330",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Information/DA_food_D9_8": {
@@ -1714,7 +1714,7 @@
    "unique": false,
    "x": 1,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "314",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Information/DA_telephone_D9_1": {
@@ -1748,7 +1748,7 @@
    "unique": false,
    "x": 1,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "237",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Mandatory/DA_keep_right_R4_7a": {
@@ -1807,8 +1807,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_GuideSignAtlas_01",
    "unique": false,
    "x": 2,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "10",
+   "xodr_type": "220",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Mandatory/DA_one_way_right_R6_2": {
@@ -1822,8 +1822,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_GuideSignAtlas_01",
    "unique": false,
    "x": 3,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "20",
+   "xodr_type": "220",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Mandatory/DA_pedestrian_crosswalk_text": {
@@ -2025,8 +2025,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_02",
    "unique": false,
    "x": 3,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "10",
+   "xodr_type": "278",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_max_speed_15": {
@@ -2040,8 +2040,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_02",
    "unique": false,
    "x": 4,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "15",
+   "xodr_type": "278",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_max_speed_20": {
@@ -2055,8 +2055,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_02",
    "unique": false,
    "x": 1,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "20",
+   "xodr_type": "278",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_max_speed_25": {
@@ -2070,8 +2070,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_02",
    "unique": false,
    "x": 2,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "25",
+   "xodr_type": "278",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_max_speed_30": {
@@ -2085,8 +2085,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_02",
    "unique": false,
    "x": 3,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "30",
+   "xodr_type": "278",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_max_speed_35": {
@@ -2100,8 +2100,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_02",
    "unique": false,
    "x": 4,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "35",
+   "xodr_type": "278",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_max_speed_40": {
@@ -2115,8 +2115,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_02",
    "unique": false,
    "x": 1,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "40",
+   "xodr_type": "278",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_max_speed_45": {
@@ -2130,8 +2130,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_02",
    "unique": false,
    "x": 2,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "45",
+   "xodr_type": "278",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_max_speed_5": {
@@ -2145,8 +2145,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_02",
    "unique": false,
    "x": 2,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "5",
+   "xodr_type": "278",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_max_speed_50": {
@@ -2160,8 +2160,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_02",
    "unique": false,
    "x": 3,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "50",
+   "xodr_type": "278",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_max_speed_55": {
@@ -2175,8 +2175,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_02",
    "unique": false,
    "x": 4,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "55",
+   "xodr_type": "278",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_max_speed_60": {
@@ -2190,8 +2190,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_02",
    "unique": false,
    "x": 1,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "60",
+   "xodr_type": "278",
    "y": 4
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_max_speed_65": {
@@ -2205,8 +2205,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_02",
    "unique": false,
    "x": 2,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "65",
+   "xodr_type": "278",
    "y": 4
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_max_speed_70": {
@@ -2220,8 +2220,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_02",
    "unique": false,
    "x": 3,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "70",
+   "xodr_type": "278",
    "y": 4
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_max_speed_75": {
@@ -2235,8 +2235,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_02",
    "unique": false,
    "x": 4,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "75",
+   "xodr_type": "278",
    "y": 4
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_speed_limit_100": {
@@ -2250,8 +2250,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 1,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "100",
+   "xodr_type": "278",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_speed_limit_105": {
@@ -2265,8 +2265,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 2,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "105",
+   "xodr_type": "278",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_speed_limit_110": {
@@ -2280,8 +2280,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 3,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "110",
+   "xodr_type": "278",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_speed_limit_115": {
@@ -2295,8 +2295,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 4,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "115",
+   "xodr_type": "278",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_speed_limit_120": {
@@ -2310,8 +2310,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 1,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "120",
+   "xodr_type": "278",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_speed_limit_125": {
@@ -2325,8 +2325,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 2,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "125",
+   "xodr_type": "278",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_speed_limit_130": {
@@ -2340,8 +2340,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 3,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "130",
+   "xodr_type": "278",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_speed_limit_135": {
@@ -2355,8 +2355,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 4,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "135",
+   "xodr_type": "278",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_speed_limit_140": {
@@ -2370,8 +2370,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 1,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "140",
+   "xodr_type": "278",
    "y": 4
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_speed_limit_145": {
@@ -2385,8 +2385,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 2,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "145",
+   "xodr_type": "278",
    "y": 4
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_speed_limit_150": {
@@ -2400,8 +2400,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 3,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "150",
+   "xodr_type": "278",
    "y": 4
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_speed_limit_155": {
@@ -2415,8 +2415,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 4,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "155",
+   "xodr_type": "278",
    "y": 4
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_speed_limit_80": {
@@ -2430,8 +2430,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 1,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "80",
+   "xodr_type": "278",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_speed_limit_85": {
@@ -2445,8 +2445,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 2,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "85",
+   "xodr_type": "278",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_speed_limit_90": {
@@ -2460,8 +2460,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 3,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "90",
+   "xodr_type": "278",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_end_speed_limit_95": {
@@ -2475,8 +2475,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_ProhibitorySignAtlas_03",
    "unique": false,
    "x": 4,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "95",
+   "xodr_type": "278",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_max_speed_100_R2_1": {
@@ -3036,11 +3036,11 @@
    "xodr_type": "",
    "y": 1
   },
-  "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_no_motor_driven_cycles": {
+  "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_no_motor_driven_cycles_R5_8": {
    "category": "Prohibitory",
-   "meaning": "",
+   "meaning": "R5-8",
    "mesh": "/CarlaDigitalTwinsTool/Carla/Static/Signs/SignShapes/HorShapes/SM_HorRect_07",
-   "mi": "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/Materials/MI_no_motor_driven_cycles",
+   "mi": "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/Materials/MI_no_motor_driven_cycles_R5_8",
    "name": "no_motor_driven_cycles",
    "osm_tags": [],
    "style": "MUTCD",
@@ -3048,7 +3048,7 @@
    "unique": false,
    "x": 4,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "255",
    "y": 4
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_no_motor_vehicles_R5_3": {
@@ -3110,7 +3110,7 @@
    "unique": false,
    "x": 3,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "259",
    "y": 4
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_no_right_turn_R3_1": {
@@ -3200,7 +3200,7 @@
    "unique": false,
    "x": 3,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "280",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Prohibitory/DA_road_closed_R11_2": {
@@ -3411,8 +3411,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_GuideSignAtlas_01",
    "unique": false,
    "x": 1,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "34",
+   "xodr_type": "1004",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Warning/DA_fallen_rocks_W8_14": {
@@ -3441,8 +3441,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/MUTCD/T_MUTCD_GuideSignAtlas_01",
    "unique": false,
    "x": 2,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "2",
+   "xodr_type": "330",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Warning/DA_gusty_winds_area_W8_21": {
@@ -3564,7 +3564,7 @@
    "unique": false,
    "x": 3,
    "xodr_subtype": "",
-   "xodr_type": "121",
+   "xodr_type": "120",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Warning/DA_rough_road_W8_8": {
@@ -3774,7 +3774,7 @@
    "unique": false,
    "x": 4,
    "xodr_subtype": "",
-   "xodr_type": "101",
+   "xodr_type": "124",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/MUTCD/Warning/DA_workers_ahead_W21_1a": {
@@ -3836,7 +3836,7 @@
    "unique": false,
    "x": 2,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "224",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Guide/DA_campus_saludable": {
@@ -3970,8 +3970,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/VC/T_VC_GuideSignAtlas_01",
    "unique": false,
    "x": 1,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "2",
+   "xodr_type": "330",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Guide/DA_one_way_left_E1": {
@@ -3987,8 +3987,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/VC/T_VC_GuideSignAtlas_01",
    "unique": false,
    "x": 3,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "10",
+   "xodr_type": "220",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Guide/DA_one_way_right_E1": {
@@ -4004,8 +4004,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/VC/T_VC_GuideSignAtlas_01",
    "unique": false,
    "x": 4,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "20",
+   "xodr_type": "220",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Guide/DA_parking_E14": {
@@ -4022,7 +4022,7 @@
    "unique": false,
    "x": 1,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "314",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Guide/DA_roundabout_cerdanyola": {
@@ -4193,7 +4193,7 @@
    "unique": false,
    "x": 1,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "350",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Information/DA_restaurant": {
@@ -4244,7 +4244,7 @@
    "unique": false,
    "x": 1,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "237",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Mandatory/DA_keep_left_D2": {
@@ -4291,7 +4291,7 @@
    "unique": false,
    "x": 2,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "239",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Mandatory/DA_roundabout_mandatory_D3": {
@@ -4342,7 +4342,7 @@
    "unique": false,
    "x": 2,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "240",
    "y": 4
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Mandatory/DA_straight_ahead_mandatory_D1a": {
@@ -4461,8 +4461,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/VC/T_VC_GuideSignAtlas_01",
    "unique": false,
    "x": 4,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "31",
+   "xodr_type": "1004",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Priority/DA_give_way_B1": {
@@ -4494,7 +4494,7 @@
    "unique": false,
    "x": 4,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "208",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Priority/DA_give_way_to_oncoming_B5": {
@@ -4509,7 +4509,7 @@
    "unique": false,
    "x": 3,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "208",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Priority/DA_priority_over_oncoming_2_B6": {
@@ -4524,7 +4524,7 @@
    "unique": false,
    "x": 2,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "308",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Priority/DA_priority_over_oncoming_B6": {
@@ -4539,7 +4539,7 @@
    "unique": false,
    "x": 1,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "308",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Priority/DA_priority_road_B3": {
@@ -4738,7 +4738,7 @@
    "unique": false,
    "x": 4,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "255",
    "y": 2
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Prohibitory/DA_no_overtaking_2_C13a": {
@@ -4783,7 +4783,7 @@
    "unique": false,
    "x": 3,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "280",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Prohibitory/DA_no_parking_C18": {
@@ -4813,7 +4813,7 @@
    "unique": false,
    "x": 3,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "259",
    "y": 3
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Prohibitory/DA_no_right_turn_C11b": {
@@ -5057,8 +5057,8 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/VC/T_VC_ProhibitorySignAtlas_02",
    "unique": false,
    "x": 1,
-   "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_subtype": "50",
+   "xodr_type": "278",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/SpeedLimit/DA_max_speed_5_C14": {
@@ -5173,7 +5173,7 @@
    "unique": false,
    "x": 1,
    "xodr_subtype": "",
-   "xodr_type": "",
+   "xodr_type": "136",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Warning/DA_crossroads_with_priority_A19": {
@@ -5203,7 +5203,7 @@
    "unique": false,
    "x": 4,
    "xodr_subtype": "",
-   "xodr_type": "101",
+   "xodr_type": "117",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Warning/DA_curve_left_A1a": {
@@ -5547,7 +5547,7 @@
    "texture": "/CarlaDigitalTwinsTool/Carla/Static/Signs/DataAssetsTextures/SignsAtlases/VC/T_VC_WarningSignAtlas_02",
    "unique": false,
    "x": 2,
-   "xodr_subtype": "",
+   "xodr_subtype": "51",
    "xodr_type": "101",
    "y": 2
   },
@@ -5593,7 +5593,7 @@
    "unique": false,
    "x": 3,
    "xodr_subtype": "",
-   "xodr_type": "101",
+   "xodr_type": "124",
    "y": 1
   },
   "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Warning/DA_traffic_signals_ahead_A16": {
