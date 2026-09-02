@@ -225,6 +225,44 @@ def ensure_dataasset(p, mesh, tex, mi, dry):
     return "created" if created else ("updated" if changed else "unchanged")
 
 
+def cell_key(texture, x, y, unique, mesh):
+    return (texture, int(x), int(y), bool(unique), mesh if unique else "")
+
+
+def rename_stale(plans, root):
+    """The asset name carries the convention code (DA_<name>[_<code>]); when a cell's name or code
+    changes in the map, rename the existing DataAsset + material instance instead of creating a
+    second pair (keeps level references and the hardlinked content repo in sync)."""
+    existing = {}
+    for path in EAL.list_assets(root, recursive=True, include_folder=False):
+        path = path.split(".")[0]
+        if "/Materials/" in path or not path.rsplit("/", 1)[-1].startswith("DA_"):
+            continue
+        da = load_or_none(path)
+        if da is None or not isinstance(da, unreal.SignDataAsset):
+            continue
+        tex = da.get_editor_property("diffuse")
+        mesh = da.get_editor_property("sign_mesh")
+        if tex is None:
+            continue
+        key = cell_key(tex.get_path_name().split(".")[0], da.get_editor_property("id_x"), da.get_editor_property("id_y"),
+                       da.get_editor_property("unique"), mesh.get_path_name().split(".")[0] if mesh else "")
+        existing[key] = path
+    n = 0
+    for p in plans:
+        if EAL.does_asset_exist(p["da"]):
+            continue
+        old = existing.get(cell_key(p["texture"], p["x"], p["y"], p["unique"], p["mesh"]))
+        if not old or old == p["da"]:
+            continue
+        old_mi = "%s/Materials/MI_%s" % (old.rsplit("/", 1)[0], old.rsplit("/", 1)[1][3:])
+        ok = EAL.rename_asset(old, p["da"])
+        ok_mi = EAL.rename_asset(old_mi, p["mi"]) if EAL.does_asset_exist(old_mi) and not EAL.does_asset_exist(p["mi"]) else True
+        log("rename %s -> %s (%s), material %s" % (old, p["da"], ok, ok_mi))
+        n += 1 if ok else 0
+    return n
+
+
 def verify(plans):
     """Reload every planned asset and audit its fields; returns the list of problems."""
     problems = []
@@ -301,6 +339,8 @@ def main(argv):
         raise RuntimeError("atlas material instance missing: " + ATLAS_MI)
     counts = {}
     manifest = {}
+    if not args.dry_run:
+        counts["renamed"] = rename_stale(plans, args.root)
     for i, p in enumerate(plans):
         mesh = EAL.load_asset(p["mesh"])
         tex = EAL.load_asset(p["texture"])
