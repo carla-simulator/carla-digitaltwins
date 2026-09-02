@@ -30,8 +30,9 @@ def _load(path: Path = TOOL, name: str = "region_review_page"):
 rr = _load()
 tv = _load(ROOT / "tools" / "carla_topview.py", "carla_topview")
 
-# the generator never decodes the mosaic, it only base64s it, so a marker payload is enough
+# the generator never decodes the imagery, it only base64s it, so a marker payload is enough
 FAKE_JPEG = b"\xff\xd8\xff\xe0" + b"twin-topview-mosaic" * 8 + b"\xff\xd9"
+FAKE_WEBP = b"RIFF\x00\x00\x00\x00WEBPVP8 " + b"twin-detail-tile" * 8
 
 
 # --------------------------------------------------------------------------------- primitives
@@ -236,6 +237,19 @@ def images(tmp_path) -> Path:
         "px_per_m": 5.0, "cm_per_px": 0.2, "tiles": [4, 3], "tile_px": 1250,
         "camera": {"alt": 300.0, "fov": 50.0, "res": 3072, "yaw": -90.0}}))
     (d / "topview_ToyLevel.jpg").write_bytes(FAKE_JPEG)
+    tiles = []
+    (d / "detail_ToyLevel").mkdir()
+    for i, j in [(1, 1), (2, 1), (1, 2), (2, 2)]:
+        f = f"detail_ToyLevel/tile_{i}_{j}.webp"
+        (d / f).write_bytes(FAKE_WEBP + bytes([i, j]))
+        tiles.append({"i": i, "j": j, "file": f, "bytes": len(FAKE_WEBP) + 2,
+                      "bounds": [-250.0 + i * 250, -250.0 + j * 250,
+                                 -250.0 + (i + 1) * 250, -250.0 + (j + 1) * 250]})
+    (d / "topview_ToyLevel_detail.json").write_text(json.dumps({
+        "map": "ToyLevel", "level": 1, "grid": {"x0": -250.0, "y0": -250.0, "nx": 4, "ny": 3,
+                                                "tile_m": 250.0},
+        "bounds": [-250.0, -250.0, 750.0, 500.0], "tile_px": 4167, "sub": 3, "sub_px": 1389,
+        "px_per_m": 16.668, "cm_per_px": 6.0, "tiles": tiles}))
     return d
 
 
@@ -303,6 +317,85 @@ def test_page_defaults_to_the_render_with_signals_and_junctions_on(twin):
     for k, v in on.items():
         if k not in ("image", "signals", "junctions"):
             assert v == "0", f"{k} should default off now the render is the base"
+
+
+# ------------------------------------------------------------------------------ image pyramid
+
+def test_load_detail_reads_the_manifest_and_every_tile(images):
+    import base64
+    meta, srcs = rr.load_detail(images, "ToyLevel")
+    assert meta["cm_per_px"] == 6.0 and meta["tile_px"] == 4167
+    assert len(meta["tiles"]) == 4 and set(srcs) == {"1,1", "2,1", "1,2", "2,2"}
+    assert meta["bytes"] == sum(len(FAKE_WEBP) + 2 for _ in range(4))
+    for key, src in srcs.items():
+        assert src.startswith("data:image/webp;base64,")
+        assert base64.b64decode(src.split(",", 1)[1]).startswith(b"RIFF")
+    # every tile is a whole material tile, on the grid, and square
+    for t in meta["tiles"]:
+        b = t["b"]
+        assert (b[2] - b[0], b[3] - b[1]) == (250.0, 250.0)
+        assert b[0] % 250 == 0 and b[1] % 250 == 0
+        assert (b[0], b[1]) == (-250.0 + t["i"] * 250, -250.0 + t["j"] * 250)
+
+
+def test_load_detail_skips_a_tile_whose_file_vanished(images):
+    (images / "detail_ToyLevel" / "tile_2_2.webp").unlink()
+    meta, srcs = rr.load_detail(images, "ToyLevel")
+    assert len(meta["tiles"]) == 3 and "2,2" not in srcs
+
+
+def test_load_detail_is_optional(tmp_path):
+    assert rr.load_detail(tmp_path, "Nothing") == (None, {})
+
+
+def test_detail_tiles_cover_the_populated_part_of_the_map(twin, images):
+    """Level 1 only covers the material tiles that hold map; the rest fall back to level 0."""
+    meta, _ = rr.load_detail(images, "ToyLevel")
+    covered = {(t["i"], t["j"]) for t in meta["tiles"]}
+    b = rr.extract_twin(twin, "Toy", "ToyLevel")["bounds"]
+    cx, cy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+    hit = rr.detail_tiles_for_viewport(meta, [cx, cy, cx, cy])
+    assert len(hit) == 1 and (hit[0]["i"], hit[0]["j"]) in covered
+
+
+def test_detail_viewport_selection_is_the_lazy_decode_list(images):
+    meta, _ = rr.load_detail(images, "ToyLevel")
+    # dead centre of tile 1,1 -> just that tile
+    one = rr.detail_tiles_for_viewport(meta, [10.0, 10.0, 90.0, 90.0])
+    assert [(t["i"], t["j"]) for t in one] == [(1, 1)]
+    # straddling the 1,1 / 2,2 corner -> the four around it
+    four = rr.detail_tiles_for_viewport(meta, [240.0, 240.0, 260.0, 260.0])
+    assert sorted((t["i"], t["j"]) for t in four) == [(1, 1), (1, 2), (2, 1), (2, 2)]
+    # off the map entirely -> nothing decodes
+    assert rr.detail_tiles_for_viewport(meta, [-2000.0, -2000.0, -1800.0, -1800.0]) == []
+    # the whole map -> every tile, but the page only asks for this when zoomed out, where the
+    # threshold keeps level 1 switched off
+    assert len(rr.detail_tiles_for_viewport(meta, [-1e4, -1e4, 1e4, 1e4])) == len(meta["tiles"])
+
+
+def test_page_embeds_detail_tiles_as_separate_lazy_sources(twin, images):
+    p = rr.extract_twin(twin, "Toy", "ToyLevel")
+    imeta, isrc = rr.load_image(images, "ToyLevel")
+    dmeta, dsrcs = rr.load_detail(images, "ToyLevel")
+    p["image"], p["detail"] = imeta, dmeta
+    html = rr.build_page([p], {"ToyLevel": isrc}, {"ToyLevel": dsrcs}, single=True)
+    assert html.count('<script type="text/plain" data-detail="ToyLevel|') == 4
+    assert "data:image/webp;base64," in html
+    # the level-1 sources must NOT be <img src>: that would decode all of them on load
+    assert 'src="data:image/webp' not in html
+    assert "MAX_DETAIL_TILES" in html and "DETAIL_K" in html
+    assert 'e.img.src = ""' in html                    # the eviction actually drops the bitmap
+
+
+def test_single_map_page_has_a_label_not_a_picker(twin, images):
+    p = rr.extract_twin(twin, "Toy", "ToyLevel")
+    html = rr.build_page([p], single=True)
+    assert html.startswith("<title>Toy Twin Review</title>")
+    assert '<select id="mapsel">' not in html
+    assert 'id="maplabel">Toy<' in html
+    combined = rr.build_page([p])
+    assert combined.startswith("<title>Twin Region Review</title>")
+    assert '<select id="mapsel">' in combined
 
 
 def test_page_without_images_is_still_vector_only(twin):
@@ -413,8 +506,29 @@ def test_real_twins_stay_inside_the_size_budget():
             images[level] = src
         payloads.append(p)
     html = rr.build_page(payloads, images)
-    # the whole page, base64 mosaics included, has to stay well under the 16 MB artifact cap
+    # the combined overview page carries every map at level 0 only
     assert len(html.encode()) < 12_000_000, f"page is {len(html.encode())/1e6:.2f} MB"
+
+
+@pytest.mark.skipif(not (ROOT / "out" / "review" / "topview_Sunnyvale_detail.json").exists(),
+                    reason="no captured detail tiles in out/review")
+def test_each_per_map_page_stays_inside_the_size_budget():
+    """Each map's own page carries its level-1 tiles; three maps' worth in one page would not fit."""
+    d_out = ROOT / "out" / "review"
+    for name, level, d in _real_maps():
+        p = rr.extract_twin(d, name, level)
+        imeta, isrc = rr.load_image(d_out, level)
+        dmeta, dsrcs = rr.load_detail(d_out, level)
+        if not dmeta:
+            continue
+        p["image"], p["detail"] = imeta, dmeta
+        html = rr.build_page([p], {level: isrc} if isrc else {}, {level: dsrcs}, single=True)
+        mb = len(html.encode()) / 1e6
+        assert mb < 12.0, f"{name} page is {mb:.2f} MB"
+        assert dmeta["cm_per_px"] <= 8.0, f"{name} detail is only {dmeta['cm_per_px']} cm/px"
+        assert len(dmeta["tiles"]) == len(dsrcs) >= 4, name
+        # level 1 must be strictly finer than level 0, or the pyramid is pointless
+        assert dmeta["px_per_m"] > imeta["px_per_m"] * 2, name
 
 
 @pytest.mark.skipif(not (ROOT / "out" / "review" / "topview_Sunnyvale.json").exists(),

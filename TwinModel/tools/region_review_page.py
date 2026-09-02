@@ -3,16 +3,28 @@ regions (polygons / polylines / points) can be drawn and commented on.  Everythi
 draws is stored in the artifact's shared database (collection ``regions``, one document per region)
 so Claude can read the feedback back with model *and* CARLA coordinates.
 
-    python tools/carla_topview.py --port 3000 --out out/review     # renders the base layer
+    python tools/carla_topview.py --port 3000 --out out/review            # level 0, 20 cm/px
+    python tools/carla_topview.py --port 3000 --out out/review --detail   # level 1, 6 cm/px
     python tools/region_review_page.py --out out/review/region_review.html
 
-The base layer is the real CARLA render: ``tools/carla_topview.py`` mosaics a top-down capture of
-each map from a running server and drops ``topview_<Level>.jpg`` + ``.json`` next to the page;
-``--images`` points at that directory (the page's own output directory by default) and the JPEGs
-are embedded as data URIs.  The vector layers are still there, now as optional overlays -- off by
-default apart from signals and junction labels -- with an opacity slider, so a reviewer can flick
-them on to check what the geometry claims against what CARLA actually drew.  Without the images
-the page falls back to the vector-only view it had before.
+The base layer is the real CARLA render as a two-level image pyramid, captured by
+``tools/carla_topview.py`` from a running server: level 0 is one 20 cm/px mosaic of the whole map,
+level 1 is one 6 cm/px image per 250 m material tile.  ``--images`` points at that directory (the
+page's own output directory by default); level 0 is embedded as a JPEG data URI and each level-1
+tile as a WebP one.  Level 1 draws only for tiles that intersect the viewport once the view is
+zoomed past ``DETAIL_K`` screen pixels per model metre, and its images are decoded lazily and
+evicted, because a whole map at 6 cm/px would be a 17000 px image and over a gigabyte decoded.
+
+The vector layers are still there, now as optional overlays -- off by default apart from signals
+and junction labels -- with an opacity slider, so a reviewer can flick them on to check what the
+geometry claims against what CARLA actually drew.  Without the images the page falls back to the
+vector-only view it had before.
+
+Pages.  ``region_review.html`` carries every map at level 0 (the overview, and the map picker).
+Each map also gets ``region_review_<Level>.html`` with its own level-1 tiles, because three maps'
+detail tiles in one page would blow past the artifact size cap; a per-map page has a static map
+label instead of the picker.  Every page uses the same ``regions`` collection and document schema,
+so each published artifact keeps its own feedback.
 
 The page is written as artifact page *content* (no ``<html>``/``<head>``/``<body>`` wrapper): the
 host wraps it and adds the charset/viewport meta plus a small reset.
@@ -114,6 +126,50 @@ def load_image(image_dir: Path | str, carla_map: str) -> tuple[dict, str] | tupl
         "camera": raw.get("camera") or {},
     }
     return (meta, "data:image/jpeg;base64," + base64.b64encode(blob).decode("ascii"))
+
+
+def load_detail(image_dir: Path | str, carla_map: str) -> tuple[dict, dict[str, str]] | tuple[None, dict]:
+    """``topview_<carla_map>_detail.json`` + its per-tile WebPs -> (payload meta, {"i,j": data URI}).
+
+    The tiles are kept apart rather than stitched: the page decodes only the ones on screen.
+    """
+    d = Path(image_dir)
+    man = d / f"topview_{carla_map}_detail.json"
+    if not man.exists():
+        return (None, {})
+    raw = json.loads(man.read_text())
+    tiles: list[dict] = []
+    srcs: dict[str, str] = {}
+    total = 0
+    for e in raw.get("tiles") or []:
+        p = d / e["file"]
+        if not p.exists():
+            log.warning("%s: detail tile %s missing", carla_map, e["file"])
+            continue
+        blob = p.read_bytes()
+        key = "%d,%d" % (e["i"], e["j"])
+        tiles.append({"i": int(e["i"]), "j": int(e["j"]), "b": [float(v) for v in e["bounds"]]})
+        srcs[key] = "data:image/webp;base64," + base64.b64encode(blob).decode("ascii")
+        total += len(blob)
+    if not tiles:
+        return (None, {})
+    meta = {
+        "px_per_m": float(raw["px_per_m"]), "cm_per_px": float(raw["cm_per_px"]),
+        "tile_m": float((raw.get("grid") or {}).get("tile_m") or 250.0),
+        "tile_px": int(raw["tile_px"]), "tiles": tiles, "bytes": total,
+    }
+    return (meta, srcs)
+
+
+def detail_tiles_for_viewport(detail: dict, view: Sequence[float]) -> list[dict]:
+    """The level-1 tiles a ``[xmin, ymin, xmax, ymax]`` model-frame viewport touches.
+
+    The page runs exactly this test before it decodes anything; it lives here so it can be tested
+    without a browser.
+    """
+    x0, y0, x1, y1 = view
+    return [t for t in detail["tiles"]
+            if not (t["b"][2] < x0 or t["b"][0] > x1 or t["b"][3] < y0 or t["b"][1] > y1)]
 
 
 def simplify(coords: Sequence[Sequence[float]], closed: bool) -> list[int]:
@@ -471,11 +527,18 @@ aside{position:relative}
 JS = r"""
 (() => {
 "use strict";
-const MAPS = {}, BASE = {};
+const MAPS = {}, BASE = {}, DETAIL = {};
 document.querySelectorAll('script[type="application/json"][data-map]').forEach(s => {
   const d = JSON.parse(s.textContent); MAPS[d.carla_map] = d;
 });
 document.querySelectorAll("img[data-mapimg]").forEach(im => { BASE[im.dataset.mapimg] = im; });
+// level-1 sources stay as *text*: making an Image out of one decodes 17 megapixels, so that is
+// done lazily, only for the tiles on screen, and undone again when they scroll away.
+document.querySelectorAll('script[type="text/plain"][data-detail]').forEach(s => {
+  const cut = s.dataset.detail.indexOf("|");
+  const map = s.dataset.detail.slice(0, cut), key = s.dataset.detail.slice(cut + 1);
+  (DETAIL[map] = DETAIL[map] || {})[key] = s.textContent.trim();
+});
 const ORDER = Object.keys(MAPS);
 const LS = "twin-region-review:";
 const CATEGORIES = ["materials","signals","signs","geometry","buildings","vegetation","other"];
@@ -503,6 +566,10 @@ const EXTRA_LAYERS = [
 const DEFAULT_ON = {image:1,ground:0,verge:0,median:0,island:0,parking:0,drivable:0,sidewalk:0,
   crossing:0,buildings:0,curbs:0,markings:0,roads:0,trees:0,signals:1,junctions:1,grid:0};
 const DEFAULT_VEC_OPACITY = 70;       // percent, the overlay alpha; the base image is never faded
+// Level 0 is 5 image px per metre, so it goes soft once the view passes about half that; level 1
+// is 16.7 px/m and takes over there.  4 resident tiles is ~280 MB decoded, which is the ceiling.
+const DETAIL_K = 2.5;                 // screen px per model metre at which level 1 takes over
+const MAX_DETAIL_TILES = 4;
 const SIG_COLOR = {traffic_light:"--sig-tl",traffic_light_arrow:"--sig-tl",traffic_light_ped:"--sig-ped",
   stop:"--sig-stop",yield:"--sig-yield",speed_limit:"--sig-speed",priority_road:"--sig-yield",
   crosswalk:"--sig-other",traffic_sign:"--sig-other"};
@@ -524,7 +591,7 @@ const store = {
 
 const S = {
   map: null, cx: 0, cy: 0, k: 1, on: Object.assign({}, DEFAULT_ON, store.get("layers", {})),
-  op: store.get("vecopacity", DEFAULT_VEC_OPACITY),
+  op: store.get("vecopacity", DEFAULT_VEC_OPACITY), detail: 0,
   mode: null, draft: [], cursor: null, regions: new Map(), hover: null, sel: null,
   pending: null, ro: true, mouse: null,
 };
@@ -626,16 +693,63 @@ function glyph(x, y, kind, r){
     g.arc(x, y, r, 0, 6.2832);
   }
 }
-/* The mosaic is north-up over its own model-frame rectangle, so it goes through exactly the
+/* Every render is north-up over its own model-frame rectangle, so it goes through exactly the
    transform the vectors use: its top-left corner is (bounds[0], bounds[3]).  Mirrors
    `model_to_image_pixel` in the generator. */
+const TCACHE = new Map();             // "Map|i,j" -> {img, used}
+let FRAME = 0;
+
+function detailImage(map, key){
+  const id = map + "|" + key;
+  let e = TCACHE.get(id);
+  if (!e){
+    const src = (DETAIL[map] || {})[key];
+    if (!src) return null;
+    const img = new Image();
+    img.decoding = "async";
+    img.addEventListener("load", () => draw());
+    img.src = src;                    // this is the decode; nothing before it costs memory
+    e = {img: img};
+    TCACHE.set(id, e);
+  }
+  e.used = FRAME;
+  return e.img;
+}
+function evictDetail(){
+  if (TCACHE.size <= MAX_DETAIL_TILES) return;
+  const rows = [...TCACHE.entries()].sort((a, b) => (a[1].used || 0) - (b[1].used || 0));
+  for (const [id, e] of rows){
+    if (TCACHE.size <= MAX_DETAIL_TILES) break;
+    if (e.used === FRAME) continue;   // still on screen
+    e.img.src = "";                   // drop the decoded bitmap, keep the string in the DOM
+    TCACHE.delete(id);
+  }
+}
 function drawBase(m){
   const img = BASE[S.map], meta = m.image;
-  if (!img || !meta || !img.complete || !img.naturalWidth) return false;
-  const b = meta.bounds;
-  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
-  g.drawImage(img, sx(b[0]), sy(b[3]), (b[2]-b[0])*S.k, (b[3]-b[1])*S.k);
-  return true;
+  let drew = 0;
+  if (img && meta && img.complete && img.naturalWidth){
+    const b = meta.bounds;
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+    g.drawImage(img, sx(b[0]), sy(b[3]), (b[2]-b[0])*S.k, (b[3]-b[1])*S.k);
+    drew = 1;
+  }
+  S.detail = 0;
+  if (m.detail && S.k >= DETAIL_K){
+    FRAME++;
+    const vx0 = wx(0), vx1 = wx(W), vy0 = wy(H), vy1 = wy(0);
+    for (const t of m.detail.tiles){
+      const b = t.b;
+      if (b[2] < vx0 || b[0] > vx1 || b[3] < vy0 || b[1] > vy1) continue;
+      const di = detailImage(S.map, t.i + "," + t.j);
+      if (di && di.complete && di.naturalWidth){
+        g.drawImage(di, sx(b[0]), sy(b[3]), (b[2]-b[0])*S.k, (b[3]-b[1])*S.k);
+        S.detail++;
+      }
+    }
+    evictDetail();
+  }
+  return drew || S.detail > 0;
 }
 function draw(){
   const m = MAPS[S.map]; if (!m || !W) return;
@@ -779,6 +893,12 @@ function updateScale(){
   for (const p of [1,2,5,10,20,50,100,200,500,1000,2000,5000]){ if (p*S.k <= want) best = p; }
   $("#scalebar .bar").style.width = (best*S.k).toFixed(1) + "px";
   $("#scalebar .lab").textContent = best >= 1000 ? (best/1000) + " km" : best + " m";
+  const m = MAPS[S.map], el = $("#ro-level");
+  if (!el) return;
+  if (!S.on.image || !m.image) el.textContent = "off";
+  else if (S.detail) el.textContent = "L1 " + Math.round(100/m.detail.px_per_m) + " cm/px ×" + S.detail;
+  else el.textContent = "L0 " + Math.round(100/m.image.px_per_m) + " cm/px" +
+    (m.detail ? " · zoom in for L1" : "");
 }
 
 /* ----------------------------------------------------------------------------- interaction */
@@ -1095,9 +1215,17 @@ function refreshCounts(){
   }
   const miss = $("#nobase");
   miss.hidden = !!(m.image && BASE[S.map]);
+  const hint = $("#basehint");
+  hint.innerHTML = !m.image ? "" : m.detail
+    ? ("Two levels: " + Math.round(100/m.image.px_per_m) + " cm/px over the whole map, and " +
+       m.detail.tiles.length + " tiles at " + Math.round(100/m.detail.px_per_m) +
+       " cm/px that swap in when you zoom past the scale bar's 50 m mark.")
+    : ("One level at " + Math.round(100/m.image.px_per_m) + " cm/px. The detail tiles live on " +
+       "each map's own page.");
 }
 function setMap(name, keepView){
-  S.map = name; store.set("map", name);
+  S.map = name;
+  if ($("#mapsel")) store.set("map", name);
   const m = prepare(MAPS[name]);
   $("#mapmeta").innerHTML =
     'origin <span class="mono">' + m.origin.lat + ", " + m.origin.lon + "</span> · " +
@@ -1108,7 +1236,8 @@ function setMap(name, keepView){
   if (!keepView) fit(m);
   refreshCounts(); setMode(null); S.sel = null; renderList(); draw();
 }
-$("#mapsel").addEventListener("change", e => setMap(e.target.value));
+// a per-map page has a static label instead of the picker
+if ($("#mapsel")) $("#mapsel").addEventListener("change", e => setMap(e.target.value));
 $("#tools").addEventListener("click", e => {
   const b = e.target.closest("button[data-mode]"); if (!b || S.ro) return;
   setMode(S.mode === b.dataset.mode ? null : b.dataset.mode);
@@ -1159,13 +1288,21 @@ function setReadOnly(on, why){
 applyStoredTheme();
 readPalette();
 buildLayerUI();
-$("#mapsel").innerHTML = ORDER.map(k =>
-  '<option value="' + esc(k) + '">' + esc(MAPS[k].name) + "</option>").join("");
 $("#f-cat").innerHTML = CATEGORIES.map(c => '<option value="' + c + '">' + c + "</option>").join("");
 $("#f-prio").innerHTML = PRIORITIES.map(c => '<option value="' + c + '"' +
   (c === "normal" ? " selected" : "") + ">" + c + "</option>").join("");
-const saved = store.get("map", null);
-$("#mapsel").value = ORDER.includes(saved) ? saved : ORDER[0];
+let startMap = ORDER[0];
+if ($("#mapsel")){
+  $("#mapsel").innerHTML = ORDER.map(k =>
+    '<option value="' + esc(k) + '">' + esc(MAPS[k].name) + "</option>").join("");
+  const saved = store.get("map", null);
+  $("#mapsel").value = ORDER.includes(saved) ? saved : ORDER[0];
+  startMap = $("#mapsel").value;
+}
+// read-only view of the pyramid's state, so the headless check can assert what is decoded
+window.twinReviewState = () => ({map: S.map, k: S.k, detailDrawn: S.detail,
+  detailCached: TCACHE.size, detailAvailable: Object.keys(DETAIL[S.map] || {}).length,
+  maxDetail: MAX_DETAIL_TILES, layers: Object.assign({}, S.on)});
 Object.values(BASE).forEach(im => im.addEventListener("load", () => draw()));
 new ResizeObserver(resize).observe(cv);
 window.addEventListener("resize", resize);
@@ -1173,7 +1310,7 @@ if (window.matchMedia) try {
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { readPalette(); draw(); });
 } catch(e){}
 resize();
-setMap($("#mapsel").value);
+setMap(startMap);
 setReadOnly(true, "Connecting to the shared store… drawing is disabled until it answers.");
 setStatus("connecting…", "");
 
@@ -1223,7 +1360,7 @@ BODY = """
   <div class="scroll">
     <section>
       <h2>Map</h2>
-      <label><select id="mapsel"></select></label>
+      {{PICKER}}
       <p class="hint" id="mapmeta"></p>
       <div class="rowline"><button type="button" class="wide" id="fitbtn">Fit map to view</button></div>
     </section>
@@ -1241,6 +1378,7 @@ BODY = """
     <section>
       <h2>Base</h2>
       <div class="layers" id="baselayer"></div>
+      <p class="hint" id="basehint"></p>
       <p class="hint" id="nobase" hidden>No render captured for this map — run
         <span class="mono">tools/carla_topview.py</span> against a running server and rebuild.</p>
     </section>
@@ -1284,6 +1422,7 @@ BODY = """
       <div><span>model x,y</span><span id="ro-model">–</span></div>
       <div><span>carla x,y</span><span id="ro-carla">–</span></div>
       <div><span>tile 250 m</span><span id="ro-tile">–</span></div>
+      <div><span>render</span><span id="ro-level">–</span></div>
     </div>
   </div>
   <div id="zoombox">
@@ -1294,10 +1433,16 @@ BODY = """
 """
 
 
-def build_page(maps: Sequence[dict], images: dict[str, str] | None = None) -> str:
-    """``maps`` are :func:`extract_twin` payloads (each may carry an ``image`` meta block);
-    ``images`` maps the CARLA level name to the base-layer data URI."""
+def build_page(maps: Sequence[dict], images: dict[str, str] | None = None,
+               details: dict[str, dict[str, str]] | None = None, single: bool = False) -> str:
+    """``maps`` are :func:`extract_twin` payloads (each may carry ``image``/``detail`` meta blocks);
+    ``images`` maps the CARLA level name to the level-0 data URI and ``details`` maps it to
+    ``{"i,j": level-1 data URI}``.  ``single`` swaps the map picker for a static label."""
     images = images or {}
+    details = details or {}
+    one = maps[0] if (single and len(maps) == 1) else None
+    picker = ('<p class="mono" id="maplabel">%s</p>' % _esc(one["name"])) if one else \
+        '<label><select id="mapsel"></select></label>'
     blocks = []
     for m in maps:
         src = images.get(m["carla_map"])
@@ -1306,14 +1451,23 @@ def build_page(maps: Sequence[dict], images: dict[str, str] | None = None) -> st
                           % (m["carla_map"], src))
         blocks.append('<script type="application/json" data-map="%s">%s</script>'
                       % (m["carla_map"], json.dumps(m, separators=(",", ":"))))
+        for key, dsrc in (details.get(m["carla_map"]) or {}).items():
+            blocks.append('<script type="text/plain" data-detail="%s|%s">%s</script>'
+                          % (m["carla_map"], key, dsrc))
+    title = ("%s Twin Review" % one["name"]) if one else "Twin Region Review"
     return "\n".join([
-        "<title>Twin Region Review</title>",
+        "<title>%s</title>" % _esc(title),
         FONTS,
         "<style>%s</style>" % CSS,
-        BODY,
+        BODY.replace("{{PICKER}}", picker),
         *blocks,
         "<script>%s</script>" % JS,
     ])
+
+
+def _esc(s: str) -> str:
+    return (str(s).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1327,6 +1481,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     help="directory with carla_topview.py output (default: the page's own "
                          "output directory); pass --no-images to build the vector-only page")
     ap.add_argument("--no-images", action="store_true")
+    ap.add_argument("--no-per-map", action="store_true",
+                    help="skip the per-map region_review_<Level>.html pages (detail tiles)")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(name)s %(message)s")
 
@@ -1349,7 +1505,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not img_dir.is_absolute():
             img_dir = root / img_dir
 
-    maps, images, report = [], {}, []
+    maps, images, details, report = [], {}, {}, []
     for name, level, rel in specs:
         d = Path(rel)
         if not d.is_absolute():
@@ -1364,20 +1520,40 @@ def main(argv: Sequence[str] | None = None) -> int:
             images[level] = src
         else:
             log.warning("%s: no topview_%s.jpg/.json in %s -- vector-only", name, level, img_dir)
+        dmeta, dsrcs = load_detail(img_dir, level) if img_dir else (None, {})
+        if dmeta:
+            m["detail"] = dmeta
+            details[level] = dsrcs
         size = len(json.dumps(m, separators=(",", ":")).encode())
-        report.append((name, d, size, meta["bytes"] if meta else 0, m["counts"]))
+        report.append((name, level, d, size, meta["bytes"] if meta else 0,
+                       dmeta["bytes"] if dmeta else 0, len(dsrcs), m["counts"]))
         maps.append(m)
     if not maps:
         ap.error("no twin directories found")
 
-    html = build_page(maps, images)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(html)
+    # the combined page is the overview: every map, level 0 only.  Three maps' worth of level-1
+    # tiles in one page would be ~25 MB, so the detail lives on the per-map pages.
+    overview = [{k: v for k, v in m.items() if k != "detail"} for m in maps]
+    out.write_text(build_page(overview, images))
+    written = [(out.name, "all maps, level 0", out.stat().st_size)]
 
-    for name, d, size, img_bytes, counts in report:
-        log.info("%-14s %-42s %6.0f kB json  %6.0f kB jpeg  %s", name, str(d), size / 1e3,
-                 img_bytes / 1e3, " ".join("%s=%s" % kv for kv in sorted(counts.items())))
-    log.info("wrote %s (%.2f MB total)", out, out.stat().st_size / 1e6)
+    if not args.no_per_map:
+        for m in maps:
+            p = out.parent / ("%s_%s.html" % (out.stem, m["carla_map"]))
+            p.write_text(build_page([m], {m["carla_map"]: images.get(m["carla_map"])}
+                                    if images.get(m["carla_map"]) else {},
+                                    {m["carla_map"]: details.get(m["carla_map"]) or {}},
+                                    single=True))
+            written.append((p.name, "%s, level 0+1" % m["name"], p.stat().st_size))
+
+    for name, level, d, size, img_bytes, det_bytes, det_n, counts in report:
+        log.info("%-14s %6.0f kB json  %6.0f kB L0  %6.0f kB L1 (%d tiles)  %s",
+                 name, size / 1e3, img_bytes / 1e3, det_bytes / 1e3, det_n,
+                 " ".join("%s=%s" % kv for kv in sorted(counts.items())))
+    for fname, what, nbytes in written:
+        flag = "  OVER BUDGET" if nbytes > 12_000_000 else ""
+        log.info("wrote %-34s %-24s %5.2f MB%s", fname, what, nbytes / 1e6, flag)
     return 0
 
 
