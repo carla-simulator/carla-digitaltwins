@@ -182,6 +182,22 @@ class JunctionRules:
     # ``gore_clear_m`` further from the mainline than the auxiliary lane's inner edge
     gore_blend_m: float = 40.0
     gore_clear_m: float = 1.5
+    # ---- signal plan (lanegraph._stage_plan) ---------------------------------------------
+    # How the approaches of a signalised junction are split into stages. One OpenDRIVE
+    # <controller> per stage: ATrafficLightGroup::Tick ticks exactly one controller and
+    # NextController() round-robins them, so N controllers in a junction = N sequential
+    # phases, with each controller's trailing Red acting as the all-red clearance. Only one
+    # controller is green at a time -- concurrent (overlapping) phases are not expressible.
+    #   "opposing_pairs": approaches facing each other share a stage (a two-way 4-arm junction
+    #                     gets 2), falling back to one stage per direction when they do not
+    #                     pair cleanly (a T-junction gets 3, like stock Town10HD junction 23).
+    #   "per_approach":   one stage per approach direction, always.
+    signal_stages: Literal["opposing_pairs", "per_approach"] = "opposing_pairs"
+    signal_max_stages: int = 4
+    signal_green_s: float = 10.0
+    signal_amber_s: float = 3.0
+    signal_allred_s: float = 2.0
+    signal_ped_stage: bool = False
 
     # ---- divided (dual) carriageways -------------------------------------------------------
     # A divided arterial is mapped in OSM as two ``oneway=yes`` ways with the same name/ref

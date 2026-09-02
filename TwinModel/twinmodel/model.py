@@ -222,9 +222,17 @@ class Signal:
 
 @dataclass
 class Controller:
+    """One signal stage of a junction: the signals that are green together.
+
+    ``ATrafficLightGroup::Tick`` ticks exactly one ``UTrafficLightController`` and
+    ``NextController()`` round-robins them, so N controllers on a junction = N sequential
+    stages, each ending in its own Red (the all-red clearance). ``sequence`` is written for
+    readers; CARLA's ``JunctionParser`` discards it and uses emission order.
+    """
     id: str
     junction_id: str
     signal_ids: list[str] = field(default_factory=list)
+    sequence: int = 0
 
 
 # --------------------------------------------------------------------------- surfaces / objects

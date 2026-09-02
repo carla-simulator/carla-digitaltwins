@@ -44,14 +44,26 @@ from bake_level import MAP_ROOT, log, warn, spawn, save_all  # noqa: E402
 
 
 def controllers_from_xodr(xodr_path):
-    """signal id -> controller id, junction id (the twin writes one controller per junction)."""
+    """signal id -> controller id.
+
+    The twin writes one ``<controller>`` per signal *stage*, so a junction has several and a
+    signal belongs to exactly one of them. If a signal ever appeared in two, the last writer
+    would silently win here -- and CARLA would pick a third answer, since
+    ``ATrafficLightManager::RegisterLightComponentFromOpenDRIVE`` takes ``*begin()`` of a
+    ``std::set<std::string>``. Fail loudly instead.
+    """
     out = {}
     if not xodr_path or not os.path.exists(xodr_path):
         return out
     root = ET.parse(xodr_path).getroot()
     for ctl in root.iter("controller"):
         for c in ctl.findall("control"):
-            out[c.get("signalId")] = ctl.get("id")
+            sid = c.get("signalId")
+            if sid in out and out[sid] != ctl.get("id"):
+                raise RuntimeError(
+                    "signal %s is in two controllers (%s and %s); one stage per signal"
+                    % (sid, out[sid], ctl.get("id")))
+            out[sid] = ctl.get("id")
     return out
 
 

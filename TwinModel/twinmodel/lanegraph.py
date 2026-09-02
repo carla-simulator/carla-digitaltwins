@@ -3228,6 +3228,72 @@ def _lane_runs(ids: Iterable[int]) -> list[tuple[int, int]]:
     return out
 
 
+def _stage_plan(headings: list[float]) -> list[list[int]]:
+    """Split a junction's approaches into signal stages, as lists of indices into ``headings``.
+
+    ``headings`` are travel directions of the *incoming* approaches (the direction traffic
+    moves in as it reaches the junction), so two approaches facing each other differ by pi.
+
+    Two movements may share a stage only when they cannot conflict. Approaches pointing the
+    same way never conflict (the two carriageways of a divided street, or a one-way pair), and
+    two opposing approaches conflict only in their left turns -- the classic "N/S green, then
+    E/W green" plan, and what stock CARLA maps do (Town10HD junction 23 = 3 controllers,
+    junction 189 = 4).
+
+    So: group approaches by direction, then pair opposing groups. If any group has no opposite
+    -- a T-junction, a one-way grid, a skewed cluster -- pairing is abandoned and every
+    direction becomes its own stage, which is conservative and always conflict-free.
+
+    Stage count is capped at ``JunctionRules.signal_max_stages`` by merging the smallest
+    stages; the emitted order is the runtime order (``JunctionParser`` discards ``sequence``).
+    """
+    P = profiles.get()
+    tol = math.radians(P.junction.through_deg)
+    n = len(headings)
+    if n <= 1:
+        return [list(range(n))]
+
+    # ---- same-direction groups
+    groups: list[list[int]] = []
+    for i, h in enumerate(headings):
+        for g in groups:
+            if abs(_wrap(h - headings[g[0]])) <= tol:
+                g.append(i)
+                break
+        else:
+            groups.append([i])
+
+    stages: list[list[int]] = [list(g) for g in groups]
+    if P.junction.signal_stages == "opposing_pairs" and len(groups) > 1:
+        paired: dict[int, int] = {}
+        used: set[int] = set()
+        for a in range(len(groups)):
+            if a in used:
+                continue
+            best, best_err = None, tol
+            for b in range(a + 1, len(groups)):
+                if b in used:
+                    continue
+                err = abs(abs(_wrap(headings[groups[a][0]] - headings[groups[b][0]])) - math.pi)
+                if err <= best_err:
+                    best, best_err = b, err
+            if best is not None:
+                paired[a] = best
+                used.update((a, best))
+        if len(used) == len(groups):  # every direction has an opposite
+            stages = [groups[a] + groups[b] for a, b in paired.items()]
+
+    # ---- cap: repeatedly fold the smallest stage into the next-smallest
+    while len(stages) > max(1, P.junction.signal_max_stages):
+        order = sorted(range(len(stages)), key=lambda k: len(stages[k]))
+        a, b = sorted(order[:2])
+        stages[a] = stages[a] + stages[b]
+        del stages[b]
+
+    stages.sort(key=lambda st: _wrap(headings[min(st)]))
+    return stages
+
+
 def _make_signal(sid: str, kind: str, road: Road, s: float, t: float, forward: bool, **kw) -> Signal:
     pos = point_on_road(road, s, t)
     h = _heading_along(road.reference_line, s)
@@ -3273,7 +3339,7 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
         if not near:
             continue
         n_tl_junctions += 1
-        ctl = Controller(id=f"ctl{c.id[1:]}", junction_id=c.id)
+        approach_sigs: list[Signal] = []
         for r in plain_roads:
             for end in ("start", "end"):
                 if road_end_cluster[r.id][end] is not c:
@@ -3290,14 +3356,29 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
                 # traffic those are the negative (right) lanes for a forward approach and the
                 # positive ones for a backward approach -- the opposite of the side CARLA
                 # synthesises when a signal carries no validity at all.
-                sig = _make_signal(next_id(), "traffic_light", r, s, _signal_side(r, forward), forward,
-                                   controller_id=ctl.id, osm_node_id=nearest,
-                                   validities=_lane_runs(l.id for l in lanes),
-                                   tags={"junction_id": c.id})
-                signals.append(sig)
-                ctl.signal_ids.append(sig.id)
-        if ctl.signal_ids:
+                approach_sigs.append(
+                    _make_signal(next_id(), "traffic_light", r, s, _signal_side(r, forward), forward,
+                                 osm_node_id=nearest,
+                                 validities=_lane_runs(l.id for l in lanes),
+                                 tags={"junction_id": c.id}))
+        if not approach_sigs:
+            continue
+        # One <controller> per stage. The runtime ticks exactly one controller per group and
+        # round-robins them (ATrafficLightGroup::Tick / NextController), so this is the whole
+        # signal plan; a single controller per junction meant every approach went green at once.
+        stages = _stage_plan([sig.heading for sig in approach_sigs])
+        for k, members in enumerate(stages):
+            if not members:
+                continue
+            ctl = Controller(id=f"ctl{c.id[1:]}_p{k}", junction_id=c.id, sequence=k)
+            for i in members:
+                approach_sigs[i].controller_id = ctl.id
+                ctl.signal_ids.append(approach_sigs[i].id)
             controllers.append(ctl)
+        signals.extend(approach_sigs)
+        stats.setdefault("signal_stages_hist", {})
+        n_stages = len([s for s in stages if s])
+        stats["signal_stages_hist"][n_stages] = stats["signal_stages_hist"].get(n_stages, 0) + 1
     stats["junctions_with_traffic_lights"] = n_tl_junctions
 
     # crossings, stop, give_way: attach to the road that carries the node (else nearest road)

@@ -790,7 +790,7 @@ def export_xodr(model: TwinModel, path: Optional[Path | str] = None) -> str:
 
     controllers = _controllers(model)
     for ctl in controllers:
-        ce = _sub(root, "controller", id=ctl.id, name=f"ctrl_{ctl.id}", sequence="0")
+        ce = _sub(root, "controller", id=ctl.id, name=f"ctrl_{ctl.id}", sequence=str(ctl.sequence))
         for sid in ctl.signal_ids:
             _sub(ce, "control", signalId=sid, type="0")
 
@@ -807,9 +807,15 @@ def export_xodr(model: TwinModel, path: Optional[Path | str] = None) -> str:
             for ll in conn.lane_links:
                 _sub(ce, "laneLink", **{"from": str(inc_ids.get(ll.from_lane, ll.from_lane)),
                                         "to": str(ll.to_lane)})
-        for ctl in controllers:
-            if ctl.junction_id == j.id:
-                _sub(je, "controller", id=ctl.id, type="0", sequence="0")
+        # The junction ref is mandatory, not decoration: MapBuilder::
+        # SolveControllerAndJuntionReferences is the only thing that fills
+        # Signal::GetControllers(), so a root <controller> that no junction lists leaves all
+        # its signals uncontrolled. Emission order is the runtime's stage order --
+        # JunctionParser reads only @id and ATrafficLightGroup round-robins in insertion order
+        # -- so emit the stages in sequence order.
+        for ctl in sorted((c for c in controllers if c.junction_id == j.id),
+                          key=lambda c: (c.sequence, c.id)):
+            _sub(je, "controller", id=ctl.id, type="0", sequence=str(ctl.sequence))
         _sub(_sub(je, "userData"), "twin", junctionId=j.id)
 
     text = etree.tostring(root, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode()
