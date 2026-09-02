@@ -1206,6 +1206,9 @@ def _build_parser() -> argparse.ArgumentParser:
     c.add_argument("--junctions", type=int, default=3, help="junction crops for the N largest")
     c.add_argument("--no-viewer", action="store_true", help="skip writing compare/viewer.html")
     c.set_defaults(func=compare)
+
+    from . import refresh as refresh_mod  # signal refresh of an already baked level (twinmodel.refresh)
+    refresh_mod.add_parser(sub)
     return ap
 
 
