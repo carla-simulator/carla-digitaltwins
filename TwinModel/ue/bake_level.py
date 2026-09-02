@@ -323,10 +323,12 @@ def finish_mesh(mesh, mic, kind, nanite=True):
 # --------------------------------------------------------------------------- Town10 look
 # Recipe extracted from Town10HD_Opt (T3D export + component dump, 2026-09-01; see
 # out/look_eixample/town10_dump/). Three pieces make Town10 read the way it does:
-#   1. Content/Carla/Config/Weather/MapDefaults.json: an inline weather snapshot (sun 30 deg up
-#      at azimuth 320, cloudiness 30, fog 2/0.75/0.1). Maps WITHOUT an entry get the all -1
-#      carla::rpc::WeatherParameters::Default sentinel at BeginPlay -- sun ON the horizon, which
-#      is exactly why baked twins had black unlit building sides.
+#   1. Content/Carla/Config/Weather/MapDefaults.json: an inline weather snapshot of what
+#      Town10HD_Opt runs with (BP_CarlaWeather's per-town table: sun 10 deg at azimuth 170,
+#      cloudiness 30, fog 0.0056). Maps WITHOUT an entry fall back to the weather blueprint's
+#      hard-coded default (sun 45/220, fog 2.0 -- the washed-out look). NOTE: the game mode
+#      must re-apply the JSON entry after the weather actor's deferred BeginPlay
+#      (CarlaGameModeBase.cpp), otherwise the blueprint's table/fallback silently wins.
 #   2. BP_Carla_Sky instance overrides: sun IndirectLightingIntensity 3, fog density 0.002 /
 #      falloff 0.1 / start 75 / SkyAtmosphereAmbientContributionColorScale 0.14, and the
 #      CameraParameters/PostProcessComponent grading block (6200K, sat .6, contrast 1.4,
@@ -336,10 +338,13 @@ def finish_mesh(mesh, mic, kind, nanite=True):
 #      camera defaults and blows sensor.camera.* out -- out/look_eixample/iter1).
 
 TOWN10_WEATHER = {  # MapDefaults.json inline snapshot (camelCase = FJsonObjectConverter names)
-    "cloudiness": 30, "precipitation": 0, "precipitationDeposits": 0, "windIntensity": 10,
-    "sunAzimuthAngle": 320, "sunAltitudeAngle": 30, "fogDensity": 2, "fogDistance": 0.75,
-    "fogFalloff": 0.10000000149011612, "wetness": 0, "scatteringIntensity": 1,
-    "mieScatteringScale": 0.029999999329447746,
+    # What Town10HD_Opt actually runs with: BP_CarlaWeather's per-town "DefaultWeathers"
+    # table entry (dumped from the class defaults, 2026-09-02) -- low sun at azimuth 170,
+    # almost no fog, no extra scattering. (The 30 deg / az 320 / fog 2.0 snapshot used
+    # before was never what the map renders: the table wins at runtime.)
+    "cloudiness": 30, "precipitation": 0, "precipitationDeposits": 0, "windIntensity": 0.35,
+    "sunAzimuthAngle": 170, "sunAltitudeAngle": 10, "fogDensity": 0.0056, "fogDistance": 0,
+    "fogFalloff": 0.2, "wetness": 0, "scatteringIntensity": 0, "mieScatteringScale": 0,
     "rayleighScatteringScale": 0.033100001513957977, "dustStorm": 0,
 }
 
@@ -437,10 +442,10 @@ def apply_town10_sky(sky):
     # instance WeatherParameters (BP-added variable, matched by exact name) + CameraParameters
     try:
         wp = unreal.WeatherParameters()
-        for pname, val in [("cloudiness", 30.0), ("wind_intensity", 10.0),
-                           ("sun_azimuth_angle", 320.0), ("sun_altitude_angle", 30.0),
-                           ("fog_density", 2.0), ("fog_distance", 0.75), ("fog_falloff", 0.1),
-                           ("scattering_intensity", 1.0), ("mie_scattering_scale", 0.03)]:
+        for pname, val in [("cloudiness", 30.0), ("wind_intensity", 0.35),
+                           ("sun_azimuth_angle", 170.0), ("sun_altitude_angle", 10.0),
+                           ("fog_density", 0.0056), ("fog_distance", 0.0), ("fog_falloff", 0.2),
+                           ("scattering_intensity", 0.0), ("mie_scattering_scale", 0.0)]:
             set_prop(wp, pname, val)
         applied["WeatherParameters"] = set_prop(sky, "WeatherParameters", wp)
     except Exception as exc:
@@ -488,7 +493,7 @@ def write_map_default_weather(name):
     data[name] = dict(TOWN10_WEATHER)
     with open(path, "w") as f:
         json.dump(data, f, indent=1)
-    log("MapDefaults.json: %s -> Town10 weather (sun alt 30, az 320)" % name)
+    log("MapDefaults.json: %s -> Town10 runtime weather (sun alt 10, az 170)" % name)
     return True
 
 
