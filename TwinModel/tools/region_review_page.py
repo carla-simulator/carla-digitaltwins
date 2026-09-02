@@ -1,9 +1,18 @@
-"""Build the interactive *region review* page: a top-down vector view of the baked twin maps on
-which regions (polygons / polylines / points) can be drawn and commented on.  Everything the
-reviewer draws is stored in the artifact's shared database (collection ``regions``, one document
-per region) so Claude can read the feedback back with model *and* CARLA coordinates.
+"""Build the interactive *region review* page: a top-down view of the baked twin maps on which
+regions (polygons / polylines / points) can be drawn and commented on.  Everything the reviewer
+draws is stored in the artifact's shared database (collection ``regions``, one document per region)
+so Claude can read the feedback back with model *and* CARLA coordinates.
 
+    python tools/carla_topview.py --port 3000 --out out/review     # renders the base layer
     python tools/region_review_page.py --out out/review/region_review.html
+
+The base layer is the real CARLA render: ``tools/carla_topview.py`` mosaics a top-down capture of
+each map from a running server and drops ``topview_<Level>.jpg`` + ``.json`` next to the page;
+``--images`` points at that directory (the page's own output directory by default) and the JPEGs
+are embedded as data URIs.  The vector layers are still there, now as optional overlays -- off by
+default apart from signals and junction labels -- with an opacity slider, so a reviewer can flick
+them on to check what the geometry claims against what CARLA actually drew.  Without the images
+the page falls back to the vector-only view it had before.
 
 The page is written as artifact page *content* (no ``<html>``/``<head>``/``<body>`` wrapper): the
 host wraps it and adds the charset/viewport meta plus a small reset.
@@ -21,6 +30,7 @@ rings, exterior first (holes are rendered with the even-odd rule).
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import logging
 from pathlib import Path
@@ -65,6 +75,45 @@ def model_to_carla_xy(x: float, y: float) -> tuple[float, float]:
 def quantize(v: float) -> int:
     """Metres -> integer payload units (``QUANT`` m each)."""
     return int(round(float(v) / QUANT))
+
+
+# ------------------------------------------------------------------------------- base imagery
+
+def model_to_image_pixel(image: dict, x: float, y: float) -> tuple[float, float]:
+    """Model metres -> pixel in the top-down mosaic.  The mosaic is north-up over the model-frame
+    rectangle ``image["bounds"]`` = ``[xmin, ymin, xmax, ymax]``, so pixel row 0 is ``ymax``."""
+    x0, y0, x1, y1 = image["bounds"]
+    w, h = image["size"]
+    return ((x - x0) * w / (x1 - x0), (y1 - y) * h / (y1 - y0))
+
+
+def image_pixel_to_model(image: dict, px: float, py: float) -> tuple[float, float]:
+    """Inverse of :func:`model_to_image_pixel` (the JS canvas uses the same rectangle)."""
+    x0, y0, x1, y1 = image["bounds"]
+    w, h = image["size"]
+    return (x0 + px * (x1 - x0) / w, y1 - py * (y1 - y0) / h)
+
+
+def load_image(image_dir: Path | str, carla_map: str) -> tuple[dict, str] | tuple[None, None]:
+    """``topview_<carla_map>.json`` + ``.jpg`` from ``carla_topview.py`` -> (payload meta, data URI).
+
+    Returns ``(None, None)`` when either file is missing, so the page still builds vector-only.
+    """
+    d = Path(image_dir)
+    meta_p, jpg = d / f"topview_{carla_map}.json", d / f"topview_{carla_map}.jpg"
+    if not (meta_p.exists() and jpg.exists()):
+        return (None, None)
+    raw = json.loads(meta_p.read_text())
+    blob = jpg.read_bytes()
+    meta = {
+        "bounds": [float(v) for v in raw["bounds"]],
+        "size": [int(v) for v in raw["size"]],
+        "px_per_m": float(raw.get("px_per_m") or raw["size"][0] / (raw["bounds"][2] - raw["bounds"][0])),
+        "cm_per_px": float(raw.get("cm_per_px") or 0.0) or None,
+        "bytes": len(blob),
+        "camera": raw.get("camera") or {},
+    }
+    return (meta, "data:image/jpeg;base64," + base64.b64encode(blob).decode("ascii"))
 
 
 def simplify(coords: Sequence[Sequence[float]], closed: bool) -> list[int]:
@@ -354,6 +403,8 @@ button.wide:disabled{opacity:.45;cursor:not-allowed}
 .sw{width:12px;height:12px;border-radius:3px;border:1px solid var(--line)}
 .layers .n{color:var(--muted);font-size:11px}
 .rowline{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:8px}
+input[type=range]{width:100%;margin:2px 0 0;accent-color:var(--acc)}
+img.basemap{display:none}
 
 #status{font-size:11.5px;padding:2px 8px;border-radius:999px;background:var(--panel2);color:var(--muted);
   border:1px solid var(--line)}
@@ -420,10 +471,11 @@ aside{position:relative}
 JS = r"""
 (() => {
 "use strict";
-const MAPS = {};
+const MAPS = {}, BASE = {};
 document.querySelectorAll('script[type="application/json"][data-map]').forEach(s => {
   const d = JSON.parse(s.textContent); MAPS[d.carla_map] = d;
 });
+document.querySelectorAll("img[data-mapimg]").forEach(im => { BASE[im.dataset.mapimg] = im; });
 const ORDER = Object.keys(MAPS);
 const LS = "twin-region-review:";
 const CATEGORIES = ["materials","signals","signs","geometry","buildings","vegetation","other"];
@@ -447,8 +499,10 @@ const EXTRA_LAYERS = [
   ["signals","Signals & signs","--sig-tl"], ["junctions","Junction labels","--jn"],
   ["grid","250 m tile grid","--grid"],
 ];
-const DEFAULT_ON = {ground:1,verge:1,median:1,island:1,parking:1,drivable:1,sidewalk:1,crossing:1,
-  buildings:1,curbs:1,markings:1,roads:0,trees:1,signals:1,junctions:0,grid:0};
+// The base layer is the real CARLA render; the vectors are overlays you switch on to check it.
+const DEFAULT_ON = {image:1,ground:0,verge:0,median:0,island:0,parking:0,drivable:0,sidewalk:0,
+  crossing:0,buildings:0,curbs:0,markings:0,roads:0,trees:0,signals:1,junctions:1,grid:0};
+const DEFAULT_VEC_OPACITY = 70;       // percent, the overlay alpha; the base image is never faded
 const SIG_COLOR = {traffic_light:"--sig-tl",traffic_light_arrow:"--sig-tl",traffic_light_ped:"--sig-ped",
   stop:"--sig-stop",yield:"--sig-yield",speed_limit:"--sig-speed",priority_road:"--sig-yield",
   crosswalk:"--sig-other",traffic_sign:"--sig-other"};
@@ -470,6 +524,7 @@ const store = {
 
 const S = {
   map: null, cx: 0, cy: 0, k: 1, on: Object.assign({}, DEFAULT_ON, store.get("layers", {})),
+  op: store.get("vecopacity", DEFAULT_VEC_OPACITY),
   mode: null, draft: [], cursor: null, regions: new Map(), hover: null, sel: null,
   pending: null, ro: true, mouse: null,
 };
@@ -513,6 +568,8 @@ const wx = px => (px - W/2)/S.k + S.cx;
 const wy = py => (H/2 - py)/S.k + S.cy;
 
 function fit(m){
+  // the data bounds, not the render's: the mosaic is padded out to whole 250 m tiles and its
+  // corners are mostly the empty void outside the map
   const b = m.bounds, pad = 40;
   const w = Math.max(1, b[2]-b[0]), h = Math.max(1, b[3]-b[1]);
   S.cx = (b[0]+b[2])/2; S.cy = (b[1]+b[3])/2;
@@ -569,13 +626,27 @@ function glyph(x, y, kind, r){
     g.arc(x, y, r, 0, 6.2832);
   }
 }
+/* The mosaic is north-up over its own model-frame rectangle, so it goes through exactly the
+   transform the vectors use: its top-left corner is (bounds[0], bounds[3]).  Mirrors
+   `model_to_image_pixel` in the generator. */
+function drawBase(m){
+  const img = BASE[S.map], meta = m.image;
+  if (!img || !meta || !img.complete || !img.naturalWidth) return false;
+  const b = meta.bounds;
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+  g.drawImage(img, sx(b[0]), sy(b[3]), (b[2]-b[0])*S.k, (b[3]-b[1])*S.k);
+  return true;
+}
 function draw(){
   const m = MAPS[S.map]; if (!m || !W) return;
   g.setTransform(DPR,0,0,DPR,0,0);
+  g.globalAlpha = 1;
   g.fillStyle = PAL["--canvas"]; g.fillRect(0,0,W,H);
+  if (S.on.image) drawBase(m);
   const a = m.scale*S.k, bx = W/2 - S.cx*S.k, by = H/2 + S.cy*S.k;
   const vb = [(0-bx)/a, (by-H)/a, (W-bx)/a, by/a];
   g.lineJoin = "round"; g.lineCap = "round";
+  g.globalAlpha = Math.max(0.05, Math.min(1, S.op/100));
 
   for (const [id, , fillTok, strokeTok] of POLY_LAYERS){
     if (!S.on[id]) continue;
@@ -615,7 +686,9 @@ function draw(){
     }
     g.fill();
   }
+  g.globalAlpha = 1;                       // regions are feedback, never faded with the overlays
   drawRegions();
+  g.globalAlpha = Math.max(0.05, Math.min(1, S.op/100));
   if (S.on.signals && m.layers.signals){
     const r = Math.max(2.6, Math.min(6.5, 0.9*S.k));
     for (const s of m.layers.signals){
@@ -637,6 +710,7 @@ function draw(){
       g.fillText(j.id, px, py);
     }
   }
+  g.globalAlpha = 1;
   drawDraft();
   updateScale();
 }
@@ -978,24 +1052,49 @@ function zoomRegion(r){
 /* ----------------------------------------------------------------------------- chrome */
 function setStatus(text, cls){ const el = $("#status"); el.textContent = text; el.className = cls || ""; }
 function buildLayerUI(){
+  const base = $("#baselayer");
+  base.innerHTML =
+    '<label><input type="checkbox" data-layer="image"' + (S.on.image ? " checked" : "") + '>' +
+    '<span class="sw" style="background:var(--acc)"></span><span>CARLA top-down render</span>' +
+    '<span class="n" data-n="image"></span></label>';
   const box = $("#layers");
   const rows = POLY_LAYERS.map(l => [l[0], l[1], l[2]]).concat(EXTRA_LAYERS);
   box.innerHTML = rows.map(([id, label, tok]) =>
     '<label><input type="checkbox" data-layer="' + id + '"' + (S.on[id] ? " checked" : "") + '>' +
     '<span class="sw" style="background:var(' + tok + ')"></span>' +
     "<span>" + esc(label) + '</span><span class="n" data-n="' + id + '"></span></label>').join("");
-  box.addEventListener("change", e => {
+  const flip = e => {
     const id = e.target.dataset.layer; if (!id) return;
     S.on[id] = e.target.checked ? 1 : 0; store.set("layers", S.on); draw();
+  };
+  box.addEventListener("change", flip);
+  base.addEventListener("change", flip);
+  const sl = $("#vecop");
+  sl.value = S.op;
+  $("#vecopv").textContent = S.op + "%";
+  sl.addEventListener("input", () => {
+    S.op = Number(sl.value); $("#vecopv").textContent = S.op + "%";
+    store.set("vecopacity", S.op); draw();
+  });
+  $("#alloff").addEventListener("click", () => {
+    for (const [id] of POLY_LAYERS.concat(EXTRA_LAYERS)) S.on[id] = 0;
+    document.querySelectorAll("#layers input[data-layer]").forEach(i => { i.checked = false; });
+    store.set("layers", S.on); draw();
   });
 }
 function refreshCounts(){
   const m = MAPS[S.map];
   for (const el of document.querySelectorAll("[data-n]")){
     const id = el.dataset.n;
+    if (id === "image"){
+      el.textContent = m.image ? Math.round(100/m.image.px_per_m) + " cm/px" : "none";
+      continue;
+    }
     const n = id === "junctions" ? m.junctions.length : (m.counts[id] != null ? m.counts[id] : "");
     el.textContent = n === "" ? "" : n;
   }
+  const miss = $("#nobase");
+  miss.hidden = !!(m.image && BASE[S.map]);
 }
 function setMap(name, keepView){
   S.map = name; store.set("map", name);
@@ -1003,7 +1102,9 @@ function setMap(name, keepView){
   $("#mapmeta").innerHTML =
     'origin <span class="mono">' + m.origin.lat + ", " + m.origin.lon + "</span> · " +
     Math.round(m.bounds[2]-m.bounds[0]) + " × " + Math.round(m.bounds[3]-m.bounds[1]) + " m · " +
-    'level <span class="mono">' + esc(m.carla_map) + "</span>";
+    'level <span class="mono">' + esc(m.carla_map) + "</span>" +
+    (m.image ? " · render " + m.image.size[0] + "×" + m.image.size[1] + " px @ " +
+      Math.round(100/m.image.px_per_m) + " cm/px" : " · no render");
   if (!keepView) fit(m);
   refreshCounts(); setMode(null); S.sel = null; renderList(); draw();
 }
@@ -1065,6 +1166,7 @@ $("#f-prio").innerHTML = PRIORITIES.map(c => '<option value="' + c + '"' +
   (c === "normal" ? " selected" : "") + ">" + c + "</option>").join("");
 const saved = store.get("map", null);
 $("#mapsel").value = ORDER.includes(saved) ? saved : ORDER[0];
+Object.values(BASE).forEach(im => im.addEventListener("load", () => draw()));
 new ResizeObserver(resize).observe(cv);
 window.addEventListener("resize", resize);
 if (window.matchMedia) try {
@@ -1109,7 +1211,7 @@ BODY = """
 <aside>
   <header>
     <h1>Twin Region Review</h1>
-    <div class="tag">Draw over the baked twin, leave notes for Claude.</div>
+    <div class="tag">Draw over the CARLA top-down render, leave notes for Claude.</div>
     <div class="rowline"><span id="status">connecting…</span>
       <span class="seg small" id="theme">
         <button type="button" data-theme="auto" aria-pressed="true">Auto</button>
@@ -1137,8 +1239,20 @@ BODY = """
         <kbd>l</kbd> polyline, <kbd>p</kbd> point.</p>
     </section>
     <section>
-      <h2>Layers</h2>
+      <h2>Base</h2>
+      <div class="layers" id="baselayer"></div>
+      <p class="hint" id="nobase" hidden>No render captured for this map — run
+        <span class="mono">tools/carla_topview.py</span> against a running server and rebuild.</p>
+    </section>
+    <section>
+      <h2>Vector overlays <button type="button" class="link" id="alloff">all off</button></h2>
       <div class="layers" id="layers"></div>
+      <div class="rowline"><label for="vecop" class="hint" style="margin:0">Overlay opacity</label>
+        <span class="mono tag" id="vecopv">70%</span></div>
+      <input type="range" id="vecop" min="5" max="100" step="5" value="70"
+             aria-label="Vector overlay opacity">
+      <p class="hint">The overlays are the twin model's own geometry. Fade them over the render to
+        check what CARLA actually drew.</p>
     </section>
     <section>
       <h2>Regions <span id="rcount" class="tag"></span></h2>
@@ -1180,9 +1294,16 @@ BODY = """
 """
 
 
-def build_page(maps: Sequence[dict]) -> str:
+def build_page(maps: Sequence[dict], images: dict[str, str] | None = None) -> str:
+    """``maps`` are :func:`extract_twin` payloads (each may carry an ``image`` meta block);
+    ``images`` maps the CARLA level name to the base-layer data URI."""
+    images = images or {}
     blocks = []
     for m in maps:
+        src = images.get(m["carla_map"])
+        if src:
+            blocks.append('<img class="basemap" data-mapimg="%s" alt="" src="%s">'
+                          % (m["carla_map"], src))
         blocks.append('<script type="application/json" data-map="%s">%s</script>'
                       % (m["carla_map"], json.dumps(m, separators=(",", ":"))))
     return "\n".join([
@@ -1202,6 +1323,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     help="override / add a map (repeatable); default is the three baked twins")
     ap.add_argument("--root", default=str(Path(__file__).resolve().parent.parent),
                     help="TwinModel root that relative twin dirs are resolved against")
+    ap.add_argument("--images", default=None, metavar="DIR",
+                    help="directory with carla_topview.py output (default: the page's own "
+                         "output directory); pass --no-images to build the vector-only page")
+    ap.add_argument("--no-images", action="store_true")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(name)s %(message)s")
 
@@ -1215,7 +1340,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ap.error("--map wants NAME=LEVEL=DIR, got %r" % s)
             specs.append((parts[0], parts[1], parts[2]))
 
-    maps, report = [], []
+    out = Path(args.out)
+    if not out.is_absolute():
+        out = root / args.out
+    img_dir = None
+    if not args.no_images:
+        img_dir = Path(args.images) if args.images else out.parent
+        if not img_dir.is_absolute():
+            img_dir = root / img_dir
+
+    maps, images, report = [], {}, []
     for name, level, rel in specs:
         d = Path(rel)
         if not d.is_absolute():
@@ -1224,22 +1358,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             log.warning("skipping %s: %s missing", name, d)
             continue
         m = extract_twin(d, name, level)
+        meta, src = load_image(img_dir, level) if img_dir else (None, None)
+        if meta:
+            m["image"] = meta
+            images[level] = src
+        else:
+            log.warning("%s: no topview_%s.jpg/.json in %s -- vector-only", name, level, img_dir)
         size = len(json.dumps(m, separators=(",", ":")).encode())
-        report.append((name, d, size, m["counts"]))
+        report.append((name, d, size, meta["bytes"] if meta else 0, m["counts"]))
         maps.append(m)
     if not maps:
         ap.error("no twin directories found")
 
-    html = build_page(maps)
-    out = Path(args.out)
-    if not out.is_absolute():
-        out = root / args.out
+    html = build_page(maps, images)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html)
 
-    for name, d, size, counts in report:
-        log.info("%-14s %-42s %6.0f kB  %s", name, str(d), size / 1e3,
-                 " ".join("%s=%s" % kv for kv in sorted(counts.items())))
+    for name, d, size, img_bytes, counts in report:
+        log.info("%-14s %-42s %6.0f kB json  %6.0f kB jpeg  %s", name, str(d), size / 1e3,
+                 img_bytes / 1e3, " ".join("%s=%s" % kv for kv in sorted(counts.items())))
     log.info("wrote %s (%.2f MB total)", out, out.stat().st_size / 1e6)
     return 0
 
