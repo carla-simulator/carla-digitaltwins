@@ -77,6 +77,7 @@ class MapStore:
         self.dir = d
         self.l0_root = l0_root
         self.manifest: dict[str, Any] = json.loads((d / "manifest.json").read_text())
+        self.manifest_mtime = (d / "manifest.json").stat().st_mtime
         self.lock = threading.Lock()
         self.twin: dict[str, Any] | None = None
         self._page: str | None = None
@@ -255,7 +256,18 @@ class Handler(BaseHTTPRequestHandler):
             return None
         if name not in self.stores:
             self._refresh()
-        return self.stores.get(name)
+        store = self.stores.get(name)
+        if store is not None:
+            try:  # a re-flight rewrites manifest.json: pick up the new grid/size and rebuild the page
+                mtime = (store.dir / "manifest.json").stat().st_mtime
+            except OSError:
+                mtime = store.manifest_mtime
+            if mtime != store.manifest_mtime:
+                fresh = MapStore(name, store.dir, store.l0_root)
+                fresh.twin = store.twin
+                self.stores[name] = store = fresh
+                log.info("%s: manifest changed, reloaded", name)
+        return store
 
     @staticmethod
     def _parts(path: str) -> list[str]:

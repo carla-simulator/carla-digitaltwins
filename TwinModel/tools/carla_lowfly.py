@@ -22,6 +22,15 @@ Per material tile (250 m, the baker's grid):
     it (the twin DEM only seeds the iteration).  That keeps sloping streets (Sf_Soma) from
     changing scale by 15 % across a frame and puts kerbs, roofs and car tops where they are,
     not where a 5 m perspective would lean them;
+  * exposure: the UE5 camera exposes a frame that is one pale surface straight into clipping
+    (median 249, 46 % of pixels at white on a Sunnyvale sidewalk; auto exposure has no room to
+    compensate and this build exposes no exposure attributes).  Worse, the auto exposure lags
+    the teleports: the same spot measured 155 / 141 / 148 depending on where the camera came
+    from, which is the seam pattern no gain solve fully removes.  So for the flight the engine is
+    switched to *manual* exposure (``r.EyeAdaptation.MethodOverride 3``: the same spot then
+    measures 62.7 / 62.7 / 62.7) and the lens attenuation, the global exposure scalar, is set
+    through the server's ``console_command`` RPC (``--lens-attenuation`` 0.44: asphalt median
+    ~160, pale paving ~140, no clipping); both are restored when the flight ends;
   * the lens vignette (a 5-8 % darkening towards the frame corners that the eye never notices
     in one frame but that draws a grid on a mosaic) is measured as the mean of all the map's
     frames -- content averages out over hundreds of frames -- and divided out (flat-field);
@@ -69,6 +78,32 @@ LEAF_PX = int(round(LEAF_M * 100 / CM_PER_PX))     # 500
 LEAVES = int(round(TILE / LEAF_M))                 # 50
 VOID = 20
 BAND_FRAC = 0.375   # overlap band of a 10 m frame at 6.25 m pitch = 3.75 m
+
+
+LENS_ATTENUATION_DEFAULT = 0.78     # UE's r.EyeAdaptation.LensAttenuation default
+
+
+def console_command(host: str, port: int, cmd: str, timeout: float = 10.0) -> bool:
+    """``console_command`` RPC (CarlaServer.cpp -> PlayerController->ConsoleCommand).  The Python
+    module does not expose it, so this speaks rpclib's msgpack-rpc wire format directly:
+    request ``[0, id, method, [metadata, args...]]`` -> reply ``[1, id, error, result]``."""
+    import socket  # noqa: PLC0415
+    import msgpack  # noqa: PLC0415
+    s = socket.create_connection((host, port), timeout=timeout)
+    try:
+        s.sendall(msgpack.packb([0, 1, "console_command", [[False], cmd]], use_bin_type=True))
+        unp = msgpack.Unpacker(raw=False)
+        while True:
+            chunk = s.recv(65536)
+            if not chunk:
+                raise RuntimeError("console_command: connection closed")
+            unp.feed(chunk)
+            for msg in unp:
+                ok = msg[2] is None
+                log.info("console %r -> %s", cmd, "ok" if ok else msg[2])
+                return ok
+    finally:
+        s.close()
 
 
 def _load_topview():
@@ -421,7 +456,8 @@ def fly_map(client, carla, tv, *, name: str, twin_dir: Path, bounds: Sequence[fl
             alt: float, fov: float, res: int, yaw: float, cams: int, settle: int,
             spectator_ticks: int, min_content: float, quality: int,
             only: set[tuple[int, int]] | None, l0_dir: Path, world=None,
-            depth: bool = True) -> dict[str, Any]:
+            depth: bool = True, lens_attenuation: float = 0.0,
+            exposure: str = "auto") -> dict[str, Any]:
     t_start = time.time()
     out.mkdir(parents=True, exist_ok=True)
     x0, y0, nx, ny = tv.tile_grid(bounds)
@@ -550,6 +586,8 @@ def fly_map(client, carla, tv, *, name: str, twin_dir: Path, bounds: Sequence[fl
         "camera": {"alt": alt, "fov": fov, "res": res, "yaw": yaw, "footprint_m": round(fp, 2),
                    "step_m": STEP, "cams": cams, "settle": settle,
                    "ortho": "depth camera" if depth else "twin DEM",
+                   "lens_attenuation": lens_attenuation or LENS_ATTENUATION_DEFAULT,
+                   "exposure": exposure,
                    "flat_field_frames": flat.n},
         "webp_quality": quality, "leaf_tiles": n_leaf, "bytes": size,
         "frames": frames_total, "seconds": round(time.time() - t_start, 1),
@@ -582,6 +620,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--levels-only", action="store_true", help="rebuild z1.. from the z0 leaves")
     ap.add_argument("--fresh", action="store_true", help="ignore tiles_done.json and refly")
     ap.add_argument("--no-depth", action="store_true", help="orthorectify on the DEM only")
+    ap.add_argument("--lens-attenuation", type=float, default=0.44,
+                    help="r.EyeAdaptation.LensAttenuation during the flight (engine default 0.78 "
+                         "clips pale surfaces; 0 = leave the engine alone)")
+    ap.add_argument("--exposure", choices=("manual", "auto"), default="manual",
+                    help="manual = r.EyeAdaptation.MethodOverride 3 for the flight: identical "
+                         "exposure on every frame (auto lags the teleports by up to 10 %%)")
     ap.add_argument("--timeout", type=float, default=300.0)
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s",
@@ -617,6 +661,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     import carla  # noqa: PLC0415
     client = carla.Client(args.host, args.port)
     client.set_timeout(args.timeout)
+    if args.lens_attenuation > 0:
+        console_command(args.host, args.port,
+                        "r.EyeAdaptation.LensAttenuation %g" % args.lens_attenuation)
+    if args.exposure == "manual":
+        console_command(args.host, args.port, "r.EyeAdaptation.MethodOverride 3")
+    try:
+        _fly_all(args, specs, only, out_root, l0_dir, client, carla, tv, rr)
+    finally:
+        if args.exposure == "manual":
+            console_command(args.host, args.port, "r.EyeAdaptation.MethodOverride -1")
+        if args.lens_attenuation > 0:
+            console_command(args.host, args.port,
+                            "r.EyeAdaptation.LensAttenuation %g" % LENS_ATTENUATION_DEFAULT)
+    return 0
+
+
+def _fly_all(args, specs, only, out_root, l0_dir, client, carla, tv, rr) -> None:
+    root = Path(args.root)
     for nm, rel in specs:
         d = Path(rel) if Path(rel).is_absolute() else root / rel
         if not d.exists():
@@ -632,10 +694,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     fov=args.fov, res=args.res, yaw=args.yaw, cams=args.cams, settle=args.settle,
                     spectator_ticks=args.spectator_ticks, min_content=args.min_content,
                     quality=args.webp_quality, only=only, l0_dir=l0_dir, world=world,
-                    depth=not args.no_depth)
+                    depth=not args.no_depth, lens_attenuation=args.lens_attenuation,
+                    exposure=args.exposure)
         finally:
             tv._release_world(world)
-    return 0
 
 
 if __name__ == "__main__":
