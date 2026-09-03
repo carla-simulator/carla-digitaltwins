@@ -9,8 +9,11 @@ polyline with three nodes, kerbs implied by ``lanes=`` / ``width=`` tags, juncti
 by eye) and the twin inherits every kink.  This page puts the three things a reviewer needs on
 ONE zoomable web-mercator map so the discrepancy is visible at the metre level:
 
-  * a basemap chosen from Google satellite / hybrid, Esri World Imagery, ICGC 25 cm ortho
-    (Catalonia), OSM carto;
+  * a basemap: ICGC 10 cm (2020) and 25 cm (2025) orthos for Catalonia and IGN PNOA for Spain
+    (WMS in EPSG:3857, the same servers ``ingest.imagery`` uses), Google satellite / hybrid,
+    Esri World Imagery, OSM carto, and "pipeline input ortho": the cached GeoTIFF the build
+    actually consumed (``data/ortho_<bbox>_*.tif``) tiled on the fly.  The default follows the
+    bbox: Catalonia -> ICGC 10 cm, Spain -> PNOA, elsewhere -> Google;
   * the RAW OpenStreetMap elements the build consumed (from the Overpass cache in ``data/``):
     highway ways coloured by class, every way node as a dot (junction nodes and tagged nodes
     highlighted), tags in the popup;
@@ -26,16 +29,19 @@ Every overlay has its own opacity slider; ``F`` flickers the twin layers, ``O`` 
 Clicking the map shows lat/lon, model x/y, CARLA x/y and links that open Google Street View /
 Google Earth at that exact spot.
 
-Tiles from Google / Esri / ICGC / OSM are fetched by the browser directly.  The Google ``mt``
+Tiles from Google / Esri / ICGC / PNOA / OSM are fetched by the browser directly.  The Google ``mt``
 tile endpoint has no API key and is a review convenience, not a redistribution channel: nothing
 is cached or written to disk.  Everything else is served from this process: the page,
-``/api/meta``, ``/api/twin.geojson``, ``/api/osm.geojson`` and ``/lowfly/z<z>/<i>_<j>.webp``.
+``/api/meta``, ``/api/twin.geojson``, ``/api/osm.geojson``, ``/lowfly/z<z>/<i>_<j>.webp`` and
+``/ortho/<z>/<x>/<y>.png`` (web-mercator tiles cut from the cached input ortho with rasterio).
 """
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import logging
+import math
 import sys
 import threading
 import webbrowser
@@ -174,6 +180,88 @@ def osm_geojson(raw: dict[str, Any]) -> dict[str, Any]:
             "counts": {"highway": n_ways, "building": n_bld, "node": n_nodes}}
 
 
+def region_for_bbox(bbox_swne: Sequence[float]) -> str:
+    """Coarse region tag that picks the default basemap: icgc (Catalonia) | pnoa (Spain) | google."""
+    s_, w_, n_, e_ = bbox_swne
+    lat, lon = (s_ + n_) / 2, (w_ + e_) / 2
+    if 40.5 <= lat <= 42.9 and 0.15 <= lon <= 3.35:
+        return "icgc"
+    if 35.9 <= lat <= 43.8 and -9.4 <= lon <= 4.4:
+        return "pnoa"
+    return "google"
+
+
+def find_input_ortho(data_dir: Path, bbox_swne: Sequence[float]) -> Path | None:
+    """The cached ortho GeoTIFF ``ingest.imagery`` wrote for this bbox; prefer ICGC, then PNOA, then NAIP."""
+    key = "_".join(f"{float(v):.5f}" for v in bbox_swne)
+    cands = sorted(data_dir.glob(f"ortho_{key}_*.tif"))
+    if not cands:
+        return None
+    try:
+        import rasterio
+    except ImportError:
+        return cands[0]
+
+    def rank(p: Path) -> int:
+        try:
+            with rasterio.open(p) as d:
+                src = (d.tags().get("source") or d.tags().get("detail") or "").lower()
+        except Exception:                                      # noqa: BLE001
+            return 9
+        for i, k in enumerate(("icgc", "ign", "pnoa", "naip")):
+            if k in src:
+                return i
+        return 8
+    return sorted(cands, key=rank)[0]
+
+
+class OrthoTiler:
+    """Web-mercator XYZ tiles cut from one GeoTIFF (any CRS) with a per-tile ``warp.reproject``."""
+    TILE = 256
+    R = 6378137.0
+
+    def __init__(self, path: Path):
+        import numpy as np
+        import rasterio
+        from rasterio.warp import transform_bounds
+        self.path = path
+        self.src = rasterio.open(path)
+        self.rgb = self.src.read(indexes=[1, 2, 3]).astype("uint8")          # ~11 MB for 2024x1794
+        self.alpha = np.full(self.rgb.shape[1:], 255, dtype="uint8")
+        self.bounds = transform_bounds(self.src.crs, "EPSG:3857", *self.src.bounds)   # xmin ymin xmax ymax
+        self.detail = self.src.tags().get("detail") or self.src.tags().get("source") or path.name
+        self.res_m = float(self.src.res[0])
+
+    @classmethod
+    def tile_bounds(cls, z: int, x: int, y: int) -> tuple[float, float, float, float]:
+        n = 2 ** z
+        size = 2 * math.pi * cls.R / n
+        xmin = -math.pi * cls.R + x * size
+        ymax = math.pi * cls.R - y * size
+        return xmin, ymax - size, xmin + size, ymax
+
+    def tile_png(self, z: int, x: int, y: int) -> bytes | None:
+        import numpy as np
+        from PIL import Image
+        from rasterio.enums import Resampling
+        from rasterio.transform import from_bounds
+        from rasterio.warp import reproject
+        xmin, ymin, xmax, ymax = self.tile_bounds(z, x, y)
+        bx0, by0, bx1, by1 = self.bounds
+        if xmax <= bx0 or xmin >= bx1 or ymax <= by0 or ymin >= by1:
+            return None
+        dst_tf = from_bounds(xmin, ymin, xmax, ymax, self.TILE, self.TILE)
+        rgb = np.zeros((3, self.TILE, self.TILE), dtype="uint8")
+        alpha = np.zeros((self.TILE, self.TILE), dtype="uint8")
+        common = dict(src_transform=self.src.transform, src_crs=self.src.crs, dst_transform=dst_tf, dst_crs="EPSG:3857")
+        reproject(self.rgb, rgb, resampling=Resampling.bilinear, **common)
+        reproject(self.alpha, alpha, resampling=Resampling.nearest, **common)
+        rgba = np.concatenate([np.transpose(rgb, (1, 2, 0)), alpha[..., None]], axis=2)
+        buf = io.BytesIO()
+        Image.fromarray(rgba, "RGBA").save(buf, format="PNG", compress_level=3)
+        return buf.getvalue()
+
+
 def discover_lowfly(twin_dir: Path, lowfly_root: Path) -> Path | None:
     """The ``out/lowfly/<Map>`` whose manifest points at this twin, if any."""
     if not lowfly_root.exists():
@@ -210,6 +298,17 @@ class Store:
         self._osm: bytes | None = None
         self.twin_counts: dict[str, int] = {}
         self.osm_counts: dict[str, int] = {}
+        self.region = region_for_bbox(self.bbox)
+        self.ortho: OrthoTiler | None = None
+        op = find_input_ortho(data_dir, self.bbox)
+        if op is not None:
+            try:
+                self.ortho = OrthoTiler(op)
+                log.info("input ortho: %s (%s, %.2f m/px)", op.name, self.ortho.detail, self.ortho.res_m)
+            except Exception as exc:                           # noqa: BLE001 - rasterio missing / unreadable
+                log.warning("input ortho %s unusable: %s", op, exc)
+        else:
+            log.info("no cached input ortho for this bbox in %s", data_dir)
 
     def twin_bytes(self) -> bytes:
         with self.lock:
@@ -255,6 +354,9 @@ class Store:
             "osm_counts": self.osm_counts,
             "lowfly": self.lowfly_manifest(),
             "lowfly_dir": str(self.lowfly) if self.lowfly else None,
+            "region": self.region,
+            "ortho": ({"detail": self.ortho.detail, "res_m": self.ortho.res_m, "file": self.ortho.path.name}
+                      if self.ortho else None),
         }
 
 
@@ -315,6 +417,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._error(404, "no tile")
                 return
             self._send(200, p.read_bytes(), "image/webp", cache=3600)
+            return
+        if parts[0] == "ortho" and len(parts) == 4 and self.store.ortho is not None:
+            z, x, y = parts[1], parts[2], parts[3][:-4] if parts[3].endswith(".png") else ""
+            if not (z.isdigit() and x.isdigit() and y.isdigit()):
+                self._error(404, "tile path is /ortho/<z>/<x>/<y>.png")
+                return
+            png = self.store.ortho.tile_png(int(z), int(x), int(y))
+            if png is None:
+                self._send(204, b"", "image/png", cache=3600)
+                return
+            self._send(200, png, "image/png", cache=3600)
             return
         self._error(404, "unknown path")
 
@@ -400,37 +513,48 @@ const map = L.map("map", { zoomControl: true, maxZoom: 24, zoomSnap: 0.25, zoomD
 L.control.scale({ imperial: false, maxWidth: 200 }).addTo(map);
 const canvas = L.canvas({ padding: 0.5 });
 
-const BASEMAPS = [
+const WMS = (url, layers, attribution) => L.tileLayer.wms(url, { layers, styles: "", format: "image/jpeg", version: "1.3.0",
+  transparent: false, tileSize: 512, maxZoom: 24, attribution });
+const ICGC = "https://geoserveis.icgc.cat/servei/catalunya/orto-territorial/wms";
+const BASEMAPS = [   // [label, layer, region-default key]
+  ["ICGC ortho 10 cm 2020 (Catalonia)", WMS(ICGC, "ortofoto_10cm_color_2020", "ICGC"), "icgc"],
+  ["ICGC ortho 25 cm 2025 (Catalonia)", WMS(ICGC, "ortofoto_25cm_color_2025", "ICGC"), null],
+  ["IGN PNOA ~25 cm (Spain)", WMS("https://www.ign.es/wms-inspire/pnoa-ma", "OI.OrthoimageCoverage", "IGN PNOA"), "pnoa"],
   ["Google satellite", L.tileLayer("https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
-      { subdomains: "0123", maxNativeZoom: 21, maxZoom: 24, attribution: "Imagery © Google" })],
+      { subdomains: "0123", maxNativeZoom: 21, maxZoom: 24, attribution: "Imagery © Google" }), "google"],
   ["Google hybrid", L.tileLayer("https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
-      { subdomains: "0123", maxNativeZoom: 21, maxZoom: 24, attribution: "Imagery © Google" })],
+      { subdomains: "0123", maxNativeZoom: 21, maxZoom: 24, attribution: "Imagery © Google" }), null],
   ["Esri World Imagery", L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      { maxNativeZoom: 19, maxZoom: 24, attribution: "Esri, Maxar, Earthstar Geographics" })],
-  ["ICGC ortho 25 cm (Catalonia)", L.tileLayer("https://geoserveis.icgc.cat/servei/catalunya/orto-territorial/wmts/orto/GRID3857/{z}/{x}/{y}.jpeg",
-      { maxNativeZoom: 20, maxZoom: 24, attribution: "ICGC" })],
+      { maxNativeZoom: 19, maxZoom: 24, attribution: "Esri, Maxar, Earthstar Geographics" }), null],
   ["OSM carto", L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-      { maxNativeZoom: 19, maxZoom: 24, attribution: "© OpenStreetMap contributors" })],
-  ["none", L.layerGroup()],
+      { maxNativeZoom: 19, maxZoom: 24, attribution: "© OpenStreetMap contributors" }), null],
+  ["none", L.layerGroup(), null],
 ];
 let base = null;
 function setBase(i) {
   if (base) map.removeLayer(base);
   base = BASEMAPS[i][1]; base.addTo(map); base.bringToBack && base.bringToBack();
+  document.querySelectorAll("#basemaps input").forEach((el, k) => { el.checked = (k === i); });
   try { localStorage.setItem("geo-overlay:base", i); } catch (e) {}
 }
-(function () {
+function buildBasemaps(meta) {
+  if (meta.ortho) {   // the GeoTIFF the build consumed, tiled by the server; insert first
+    BASEMAPS.unshift([`pipeline input ortho · ${meta.ortho.res_m.toFixed(2)} m/px (${meta.ortho.detail})`,
+      L.tileLayer("/ortho/{z}/{x}/{y}.png", { maxNativeZoom: 21, maxZoom: 24, attribution: meta.ortho.detail }), null]);
+  }
   const host = document.getElementById("basemaps");
-  let saved = 0; try { saved = +(localStorage.getItem("geo-overlay:base") || 0); } catch (e) {}
-  if (Q.has("base")) saved = Math.max(0, Math.min(BASEMAPS.length - 1, +Q.get("base") || 0));
+  host.innerHTML = "";
+  let pick = BASEMAPS.findIndex(b => b[2] === meta.region); if (pick < 0) pick = BASEMAPS.findIndex(b => b[2] === "google");
+  try { const v = localStorage.getItem("geo-overlay:base"); if (v !== null && +v < BASEMAPS.length) pick = +v; } catch (e) {}
+  if (Q.has("base")) pick = Math.max(0, Math.min(BASEMAPS.length - 1, +Q.get("base") || 0));
   BASEMAPS.forEach(([label], i) => {
     const row = document.createElement("div"); row.className = "row";
-    row.innerHTML = `<input type="radio" name="base" id="b${i}" ${i === saved ? "checked" : ""}><label for="b${i}">${label}</label>`;
+    row.innerHTML = `<input type="radio" name="base" id="b${i}"><label for="b${i}" title="${label}">${label}</label>`;
     row.querySelector("input").addEventListener("change", () => setBase(i));
     host.appendChild(row);
   });
-  setBase(saved);
-})();
+  setBase(pick);
+}
 
 // ------------------------------------------------------------------ overlays with opacity
 const groups = {};   // key -> { layer, opacity, on, host }
@@ -547,6 +671,7 @@ let META = null, FRAME = null, lowflyGroup = null;
 async function boot() {
   META = await (await fetch("/api/meta")).json();
   FRAME = makeFrame(META.origin[0], META.origin[1]);
+  buildBasemaps(META);
   const [S, W, N, E] = META.bbox_swne;
   document.getElementById("title").textContent = "Twin geo overlay · " + META.name;
   document.getElementById("sub").textContent = `${META.profile || ""} · origin ${META.origin[0].toFixed(5)}, ${META.origin[1].toFixed(5)}`;
