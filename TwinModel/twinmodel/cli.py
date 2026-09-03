@@ -2,7 +2,7 @@
 
     twinmodel build --bbox S W N E --name NAME --out DIR [--no-imagery] [--no-dem]
                     [--no-refine] [--fixture PATH] [--cache data] [--mask-method classical|sam|auto]
-                    [--profile eu_dense|us_urban|us_suburban|auto]
+                    [--profile eu_dense|us_urban|us_suburban|auto] [--corrections PATH] [--quick]
     twinmodel validate <twin_dir> <xodr> [--out DIR] [--step 1.0]
     twinmodel compare BUILD_DIR NAME [--resolution 0.25] [--zoom 19]   (twinmodel.compare)
 
@@ -13,7 +13,10 @@
             :mod:`twinmodel.profiles` profile; unknown -> ``eu_dense``). Every stage below
             reads its regional constants from the active profile; ``metadata["profile"]``
             records the choice.
-1. OSM      Overpass (cached) or ``--fixture`` -> ``parse_osm`` -> ``build_lanegraph``.
+1. OSM      Overpass (cached) or ``--fixture`` -> reviewer corrections (``--corrections``,
+            :mod:`twinmodel.corrections`; default ``<cache>/corrections/<name>.json``) ->
+            ``parse_osm`` -> ``build_lanegraph`` (with the corrected road ends / junction outlines);
+            ``drivable.*`` corrections patch the drivable outline after stage 4.
 2. DEM      ``fetch_dem`` -> ``model.elevation``; z applied to every reference line with
             along-road smoothing (profile ``elevation.resample_m`` resample,
             ``elevation.smooth_window_m`` Savitzky-Golay window), connecting roads
@@ -47,6 +50,7 @@ import shapely
 from shapely.geometry import LineString, Point, Polygon, box
 from shapely.ops import unary_union
 
+from . import corrections as corrections_mod
 from . import profiles
 from .frame import LocalFrame
 from .model import Elevation, Road, TwinModel, road_is_bridge, road_is_tunnel, road_osm_layer
@@ -872,7 +876,7 @@ def _call_with_sources(fn: Callable, *args, sources: tuple[str, ...], **kw):
 # --------------------------------------------------------------------------- build
 
 def build(args: argparse.Namespace) -> int:
-    from .ingest.osm import fetch_overpass, load_fixture, parse_osm
+    from .ingest.osm import fetch_overpass, parse_osm
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -888,16 +892,27 @@ def build(args: argparse.Namespace) -> int:
     # 1. OSM --------------------------------------------------------------------------------
     with timer.stage("osm"):
         if args.fixture:
-            osm = load_fixture(args.fixture)
-            bbox = tuple(args.bbox) if args.bbox else (tuple(osm.bbox_swne) if osm.bbox_swne else None)
+            raw = json.loads(Path(args.fixture).read_text())
             build_meta["osm_source"] = f"fixture:{args.fixture}"
         else:
             if not args.bbox:
                 log.error("--bbox S W N E is required without --fixture")
                 return 2
-            bbox = tuple(args.bbox)
-            osm = parse_osm(fetch_overpass(bbox, cache_dir=cache))
+            raw = fetch_overpass(tuple(args.bbox), cache_dir=cache)
             build_meta["osm_source"] = "overpass"
+        # reviewer corrections (twinmodel.corrections): --corrections PATH, else
+        # <cache>/corrections/<name>.json when it exists
+        corr_path = getattr(args, "corrections", None) or corrections_mod.default_path(cache, args.name)
+        corr = corrections_mod.load_or_empty(corr_path, args.name)
+        corr_reports: dict[str, Any] = {}
+        if corr.ops:
+            raw, corr_reports["osm"] = corrections_mod.apply_osm(raw, corr.active())
+            log.info("corrections: %s (%d ops) -> osm %d applied, %d unmatched", corr.path, len(corr.ops),
+                     len(corr_reports["osm"]["applied"]), len(corr_reports["osm"]["unmatched"]))
+            build_meta["corrections"] = {"path": str(corr.path), "n_ops": len(corr.ops),
+                                         "n_active": len(corr.active()), "reports": corr_reports}
+        osm = parse_osm(raw)
+        bbox = tuple(args.bbox) if args.bbox else (tuple(osm.bbox_swne) if osm.bbox_swne else None)
         if bbox is None:
             log.error("no bbox: pass --bbox or use a fixture that records one")
             return 2
@@ -915,11 +930,14 @@ def build(args: argparse.Namespace) -> int:
                  f"{cov:.2f}" if cov is not None else "n/a")
         log.info("profile: %s", profiles.summary(profile))
     with profiles.use(profile):
-        return _build_pipeline(args, osm, bbox, frame, out, cache, timer, build_meta, profile_meta)
+        return _build_pipeline(args, osm, bbox, frame, out, cache, timer, build_meta, profile_meta,
+                               corr=corr, corr_reports=corr_reports)
 
 
 def _build_pipeline(args: argparse.Namespace, osm, bbox, frame: LocalFrame, out: Path, cache: Path,
-                    timer: _Timer, build_meta: dict[str, Any], profile_meta: dict[str, Any]) -> int:
+                    timer: _Timer, build_meta: dict[str, Any], profile_meta: dict[str, Any],
+                    corr: Optional["corrections_mod.Corrections"] = None,
+                    corr_reports: Optional[dict[str, Any]] = None) -> int:
     from .lanegraph import build_lanegraph
     from .surfaces import build_surfaces
     from .export.xodr import export_xodr
@@ -928,8 +946,16 @@ def _build_pipeline(args: argparse.Namespace, osm, bbox, frame: LocalFrame, out:
 
     outputs = build_meta["outputs"]
     P = profiles.get()
+    ops = corr.active() if corr is not None else []
+    corr_reports = corr_reports if corr_reports is not None else {}
+    quick = bool(getattr(args, "quick", False))
     with timer.stage("lanegraph"):
-        model = build_lanegraph(osm, frame, bbox, name=args.name)
+        model = build_lanegraph(osm, frame, bbox, name=args.name,
+                                end_shifts=corrections_mod.end_shifts(ops) or None)
+        if ops:
+            corr_reports["lanegraph"] = corrections_mod.apply_junctions(model, ops, frame)
+            n_shift = sum(1 for r in model.roads for e in ("start", "end") if f"end_shift_{e}" in r.tags)
+            corr_reports["lanegraph"]["road_ends_shifted"] = n_shift
         model.metadata["profile"] = dict(profile_meta)
         log.info("lanegraph: %d roads, %d junctions, %d signals, %d buildings",
                  len(model.roads), len(model.junctions), len(model.signals), len(model.buildings))
@@ -1031,6 +1057,22 @@ def _build_pipeline(args: argparse.Namespace, osm, bbox, frame: LocalFrame, out:
         refine_meta["surfaces_unrefined"] = {k: v for k, v in unrefined_stats.items()
                                              if not k.endswith("_wkt")}
         model.metadata["refine"] = refine_meta
+    if corrections_mod.has_drivable_ops(ops):
+        # reviewer kerb / sidewalk contour corrections: patch the (possibly refined) drivable
+        # outline and derive sidewalks, kerbs and islands again from it
+        with timer.stage("corrections"):
+            from .refine import drivable_by_layer
+            base = drivable_by_layer(model)
+            patched = corrections_mod.drivable_patch(ops, frame, base)
+            build_surfaces(model, refined_drivable=patched,
+                           extra_raised=corrections_mod.raised_extras(ops, frame))
+            model.metadata.setdefault("surfaces", {})["drivable_source"] = "correction"
+            corr_reports["surfaces"] = {"applied": [{"op": o["op"], "id": o.get("id")} for o in ops
+                                                    if o["op"] in corrections_mod.SURFACE_OPS]}
+    if ops:
+        build_meta["corrections"]["reports"] = _json_safe(corr_reports)
+        log.info("corrections: %s", corrections_mod.summary(corr_reports))
+        model.metadata["corrections"] = build_meta["corrections"]
     model.metadata["build"] = build_meta
 
     # 5. exports ----------------------------------------------------------------------------
@@ -1042,30 +1084,36 @@ def _build_pipeline(args: argparse.Namespace, osm, bbox, frame: LocalFrame, out:
         xodr_text = export_xodr(model, xodr_path)
         outputs["xodr"] = str(xodr_path)
         obj_path = out / f"{args.name}.obj"
-        export_obj(model, obj_path)
-        outputs["obj"] = str(obj_path)
-        outputs["mtl"] = str(obj_path.with_suffix(".mtl"))
+        if quick:
+            build_meta["notes"].append("quick: obj + previews skipped")
+        else:
+            export_obj(model, obj_path)
+            outputs["obj"] = str(obj_path)
+            outputs["mtl"] = str(obj_path.with_suffix(".mtl"))
     with timer.stage("preview"):
         ortho_arr = ortho_ext = None
-        if ortho is not None:
+        if quick:
+            ortho = None
+        if ortho is not None and not quick:
             ortho_arr = ortho.array[::-1]  # export_preview_png draws origin="upper"
             ortho_ext = ortho.extent()
-        p = out / f"{args.name}_preview.png"
-        export_preview_png(model, p, ortho=ortho_arr, extent=ortho_ext)
-        outputs["preview_png"] = str(p)
+        if not quick:
+            p = out / f"{args.name}_preview.png"
+            export_preview_png(model, p, ortho=ortho_arr, extent=ortho_ext)
+            outputs["preview_png"] = str(p)
         if ortho is not None:
             p = out / f"{args.name}_preview_plain.png"
             export_preview_png(model, p)
             outputs["preview_plain_png"] = str(p)
         outputs["junction_png"] = {}
-        for j in _largest_junctions(model, args.junction_zooms):
+        for j in _largest_junctions(model, 0 if quick else args.junction_zooms):
             win = _junction_window(j)
             p = out / f"{args.name}_junction_{j.id}.png"
             export_preview_png(model, p, ortho=ortho_arr, extent=ortho_ext, window=win,
                                title=f"{args.name} junction {j.id} ({j.polygon.area:.0f} m2, "
                                      f"{len(j.connections)} connections)")
             outputs["junction_png"][j.id] = str(p)
-        if model.elevation is not None:
+        if model.elevation is not None and not quick:
             try:
                 from .ingest.elevation import save_quicklook
                 p = out / f"{args.name}_dem.png"
@@ -1179,6 +1227,10 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="region profile (twinmodel.profiles); auto = by country + building density")
     b.add_argument("--step", type=float, default=1.0, help="waypoint step for validation (m)")
     b.add_argument("--junction-zooms", type=int, default=3, help="zoom PNGs for the N largest junctions")
+    b.add_argument("--corrections", help="reviewer corrections JSON (twinmodel.corrections); default "
+                                         "<cache>/corrections/<name>.json when present")
+    b.add_argument("--quick", action="store_true",
+                   help="skip the OBJ mesh and the preview PNGs (twin + xodr + validation only; the editor's rebuild)")
     b.set_defaults(func=build)
 
     u = sub.add_parser("bake-export", help="twin model -> UE bake input: per-(layer, kind, tile) .glb "

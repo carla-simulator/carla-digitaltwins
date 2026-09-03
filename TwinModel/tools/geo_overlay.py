@@ -18,7 +18,8 @@ ONE zoomable web-mercator map so the discrepancy is visible at the metre level:
     highway ways coloured by class, every way node as a dot (junction nodes and tagged nodes
     highlighted), tags in the popup;
   * the twin model (``<build_dir>/<name>.twin``) reprojected from local ENU to WGS84: surfaces
-    by kind, road reference lines, junction polygons, kerbs, markings, signals, buildings;
+    by kind, per-lane bands (parking / bus / bike lanes coloured), road reference lines, junction
+    polygons, kerbs, markings, signals, buildings;
   * every ``<build_dir>/detect/*.geojson`` (model metres) as a layer group: ``ortho_detect.py``
     objects, ``ortho_surfaces.py`` SAM surfaces, ``kerb_edges.py`` kerb offsets (coloured by
     magnitude), ``tile2net_run.py`` polygons; one sub-layer per label/kind, re-read on change;
@@ -74,7 +75,7 @@ def _flatten_props(props: dict[str, Any]) -> dict[str, Any]:
     for k, v in props.items():
         if isinstance(v, (list, dict)):
             s = json.dumps(v, separators=(",", ":"))
-            out[k] = s if len(s) <= 400 else s[:397] + "..."
+            out[k] = s if len(s) <= 4000 else s[:3997] + "..."
         else:
             out[k] = v
     return out
@@ -95,22 +96,77 @@ def _reproject_coords(tf, coords):
     return [_reproject_coords(tf, c) for c in coords]
 
 
+def lane_band_features(roads_fc: dict[str, Any]) -> list[dict[str, Any]]:
+    """One polygon per lane of every road (model metres): the reference line offset by the
+    cumulative lane widths on each side (lane id > 0 left, < 0 right). Full-length bands: a
+    parking / turn lane that only spans part of the road (``aux_span``) is drawn whole."""
+    from shapely.geometry import LineString, Polygon
+    feats: list[dict[str, Any]] = []
+    for f in roads_fc.get("features", []):
+        p = f.get("properties") or {}
+        lanes = p.get("lanes") or []
+        coords = [(c[0], c[1]) for c in (f.get("geometry") or {}).get("coordinates", [])]
+        if len(coords) < 2 or not lanes:
+            continue
+        line = LineString(coords)
+        if line.length < 0.5:
+            continue
+        for sign in (1, -1):
+            side = sorted([l for l in lanes if (l["id"] > 0) == (sign > 0)], key=lambda l: abs(l["id"]))
+            inner = 0.0
+            for l in side:
+                outer = inner + float(l.get("width") or 0.0)
+                if outer - inner < 0.05:
+                    continue
+                try:
+                    a = line if inner == 0.0 else line.offset_curve(sign * inner)
+                    b = line.offset_curve(sign * outer)
+                except Exception:                          # noqa: BLE001 - degenerate geometry
+                    break
+                inner = outer
+                if a.is_empty or b.is_empty or a.geom_type != "LineString" or b.geom_type != "LineString":
+                    continue
+                poly = Polygon(list(a.coords) + list(b.coords)[::-1])
+                if not poly.is_valid:
+                    poly = poly.buffer(0)
+                if poly.is_empty or poly.geom_type != "Polygon":
+                    continue
+                feats.append({"type": "Feature",
+                              "properties": {"road_id": p.get("id"), "lane_id": l["id"], "type": l.get("type"),
+                                             "width": l.get("width"), "direction": l.get("direction"),
+                                             "junction_id": p.get("junction_id"), "highway": p.get("highway"),
+                                             "name": p.get("name"), "osm_way_ids": p.get("osm_way_ids")},
+                              "geometry": {"type": "Polygon", "coordinates": [list(poly.exterior.coords)]}})
+    return feats
+
+
 def twin_geojson(twin_dir: Path, frame: LocalFrame) -> dict[str, Any]:
-    """All twin layers in one FeatureCollection; ``layer`` property names the source file."""
+    """All twin layers in one FeatureCollection; ``layer`` property names the source file.
+    ``lanes`` is synthesised from ``roads.geojson`` (``lane_band_features``)."""
     feats: list[dict[str, Any]] = []
     counts: dict[str, int] = {}
     tf = frame._to_wgs()                                   # one Transformer for the whole model
-    for layer in TWIN_LAYERS:
-        p = twin_dir / f"{layer}.geojson"
-        if not p.exists():
-            continue
-        fc = json.loads(p.read_text())
+    for layer in TWIN_LAYERS + ("lanes",):
+        if layer == "lanes":
+            rp = twin_dir / "roads.geojson"
+            fc = {"features": lane_band_features(json.loads(rp.read_text()))} if rp.exists() else {"features": []}
+        else:
+            p = twin_dir / f"{layer}.geojson"
+            if not p.exists():
+                continue
+            fc = json.loads(p.read_text())
         n = 0
         for f in fc.get("features", []):
             geom = f.get("geometry")
             if not geom:
                 continue
-            props = _flatten_props(f.get("properties") or {})
+            raw_props = dict(f.get("properties") or {})
+            if layer == "junctions":
+                # the WKT debug tags are large; polygon_source is what a viewer styles on
+                t = dict(raw_props.get("tags") or {})
+                raw_props["polygon_source"] = t.get("polygon_source")
+                raw_props["tags"] = {k: v for k, v in t.items() if not k.endswith("_wkt")}
+            props = _flatten_props(raw_props)
             props["layer"] = layer
             feats.append({"type": "Feature", "properties": props,
                           "geometry": {"type": geom["type"],
@@ -492,20 +548,16 @@ class Handler(BaseHTTPRequestHandler):
 
 
 # ------------------------------------------------------------------------------------ page
+# The page is assembled from pieces so tools/twin_editor.py can reuse the map core (projection,
+# basemaps, overlay rows, twin / detection layers, low-fly mosaic, readout) under its own UI.
 
-PAGE = r"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Twin geo overlay</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<style>
+CSS = r"""
   html, body { height: 100%; margin: 0; font: 13px/1.35 system-ui, sans-serif; color: #eee; background: #111; }
   #map { position: absolute; inset: 0; }
   #panel { position: absolute; top: 10px; right: 10px; z-index: 1000; width: 300px; max-height: calc(100% - 20px);
            overflow: auto; background: rgba(20,20,24,.92); border: 1px solid #333; border-radius: 8px; padding: 10px 12px; }
   #panel h1 { font-size: 14px; margin: 0 0 6px; }
-  #panel h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #9aa; margin: 10px 0 4px; }
+  #panel h2, .h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #9aa; margin: 10px 0 4px; }
   .row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
   .row label { flex: 1; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .row input[type=range] { width: 90px; }
@@ -521,9 +573,9 @@ PAGE = r"""<!doctype html>
   .leaflet-popup-content td:first-child { color: #557; }
   .leaflet-container { background: #000; }
   a { color: #8cf; }
-</style></head>
-<body>
-<div id="map"></div>
+"""
+
+PANEL_HTML = r"""
 <div id="panel">
   <h1 id="title">Twin geo overlay</h1>
   <div class="muted mono" id="sub"></div>
@@ -535,12 +587,14 @@ PAGE = r"""<!doctype html>
   <div id="help"><b>F</b> flicker twin · <b>O</b> flicker OSM · <b>D</b> flicker detections · <b>M</b> flicker mosaic · click: coordinates + Street View</div>
 </div>
 <div id="readout" class="mono">move the mouse over the map</div>
-<script>
+"""
+
+JS_CORE = r"""
 window.addEventListener("error", ev => { const el = document.getElementById("sub"); if (el) el.textContent = "JS error: " + ev.message + " (line " + ev.lineno + ")"; });
 window.addEventListener("unhandledrejection", ev => { const el = document.getElementById("sub"); if (el) el.textContent = "failed: " + (ev.reason && ev.reason.message || ev.reason); });
 // ------------------------------------------------------------------ WGS84 <-> local ENU (tmerc, k=1)
 // Same projection as twinmodel.frame.LocalFrame: +proj=tmerc +lat_0=ORIGIN_LAT +lon_0=ORIGIN_LON +k=1.
-// Snyder series; mm-level within the few km a twin spans.
+// Snyder series; mm-level within the few km a twin spans.  toWGS is the matching inverse.
 const A = 6378137.0, F = 1 / 298.257223563, E2 = F * (2 - F), EP2 = E2 / (1 - E2);
 function mArc(phi) {
   const e4 = E2 * E2, e6 = e4 * E2;
@@ -551,6 +605,7 @@ function mArc(phi) {
 }
 function makeFrame(lat0, lon0) {
   const p0 = lat0 * Math.PI / 180, l0 = lon0 * Math.PI / 180, M0 = mArc(p0);
+  const E1 = (1 - Math.sqrt(1 - E2)) / (1 + Math.sqrt(1 - E2));
   return {
     toLocal(lat, lon) {
       const p = lat * Math.PI / 180, l = lon * Math.PI / 180;
@@ -561,6 +616,19 @@ function makeFrame(lat0, lon0) {
       const y = (mArc(p) - M0) + N * tp * (A2 / 2 + (5 - T + 9 * C + 4 * C * C) * A4 / 24
         + (61 - 58 * T + T * T + 600 * C - 330 * EP2) * A6 / 720);
       return [x, y];
+    },
+    toWGS(x, y) {
+      const M = M0 + y, mu = M / (A * (1 - E2 / 4 - 3 * E2 * E2 / 64 - 5 * E2 * E2 * E2 / 256));
+      const e1 = E1, e12 = e1 * e1, e13 = e12 * e1, e14 = e13 * e1;
+      const p1 = mu + (3 * e1 / 2 - 27 * e13 / 32) * Math.sin(2 * mu) + (21 * e12 / 16 - 55 * e14 / 32) * Math.sin(4 * mu)
+        + (151 * e13 / 96) * Math.sin(6 * mu) + (1097 * e14 / 512) * Math.sin(8 * mu);
+      const sp = Math.sin(p1), cp = Math.cos(p1), tp = Math.tan(p1);
+      const C1 = EP2 * cp * cp, T1 = tp * tp, N1 = A / Math.sqrt(1 - E2 * sp * sp), R1 = A * (1 - E2) / Math.pow(1 - E2 * sp * sp, 1.5);
+      const D = x / N1, D2 = D * D, D3 = D2 * D, D4 = D3 * D, D5 = D4 * D, D6 = D5 * D;
+      const lat = p1 - (N1 * tp / R1) * (D2 / 2 - (5 + 3 * T1 + 10 * C1 - 4 * C1 * C1 - 9 * EP2) * D4 / 24
+        + (61 + 90 * T1 + 298 * C1 + 45 * T1 * T1 - 252 * EP2 - 3 * C1 * C1) * D6 / 720);
+      const lon = l0 + (D - (1 + 2 * T1 + C1) * D3 / 6 + (5 - 2 * C1 + 28 * T1 - 3 * C1 * C1 + 8 * EP2 + 24 * T1 * T1) * D5 / 120) / cp;
+      return [lat * 180 / Math.PI, lon * 180 / Math.PI];
     }
   };
 }
@@ -618,8 +686,9 @@ function buildBasemaps(meta) {
 }
 
 // ------------------------------------------------------------------ overlays with opacity
-const groups = {};   // key -> { layer, opacity, on, host }
+const groups = {};   // key -> { layer, opacity, on, host, row }
 function addOverlay(hostId, key, label, colour, layer, opacity, on) {
+  if (groups[key]) removeOverlay(key);
   if (Q_ONLY.size) on = Q_ONLY.has(key);
   if (Q_ON.has(key)) on = true;
   if (Q_OFF.has(key)) on = false;
@@ -629,7 +698,7 @@ function addOverlay(hostId, key, label, colour, layer, opacity, on) {
     <label for="c-${key}"><span class="sw" style="background:${colour}"></span>${label}</label>
     <input type="range" min="0" max="1" step="0.05" value="${opacity}" title="opacity">`;
   host.appendChild(row);
-  const g = { layer, opacity, on, key };
+  const g = { layer, opacity, on, key, row };
   groups[key] = g;
   const cb = row.querySelector("input[type=checkbox]"), sl = row.querySelector("input[type=range]");
   cb.addEventListener("change", () => { g.on = cb.checked; g.on ? layer.addTo(map) : map.removeLayer(layer); });
@@ -637,6 +706,11 @@ function addOverlay(hostId, key, label, colour, layer, opacity, on) {
   if (on) layer.addTo(map);
   applyOpacity(g);
   return g;
+}
+function removeOverlay(key) {
+  const g = groups[key]; if (!g) return null;
+  map.removeLayer(g.layer); g.row.remove(); delete groups[key];
+  return { on: g.on, opacity: g.opacity };
 }
 function applyOpacity(g) {
   const L_ = g.layer;
@@ -661,10 +735,13 @@ function popupTable(props) {
     .map(([k, v]) => `<tr><td>${k}</td><td>${String(v).replace(/</g, "&lt;")}</td></tr>`).join("");
   return `<b>${props.layer}</b><table>${rows}</table>`;
 }
-function geoLayer(fc, filter, style, pointToLayer) {
+function geoLayer(fc, filter, style, pointToLayer, onEach) {
   const lyr = L.geoJSON(fc, {
     renderer: canvas, filter, style, pointToLayer,
-    onEachFeature: (f, l) => { l._baseStyle = style ? style(f) : (pointToLayer ? l.options : null); l.bindPopup(() => popupTable(f.properties), { maxWidth: 420 }); }
+    onEachFeature: (f, l) => {
+      l._baseStyle = style ? style(f) : (pointToLayer ? l.options : null);
+      if (onEach) onEach(f, l); else l.bindPopup(() => popupTable(f.properties), { maxWidth: 420 });
+    }
   });
   return lyr;
 }
@@ -675,6 +752,8 @@ const HW = { motorway: "#e892a2", trunk: "#f9b29c", primary: "#fcd6a4", secondar
   footway: "#fa8072", cycleway: "#3c78d8", path: "#c8a27a", steps: "#fa8072", track: "#a97b3d", other: "#bbb" };
 const SURF = { drivable: "#3c3c3f", sidewalk: "#a7a59c", crossing: "#ecece6", median: "#7e9a70", island: "#8c9e80",
   verge: "#5c8545", parking: "#4d4d4f", ground: "#5a6a4c" };
+const LANE = { driving: "#6f7f9a", parking: "#3b7dd8", biking: "#2ecc71", bus: "#e74c3c", sidewalk: "#c9b99a",
+  shoulder: "#8a8a8a", median: "#7e9a70", verge: "#5c8545", stop: "#ff4d4d", none: "#555" };
 
 // ------------------------------------------------------------------ low-fly mosaic as a reprojected GridLayer
 const LowFly = L.GridLayer.extend({
@@ -728,81 +807,78 @@ const LowFly = L.GridLayer.extend({
   }
 });
 
-// ------------------------------------------------------------------ boot
+// ------------------------------------------------------------------ layer mounting (shared by the overlay and the editor)
 let META = null, FRAME = null, lowflyGroup = null;
-async function boot() {
+const TWIN_KEYS = ["surfaces", "lanes", "curbs", "roads", "junctions", "markings", "signals", "buildings", "objects"];
+async function loadMeta() {
   META = await (await fetch("/api/meta")).json();
   FRAME = makeFrame(META.origin[0], META.origin[1]);
-  buildBasemaps(META);
-  const [S, W, N, E] = META.bbox_swne;
-  document.getElementById("title").textContent = "Twin geo overlay · " + META.name;
-  document.getElementById("sub").textContent = `${META.profile || ""} · origin ${META.origin[0].toFixed(5)}, ${META.origin[1].toFixed(5)}`;
-  const h = location.hash.match(/^#(\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)$/);   // #zoom/lat/lon, shareable
-  if (h) map.setView([+h[2], +h[3]], +h[1]); else map.fitBounds([[S, W], [N, E]]);
-  map.on("moveend", () => { const c = map.getCenter(); history.replaceState(null, "", `#${map.getZoom().toFixed(2)}/${c.lat.toFixed(7)}/${c.lng.toFixed(7)}`); });
-  L.rectangle([[S, W], [N, E]], { color: "#ff0", weight: 1, fill: false, dashArray: "4 4", interactive: false }).addTo(map);
-
-  const [osm, twin] = await Promise.all([fetch("/api/osm.geojson").then(r => r.json()), fetch("/api/twin.geojson").then(r => r.json())]);
-
-  // OSM
-  addOverlay("osm-layers", "osm_highway", `highway ways (${META.osm_counts.highway})`, "#ffffff",
+  return META;
+}
+function mountOsm(osm, counts) {
+  addOverlay("osm-layers", "osm_highway", `highway ways (${counts.highway})`, "#ffffff",
     geoLayer(osm, f => f.properties.layer === "osm_highway", f => ({ color: HW[f.properties.class] || HW.other, weight: 2.5, opacity: 1 })), 0.9, true);
-  addOverlay("osm-layers", "osm_node", `way nodes (${META.osm_counts.node}) · red = junction, cyan = tagged`, "#ff4040",
+  addOverlay("osm-layers", "osm_node", `way nodes (${counts.node}) · red = junction, cyan = tagged`, "#ff4040",
     geoLayer(osm, f => f.properties.layer === "osm_node", null, (f, ll) => {
       const p = f.properties, junction = p.degree >= 2;
       return L.circleMarker(ll, { renderer: canvas, radius: junction ? 4 : 2.5, color: p.tagged ? "#00e5ff" : (junction ? "#ff4040" : "#ffffff"),
         weight: 1, fillColor: junction ? "#ff4040" : (p.tagged ? "#00e5ff" : "#ffffff"), fillOpacity: 0.9, opacity: 1 });
     }), 1, true);
-  addOverlay("osm-layers", "osm_building", `buildings (${META.osm_counts.building})`, "#d9a066",
+  addOverlay("osm-layers", "osm_building", `buildings (${counts.building})`, "#d9a066",
     geoLayer(osm, f => f.properties.layer === "osm_building", () => ({ color: "#d9a066", weight: 1, opacity: 1, fillOpacity: 0.08 })), 0.7, false);
   addOverlay("osm-layers", "osm_other", "other ways / areas", "#9aa",
     geoLayer(osm, f => f.properties.layer === "osm_other", () => ({ color: "#9aa", weight: 1, opacity: 1, fillOpacity: 0.05, dashArray: "3 3" })), 0.7, false);
-
-  // Twin
-  const tc = META.twin_counts;
-  addOverlay("twin-layers", "surfaces", `surfaces (${tc.surfaces || 0})`, SURF.drivable,
-    geoLayer(twin, f => f.properties.layer === "surfaces", f => ({ color: SURF[f.properties.kind] || "#888", weight: 1, opacity: 1, fillColor: SURF[f.properties.kind] || "#888", fillOpacity: 0.45 })), 0.8, true);
-  addOverlay("twin-layers", "curbs", `kerb lines (${tc.curbs || 0})`, "#ffd400",
-    geoLayer(twin, f => f.properties.layer === "curbs", () => ({ color: "#ffd400", weight: 1.5, opacity: 1 })), 1, true);
-  addOverlay("twin-layers", "roads", `road reference lines (${tc.roads || 0})`, "#ff2d95",
-    geoLayer(twin, f => f.properties.layer === "roads", () => ({ color: "#ff2d95", weight: 2, opacity: 1 })), 1, true);
-  addOverlay("twin-layers", "junctions", `junction polygons (${tc.junctions || 0})`, "#c860ff",
-    geoLayer(twin, f => f.properties.layer === "junctions", () => ({ color: "#c860ff", weight: 2, opacity: 1, fillOpacity: 0.12 })), 1, true);
-  addOverlay("twin-layers", "markings", `markings (${tc.markings || 0})`, "#f2f2f2",
-    geoLayer(twin, f => f.properties.layer === "markings", f => ({ color: f.properties.color === "yellow" ? "#f2cc26" : "#f2f2f2", weight: 1, opacity: 1, dashArray: f.properties.kind === "dashed" ? "4 4" : null })), 1, false);
-  addOverlay("twin-layers", "signals", `signals (${tc.signals || 0})`, "#39ff14",
-    geoLayer(twin, f => f.properties.layer === "signals", null, (f, ll) => L.circleMarker(ll, { renderer: canvas, radius: 4, color: "#39ff14", weight: 1.5, fillColor: "#000", fillOpacity: 0.7, opacity: 1 })), 1, false);
-  addOverlay("twin-layers", "buildings", `buildings (${tc.buildings || 0})`, "#66aaff",
-    geoLayer(twin, f => f.properties.layer === "buildings", () => ({ color: "#66aaff", weight: 1, opacity: 1, fillOpacity: 0.1 })), 0.8, false);
-  addOverlay("twin-layers", "objects", `objects / trees (${tc.objects || 0})`, "#2ecc40",
-    geoLayer(twin, f => f.properties.layer === "objects", null, (f, ll) => L.circleMarker(ll, { renderer: canvas, radius: 3, color: "#2ecc40", weight: 1, fillColor: "#2ecc40", fillOpacity: 0.6, opacity: 1 })), 1, false);
-
+}
+// twin layers; on a re-mount (the editor after a rebuild) every group keeps its checkbox / opacity
+function mountTwin(twin, tc, onEach) {
+  const prev = {};
+  for (const k of TWIN_KEYS) { const st = removeOverlay(k); if (st) prev[k] = st; }
+  const add = (key, label, colour, layer, opacity, on) => {
+    const st = prev[key]; const g = addOverlay("twin-layers", key, label, colour, layer, st ? st.opacity : opacity, st ? st.on : on);
+    return g;
+  };
+  const gl = (filter, style, p2l) => geoLayer(twin, filter, style, p2l, onEach);
+  add("surfaces", `surfaces (${tc.surfaces || 0})`, SURF.drivable,
+    gl(f => f.properties.layer === "surfaces", f => ({ color: SURF[f.properties.kind] || "#888", weight: 1, opacity: 1, fillColor: SURF[f.properties.kind] || "#888", fillOpacity: 0.45 })), 0.8, true);
+  add("lanes", `lane bands (${tc.lanes || 0}) · blue parking, red bus, green bike`, LANE.driving,
+    gl(f => f.properties.layer === "lanes", f => ({ color: "#0b0b0e", weight: 0.6, opacity: 0.9, fillColor: LANE[f.properties.type] || LANE.none, fillOpacity: 0.5 })), 0.8, false);
+  add("curbs", `kerb lines (${tc.curbs || 0})`, "#ffd400",
+    gl(f => f.properties.layer === "curbs", () => ({ color: "#ffd400", weight: 1.5, opacity: 1 })), 1, true);
+  add("roads", `road reference lines (${tc.roads || 0})`, "#ff2d95",
+    gl(f => f.properties.layer === "roads", () => ({ color: "#ff2d95", weight: 2, opacity: 1 })), 1, true);
+  add("junctions", `junction polygons (${tc.junctions || 0})`, "#c860ff",
+    gl(f => f.properties.layer === "junctions", f => ({ color: f.properties.polygon_source === "correction" ? "#ffb000" : "#c860ff", weight: 2, opacity: 1, fillOpacity: 0.12 })), 1, true);
+  add("markings", `markings (${tc.markings || 0})`, "#f2f2f2",
+    gl(f => f.properties.layer === "markings", f => ({ color: f.properties.color === "yellow" ? "#f2cc26" : "#f2f2f2", weight: 1, opacity: 1, dashArray: f.properties.kind === "dashed" ? "4 4" : null })), 1, false);
+  add("signals", `signals (${tc.signals || 0})`, "#39ff14",
+    gl(f => f.properties.layer === "signals", null, (f, ll) => L.circleMarker(ll, { renderer: canvas, radius: 4, color: "#39ff14", weight: 1.5, fillColor: "#000", fillOpacity: 0.7, opacity: 1 })), 1, false);
+  add("buildings", `buildings (${tc.buildings || 0})`, "#66aaff",
+    gl(f => f.properties.layer === "buildings", () => ({ color: "#66aaff", weight: 1, opacity: 1, fillOpacity: 0.1 })), 0.8, false);
+  add("objects", `objects / trees (${tc.objects || 0})`, "#2ecc40",
+    gl(f => f.properties.layer === "objects", null, (f, ll) => L.circleMarker(ll, { renderer: canvas, radius: 3, color: "#2ecc40", weight: 1, fillColor: "#2ecc40", fillOpacity: 0.6, opacity: 1 })), 1, false);
+}
+const DC = { car: "#ff3b3b", van: "#ff8c3b", truck: "#ffb03b", bus: "#ffd23b", motorcycle: "#ff3bd2", crosswalk: "#ffffff",
+  tree: "#3bff6e", "street lamp": "#3bd2ff", sidewalk: "#3bd2ff", drivable: "#ff6a6a", road: "#ff6a6a", crossing: "#ffffff",
+  median: "#8dff8d", island: "#8dff8d", parking: "#ffd23b", verge: "#4cff4c", footpath: "#c8a2ff" };
+const offColour = v => Math.abs(v) < 0.3 ? "#39ff14" : Math.abs(v) < 0.8 ? "#ffe14d" : Math.abs(v) < 1.5 ? "#ff8c3b" : "#ff2d2d";
+async function mountDetectAll(meta, on = true) {
   // ML / imagery-derived layers: one group per detect/<file>.geojson, one sub-layer per label/kind
   const detHost = document.getElementById("detect-layers");
-  const detFiles = Object.keys(META.detect || {});
+  const detFiles = Object.keys(meta.detect || {});
   if (detFiles.length) detHost.innerHTML = "";
-  const DC = { car: "#ff3b3b", van: "#ff8c3b", truck: "#ffb03b", bus: "#ffd23b", motorcycle: "#ff3bd2", crosswalk: "#ffffff",
-    tree: "#3bff6e", "street lamp": "#3bd2ff", sidewalk: "#3bd2ff", drivable: "#ff6a6a", road: "#ff6a6a", crossing: "#ffffff",
-    median: "#8dff8d", island: "#8dff8d", parking: "#ffd23b", verge: "#4cff4c", footpath: "#c8a2ff" };
-  const offColour = v => Math.abs(v) < 0.3 ? "#39ff14" : Math.abs(v) < 0.8 ? "#ffe14d" : Math.abs(v) < 1.5 ? "#ff8c3b" : "#ff2d2d";
   for (const stem of detFiles) {
-    const m = META.detect[stem];
+    const m = meta.detect[stem];
     const h = document.createElement("div"); h.className = "muted mono"; h.style.margin = "6px 0 2px";
     h.textContent = `${stem}.geojson · ${m.n}`; detHost.appendChild(h);
     if (!m.default_on) {
       const b = document.createElement("button"); b.textContent = "load"; b.className = "mono";
-      b.addEventListener("click", async () => { b.remove(); await mountDetect(stem, m, DC, offColour); }); detHost.appendChild(b);
+      b.addEventListener("click", async () => { b.remove(); await mountDetect(stem, m, on); }); detHost.appendChild(b);
       continue;
     }
-    await mountDetect(stem, m, DC, offColour);
+    await mountDetect(stem, m, on);
   }
-  mountLowfly(META.lowfly);
-  if (!META.lowfly && META.lowfly_dir) setInterval(async () => {   // flight in progress: pick the manifest up when it lands
-    const m = await (await fetch("/api/meta")).json();
-    if (m.lowfly) { mountLowfly(m.lowfly); }
-  }, 30000);
 }
-async function mountDetect(stem, m, DC, offColour) {
+async function mountDetect(stem, m, on = true) {
   const fc = await (await fetch(`/api/detect/${stem}.geojson`)).json();
   const labels = Object.keys(m.counts).sort((a, b) => m.counts[b] - m.counts[a]);
   const hasOff = fc.features.length && ("offset_med" in fc.features[0].properties || "offset" in fc.features[0].properties);
@@ -819,7 +895,7 @@ async function mountDetect(stem, m, DC, offColour) {
       (f, ll) => L.circleMarker(ll, { renderer: canvas, radius: 3, ...style(f) }));
     const name = hasOff ? `${lb === "all" ? "kerb offset" : lb} (${m.counts[lb]}) · green <0.3 m, yellow <0.8, orange <1.5, red ≥1.5`
                         : `${lb} (${m.counts[lb]})`;
-    addOverlay("detect-layers", key, name, hasOff ? "#ffe14d" : col, lyr, 1, true);
+    addOverlay("detect-layers", key, name, hasOff ? "#ffe14d" : col, lyr, 1, on);
   });
 }
 function mountLowfly(man) {
@@ -831,6 +907,20 @@ function mountLowfly(man) {
   note.textContent = `${man.leaf_tiles} leaf tiles, flown ${(man.seconds / 60).toFixed(0)} min`;
   document.getElementById("lowfly-layers").appendChild(note);
 }
+function watchLowfly(meta) {
+  mountLowfly(meta.lowfly);
+  if (!meta.lowfly && meta.lowfly_dir) setInterval(async () => {   // flight in progress: pick the manifest up when it lands
+    const m = await (await fetch("/api/meta")).json();
+    if (m.lowfly) { mountLowfly(m.lowfly); }
+  }, 30000);
+}
+function setViewFromHash(meta) {
+  const [S, W, N, E] = meta.bbox_swne;
+  const h = location.hash.match(/^#(\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)$/);   // #zoom/lat/lon, shareable
+  if (h) map.setView([+h[2], +h[3]], +h[1]); else map.fitBounds([[S, W], [N, E]]);
+  map.on("moveend", () => { const c = map.getCenter(); history.replaceState(null, "", `#${map.getZoom().toFixed(2)}/${c.lat.toFixed(7)}/${c.lng.toFixed(7)}`); });
+  L.rectangle([[S, W], [N, E]], { color: "#ff0", weight: 1, fill: false, dashArray: "4 4", interactive: false }).addTo(map);
+}
 
 // ------------------------------------------------------------------ readout + click
 const ro = document.getElementById("readout");
@@ -839,8 +929,7 @@ map.on("mousemove", ev => {
   const [x, y] = FRAME.toLocal(ev.latlng.lat, ev.latlng.lng);
   ro.textContent = `lat ${ev.latlng.lat.toFixed(7)}  lon ${ev.latlng.lng.toFixed(7)}   model x ${x.toFixed(2)}  y ${y.toFixed(2)}   CARLA x ${x.toFixed(2)}  y ${(-y).toFixed(2)}   z${map.getZoom().toFixed(2)}`;
 });
-map.on("click", ev => {
-  if (!FRAME) return;
+function placePopup(ev) {
   const la = ev.latlng.lat, lo = ev.latlng.lng, [x, y] = FRAME.toLocal(la, lo);
   const sv = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${la.toFixed(7)},${lo.toFixed(7)}`;
   const gm = `https://www.google.com/maps/@${la.toFixed(7)},${lo.toFixed(7)},21z/data=!3m1!1e3`;
@@ -854,18 +943,43 @@ map.on("click", ev => {
      <a target="_blank" rel="noopener" href="${gm}">Google Maps satellite</a> ·
      <a target="_blank" rel="noopener" href="${ge}">Google Earth</a> ·
      <a target="_blank" rel="noopener" href="${osm}">edit in OSM iD</a></div>`).openOn(map);
-});
-document.addEventListener("keydown", ev => {
-  if (ev.target.tagName === "INPUT") return;
-  if (ev.key === "f" || ev.key === "F") flicker(["surfaces", "curbs", "roads", "junctions", "markings", "signals", "buildings", "objects"].filter(k => groups[k]));
-  if (ev.key === "o" || ev.key === "O") flicker(["osm_highway", "osm_node", "osm_building", "osm_other"].filter(k => groups[k]));
-  if (ev.key === "m" || ev.key === "M") flicker(["lowfly"].filter(k => groups[k]));
-  if (ev.key === "d" || ev.key === "D") flicker(Object.keys(groups).filter(k => k.startsWith("det_")));
-});
-boot().catch(e => { document.getElementById("sub").textContent = "failed: " + e; console.error(e); });
-</script>
-</body></html>
+}
+function bindFlickerKeys() {
+  document.addEventListener("keydown", ev => {
+    if (ev.target.tagName === "INPUT" || ev.target.tagName === "TEXTAREA" || ev.target.tagName === "SELECT") return;
+    if (ev.key === "f" || ev.key === "F") flicker(TWIN_KEYS.filter(k => groups[k]));
+    if (ev.key === "o" || ev.key === "O") flicker(["osm_highway", "osm_node", "osm_building", "osm_other"].filter(k => groups[k]));
+    if (ev.key === "m" || ev.key === "M") flicker(["lowfly"].filter(k => groups[k]));
+    if (ev.key === "d" || ev.key === "D") flicker(Object.keys(groups).filter(k => k.startsWith("det_")));
+  });
+}
 """
+
+JS_BOOT = r"""
+async function boot() {
+  const meta = await loadMeta();
+  buildBasemaps(meta);
+  document.getElementById("title").textContent = "Twin geo overlay · " + meta.name;
+  document.getElementById("sub").textContent = `${meta.profile || ""} · origin ${meta.origin[0].toFixed(5)}, ${meta.origin[1].toFixed(5)}`;
+  setViewFromHash(meta);
+  const [osm, twin] = await Promise.all([fetch("/api/osm.geojson").then(r => r.json()), fetch("/api/twin.geojson").then(r => r.json())]);
+  mountOsm(osm, meta.osm_counts);
+  mountTwin(twin, meta.twin_counts);
+  await mountDetectAll(meta);
+  watchLowfly(meta);
+}
+map.on("click", ev => { if (FRAME) placePopup(ev); });
+bindFlickerKeys();
+boot().catch(e => { document.getElementById("sub").textContent = "failed: " + e; console.error(e); });
+"""
+
+LEAFLET_HEAD = r"""<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>"""
+
+PAGE = ("<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Twin geo overlay</title>\n"
+        + LEAFLET_HEAD + "\n<style>" + CSS + "</style></head>\n<body>\n<div id=\"map\"></div>\n" + PANEL_HTML
+        + "<script>" + JS_CORE + JS_BOOT + "</script>\n</body></html>\n")
 
 
 # ------------------------------------------------------------------------------------ main

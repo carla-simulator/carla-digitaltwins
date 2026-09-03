@@ -41,6 +41,7 @@ from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union, polygonize, substring
 from shapely.strtree import STRtree
 
+from . import corrections as _corr
 from . import profiles, streetspace
 from .frame import LocalFrame
 from .ingest.osm import OsmData, OsmNode, OsmRelation, OsmWay
@@ -1265,9 +1266,15 @@ def _cluster_service_nodes(uf: "_UnionFind", chains: list["_Chain"], intersectio
 # --------------------------------------------------------------------------- the builder
 
 def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, float, float],
-                    name: str = "twin") -> TwinModel:
+                    name: str = "twin",
+                    end_shifts: Optional[dict[tuple[int, int], float]] = None) -> TwinModel:
     """OSM -> TwinModel with roads, junctions (polygon None), signals, controllers, buildings,
-    objects and metadata. ``bbox`` is (S, W, N, E) in WGS84."""
+    objects and metadata. ``bbox`` is (S, W, N, E) in WGS84.
+
+    ``end_shifts`` (``twinmodel.corrections.end_shifts``): ``{(osm way id, osm node id): m}`` -
+    the end of the road built from that way, at the junction cluster holding that node, is moved
+    along the road by ``m`` (positive = into the junction) after the regular trim, so the stop
+    line, the signal and the connecting roads follow the reviewer's correction."""
     t0 = time.perf_counter()
     P = profiles.get()
     # roads with both ends in one cluster shorter than this are internal to the junction
@@ -1851,6 +1858,20 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                     if s_cut - P.crossing.keep_m < s_n < s_cut + P.crossing.near_cut_m:
                         s_cut = max(s_cut, min(core[1] if core else L, s_n + P.crossing.keep_m))
                 hi = min(hi, s_cut)
+        if end_shifts:
+            # reviewer correction (corrections.py ``road.end``): move this end along the untrimmed line
+            for end in ("start", "end"):
+                c = road_end_cluster[r.id][end]
+                if c is None:
+                    continue
+                sh = _corr.lookup_end_shift(end_shifts, r.osm_way_ids, c.node_ids)
+                if sh is None or sh == 0.0:
+                    continue
+                if end == "start":
+                    lo = min(max(0.0, lo - sh), L)
+                else:
+                    hi = max(0.0, min(L, hi + sh))
+                r.tags[f"end_shift_{end}"] = sh
         if hi - lo < P.geometry.min_road_length:
             return False
         piece = substring(line2d, lo, hi).simplify(P.geometry.simplify_m, preserve_topology=False)

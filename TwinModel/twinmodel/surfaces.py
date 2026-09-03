@@ -1259,7 +1259,8 @@ def _lot_enclosure_classifier(model: TwinModel, carriageways: dict[str, BaseGeom
 def build_surfaces(model: TwinModel,
                    refined_drivable: Polygon | MultiPolygon | dict | None = None,
                    default_markings: bool = True,
-                   junction_cover: Optional[str] = None) -> TwinModel:
+                   junction_cover: Optional[str] = None,
+                   extra_raised: Optional[list[tuple[BaseGeometry, str]]] = None) -> TwinModel:
     """Fill ``model.surfaces``, ``model.curbs``, ``model.markings`` and every
     ``Junction.polygon`` from the lane graph. Mutates and returns ``model``. Idempotent.
 
@@ -1272,7 +1273,9 @@ def build_surfaces(model: TwinModel,
     ``junction_cover``: see :func:`junction_cover_polygon`; default the profile's
     ``junction.cover``. Surface parking lots listed as WKT in
     ``model.metadata["parking_lots_wkt"]`` (lanegraph, OSM ``amenity=parking``) become
-    ``parking`` surfaces."""
+    ``parking`` surfaces. ``extra_raised``: ``[(polygon, "sidewalk" | "median" | "verge")]`` areas
+    a reviewer declared raised (``corrections.raised_extras``); they join the lane-graph bands
+    and are trimmed by the drivable surface and the buildings like any band."""
     model.surfaces = []
     model.curbs = []
     model.markings = []
@@ -1327,6 +1330,11 @@ def build_surfaces(model: TwinModel,
         if j.tags.get("polygon_source") == "surfaces":
             j.polygon = None  # our own previous result is not an input (idempotent rebuilds)
         j.tags.pop("plaza_capped", None)
+        if j.tags.get("polygon_source") == "correction" and j.polygon is not None and not j.polygon.is_empty:
+            # a reviewer drew this outline (corrections.py ``junction.polygon``): keep it verbatim
+            j.tags["plaza_source"] = "correction"
+            junction_polys[j.id] = j.polygon
+            continue
         # a ramp gore (freeway merge/diverge, lanegraph 7h-bis) is not an intersection: no
         # plaza, no chamfer, no corner apron — just the arms and the connecting carriageways
         gore = j.tags.get("kind") == "gore"
@@ -1599,6 +1607,12 @@ def build_surfaces(model: TwinModel,
             band = _side_band(ref, inner, outer, b.left)
             if not band.is_empty:
                 raised_parts[b.lane.type].append((band, r.id))
+
+    # reviewer corrections: an un-paved area (``drivable.cut``) is raised by intent
+    for g, kind in (extra_raised or []):
+        if kind in raised_parts and g is not None and not g.is_empty and carriageways:
+            rid = min(carriageways, key=lambda k: carriageways[k].distance(g))
+            raised_parts[kind].append((g, rid))
 
     # sidewalks around junctions: the band along the corner buildings inside the plaza, or
     # (no buildings around) a wrap of the junction polygon as wide as the arms' raised strip

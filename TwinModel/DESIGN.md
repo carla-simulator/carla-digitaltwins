@@ -563,6 +563,21 @@ the baked surfaces).
   the largest junctions, runs a TM fleet soak with collision sensors and writes `carla_report.json`.
   Server recipe in the integrator section; check `ss -ltn` for a lingering port 3000 before relaunching.
 
+- `tools/geo_overlay.py` — review page: ICGC / PNOA / Google / Esri basemaps or the build's own ortho, the raw OSM
+  extract, the twin (surfaces, per-lane bands, kerbs, junctions, ...) and every `detect/*.geojson` on one web-mercator
+  map (port 8790). `tools/ortho_detect.py`, `ortho_surfaces.py`, `kerb_edges.py`, `tile2net_run.py` write those
+  detection layers from the ortho.
+- `tools/twin_editor.py` — the same page plus editing (port 8791). Nothing is edited in place: every action is an op in
+  `data/corrections/<name>.json` (`twinmodel/corrections.py`) that `twinmodel build` replays on the raw OSM extract
+  (`--corrections`, picked up by default when the file exists), so the twin is always OSM + corrections and the
+  corrections survive a re-fetch. Ops: `way.tags` (lanes, bus / parking / cycle lanes, one-way ...), `node.move` /
+  `node.add` / `way.nodes` / `way.add` / `way.delete` / `way.split` (geometry + topology, applied before the lane graph),
+  `road.end` (stop line / junction mouth, applied in the lane-graph trim so connecting roads follow), `junction.polygon`
+  (outline kept verbatim by surfaces), `drivable.add` / `drivable.cut` (kerb and sidewalk contours: the drivable outline is
+  patched after refinement and kerbs / sidewalks re-derived; a cut area becomes sidewalk by default). **Rebuild** in the
+  editor = save + `twinmodel build --quick` (twin + xodr + validation, no OBJ / previews; ~10 s for Eixample) with the
+  arguments recorded in the twin's `model.json`, then the twin layers reload.
+
 ## Region profiles (`twinmodel/profiles.py`)
 
 Every dimensional or urban-form constant lives in ONE place: a `StreetProfile` (lane defaults per
