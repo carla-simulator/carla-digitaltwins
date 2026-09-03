@@ -19,14 +19,15 @@ ONE zoomable web-mercator map so the discrepancy is visible at the metre level:
     highlighted), tags in the popup;
   * the twin model (``<build_dir>/<name>.twin``) reprojected from local ENU to WGS84: surfaces
     by kind, road reference lines, junction polygons, kerbs, markings, signals, buildings;
-  * ML detections from ``tools/ortho_detect.py`` (``<build_dir>/detect/detections.geojson``:
-    Grounding DINO + SAM cars, crosswalks, trees, ...) as one layer per label, re-read on change;
+  * every ``<build_dir>/detect/*.geojson`` (model metres) as a layer group: ``ortho_detect.py``
+    objects, ``ortho_surfaces.py`` SAM surfaces, ``kerb_edges.py`` kerb offsets (coloured by
+    magnitude), ``tile2net_run.py`` polygons; one sub-layer per label/kind, re-read on change;
   * optionally the CARLA 1 cm/px low-fly orthomosaic of the baked level (``out/lowfly/<Map>``)
     reprojected tile-by-tile onto web mercator, so the rendered map can be checked against the
     real world too.
 
 Every overlay has its own opacity slider; ``F`` flickers the twin layers, ``O`` the OSM layers,
-``M`` the mosaic.  ``?on=lowfly,markings&off=osm_node&base=2`` presets layers / basemap in the URL and
+``M`` the mosaic.  ``?on=lowfly,markings&off=osm_node&only=curbs&base=2`` presets layers / basemap in the URL and
 ``#zoom/lat/lon`` (kept up to date as you pan) makes a view shareable.
 Clicking the map shows lat/lon, model x/y, CARLA x/y and links that open Google Street View /
 Google Earth at that exact spot.
@@ -301,9 +302,7 @@ class Store:
         self.twin_counts: dict[str, int] = {}
         self.osm_counts: dict[str, int] = {}
         self.region = region_for_bbox(self.bbox)
-        self._detect: bytes | None = None
-        self.detect_counts: dict[str, int] = {}
-        self.detect_meta: dict[str, Any] = {}
+        self._detect: dict[str, tuple[float, bytes, dict[str, Any]]] = {}
         self.ortho: OrthoTiler | None = None
         op = find_input_ortho(data_dir, self.bbox)
         if op is not None:
@@ -333,15 +332,23 @@ class Store:
                 self._osm = json.dumps(fc, separators=(",", ":")).encode()
             return self._osm
 
-    def detect_bytes(self) -> bytes | None:
-        """``<build_dir>/detect/detections.geojson`` (tools/ortho_detect.py, model metres) -> WGS84; re-read when it changes."""
-        p = self.build_dir / "detect" / "detections.geojson"
-        if not p.exists():
+    DETECT_SKIP = ("kerb_edge_samples",)      # too many points to draw by default; served on request
+
+    def detect_files(self) -> list[Path]:
+        d = self.build_dir / "detect"
+        return sorted(p for p in d.glob("*.geojson")) if d.exists() else []
+
+    def detect_bytes(self, stem: str) -> bytes | None:
+        """``<build_dir>/detect/<stem>.geojson`` (model metres, from tools/ortho_*.py / kerb_edges.py / tile2net_run.py)
+        reprojected to WGS84; cached per mtime."""
+        p = self.build_dir / "detect" / f"{stem}.geojson"
+        if not p.exists() or "/" in stem or stem.startswith("."):
             return None
         mtime = p.stat().st_mtime
         with self.lock:
-            if getattr(self, "_detect_mtime", None) == mtime:
-                return self._detect
+            cached = self._detect.get(stem)
+            if cached and cached[0] == mtime:
+                return cached[1]
             fc = json.loads(p.read_text())
             tf = self.frame._to_wgs()
             feats = []
@@ -351,14 +358,26 @@ class Store:
                     continue
                 feats.append({"type": "Feature", "properties": f.get("properties") or {},
                               "geometry": {"type": g["type"], "coordinates": _reproject_coords(tf, g["coordinates"])}})
-            self.detect_counts = {}
+            key = next((k for k in ("label", "kind") if feats and k in feats[0]["properties"]), None)
+            counts: dict[str, int] = {}
             for f in feats:
-                lb = f["properties"].get("label", "?")
-                self.detect_counts[lb] = self.detect_counts.get(lb, 0) + 1
-            self.detect_meta = {"ortho": fc.get("ortho"), "params": fc.get("params"), "n": len(feats)}
-            self._detect = json.dumps({"type": "FeatureCollection", "features": feats}, separators=(",", ":")).encode()
-            self._detect_mtime = mtime
-            return self._detect
+                lb = str(f["properties"].get(key, "all")) if key else "all"
+                counts[lb] = counts.get(lb, 0) + 1
+            meta = {"n": len(feats), "key": key, "counts": counts,
+                    "ortho": fc.get("ortho"), "params": fc.get("params"),
+                    "geom": feats[0]["geometry"]["type"] if feats else None}
+            b = json.dumps({"type": "FeatureCollection", "features": feats}, separators=(",", ":")).encode()
+            self._detect[stem] = (mtime, b, meta)
+            return b
+
+    def detect_meta(self) -> dict[str, Any]:
+        out = {}
+        for p in self.detect_files():
+            stem = p.stem
+            if self.detect_bytes(stem) is None:
+                continue
+            out[stem] = {**self._detect[stem][2], "default_on": stem not in self.DETECT_SKIP}
+        return out
 
     def lowfly_manifest(self) -> dict[str, Any] | None:
         """Re-read every time: a flight in progress writes the manifest when it lands."""
@@ -386,7 +405,7 @@ class Store:
             "osm_counts": self.osm_counts,
             "lowfly": self.lowfly_manifest(),
             "lowfly_dir": str(self.lowfly) if self.lowfly else None,
-            "detect": ({"counts": self.detect_counts, **self.detect_meta} if self.detect_bytes() else None),
+            "detect": self.detect_meta(),
             "region": self.region,
             "ortho": ({"detail": self.ortho.detail, "res_m": self.ortho.res_m, "file": self.ortho.path.name}
                       if self.ortho else None),
@@ -439,10 +458,10 @@ class Handler(BaseHTTPRequestHandler):
         if parts == ["api", "osm.geojson"]:
             self._send(200, self.store.osm_bytes(), "application/geo+json", cache=60)
             return
-        if parts == ["api", "detect.geojson"]:
-            b = self.store.detect_bytes()
+        if len(parts) == 3 and parts[0] == "api" and parts[1] == "detect" and parts[2].endswith(".geojson"):
+            b = self.store.detect_bytes(parts[2][:-8])
             if b is None:
-                self._error(404, "no detect/detections.geojson in the build dir")
+                self._error(404, "no such file under <build_dir>/detect/")
                 return
             self._send(200, b, "application/geo+json")
             return
@@ -550,6 +569,7 @@ function makeFrame(lat0, lon0) {
 // URL presets: ?on=lowfly,markings&off=osm_node&base=2   (comma lists of layer keys; base = index in BASEMAPS)
 const Q = new URLSearchParams(location.search);
 const Q_ON = new Set((Q.get("on") || "").split(",").filter(Boolean)), Q_OFF = new Set((Q.get("off") || "").split(",").filter(Boolean));
+const Q_ONLY = new Set((Q.get("only") || "").split(",").filter(Boolean));   // ?only=a,b : everything else starts off
 const map = L.map("map", { zoomControl: true, maxZoom: 24, zoomSnap: 0.25, zoomDelta: 0.5, wheelPxPerZoomLevel: 90 });
 L.control.scale({ imperial: false, maxWidth: 200 }).addTo(map);
 const canvas = L.canvas({ padding: 0.5 });
@@ -600,6 +620,7 @@ function buildBasemaps(meta) {
 // ------------------------------------------------------------------ overlays with opacity
 const groups = {};   // key -> { layer, opacity, on, host }
 function addOverlay(hostId, key, label, colour, layer, opacity, on) {
+  if (Q_ONLY.size) on = Q_ONLY.has(key);
   if (Q_ON.has(key)) on = true;
   if (Q_OFF.has(key)) on = false;
   const host = document.getElementById(hostId);
@@ -756,26 +777,50 @@ async function boot() {
   addOverlay("twin-layers", "objects", `objects / trees (${tc.objects || 0})`, "#2ecc40",
     geoLayer(twin, f => f.properties.layer === "objects", null, (f, ll) => L.circleMarker(ll, { renderer: canvas, radius: 3, color: "#2ecc40", weight: 1, fillColor: "#2ecc40", fillOpacity: 0.6, opacity: 1 })), 1, false);
 
-  if (META.detect) {
-    const det = await (await fetch("/api/detect.geojson")).json();
-    const host = document.getElementById("detect-layers"); host.innerHTML = "";
-    const DC = { car: "#ff3b3b", van: "#ff8c3b", truck: "#ffb03b", bus: "#ffd23b", motorcycle: "#ff3bd2", crosswalk: "#ffffff",
-      tree: "#3bff6e", "street lamp": "#3bd2ff" };
-    const labels = Object.keys(META.detect.counts).sort((a, b) => META.detect.counts[b] - META.detect.counts[a]);
-    labels.forEach((lb, i) => {
-      const col = DC[lb] || ["#e0e0e0", "#a0a0ff", "#ffa0ff", "#a0ffff"][i % 4];
-      addOverlay("detect-layers", "det_" + lb.replace(/\W+/g, "_"), `${lb} (${META.detect.counts[lb]})`, col,
-        geoLayer(det, f => f.properties.label === lb, () => ({ color: col, weight: 1.5, opacity: 1, fillColor: col, fillOpacity: 0.25 })), 1, true);
-    });
-    const note = document.createElement("div"); note.className = "muted";
-    note.textContent = `${META.detect.n} detections · ${(META.detect.ortho || {}).detail || ""}`.trim();
-    host.appendChild(note);
+  // ML / imagery-derived layers: one group per detect/<file>.geojson, one sub-layer per label/kind
+  const detHost = document.getElementById("detect-layers");
+  const detFiles = Object.keys(META.detect || {});
+  if (detFiles.length) detHost.innerHTML = "";
+  const DC = { car: "#ff3b3b", van: "#ff8c3b", truck: "#ffb03b", bus: "#ffd23b", motorcycle: "#ff3bd2", crosswalk: "#ffffff",
+    tree: "#3bff6e", "street lamp": "#3bd2ff", sidewalk: "#3bd2ff", drivable: "#ff6a6a", road: "#ff6a6a", crossing: "#ffffff",
+    median: "#8dff8d", island: "#8dff8d", parking: "#ffd23b", verge: "#4cff4c", footpath: "#c8a2ff" };
+  const offColour = v => Math.abs(v) < 0.3 ? "#39ff14" : Math.abs(v) < 0.8 ? "#ffe14d" : Math.abs(v) < 1.5 ? "#ff8c3b" : "#ff2d2d";
+  for (const stem of detFiles) {
+    const m = META.detect[stem];
+    const h = document.createElement("div"); h.className = "muted mono"; h.style.margin = "6px 0 2px";
+    h.textContent = `${stem}.geojson · ${m.n}`; detHost.appendChild(h);
+    if (!m.default_on) {
+      const b = document.createElement("button"); b.textContent = "load"; b.className = "mono";
+      b.addEventListener("click", async () => { b.remove(); await mountDetect(stem, m, DC, offColour); }); detHost.appendChild(b);
+      continue;
+    }
+    await mountDetect(stem, m, DC, offColour);
   }
   mountLowfly(META.lowfly);
   if (!META.lowfly && META.lowfly_dir) setInterval(async () => {   // flight in progress: pick the manifest up when it lands
     const m = await (await fetch("/api/meta")).json();
     if (m.lowfly) { mountLowfly(m.lowfly); }
   }, 30000);
+}
+async function mountDetect(stem, m, DC, offColour) {
+  const fc = await (await fetch(`/api/detect/${stem}.geojson`)).json();
+  const labels = Object.keys(m.counts).sort((a, b) => m.counts[b] - m.counts[a]);
+  const hasOff = fc.features.length && ("offset_med" in fc.features[0].properties || "offset" in fc.features[0].properties);
+  labels.forEach((lb, i) => {
+    const col = DC[lb] || ["#e0e0e0", "#a0a0ff", "#ffa0ff", "#a0ffff"][i % 4];
+    const key = `det_${stem}_${lb}`.replace(/\W+/g, "_");
+    const style = f => {
+      const p = f.properties;
+      if (hasOff) { const v = p.offset_med !== undefined ? p.offset_med : p.offset; const c = offColour(v); return { color: c, weight: 3, opacity: 1, fillColor: c, fillOpacity: 0.6 }; }
+      const isLine = f.geometry.type.endsWith("LineString");
+      return { color: col, weight: isLine ? 2.5 : 1.5, opacity: 1, fillColor: col, fillOpacity: 0.25 };
+    };
+    const lyr = geoLayer(fc, f => !m.key || String(f.properties[m.key]) === lb, style,
+      (f, ll) => L.circleMarker(ll, { renderer: canvas, radius: 3, ...style(f) }));
+    const name = hasOff ? `${lb === "all" ? "kerb offset" : lb} (${m.counts[lb]}) · green <0.3 m, yellow <0.8, orange <1.5, red ≥1.5`
+                        : `${lb} (${m.counts[lb]})`;
+    addOverlay("detect-layers", key, name, hasOff ? "#ffe14d" : col, lyr, 1, true);
+  });
 }
 function mountLowfly(man) {
   if (!man || lowflyGroup) return;
