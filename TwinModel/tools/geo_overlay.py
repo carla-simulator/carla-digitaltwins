@@ -830,10 +830,11 @@ function mountOsm(osm, counts) {
     geoLayer(osm, f => f.properties.layer === "osm_other", () => ({ color: "#9aa", weight: 1, opacity: 1, fillOpacity: 0.05, dashArray: "3 3" })), 0.7, false);
 }
 // twin layers; on a re-mount (the editor after a rebuild) every group keeps its checkbox / opacity
-function mountTwin(twin, tc, onEach) {
+function mountTwin(twin, tc, onEach, only) {
   const prev = {};
   for (const k of TWIN_KEYS) { const st = removeOverlay(k); if (st) prev[k] = st; }
   const add = (key, label, colour, layer, opacity, on) => {
+    if (only && !only.includes(key)) return null;
     const st = prev[key]; const g = addOverlay("twin-layers", key, label, colour, layer, st ? st.opacity : opacity, st ? st.on : on);
     return g;
   };

@@ -4,8 +4,10 @@
     python tools/twin_editor.py out/v10_eixample eixample                 # http://127.0.0.1:8791/
     python tools/twin_editor.py out/v10_eixample eixample --corrections data/corrections/eixample.json
 
-The page is ``tools/geo_overlay.py`` (basemaps: ICGC / PNOA / Google / Esri / the build's own
-ortho; twin layers incl. per-lane bands; ML detections) plus an editing side panel.  Nothing is
+The map core is shared with ``tools/geo_overlay.py`` (basemaps: ICGC / PNOA / Google / Esri / the
+build's own ortho; twin layers incl. per-lane bands) but the page carries only what editing needs:
+basemap, the corrected OSM extract, the twin result, the tools.  Detections and the low-fly mosaic
+stay on the review page.  Nothing is
 edited in place: every action becomes an operation in the corrections file
 (:mod:`twinmodel.corrections`, default ``data/corrections/<name>.json``) that ``twinmodel build``
 replays on top of the raw OSM extract, so the twin is always regenerated from OSM + corrections
@@ -269,6 +271,18 @@ class EditorHandler(go.Handler):
 
 # ------------------------------------------------------------------------------------ page
 
+EDITOR_PANEL_HTML = r"""
+<div id="panel">
+  <h1 id="title">layers</h1>
+  <div class="muted mono" id="sub"></div>
+  <h2>Basemap</h2><div id="basemaps"></div>
+  <h2>OpenStreetMap (input)</h2><div id="osm-layers"></div>
+  <h2>Twin (result)</h2><div id="twin-layers"></div>
+  <div id="help"></div>
+</div>
+<div id="readout" class="mono"></div>
+"""
+
 EDITOR_CSS = r"""
   #tools { position: absolute; top: 10px; left: 10px; z-index: 1000; width: 340px; max-height: calc(100% - 70px); overflow: auto;
            background: rgba(20,20,24,.94); border: 1px solid #333; border-radius: 8px; padding: 10px 12px; }
@@ -408,8 +422,8 @@ async function refreshOsm() {
     return L.circleMarker(ll, { renderer: canvas, radius: junction ? 4 : 2.5, color: p.tagged ? "#00e5ff" : (junction ? "#ff4040" : "#ffffff"),
       weight: 1, fillColor: p.osm_id < 0 ? "#2ecc71" : (junction ? "#ff4040" : (p.tagged ? "#00e5ff" : "#ffffff")), fillOpacity: 0.9, opacity: 1 });
   }, (f, l) => { l.on("click", ev => { L.DomEvent.stop(ev); onNodeClick(f, l, ev); }); });
-  addOverlay("osm-layers", "osm_highway", `OSM ways, corrected (${OSM.features.filter(f => f.properties.layer === "osm_highway").length}) · orange = touched`, "#ffffff", osmWays, prevW ? prevW.opacity : 0.9, prevW ? prevW.on : true);
-  addOverlay("osm-layers", "osm_node", `way nodes · red junction, cyan tagged, green new`, "#ff4040", osmNodes, prevN ? prevN.opacity : 1, prevN ? prevN.on : true);
+  addOverlay("osm-layers", "osm_highway", `ways (${OSM.features.filter(f => f.properties.layer === "osm_highway").length}) · orange = corrected`, "#ffffff", osmWays, prevW ? prevW.opacity : 0.9, prevW ? prevW.on : true);
+  addOverlay("osm-layers", "osm_node", "nodes · red junction, cyan tagged, green new", "#ff4040", osmNodes, prevN ? prevN.opacity : 1, prevN ? prevN.on : true);
   osmWays.bringToFront && osmWays.bringToFront();
   if (OSM.unmatched && OSM.unmatched.length) hint(`${OSM.unmatched.length} correction(s) match nothing in the extract: ${OSM.unmatched.map(u => u.id).join(", ")}`, "err");
   renderCorrLayer();
@@ -420,13 +434,13 @@ async function refreshTwin() {
   const meta = await (await fetch("/api/meta")).json();
   mountTwin(TWIN, meta.twin_counts, (f, l) => {
     l.on("click", ev => { if (onTwinClick(f, l, ev)) L.DomEvent.stop(ev); else l.openPopup && l.bindPopup(() => popupTable(f.properties), { maxWidth: 420 }).openPopup(ev.latlng); });
-  });
+  }, ["surfaces", "lanes", "curbs", "roads", "junctions", "markings", "signals"]);
   if (osmWays) osmWays.bringToFront && osmWays.bringToFront();
 }
 
 // ---------------------------------------------------------------------------- correction geometry layer
 function renderCorrLayer() {
-  if (!corrLayer) { corrLayer = L.featureGroup(); addOverlay("osm-layers", "corr", "correction polygons · orange unpave, grey pave, purple junction", "#ffb000", corrLayer, 0.9, true); }
+  if (!corrLayer) { corrLayer = L.featureGroup(); addOverlay("osm-layers", "corr", "correction areas · orange unpave, grey pave, purple junction", "#ffb000", corrLayer, 0.9, true); }
   corrLayer.clearLayers();
   for (const o of OPS) {
     if (o.disabled || !o.polygon) continue;
@@ -824,20 +838,22 @@ async function bootEditor() {
   OPS = c.ops || []; NEXT_ID = c.next_osm_id; setDirty(c.dirty); pushHistory();
   $("cpath").textContent = c.path + (c.exists ? "" : " (new)");
   if (c.last_rebuild) $("log").textContent = (c.last_rebuild.summary || []).join("\n");
-  document.querySelector("#help").innerHTML = "<b>F</b> flicker twin · <b>O</b> flicker OSM · <b>D</b> detections · <b>M</b> mosaic · <b>1-8</b> tools · <b>Esc</b> cancel · <b>Enter</b> done · <b>Ctrl+Z/Y/S</b>";
+  document.querySelector("#help").innerHTML = "<b>F</b> flicker twin · <b>O</b> flicker OSM · <b>1-8</b> tools · <b>Esc</b> cancel · <b>Enter</b> done · <b>Ctrl+Z</b> undo · <b>Ctrl+Y</b> redo · <b>Ctrl+S</b> save · click empty map: coordinates + Street View";
   const osmRawFc = await (await fetch("/api/osm_raw.geojson")).json();
   osmRaw = geoLayer(osmRawFc, f => f.properties.layer === "osm_highway", () => ({ color: "#ff00ff", weight: 1.5, opacity: 0.8, dashArray: "2 4" }));
-  addOverlay("osm-layers", "osm_raw", "OSM ways, raw extract (magenta dashed)", "#ff00ff", osmRaw, 0.8, false);
-  addOverlay("osm-layers", "osm_building", `buildings`, "#d9a066", geoLayer(osmRawFc, f => f.properties.layer === "osm_building", () => ({ color: "#d9a066", weight: 1, opacity: 1, fillOpacity: 0.08 })), 0.7, false);
+  addOverlay("osm-layers", "osm_raw", "ways before corrections (magenta dashed)", "#ff00ff", osmRaw, 0.8, false);
+  addOverlay("osm-layers", "osm_building", "buildings", "#d9a066", geoLayer(osmRawFc, f => f.properties.layer === "osm_building", () => ({ color: "#d9a066", weight: 1, opacity: 1, fillOpacity: 0.08 })), 0.7, false);
   await refreshTwin();
   await refreshOsm();
   renderOps();
-  await mountDetectAll(meta, false);   // ML layers off by default in the editor: toggle them in the panel
-  watchLowfly(meta);
   if (!GEOMAN_OK) hint("Leaflet-Geoman failed to load: tag editing, road ends and split work; vertex / polygon editing needs the CDN", "err");
   else setMode("select");
 }
-bindFlickerKeys();
+document.addEventListener("keydown", ev => {
+  if (["INPUT", "TEXTAREA", "SELECT"].includes(ev.target.tagName) || ev.ctrlKey || ev.metaKey) return;
+  if (ev.key === "f" || ev.key === "F") flicker(TWIN_KEYS.filter(k => groups[k]));
+  if (ev.key === "o" || ev.key === "O") flicker(["osm_highway", "osm_node", "osm_raw", "osm_building", "corr"].filter(k => groups[k]));
+});
 bootEditor().catch(e => { hint("failed: " + e, "err"); console.error(e); });
 """
 
@@ -847,7 +863,7 @@ GEOMAN_HEAD = r"""<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@geo
 EDITOR_PAGE = ("<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n"
                "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Twin editor</title>\n"
                + go.LEAFLET_HEAD + "\n" + GEOMAN_HEAD + "\n<style>" + go.CSS + EDITOR_CSS + "</style></head>\n<body>\n<div id=\"map\"></div>\n"
-               + go.PANEL_HTML + TOOLS_HTML
+               + EDITOR_PANEL_HTML + TOOLS_HTML
                + "<script>" + go.JS_CORE + EDITOR_JS + "</script>\n</body></html>\n")
 
 
