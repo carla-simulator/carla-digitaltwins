@@ -38,6 +38,7 @@ from __future__ import annotations
 import hashlib
 import io
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -299,6 +300,13 @@ def _to_image(dst: np.ndarray, grid, resolution: float, source: str, detail: str
 
 # --------------------------------------------------------------------------- providers
 
+def _icgc_native_res(layer: str) -> float:
+    """Ground resolution of an ICGC layer from its name (``ortofoto_10cm_color_2020`` -> 0.10);
+    the 25 cm product when the name carries no ``<n>cm``."""
+    m = re.search(r"_(\d+)cm_", layer)
+    return int(m.group(1)) / 100.0 if m else NATIVE_RES
+
+
 def _fetch_icgc(frame: LocalFrame, bbox_swne, resolution: float, grid, layer: str = DEFAULT_LAYER,
                 **_) -> Optional[OrthoImage]:
     import requests
@@ -313,7 +321,8 @@ def _fetch_icgc(frame: LocalFrame, bbox_swne, resolution: float, grid, layer: st
             log.warning("GetMap %s failed (%s); retrying with %s", layer, exc, FALLBACK_LAYER)
             return _getmap_tiff(session, FALLBACK_LAYER, SOURCE_CRS, bbox, w, h, url=WMS_URL)
 
-    dst = _mosaic_tiles(frame, grid, resolution, SOURCE_CRS, max(NATIVE_RES, resolution), TILE_PX,
+    native = _icgc_native_res(layer)
+    dst = _mosaic_tiles(frame, grid, resolution, SOURCE_CRS, max(native, resolution), TILE_PX,
                         get_tile)
     if dst is None:
         return None

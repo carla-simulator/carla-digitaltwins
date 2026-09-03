@@ -19,6 +19,8 @@ ONE zoomable web-mercator map so the discrepancy is visible at the metre level:
     highlighted), tags in the popup;
   * the twin model (``<build_dir>/<name>.twin``) reprojected from local ENU to WGS84: surfaces
     by kind, road reference lines, junction polygons, kerbs, markings, signals, buildings;
+  * ML detections from ``tools/ortho_detect.py`` (``<build_dir>/detect/detections.geojson``:
+    Grounding DINO + SAM cars, crosswalks, trees, ...) as one layer per label, re-read on change;
   * optionally the CARLA 1 cm/px low-fly orthomosaic of the baked level (``out/lowfly/<Map>``)
     reprojected tile-by-tile onto web mercator, so the rendered map can be checked against the
     real world too.
@@ -299,6 +301,9 @@ class Store:
         self.twin_counts: dict[str, int] = {}
         self.osm_counts: dict[str, int] = {}
         self.region = region_for_bbox(self.bbox)
+        self._detect: bytes | None = None
+        self.detect_counts: dict[str, int] = {}
+        self.detect_meta: dict[str, Any] = {}
         self.ortho: OrthoTiler | None = None
         op = find_input_ortho(data_dir, self.bbox)
         if op is not None:
@@ -328,6 +333,33 @@ class Store:
                 self._osm = json.dumps(fc, separators=(",", ":")).encode()
             return self._osm
 
+    def detect_bytes(self) -> bytes | None:
+        """``<build_dir>/detect/detections.geojson`` (tools/ortho_detect.py, model metres) -> WGS84; re-read when it changes."""
+        p = self.build_dir / "detect" / "detections.geojson"
+        if not p.exists():
+            return None
+        mtime = p.stat().st_mtime
+        with self.lock:
+            if getattr(self, "_detect_mtime", None) == mtime:
+                return self._detect
+            fc = json.loads(p.read_text())
+            tf = self.frame._to_wgs()
+            feats = []
+            for f in fc.get("features", []):
+                g = f.get("geometry")
+                if not g:
+                    continue
+                feats.append({"type": "Feature", "properties": f.get("properties") or {},
+                              "geometry": {"type": g["type"], "coordinates": _reproject_coords(tf, g["coordinates"])}})
+            self.detect_counts = {}
+            for f in feats:
+                lb = f["properties"].get("label", "?")
+                self.detect_counts[lb] = self.detect_counts.get(lb, 0) + 1
+            self.detect_meta = {"ortho": fc.get("ortho"), "params": fc.get("params"), "n": len(feats)}
+            self._detect = json.dumps({"type": "FeatureCollection", "features": feats}, separators=(",", ":")).encode()
+            self._detect_mtime = mtime
+            return self._detect
+
     def lowfly_manifest(self) -> dict[str, Any] | None:
         """Re-read every time: a flight in progress writes the manifest when it lands."""
         if self.lowfly is None:
@@ -354,6 +386,7 @@ class Store:
             "osm_counts": self.osm_counts,
             "lowfly": self.lowfly_manifest(),
             "lowfly_dir": str(self.lowfly) if self.lowfly else None,
+            "detect": ({"counts": self.detect_counts, **self.detect_meta} if self.detect_bytes() else None),
             "region": self.region,
             "ortho": ({"detail": self.ortho.detail, "res_m": self.ortho.res_m, "file": self.ortho.path.name}
                       if self.ortho else None),
@@ -405,6 +438,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parts == ["api", "osm.geojson"]:
             self._send(200, self.store.osm_bytes(), "application/geo+json", cache=60)
+            return
+        if parts == ["api", "detect.geojson"]:
+            b = self.store.detect_bytes()
+            if b is None:
+                self._error(404, "no detect/detections.geojson in the build dir")
+                return
+            self._send(200, b, "application/geo+json")
             return
         if parts[0] == "lowfly" and len(parts) == 3 and self.store.lowfly is not None:
             z, fname = parts[1], parts[2]
@@ -471,8 +511,9 @@ PAGE = r"""<!doctype html>
   <h2>Basemap</h2><div id="basemaps"></div>
   <h2>OpenStreetMap (input)</h2><div id="osm-layers"></div>
   <h2>Twin model (ours)</h2><div id="twin-layers"></div>
+  <h2>ML detections (ortho_detect)</h2><div id="detect-layers"><span class="muted">no detect/detections.geojson</span></div>
   <h2>CARLA low-fly mosaic</h2><div id="lowfly-layers"><span class="muted">no manifest yet</span></div>
-  <div id="help"><b>F</b> flicker twin · <b>O</b> flicker OSM · <b>M</b> flicker mosaic · click: coordinates + Street View</div>
+  <div id="help"><b>F</b> flicker twin · <b>O</b> flicker OSM · <b>D</b> flicker detections · <b>M</b> flicker mosaic · click: coordinates + Street View</div>
 </div>
 <div id="readout" class="mono">move the mouse over the map</div>
 <script>
@@ -715,6 +756,21 @@ async function boot() {
   addOverlay("twin-layers", "objects", `objects / trees (${tc.objects || 0})`, "#2ecc40",
     geoLayer(twin, f => f.properties.layer === "objects", null, (f, ll) => L.circleMarker(ll, { renderer: canvas, radius: 3, color: "#2ecc40", weight: 1, fillColor: "#2ecc40", fillOpacity: 0.6, opacity: 1 })), 1, false);
 
+  if (META.detect) {
+    const det = await (await fetch("/api/detect.geojson")).json();
+    const host = document.getElementById("detect-layers"); host.innerHTML = "";
+    const DC = { car: "#ff3b3b", van: "#ff8c3b", truck: "#ffb03b", bus: "#ffd23b", motorcycle: "#ff3bd2", crosswalk: "#ffffff",
+      tree: "#3bff6e", "street lamp": "#3bd2ff" };
+    const labels = Object.keys(META.detect.counts).sort((a, b) => META.detect.counts[b] - META.detect.counts[a]);
+    labels.forEach((lb, i) => {
+      const col = DC[lb] || ["#e0e0e0", "#a0a0ff", "#ffa0ff", "#a0ffff"][i % 4];
+      addOverlay("detect-layers", "det_" + lb.replace(/\W+/g, "_"), `${lb} (${META.detect.counts[lb]})`, col,
+        geoLayer(det, f => f.properties.label === lb, () => ({ color: col, weight: 1.5, opacity: 1, fillColor: col, fillOpacity: 0.25 })), 1, true);
+    });
+    const note = document.createElement("div"); note.className = "muted";
+    note.textContent = `${META.detect.n} detections · ${(META.detect.ortho || {}).detail || ""}`.trim();
+    host.appendChild(note);
+  }
   mountLowfly(META.lowfly);
   if (!META.lowfly && META.lowfly_dir) setInterval(async () => {   // flight in progress: pick the manifest up when it lands
     const m = await (await fetch("/api/meta")).json();
@@ -759,6 +815,7 @@ document.addEventListener("keydown", ev => {
   if (ev.key === "f" || ev.key === "F") flicker(["surfaces", "curbs", "roads", "junctions", "markings", "signals", "buildings", "objects"].filter(k => groups[k]));
   if (ev.key === "o" || ev.key === "O") flicker(["osm_highway", "osm_node", "osm_building", "osm_other"].filter(k => groups[k]));
   if (ev.key === "m" || ev.key === "M") flicker(["lowfly"].filter(k => groups[k]));
+  if (ev.key === "d" || ev.key === "D") flicker(Object.keys(groups).filter(k => k.startsWith("det_")));
 });
 boot().catch(e => { document.getElementById("sub").textContent = "failed: " + e; console.error(e); });
 </script>
