@@ -1064,8 +1064,10 @@ def _build_pipeline(args: argparse.Namespace, osm, bbox, frame: LocalFrame, out:
             from .refine import drivable_by_layer
             base = drivable_by_layer(model)
             patched = corrections_mod.drivable_patch(ops, frame, base)
+            from .refine import ground_layer
+            ground = base[ground_layer(base.keys())] if base else None
             build_surfaces(model, refined_drivable=patched,
-                           extra_raised=corrections_mod.raised_extras(ops, frame))
+                           extra_raised=corrections_mod.raised_extras(ops, frame, ground))
             model.metadata.setdefault("surfaces", {})["drivable_source"] = "correction"
             corr_reports["surfaces"] = {"applied": [{"op": o["op"], "id": o.get("id")} for o in ops
                                                     if o["op"] in corrections_mod.SURFACE_OPS]}

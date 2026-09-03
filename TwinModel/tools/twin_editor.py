@@ -26,8 +26,10 @@ and is one undo step.
                      quick fields and the raw tag table underneath
   stop lines         orange handles at the selected street's junction ends: drag along the road
                      -> road.end (positive = into the junction)
-  kerb (twin)        click a kerb line, drag its vertices onto the real kerb: the swept strip becomes
-                     drivable.cut (sidewalk grows) or drivable.add (road grows) automatically
+  kerb (twin)        click a kerb line, drag its vertices onto the real kerb; the corrected line
+                     replaces the twin's on the map -> one curb.line op per kerb (the build re-paves
+                     the strip between the two lines: sidewalk where the kerb moved into the road,
+                     road where it moved out)
   junction (twin)    click the polygon, drag its outline -> junction.polygon
   correction area    click it to drag its outline, Delete removes it
   N / U / P          the only one-shot tools: draw a new way (snaps to nodes = connects), outline an
@@ -464,17 +466,29 @@ async function refreshTwin() {
   DRIVABLE = TWIN.features.filter(f => f.properties.layer === "surfaces" && ["drivable", "crossing", "parking"].includes(f.properties.kind)).map(f => f.geometry);
   mountTwin(TWIN, meta.twin_counts, (f, l) => {
     const p = f.properties;
-    if (p.layer === "curbs") { l.on("click", ev => { L.DomEvent.stop(ev); if (!TOOL) selectKerb(f, l); }); l.on("mouseover", () => l.setStyle({ weight: 5 })); l.on("mouseout", () => { if (!SEL || SEL.kind !== "kerb" || SEL.f !== f) l.setStyle({ weight: 1.5 }); }); }
+    if (p.layer === "curbs") { l.on("click", ev => { L.DomEvent.stop(ev); if (!TOOL) selectKerb(f, l); }); l.on("mouseover", () => l.setStyle({ weight: 5 })); l.on("mouseout", () => l.setStyle({ weight: 1.5 })); }
     else if (p.layer === "junctions") { l.on("click", ev => { L.DomEvent.stop(ev); if (!TOOL) selectJunction(f); }); }
     else if (p.layer === "roads" && !p.junction_id) { l.on("click", ev => { L.DomEvent.stop(ev); const ws = parseJ(p.osm_way_ids) || []; if (!TOOL && ws.length && WAY_BY_ID.has(ws[0])) selectWay(ws[0]); }); }
     else l.bindPopup(() => popupTable(p), { maxWidth: 420 });
   }, ["surfaces", "lanes", "curbs", "roads", "junctions", "markings", "signals"]);
   if (osmWays) osmWays.bringToFront && osmWays.bringToFront();
+  if (corrLayer) renderCorrLayer();
   setStale(false);
 }
 function renderCorrLayer() {
   if (!corrLayer) { corrLayer = L.featureGroup(); addOverlay("osm-layers", "corr", "correction areas · orange unpave, grey pave, purple junction", "#ffb000", corrLayer, 0.9, true); }
   corrLayer.clearLayers();
+  if (groups.curbs) groups.curbs.layer.eachLayer(l => { if (l.feature && !(SEL && SEL.kind === "kerb" && SEL.f === l.feature)) l.setStyle({ weight: 1.5, opacity: 1, dashArray: null }); });
+  for (const o of OPS) {
+    if (o.disabled || o.op !== "curb.line") continue;
+    const k = kerbLayerFor(o);
+    if (k) k.l.setStyle({ weight: 1.5, opacity: 0.25, dashArray: "4 4" });      // the twin's kerb, superseded
+    if (SEL && SEL.kind === "kerb" && SEL.op === o) continue;                       // being edited: the yellow edit line shows it
+    const line = L.polyline(o.line.map(llOf), { color: "#ffb000", weight: 3, opacity: 1 });
+    line.bindTooltip(`${o.id} corrected kerb${o.note ? " · " + o.note : ""} — click to edit`, { sticky: true });
+    line.on("click", ev => { L.DomEvent.stop(ev); if (TOOL) return; const k2 = kerbLayerFor(o); if (k2) selectKerb(k2.f, k2.l); else hint(`${o.id}: its kerb is not in the current twin any more — rebuild, or delete the correction from the list`, "err"); });
+    corrLayer.addLayer(line);
+  }
   for (const o of OPS) {
     if (o.disabled || !o.polygon || (SEL && SEL.kind === "corr" && SEL.op === o)) continue;
     const col = o.op === "drivable.cut" ? "#ffb000" : o.op === "drivable.add" ? "#bbbbbb" : "#c860ff";
@@ -489,7 +503,7 @@ function renderCorrLayer() {
 function clearHandles() { for (const h of handles) { try { if (h.pm) h.pm.disable(); } catch (e) {} map.removeLayer(h); } handles = []; }
 function deselect(quiet) {
   if (SEL && SEL.kind === "way") { const l = WAY_LAYER.get(SEL.id); if (l) { try { l.pm.disable(); } catch (e) {} l.setStyle(wayStyle(WAY_BY_ID.get(SEL.id))); } }
-  if (SEL && SEL.kind === "kerb" && SEL.l) SEL.l.setStyle({ weight: 1.5, opacity: 1 });
+  if (SEL && SEL.kind === "kerb" && SEL.l) SEL.l.setStyle({ weight: 1.5, opacity: 1, dashArray: null });
   clearHandles(); SPLIT_ARMED = false; map.getContainer().classList.remove("split-armed");
   SEL = null; $("sel").innerHTML = ""; renderCorrLayer();
   if (!TOOL && !quiet) hint("click a street, a kerb line or a junction", "");
@@ -754,54 +768,72 @@ function renderWayPanel(f) {
 }
 function armSplit() { if (!SEL || SEL.kind !== "way") return; SPLIT_ARMED = true; map.getContainer().classList.add("split-armed"); hint("split: click one of the way's vertices", ""); }
 
-// ---------------------------------------------------------------------------- kerb: drag the line, the moved area becomes a pave / unpave correction
+// ---------------------------------------------------------------------------- kerb: drag the line itself; one curb.line op per kerb
+// The corrected kerb replaces the twin's kerb line on the map. The pipeline polygonises the strip
+// between the two lines and un-paves / paves it (corrections.kerb_strips), so nothing else to draw.
 function pointInRing(pt, ring) { let inside = false; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) { const a = ring[i], b = ring[j]; if (((a[1] > pt[1]) !== (b[1] > pt[1])) && (pt[0] < (b[0] - a[0]) * (pt[1] - a[1]) / (b[1] - a[1]) + a[0])) inside = !inside; } return inside; }
 function inDrivable(ll) {
   const pt = [ll.lng, ll.lat];
   for (const g of DRIVABLE) { const polys = g.type === "Polygon" ? [g.coordinates] : g.coordinates; for (const rings of polys) { if (pointInRing(pt, rings[0]) && !rings.slice(1).some(h => pointInRing(pt, h))) return true; } }
   return false;
 }
+const llOf = c => L.latLng(c[1], c[0]);
+function endsDist(a, b) {   // how well two [lon,lat] polylines match at their ends (m), either orientation
+  const d = (p, q) => mDist(llOf(p), llOf(q));
+  return Math.min(d(a[0], b[0]) + d(a[a.length - 1], b[b.length - 1]), d(a[0], b[b.length - 1]) + d(a[a.length - 1], b[0]));
+}
+function kerbOpFor(f) {     // the curb.line op that belongs to this twin kerb (same id + place, or same place)
+  const c = f.geometry.coordinates;
+  let best = null, bd = 3.0;
+  for (const o of OPS) { if (o.op !== "curb.line") continue; const d = Math.min(endsDist(o.line, c), endsDist(o.base, c)); if (d < bd) { bd = d; best = o; } }
+  return best;
+}
+function kerbLayerFor(o) {  // the twin kerb (feature, layer) a curb.line op belongs to
+  let best = null, bd = 3.0;
+  if (!groups.curbs) return null;
+  groups.curbs.layer.eachLayer(l => { const f = l.feature; if (!f) return; const d = Math.min(endsDist(o.line, f.geometry.coordinates), endsDist(o.base, f.geometry.coordinates)); if (d < bd) { bd = d; best = { f, l }; } });
+  return best;
+}
+function offsetFrom(line, base) {   // largest distance (m) of a line vertex from the base polyline
+  const segs = []; for (let i = 1; i < base.length; i++) segs.push([FRAME.toLocal(base[i - 1][1], base[i - 1][0]), FRAME.toLocal(base[i][1], base[i][0])]);
+  let worst = 0;
+  for (const c of line) { const q = FRAME.toLocal(c[1], c[0]); let d = Infinity;
+    for (const [a, b] of segs) { const vx = b[0] - a[0], vy = b[1] - a[1], L2 = vx * vx + vy * vy || 1e-9; const t = Math.max(0, Math.min(1, ((q[0] - a[0]) * vx + (q[1] - a[1]) * vy) / L2)); d = Math.min(d, Math.hypot(q[0] - a[0] - t * vx, q[1] - a[1] - t * vy)); }
+    worst = Math.max(worst, d); }
+  return worst;
+}
 function selectKerb(f, l) {
-  deselect();
-  const coords = f.geometry.coordinates.map(c => L.latLng(c[1], c[0]));
-  SEL = { kind: "kerb", f, l, base: coords.map(c => L.latLng(c.lat, c.lng)) };
-  l.setStyle({ weight: 4, opacity: 0.5 });
-  const edit = track(L.polyline(coords, { color: "#ffe14d", weight: 4, opacity: 1 }).addTo(map));
+  deselect(true);
+  const p = f.properties, existing = kerbOpFor(f);
+  const start = existing ? existing.line.map(llOf) : f.geometry.coordinates.map(llOf);
+  SEL = { kind: "kerb", f, l, op: existing, base: existing ? existing.base : f.geometry.coordinates.map(c => [c[0], c[1]]) };
+  l.setStyle({ weight: 1.5, opacity: 0.25, dashArray: "4 4" });
+  renderCorrLayer();          // hides this kerb's corrected line while it is being edited
+  const edit = track(L.polyline(start, { color: "#ffe14d", weight: 4, opacity: 1 }).addTo(map));
   SEL.edit = edit;
   if (GEOMAN_OK) {
     edit.pm.enable({ allowSelfIntersection: true, snappable: false, removeVertexOn: "contextmenu", addVertexOn: "click" });
-    edit.on("pm:vertexadded", e => { const i = vIndex(e); SEL.base.splice(i, 0, e.latlng); });
-    edit.on("pm:vertexremoved", e => { const i = vIndex(e); SEL.base.splice(i, 1); });
-    edit.on("pm:markerdragend", onKerbDragEnd);
+    edit.on("pm:markerdragend pm:vertexremoved", () => saveKerb("dragged"));
+    edit.on("pm:vertexadded", () => {});   // a new vertex on the segment changes nothing until it is dragged
   }
-  const p = f.properties;
-  $("sel").innerHTML = `<div class="h2"><b>kerb ${p.id}</b> <span class="muted">· ${p.low_side_kind} | ${p.high_side_kind}</span></div>
-    <div class="muted small">Drag a vertex to where the real kerb is. Moving it into the road un-paves the strip (sidewalk grows); moving it out paves it. Click a segment to add a vertex first if the kerb needs a bend. Each drag is one correction, undo with Ctrl+Z.</div>`;
-  hint(`kerb ${p.id}: drag its vertices onto the real kerb in the imagery`, "");
+  $("sel").innerHTML = `<div class="h2"><b>kerb ${p.id}</b>${existing ? '<span class="badge">corrected</span>' : ""} <span class="muted">· ${p.low_side_kind} | ${p.high_side_kind}</span></div>
+    <div class="muted small">Drag the vertices onto the real kerb in the imagery; click a segment to add a vertex where the kerb bends, right-click one to remove it. The strip between the old and the new line is re-paved by the rebuild: sidewalk where the kerb moved into the road, road where it moved out.</div>
+    <div class="bar">${existing ? '<button id="b-delop" class="warn">reset kerb<kbd>Del</kbd></button>' : ""}</div>`;
+  if (existing) $("b-delop").onclick = deleteSelected;
+  hint(`kerb ${p.id}: drag its vertices onto the real kerb`, "");
 }
-async function onKerbDragEnd(e) {
+async function saveKerb(what) {
   if (!SEL || SEL.kind !== "kerb") return;
-  const i = vIndex(e), cur = SEL.edit.getLatLngs(), base = SEL.base;
-  const n = cur.length, i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
-  if (mDist(cur[i], base[i]) < 0.02) return;
-  // region swept by the moved vertex: base[i0..i1] forward, cur[i1..i0] back (shared ends collapse)
-  const ring = [];
-  for (let k = i0; k <= i1; k++) ring.push(base[k]);
-  for (let k = i1; k >= i0; k--) ring.push(cur[k]);
-  const pts = ring.filter((p, k) => k === 0 || mDist(p, ring[k - 1]) > 0.01);
-  if (pts.length < 3) { SEL.base[i] = cur[i]; return; }
-  // which way did it move? sample the swept region: mostly inside the drivable surface = the road shrinks (unpave)
-  const mid = L.latLng((base[i].lat + cur[i].lat) / 2, (base[i].lng + cur[i].lng) / 2);
-  const probe = [mid, L.latLng((base[i0].lat + cur[i].lat + base[i].lat) / 3, (base[i0].lng + cur[i].lng + base[i].lng) / 3), L.latLng((base[i1].lat + cur[i].lat + base[i].lat) / 3, (base[i1].lng + cur[i].lng + base[i].lng) / 3)];
-  const votes = probe.filter(inDrivable).length;
-  const cut = votes >= 2;
-  const poly = pts.map(lonlat); poly.push(poly[0]);
-  const dist = mDist(cur[i], base[i]).toFixed(2);
-  addOp(cut ? { op: "drivable.cut", polygon: poly, as: SEL.f.properties.high_side_kind === "verge" ? "verge" : "sidewalk", note: `kerb ${SEL.f.properties.id} moved ${dist} m into the road` }
-            : { op: "drivable.add", polygon: poly, note: `kerb ${SEL.f.properties.id} moved ${dist} m out` });
-  SEL.base = cur.map(c => L.latLng(c.lat, c.lng));
-  await commit(`kerb ${SEL.f.properties.id}: ${dist} m ${cut ? "into the road → sidewalk grows" : "outwards → road grows"} (rebuild to see the surfaces)`, { local: true, stale: true });
+  const line = SEL.edit.getLatLngs().map(lonlat);
+  if (line.length < 2) return;
+  const p = SEL.f.properties, off = offsetFrom(line, SEL.base);
+  if (SEL.op) removeOps(o => o === SEL.op);
+  if (off < 0.02 && line.length === SEL.base.length) { SEL.op = null; await commit(`kerb ${p.id}: back on the twin's line`, { local: true, stale: true }); renderKerbPanelBadge(); return; }
+  SEL.op = addOp({ op: "curb.line", curb: p.id, base: SEL.base, line, as: p.high_side_kind === "verge" ? "verge" : "sidewalk", note: `kerb ${p.id}: up to ${off.toFixed(2)} m` });
+  await commit(`kerb ${p.id}: moved up to ${off.toFixed(2)} m (rebuild re-paves the strip)`, { local: true, stale: true });
+  renderKerbPanelBadge();
 }
+function renderKerbPanelBadge() { if (!SEL || SEL.kind !== "kerb") return; const h = $("sel").querySelector(".h2"); if (h) h.innerHTML = `<b>kerb ${SEL.f.properties.id}</b>${SEL.op ? '<span class="badge">corrected</span>' : ""} <span class="muted">· ${SEL.f.properties.low_side_kind} | ${SEL.f.properties.high_side_kind}</span>`; }
 
 // ---------------------------------------------------------------------------- junction outline
 function selectJunction(f) {
@@ -851,6 +883,7 @@ async function deleteSelected() {
   if (!SEL) return;
   if (SEL.kind === "way") return deleteWay(SEL.id);
   if (SEL.kind === "corr") { const o = SEL.op; deselect(); removeOps(x => x === o); await commit(`${o.id} deleted`, { stale: true }); }
+  else if (SEL.kind === "kerb") { const o = SEL.op, id = SEL.f.properties.id; deselect(); if (o) { removeOps(x => x === o); await commit(`kerb ${id}: correction dropped`, { stale: true }); } }
   else if (SEL.kind === "junction") { const nodes = SEL.nodes, jid = SEL.jid; deselect(); removeOps(o => o.op === "junction.polygon" && (o.nodes || []).some(n => nodes.includes(n))); await commit(`junction ${jid}: outline correction dropped`, { stale: true }); }
 }
 
@@ -917,6 +950,7 @@ function opWhat(o) {
     case "way.split": return `way ${o.way} split at ${o.node} → ${o.new_way}`;
     case "road.end": return `stop line way ${o.way} @ node ${o.node}: ${o.shift_m > 0 ? "+" : ""}${o.shift_m} m`;
     case "junction.polygon": return `junction outline ${o.note || ""} (nodes ${(o.nodes || []).slice(0, 3).join(",")}${o.nodes.length > 3 ? "…" : ""})`;
+    case "curb.line": return `${o.note || "kerb " + o.curb + " moved"} → ${o.as || "sidewalk"}`;
     case "drivable.add": return `pave ${o.note || (o.polygon.length - 1) + " pts"}`;
     case "drivable.cut": return `unpave → ${o.as || "sidewalk"} ${o.note || ""}`;
   }
@@ -924,6 +958,7 @@ function opWhat(o) {
 }
 function opTarget(o) {
   if (o.polygon) return L.latLngBounds(o.polygon.map(c => [c[1], c[0]]));
+  if (o.line) return L.latLngBounds(o.line.map(c => [c[1], c[0]]));
   if (o.node !== undefined && NODE_LL.has(o.node)) return NODE_LL.get(o.node);
   if (o.way !== undefined && WAY_BY_ID.has(o.way)) return L.geoJSON(WAY_BY_ID.get(o.way)).getBounds();
   if (o.nodes && o.nodes.length) { const ll = o.nodes.map(n => NODE_LL.get(n)).filter(Boolean); if (ll.length) return L.latLngBounds(ll); }
@@ -937,9 +972,10 @@ function renderOps() {
     row.innerHTML = `<input type="checkbox" ${o.disabled ? "" : "checked"} title="enabled"><div><span class="what mono" title="zoom to"><b>${o.id}</b> ${esc(opWhat(o))}</span><br><input class="note" placeholder="note…" value="${esc(o.note || "")}"></div><button title="delete">×</button>`;
     row.querySelector("input[type=checkbox]").onchange = async ev => { o.disabled = !ev.target.checked; await commit(`${o.id} ${o.disabled ? "disabled" : "enabled"}`, { stale: true }); };
     row.querySelector(".what").onclick = () => { const t = opTarget(o); if (!t) return; if (t instanceof L.LatLng) map.setView(t, Math.max(map.getZoom(), 20)); else map.fitBounds(t, { maxZoom: 20, padding: [40, 40] });
-      if (o.polygon && o.op !== "junction.polygon") selectCorr(o); else if (o.way !== undefined && WAY_BY_ID.has(o.way)) selectWay(o.way); };
+      if (o.op === "curb.line") { const k = kerbLayerFor(o); if (k) selectKerb(k.f, k.l); }
+      else if (o.polygon && o.op !== "junction.polygon") selectCorr(o); else if (o.way !== undefined && WAY_BY_ID.has(o.way)) selectWay(o.way); };
     row.querySelector(".note").onchange = ev => { o.note = ev.target.value; pushHistory(); pushOps(false, { local: true }); };
-    row.querySelector("button").onclick = async () => { if (SEL && SEL.kind === "corr" && SEL.op === o) deselect(); removeOps(x => x === o); await commit(`${o.id} deleted`, { stale: true }); };
+    row.querySelector("button").onclick = async () => { if (SEL && (SEL.kind === "corr" || SEL.kind === "kerb") && SEL.op === o) deselect(true); removeOps(x => x === o); await commit(`${o.id} deleted`, { stale: true }); };
     host.appendChild(row);
   }
 }

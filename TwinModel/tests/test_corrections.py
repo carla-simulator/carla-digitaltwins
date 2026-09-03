@@ -110,6 +110,25 @@ def test_drivable_patch_and_raised_extras():
     assert C.drivable_patch([], frame, base) is base
 
 
+def test_kerb_line_strips():
+    frame = LocalFrame(41.0, 2.0)
+    tw = frame._to_wgs()
+    def wgs(pts):
+        lons, lats = tw.transform([q[0] for q in pts], [q[1] for q in pts])
+        return [[float(a), float(b_)] for a, b_ in zip(lons, lats)]
+    driv = box(0, 0, 100, 20)                       # kerb along y = 20, road below it
+    base = wgs([(0, 20), (50, 20), (100, 20)])
+    op = {"op": "curb.line", "base": base, "line": wgs([(0, 20), (50, 18.5), (100, 20)])}
+    cuts, adds = C.kerb_strips(op, frame, driv)
+    assert len(cuts) == 1 and not adds and abs(cuts[0].area - 75.0) < 0.5
+    assert abs(C.drivable_patch([op], frame, driv).area - 1925.0) < 0.5
+    assert [(round(g.area), k) for g, k in C.raised_extras([op], frame, driv)] == [(75, "sidewalk")]
+    crossing = {"op": "curb.line", "base": base, "line": wgs([(0, 20), (30, 21), (60, 19), (100, 20)])}
+    cuts, adds = C.kerb_strips(crossing, frame, driv)
+    assert len(cuts) == 1 and len(adds) == 1 and abs(cuts[0].area - 27.5) < 0.5 and abs(adds[0].area - 22.5) < 0.5
+    assert C.validate([{"op": "curb.line", "base": base}]) and not C.validate([op])
+
+
 def test_load_save_roundtrip(tmp_path):
     p = tmp_path / "c.json"
     c = C.Corrections(name="t", ops=[{"id": "c1", "op": "way.tags", "way": 10, "set": {"lanes": "3"}}], path=p)

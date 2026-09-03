@@ -45,6 +45,11 @@ topology stays consistent by construction.  New elements carry negative ids, lik
 
 ======================  ==========================================================================
 ``drivable.add``        ``polygon`` [[lon, lat], ...] - paves this area (sidewalk / verge -> road)
+``curb.line``           ``base`` [[lon, lat], ...] (the kerb line as the twin had it), ``line`` (where the
+                        reviewer dragged it), ``as``? - the strip between the two lines is un-paved where
+                        it lies inside the drivable surface (the kerb moved into the road: sidewalk
+                        grows) and paved where it lies outside (the kerb moved out).  This is the kerb
+                        editor's op; the two polygon ops below are the manual alternative.
 ``drivable.cut``        ``polygon`` [[lon, lat], ...], ``as``? - un-paves it; the area becomes
                         ``as`` (default ``sidewalk``; ``median`` / ``verge`` / ``ground``).  This is
                         how a kerb line or a sidewalk contour is corrected: kerbs and islands are
@@ -64,8 +69,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
-from shapely.geometry import MultiPolygon, Polygon
-from shapely.ops import unary_union
+from shapely.geometry import LineString, MultiPolygon, Polygon
+from shapely.ops import polygonize, unary_union
 
 log = logging.getLogger("twinmodel.corrections")
 
@@ -73,7 +78,7 @@ SCHEMA = "0.1"
 OSM_OPS = ("node.move", "node.add", "node.delete", "node.tags", "way.tags", "way.nodes", "way.add",
            "way.delete", "way.split")
 LANEGRAPH_OPS = ("road.end", "junction.polygon")
-SURFACE_OPS = ("drivable.add", "drivable.cut")
+SURFACE_OPS = ("drivable.add", "drivable.cut", "curb.line")
 ALL_OPS = OSM_OPS + LANEGRAPH_OPS + SURFACE_OPS
 
 
@@ -130,7 +135,7 @@ def validate(ops: list[dict[str, Any]]) -> list[str]:
         "node.tags": ("node",), "way.tags": ("way",), "way.nodes": ("way", "nodes"),
         "way.add": ("way", "nodes"), "way.delete": ("way",), "way.split": ("way", "node", "new_way"),
         "road.end": ("way", "node", "shift_m"), "junction.polygon": ("nodes", "polygon"),
-        "drivable.add": ("polygon",), "drivable.cut": ("polygon",),
+        "drivable.add": ("polygon",), "drivable.cut": ("polygon",), "curb.line": ("base", "line"),
     }
     for i, o in enumerate(ops):
         op = o.get("op")
@@ -142,6 +147,9 @@ def validate(ops: list[dict[str, Any]]) -> list[str]:
                 out.append(f"op {i} ({op}): missing {k!r}")
         if "polygon" in o and (not isinstance(o["polygon"], list) or len(o["polygon"]) < 3):
             out.append(f"op {i} ({op}): polygon needs >= 3 [lon, lat] points")
+        for k in ("base", "line"):
+            if op == "curb.line" and k in o and (not isinstance(o[k], list) or len(o[k]) < 2):
+                out.append(f"op {i} ({op}): {k} needs >= 2 [lon, lat] points")
         if op in ("node.add", "way.add") and int(o.get(op.split(".")[0], 0)) >= 0:
             out.append(f"op {i} ({op}): new elements need a negative id")
     return out
@@ -293,6 +301,29 @@ def lookup_end_shift(shifts: dict[tuple[int, int], float], way_ids: Iterable[int
     return hits[0] if hits else None
 
 
+def _line_to_model(frame, pts: list[list[float]]) -> LineString:
+    tf = frame._to_local()
+    xs, ys = tf.transform([p[0] for p in pts], [p[1] for p in pts])
+    return LineString(list(zip(xs, ys)))
+
+
+def kerb_strips(op: dict[str, Any], frame, drivable) -> tuple[list[Polygon], list[Polygon]]:
+    """A ``curb.line`` op -> (cut pieces, add pieces) in model space. The area between the kerb as
+    the twin had it (``base``) and where the reviewer put it (``line``) is polygonised; a piece
+    mostly inside ``drivable`` is a cut (the kerb moved into the road), the rest is an add."""
+    base, line = _line_to_model(frame, op["base"]), _line_to_model(frame, op["line"])
+    if base.length < 0.05 or line.length < 0.05:
+        return [], []
+    closers = [LineString([base.coords[0], line.coords[0]]), LineString([base.coords[-1], line.coords[-1]])]
+    pieces = [g for g in polygonize(unary_union([base, line] + [c for c in closers if c.length > 1e-6]))
+              if g.area > 0.02]
+    cuts, adds = [], []
+    for g in pieces:
+        inside = g.intersection(drivable).area if drivable is not None and not drivable.is_empty else 0.0
+        (cuts if inside > 0.5 * g.area else adds).append(g)
+    return cuts, adds
+
+
 def _poly_to_model(frame, ring: list[list[float]]) -> Polygon:
     tf = frame._to_local()
     xs, ys = tf.transform([p[0] for p in ring], [p[1] for p in ring])
@@ -344,14 +375,20 @@ def drivable_patch(ops: list[dict[str, Any]], frame, base):
             if not o.get("disabled") and o.get("op") == "drivable.add"]
     cuts = [_poly_to_model(frame, o["polygon"]) for o in ops
             if not o.get("disabled") and o.get("op") == "drivable.cut"]
-    if not adds and not cuts:
+    kerbs = [o for o in ops if not o.get("disabled") and o.get("op") == "curb.line"]
+    if not adds and not cuts and not kerbs:
         return base
 
     def patch(g):
-        if adds:
-            g = unary_union([g] + adds)
-        if cuts:
-            g = g.difference(unary_union(cuts))
+        k_cuts, k_adds = [], []
+        for o in kerbs:
+            c, a = kerb_strips(o, frame, g)
+            k_cuts += c
+            k_adds += a
+        if adds or k_adds:
+            g = unary_union([g] + adds + k_adds)
+        if cuts or k_cuts:
+            g = g.difference(unary_union(cuts + k_cuts))
         g = g.buffer(0)
         if isinstance(g, (Polygon, MultiPolygon)):
             return g
@@ -369,17 +406,24 @@ def drivable_patch(ops: list[dict[str, Any]], frame, base):
     return patch(base)
 
 
-def raised_extras(ops: list[dict[str, Any]], frame) -> list[tuple[Polygon, str]]:
-    """``drivable.cut`` areas as raised surfaces for ``surfaces.build_surfaces(extra_raised=...)``:
-    the op's ``as`` (default ``sidewalk``; ``median`` / ``verge`` / ``ground``) says what the
-    un-paved area becomes; ``ground`` adds nothing (the ground fill takes it)."""
+def raised_extras(ops: list[dict[str, Any]], frame, drivable=None) -> list[tuple[Polygon, str]]:
+    """``drivable.cut`` areas and the cut strips of ``curb.line`` ops as raised surfaces for
+    ``surfaces.build_surfaces(extra_raised=...)``: the op's ``as`` (default ``sidewalk``;
+    ``median`` / ``verge`` / ``ground``) says what the un-paved area becomes; ``ground`` adds
+    nothing (the ground fill takes it). ``drivable`` is the outline *before* the patch (used to
+    tell a kerb's cut strips from its add strips)."""
     out: list[tuple[Polygon, str]] = []
     for o in ops:
-        if o.get("disabled") or o.get("op") != "drivable.cut":
+        if o.get("disabled"):
             continue
         kind = str(o.get("as", "sidewalk"))
-        if kind in ("sidewalk", "median", "verge"):
+        if kind not in ("sidewalk", "median", "verge"):
+            continue
+        if o.get("op") == "drivable.cut":
             out.append((_poly_to_model(frame, o["polygon"]), kind))
+        elif o.get("op") == "curb.line":
+            cuts, _ = kerb_strips(o, frame, drivable)
+            out.extend((g, kind) for g in cuts)
     return out
 
 
@@ -422,4 +466,4 @@ def summary(reports: dict[str, dict[str, Any]]) -> str:
 
 __all__ = ["Corrections", "SCHEMA", "ALL_OPS", "OSM_OPS", "LANEGRAPH_OPS", "SURFACE_OPS", "load",
            "load_or_empty", "default_path", "validate", "apply_osm", "end_shifts", "lookup_end_shift",
-           "apply_junctions", "drivable_patch", "raised_extras", "has_drivable_ops", "new_id", "min_new_osm_id", "summary"]
+           "apply_junctions", "drivable_patch", "raised_extras", "kerb_strips", "has_drivable_ops", "new_id", "min_new_osm_id", "summary"]
