@@ -1,0 +1,842 @@
+[
+  {
+    "id": "lane_sig2",
+    "junction_id": "j1",
+    "signal_ids": [
+      "sig2"
+    ],
+    "sequence": 0
+  },
+  {
+    "id": "lane_sig2_lane_m4",
+    "junction_id": "j1",
+    "signal_ids": [
+      "sig2_lane_m4"
+    ],
+    "sequence": 1
+  },
+  {
+    "id": "lane_sig2_lane_m3",
+    "junction_id": "j1",
+    "signal_ids": [
+      "sig2_lane_m3"
+    ],
+    "sequence": 2
+  },
+  {
+    "id": "lane_sig2_lane_m2",
+    "junction_id": "j1",
+    "signal_ids": [
+      "sig2_lane_m2"
+    ],
+    "sequence": 3
+  },
+  {
+    "id": "lane_sig2_lane_m1",
+    "junction_id": "j1",
+    "signal_ids": [
+      "sig2_lane_m1"
+    ],
+    "sequence": 4
+  },
+  {
+    "id": "lane_sig3",
+    "junction_id": "j1",
+    "signal_ids": [
+      "sig3"
+    ],
+    "sequence": 5
+  },
+  {
+    "id": "lane_sig1",
+    "junction_id": "j1",
+    "signal_ids": [
+      "sig1"
+    ],
+    "sequence": 6
+  },
+  {
+    "id": "lane_sig6",
+    "junction_id": "j2",
+    "signal_ids": [
+      "sig6"
+    ],
+    "sequence": 7
+  },
+  {
+    "id": "lane_sig8",
+    "junction_id": "j2",
+    "signal_ids": [
+      "sig8"
+    ],
+    "sequence": 8
+  },
+  {
+    "id": "lane_sig8_lane_m1",
+    "junction_id": "j2",
+    "signal_ids": [
+      "sig8_lane_m1"
+    ],
+    "sequence": 9
+  },
+  {
+    "id": "lane_sig4",
+    "junction_id": "j2",
+    "signal_ids": [
+      "sig4"
+    ],
+    "sequence": 10
+  },
+  {
+    "id": "lane_sig4_lane_m2",
+    "junction_id": "j2",
+    "signal_ids": [
+      "sig4_lane_m2"
+    ],
+    "sequence": 11
+  },
+  {
+    "id": "lane_sig4_lane_m1",
+    "junction_id": "j2",
+    "signal_ids": [
+      "sig4_lane_m1"
+    ],
+    "sequence": 12
+  },
+  {
+    "id": "lane_sig5",
+    "junction_id": "j2",
+    "signal_ids": [
+      "sig5"
+    ],
+    "sequence": 13
+  },
+  {
+    "id": "lane_sig5_lane_p2",
+    "junction_id": "j2",
+    "signal_ids": [
+      "sig5_lane_p2"
+    ],
+    "sequence": 14
+  },
+  {
+    "id": "lane_sig5_lane_p3",
+    "junction_id": "j2",
+    "signal_ids": [
+      "sig5_lane_p3"
+    ],
+    "sequence": 15
+  },
+  {
+    "id": "lane_sig5_lane_p4",
+    "junction_id": "j2",
+    "signal_ids": [
+      "sig5_lane_p4"
+    ],
+    "sequence": 16
+  },
+  {
+    "id": "lane_sig7",
+    "junction_id": "j2",
+    "signal_ids": [
+      "sig7"
+    ],
+    "sequence": 17
+  },
+  {
+    "id": "lane_sig11",
+    "junction_id": "j4",
+    "signal_ids": [
+      "sig11"
+    ],
+    "sequence": 18
+  },
+  {
+    "id": "lane_sig11_lane_m4",
+    "junction_id": "j4",
+    "signal_ids": [
+      "sig11_lane_m4"
+    ],
+    "sequence": 19
+  },
+  {
+    "id": "lane_sig11_lane_m3",
+    "junction_id": "j4",
+    "signal_ids": [
+      "sig11_lane_m3"
+    ],
+    "sequence": 20
+  },
+  {
+    "id": "lane_sig11_lane_m2",
+    "junction_id": "j4",
+    "signal_ids": [
+      "sig11_lane_m2"
+    ],
+    "sequence": 21
+  },
+  {
+    "id": "lane_sig11_lane_m1",
+    "junction_id": "j4",
+    "signal_ids": [
+      "sig11_lane_m1"
+    ],
+    "sequence": 22
+  },
+  {
+    "id": "lane_sig10",
+    "junction_id": "j4",
+    "signal_ids": [
+      "sig10"
+    ],
+    "sequence": 23
+  },
+  {
+    "id": "lane_sig10_lane_m1",
+    "junction_id": "j4",
+    "signal_ids": [
+      "sig10_lane_m1"
+    ],
+    "sequence": 24
+  },
+  {
+    "id": "lane_sig12",
+    "junction_id": "j4",
+    "signal_ids": [
+      "sig12"
+    ],
+    "sequence": 25
+  },
+  {
+    "id": "lane_sig9",
+    "junction_id": "j4",
+    "signal_ids": [
+      "sig9"
+    ],
+    "sequence": 26
+  },
+  {
+    "id": "lane_sig9_lane_p2",
+    "junction_id": "j4",
+    "signal_ids": [
+      "sig9_lane_p2"
+    ],
+    "sequence": 27
+  },
+  {
+    "id": "lane_sig9_lane_p3",
+    "junction_id": "j4",
+    "signal_ids": [
+      "sig9_lane_p3"
+    ],
+    "sequence": 28
+  },
+  {
+    "id": "lane_sig9_lane_p4",
+    "junction_id": "j4",
+    "signal_ids": [
+      "sig9_lane_p4"
+    ],
+    "sequence": 29
+  },
+  {
+    "id": "lane_sig13",
+    "junction_id": "j4",
+    "signal_ids": [
+      "sig13"
+    ],
+    "sequence": 30
+  },
+  {
+    "id": "lane_sig14",
+    "junction_id": "j5",
+    "signal_ids": [
+      "sig14"
+    ],
+    "sequence": 31
+  },
+  {
+    "id": "lane_sig14_lane_m2",
+    "junction_id": "j5",
+    "signal_ids": [
+      "sig14_lane_m2"
+    ],
+    "sequence": 32
+  },
+  {
+    "id": "lane_sig14_lane_m1",
+    "junction_id": "j5",
+    "signal_ids": [
+      "sig14_lane_m1"
+    ],
+    "sequence": 33
+  },
+  {
+    "id": "lane_sig15",
+    "junction_id": "j5",
+    "signal_ids": [
+      "sig15"
+    ],
+    "sequence": 34
+  },
+  {
+    "id": "lane_sig15_lane_m3",
+    "junction_id": "j5",
+    "signal_ids": [
+      "sig15_lane_m3"
+    ],
+    "sequence": 35
+  },
+  {
+    "id": "lane_sig15_lane_m2",
+    "junction_id": "j5",
+    "signal_ids": [
+      "sig15_lane_m2"
+    ],
+    "sequence": 36
+  },
+  {
+    "id": "lane_sig15_lane_m1",
+    "junction_id": "j5",
+    "signal_ids": [
+      "sig15_lane_m1"
+    ],
+    "sequence": 37
+  },
+  {
+    "id": "lane_sig16",
+    "junction_id": "j6",
+    "signal_ids": [
+      "sig16"
+    ],
+    "sequence": 38
+  },
+  {
+    "id": "lane_sig16_lane_m1",
+    "junction_id": "j6",
+    "signal_ids": [
+      "sig16_lane_m1"
+    ],
+    "sequence": 39
+  },
+  {
+    "id": "lane_sig17",
+    "junction_id": "j6",
+    "signal_ids": [
+      "sig17"
+    ],
+    "sequence": 40
+  },
+  {
+    "id": "lane_sig20",
+    "junction_id": "j6",
+    "signal_ids": [
+      "sig20"
+    ],
+    "sequence": 41
+  },
+  {
+    "id": "lane_sig18",
+    "junction_id": "j6",
+    "signal_ids": [
+      "sig18"
+    ],
+    "sequence": 42
+  },
+  {
+    "id": "lane_sig18_lane_p2",
+    "junction_id": "j6",
+    "signal_ids": [
+      "sig18_lane_p2"
+    ],
+    "sequence": 43
+  },
+  {
+    "id": "lane_sig18_lane_p3",
+    "junction_id": "j6",
+    "signal_ids": [
+      "sig18_lane_p3"
+    ],
+    "sequence": 44
+  },
+  {
+    "id": "lane_sig18_lane_p4",
+    "junction_id": "j6",
+    "signal_ids": [
+      "sig18_lane_p4"
+    ],
+    "sequence": 45
+  },
+  {
+    "id": "lane_sig19",
+    "junction_id": "j6",
+    "signal_ids": [
+      "sig19"
+    ],
+    "sequence": 46
+  },
+  {
+    "id": "lane_sig21",
+    "junction_id": "j8",
+    "signal_ids": [
+      "sig21"
+    ],
+    "sequence": 47
+  },
+  {
+    "id": "lane_sig21_lane_m1",
+    "junction_id": "j8",
+    "signal_ids": [
+      "sig21_lane_m1"
+    ],
+    "sequence": 48
+  },
+  {
+    "id": "lane_sig22",
+    "junction_id": "j9",
+    "signal_ids": [
+      "sig22"
+    ],
+    "sequence": 49
+  },
+  {
+    "id": "lane_sig22_lane_m2",
+    "junction_id": "j9",
+    "signal_ids": [
+      "sig22_lane_m2"
+    ],
+    "sequence": 50
+  },
+  {
+    "id": "lane_sig22_lane_m1",
+    "junction_id": "j9",
+    "signal_ids": [
+      "sig22_lane_m1"
+    ],
+    "sequence": 51
+  },
+  {
+    "id": "lane_sig23",
+    "junction_id": "j11",
+    "signal_ids": [
+      "sig23"
+    ],
+    "sequence": 52
+  },
+  {
+    "id": "lane_sig23_lane_m2",
+    "junction_id": "j11",
+    "signal_ids": [
+      "sig23_lane_m2"
+    ],
+    "sequence": 53
+  },
+  {
+    "id": "lane_sig23_lane_m1",
+    "junction_id": "j11",
+    "signal_ids": [
+      "sig23_lane_m1"
+    ],
+    "sequence": 54
+  },
+  {
+    "id": "lane_sig24",
+    "junction_id": "j11",
+    "signal_ids": [
+      "sig24"
+    ],
+    "sequence": 55
+  },
+  {
+    "id": "lane_sig26",
+    "junction_id": "j14",
+    "signal_ids": [
+      "sig26"
+    ],
+    "sequence": 56
+  },
+  {
+    "id": "lane_sig25",
+    "junction_id": "j14",
+    "signal_ids": [
+      "sig25"
+    ],
+    "sequence": 57
+  },
+  {
+    "id": "lane_sig25_lane_m2",
+    "junction_id": "j14",
+    "signal_ids": [
+      "sig25_lane_m2"
+    ],
+    "sequence": 58
+  },
+  {
+    "id": "lane_sig25_lane_m1",
+    "junction_id": "j14",
+    "signal_ids": [
+      "sig25_lane_m1"
+    ],
+    "sequence": 59
+  },
+  {
+    "id": "lane_sig27",
+    "junction_id": "j16",
+    "signal_ids": [
+      "sig27"
+    ],
+    "sequence": 60
+  },
+  {
+    "id": "lane_sig27_lane_m2",
+    "junction_id": "j16",
+    "signal_ids": [
+      "sig27_lane_m2"
+    ],
+    "sequence": 61
+  },
+  {
+    "id": "lane_sig27_lane_m1",
+    "junction_id": "j16",
+    "signal_ids": [
+      "sig27_lane_m1"
+    ],
+    "sequence": 62
+  },
+  {
+    "id": "lane_sig114",
+    "junction_id": "j7",
+    "signal_ids": [
+      "sig114"
+    ],
+    "sequence": 63
+  },
+  {
+    "id": "lane_sig114_lane_m4",
+    "junction_id": "j7",
+    "signal_ids": [
+      "sig114_lane_m4"
+    ],
+    "sequence": 64
+  },
+  {
+    "id": "lane_sig114_lane_m3",
+    "junction_id": "j7",
+    "signal_ids": [
+      "sig114_lane_m3"
+    ],
+    "sequence": 65
+  },
+  {
+    "id": "lane_sig114_lane_m2",
+    "junction_id": "j7",
+    "signal_ids": [
+      "sig114_lane_m2"
+    ],
+    "sequence": 66
+  },
+  {
+    "id": "lane_sig114_lane_m1",
+    "junction_id": "j7",
+    "signal_ids": [
+      "sig114_lane_m1"
+    ],
+    "sequence": 67
+  },
+  {
+    "id": "lane_sig115",
+    "junction_id": "j7",
+    "signal_ids": [
+      "sig115"
+    ],
+    "sequence": 68
+  },
+  {
+    "id": "lane_sig115_lane_m2",
+    "junction_id": "j7",
+    "signal_ids": [
+      "sig115_lane_m2"
+    ],
+    "sequence": 69
+  },
+  {
+    "id": "lane_sig115_lane_m1",
+    "junction_id": "j7",
+    "signal_ids": [
+      "sig115_lane_m1"
+    ],
+    "sequence": 70
+  },
+  {
+    "id": "lane_sig116",
+    "junction_id": "j10",
+    "signal_ids": [
+      "sig116"
+    ],
+    "sequence": 71
+  },
+  {
+    "id": "lane_sig116_lane_m2",
+    "junction_id": "j10",
+    "signal_ids": [
+      "sig116_lane_m2"
+    ],
+    "sequence": 72
+  },
+  {
+    "id": "lane_sig116_lane_m1",
+    "junction_id": "j10",
+    "signal_ids": [
+      "sig116_lane_m1"
+    ],
+    "sequence": 73
+  },
+  {
+    "id": "lane_sig117",
+    "junction_id": "j10",
+    "signal_ids": [
+      "sig117"
+    ],
+    "sequence": 74
+  },
+  {
+    "id": "lane_sig117_lane_m4",
+    "junction_id": "j10",
+    "signal_ids": [
+      "sig117_lane_m4"
+    ],
+    "sequence": 75
+  },
+  {
+    "id": "lane_sig117_lane_m3",
+    "junction_id": "j10",
+    "signal_ids": [
+      "sig117_lane_m3"
+    ],
+    "sequence": 76
+  },
+  {
+    "id": "lane_sig117_lane_m2",
+    "junction_id": "j10",
+    "signal_ids": [
+      "sig117_lane_m2"
+    ],
+    "sequence": 77
+  },
+  {
+    "id": "lane_sig117_lane_m1",
+    "junction_id": "j10",
+    "signal_ids": [
+      "sig117_lane_m1"
+    ],
+    "sequence": 78
+  },
+  {
+    "id": "lane_sig118",
+    "junction_id": "j15",
+    "signal_ids": [
+      "sig118"
+    ],
+    "sequence": 79
+  },
+  {
+    "id": "lane_sig118_lane_m2",
+    "junction_id": "j15",
+    "signal_ids": [
+      "sig118_lane_m2"
+    ],
+    "sequence": 80
+  },
+  {
+    "id": "lane_sig118_lane_m1",
+    "junction_id": "j15",
+    "signal_ids": [
+      "sig118_lane_m1"
+    ],
+    "sequence": 81
+  },
+  {
+    "id": "lane_sig119",
+    "junction_id": "j15",
+    "signal_ids": [
+      "sig119"
+    ],
+    "sequence": 82
+  },
+  {
+    "id": "lane_sig119_lane_m1",
+    "junction_id": "j15",
+    "signal_ids": [
+      "sig119_lane_m1"
+    ],
+    "sequence": 83
+  },
+  {
+    "id": "ped_j1",
+    "junction_id": "j1",
+    "signal_ids": [
+      "sig29pa",
+      "sig29pb",
+      "sig42pa",
+      "sig42pb",
+      "sig43pa",
+      "sig43pb",
+      "sig44pa",
+      "sig44pb",
+      "sig45pa",
+      "sig45pb",
+      "sig46pa",
+      "sig46pb",
+      "sig47pa",
+      "sig47pb"
+    ],
+    "sequence": 7
+  },
+  {
+    "id": "ped_j11",
+    "junction_id": "j11",
+    "signal_ids": [
+      "sig28pa",
+      "sig28pb",
+      "sig72pa",
+      "sig72pb",
+      "sig108pa",
+      "sig108pb"
+    ],
+    "sequence": 56
+  },
+  {
+    "id": "ped_j14",
+    "junction_id": "j14",
+    "signal_ids": [
+      "sig70pa",
+      "sig70pb"
+    ],
+    "sequence": 60
+  },
+  {
+    "id": "ped_j16",
+    "junction_id": "j16",
+    "signal_ids": [
+      "sig69pa",
+      "sig69pb",
+      "sig84pa",
+      "sig84pb",
+      "sig87pa",
+      "sig87pb"
+    ],
+    "sequence": 63
+  },
+  {
+    "id": "ped_j2",
+    "junction_id": "j2",
+    "signal_ids": [
+      "sig61pa",
+      "sig61pb",
+      "sig62pa",
+      "sig62pb",
+      "sig63pa",
+      "sig63pb",
+      "sig64pa",
+      "sig64pb",
+      "sig65pa",
+      "sig65pb",
+      "sig66pa",
+      "sig66pb",
+      "sig67pa",
+      "sig67pb",
+      "sig68pa",
+      "sig68pb",
+      "sig90pa",
+      "sig90pb",
+      "sig91pa",
+      "sig91pb"
+    ],
+    "sequence": 18
+  },
+  {
+    "id": "ped_j4",
+    "junction_id": "j4",
+    "signal_ids": [
+      "sig48pa",
+      "sig48pb",
+      "sig49pa",
+      "sig49pb",
+      "sig50pa",
+      "sig50pb",
+      "sig51pa",
+      "sig51pb",
+      "sig52pa",
+      "sig52pb",
+      "sig53pa",
+      "sig53pb",
+      "sig54pa",
+      "sig54pb",
+      "sig55pa",
+      "sig55pb"
+    ],
+    "sequence": 31
+  },
+  {
+    "id": "ped_j5",
+    "junction_id": "j5",
+    "signal_ids": [
+      "sig57pa",
+      "sig57pb",
+      "sig58pa",
+      "sig58pb",
+      "sig59pa",
+      "sig59pb",
+      "sig60pa",
+      "sig60pb",
+      "sig82pa",
+      "sig82pb"
+    ],
+    "sequence": 38
+  },
+  {
+    "id": "ped_j6",
+    "junction_id": "j6",
+    "signal_ids": [
+      "sig73pa",
+      "sig73pb",
+      "sig74pa",
+      "sig74pb",
+      "sig76pa",
+      "sig76pb",
+      "sig77pa",
+      "sig77pb",
+      "sig78pa",
+      "sig78pb",
+      "sig93pa",
+      "sig93pb",
+      "sig94pa",
+      "sig94pb",
+      "sig106pa",
+      "sig106pb"
+    ],
+    "sequence": 47
+  },
+  {
+    "id": "ped_j8",
+    "junction_id": "j8",
+    "signal_ids": [
+      "sig39pa",
+      "sig39pb",
+      "sig41pa",
+      "sig41pb",
+      "sig109pa",
+      "sig109pb"
+    ],
+    "sequence": 49
+  },
+  {
+    "id": "ped_j9",
+    "junction_id": "j9",
+    "signal_ids": [
+      "sig71pa",
+      "sig71pb"
+    ],
+    "sequence": 52
+  }
+]

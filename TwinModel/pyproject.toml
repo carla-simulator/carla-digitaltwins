@@ -21,4 +21,4 @@ include = ["twinmodel*"]
 testpaths = ["tests"]
 
 [tool.setuptools.package-data]
-twinmodel = ["templates/*.html"]
+twinmodel = ["templates/*.html", "data/furniture/*.json"]

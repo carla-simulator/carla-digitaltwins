@@ -1,6 +1,11 @@
 """Place regional traffic signs (from the generated sign catalog) on a baked twin level, at its
 OpenDRIVE stop / yield / speed-limit signals.
 
+Physical support positions now come from validated ``placement`` records generated
+with ``tools/xodr_signals.py --twin``. These override the legacy position/forward
+offsets described below; lane control anchors and headings are retained. See
+``pole_placement.md`` for the rules and required runtime identity binding.
+
 Editor Python (headless):
 
     UnrealEditor-Cmd <CarlaUnreal.uproject> -run=pythonscript -script="/abs/ue/place_traffic_signs.py \\
@@ -23,6 +28,7 @@ Actors are labelled ``SIGN_<signal id>``; a re-run replaces them.
 """
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -215,6 +221,13 @@ def main(argv):
         raise RuntimeError("pole mesh missing: " + args.pole)
     pole_h = (pole.get_bounds().origin.z + pole.get_bounds().box_extent.z)
 
+    for signal in signals:
+        if not getattr(args, "remove_catalog", False) and signal.get("placement", {}).get("status") != "ok":
+            raise ValueError("Unresolved pole placement: " + str(signal["id"]))
+        if not getattr(args, "remove_catalog", False):
+            if not all(math.isfinite(signal["placement"][k]) for k in ("x", "y", "z")):
+                raise ValueError("Non-finite pole position: " + str(signal["id"]))
+
     map_path = "%s/%s/%s" % (args.map_root, args.name, args.name)
     les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
     if not les.load_level(map_path):
@@ -258,6 +271,9 @@ def main(argv):
         loc = unreal.Vector(s["x"] * 100.0 + fwd.x * args.forward_m * 100.0,
                             s["y"] * 100.0 + fwd.y * args.forward_m * 100.0,
                             (s["z"] - float(s.get("z_offset") or 0.0)) * 100.0)
+        if "placement" in s:
+            p = s["placement"]
+            loc = unreal.Vector(p["x"] * 100.0, p["y"] * 100.0, p["z"] * 100.0)
         actor = place_one(world, pole, pole_h, mesh, mat, loc, yaw, args.plate_yaw, args.plate_height_m * 100.0,
                           "SIGN_%s" % s["id"], info["name"], style, signal=s)
         if actor is None:

@@ -1,0 +1,32 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            2.1665794898712103,
+            41.393522785975776
+          ],
+          [
+            2.1667153813329336,
+            41.393426764105776
+          ]
+        ]
+      },
+      "properties": {
+        "kind": "stop_line",
+        "type": "stop",
+        "target": {},
+        "provenance": {
+          "basis": "drawn by reviewer"
+        },
+        "width_m": 0.3,
+        "id": "c13",
+        "ts": "2026-09-08T07:46:27"
+      }
+    }
+  ]
+}

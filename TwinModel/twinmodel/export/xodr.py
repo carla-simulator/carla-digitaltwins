@@ -54,9 +54,8 @@ SIGNAL_TYPES: dict[str, tuple[str, str, str]] = {
     # InMemoryMap.cpp's literal "1000001" junction-entry test still fire and the Traffic
     # Manager stops for it.
     "traffic_light_arrow": ("1000001", "-1", "yes"),
-    # A pedestrian head is type 1000002, which CARLA knows nothing about: no ATrafficLightBase
-    # is generated for it, MatchSignalAndActor never matches it and TrafficSignsModels has no
-    # entry, so it never becomes a traffic.traffic_light actor a client script would see.
+    # Type 1000002 stays distinct from vehicle lights. MapLogicParser connects
+    # baked pedestrian rigs to protected, red/green-only runtime stages.
     "traffic_light_ped": ("1000002", "-1", "yes"),
     "stop": ("206", "-1", "no"),
     "yield": ("205", "-1", "no"),
@@ -71,7 +70,7 @@ CROSSWALK_KIND = "crosswalk"
 LANE_TYPES = {"driving", "sidewalk", "shoulder", "parking", "biking", "median", "none"}
 # model lane types with no OpenDRIVE equivalent -> the closest type CARLA parses
 # (``RoadParser.cpp``: border -> LaneType::Border, a raised non-drivable strip)
-LANE_TYPE_MAP = {"verge": "border"}
+LANE_TYPE_MAP = {"verge": "border", "bus": "driving", "taxi": "driving"}
 RAISED_LANE_TYPES = {"sidewalk", "verge"}  # get a <height> record
 _MARK_COLORS = {"white": "white", "yellow": "yellow"}
 # a fitted planview geometry may bow at most this far (metres) off the polyline it replaces;
@@ -688,6 +687,12 @@ def _write_road(parent, model: TwinModel, road: Road, ids: IdMap, signals: list[
 
     def width_records(lane: Lane, s0: float, s1: float) -> list[tuple[float, float, float]]:
         """``(sOffset, a, b)`` of the lane's width polynomial(s) inside section ``[s0, s1]``."""
+        if lane.tags.get("reviewed_widths"):
+            pts=lane.tags['reviewed_widths'];records=[]
+            for (a,w0),(b,w1) in zip(pts,pts[1:]):
+                start=max(a,s0);end=min(b,s1)
+                if end>start:records.append((start-s0,w0+(w1-w0)*(start-a)/(b-a),(w1-w0)/(b-a)))
+            return records or [(0.0,pts[-1][1],0.0)]
         if not lane.tags.get("aux"):
             return [(0.0, lane.width, 0.0)]
         t0, t1 = lane.tags.get("taper_s0"), lane.tags.get("taper_s1")
@@ -737,6 +742,8 @@ def _write_road(parent, model: TwinModel, road: Road, ids: IdMap, signals: list[
             for s_off, a, b in width_records(lane, s0, s1):
                 _sub(le, "width", sOffset=s_off, a=a, b=b, c=0, d=0)
             _road_mark(le, lane.marking)
+            for user in lane.tags.get('reviewed_access',[]) or ([lane.type] if lane.type in {'bus','taxi'} else []):
+                _sub(le,'access',sOffset=0,restriction=user,rule='allow')
             if lane.type in RAISED_LANE_TYPES:
                 h = heights[lane.type]
                 _sub(le, "height", sOffset=0, inner=h, outer=h)
@@ -761,7 +768,10 @@ def _write_road(parent, model: TwinModel, road: Road, ids: IdMap, signals: list[
     sigs = _sub(r, "signals")
     wl = road.width_left()
     wr = road.width_right()
+    reviewed=model.metadata.get('reviewed_map',{})
+    replaced_signals={f['properties'].get('source_signal_id') for f in reviewed.get('features',[]) if f['properties'].get('source_signal_id')}
     for sig in signals:
+        if sig.id in replaced_signals:continue
         if sig.kind == CROSSWALK_KIND:
             width_s = float(sig.tags.get("width", P.crossing.width))
             half_t = (wl + wr) / 2.0
@@ -776,14 +786,21 @@ def _write_road(parent, model: TwinModel, road: Road, ids: IdMap, signals: list[
                 _sub(ol, "cornerLocal", u=u, v=v, z=0)
             continue
         se = _sub(sigs, "signal", **_signal_attrs(sig))
+        if sig.tags.get("rig_anchor"):
+            _sub(se, "userData", code="rig_anchor", value=sig.tags["rig_anchor"])
         for lo, hi in _validity_ranges(sig, sections, ids_per_section):
             _sub(se, "validity", fromLane=str(lo), toLane=str(hi))
+    from ..reviewed_map import write_reviewed_objects
+    write_reviewed_objects(objects,model,road,geoms,_sub)
     ud = _sub(r, "userData")
     _sub(ud, "twin", roadId=road.id, junctionId=road.junction_id or "")
 
 
 def export_xodr(model: TwinModel, path: Optional[Path | str] = None) -> str:
     """Write ``model`` as OpenDRIVE 1.4 and return the XML text (also written to ``path``)."""
+    review=model.metadata.get('reviewed_map')
+    if review and (not review.get('geometry_ready') or not review.get('logic_ready')):
+        raise ValueError('Reviewed map is not ready for OpenDRIVE; inspect reviewed_map diagnostics.')
     ids = build_id_map(model)
     root = etree.Element("OpenDRIVE")
 

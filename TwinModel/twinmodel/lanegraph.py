@@ -3734,7 +3734,20 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
             signals.append(_make_signal(next_id(), "speed_limit", r, s, _signal_side(r, forward), forward,
                                         value=float(v), tags={"maxspeed": r.tags.get("maxspeed")}))
     model.signals = signals
+    from .speed_signs import redundant_speed_signals
+    redundant = set(redundant_speed_signals(model))
+    model.signals = [s for s in model.signals if s.id not in redundant]
+    stats["redundant_speed_signs_removed"] = len(redundant)
     model.controllers = controllers
+    from .signal_coverage import complete_wide_crossings
+    stats["inferred_signal_junctions"] = complete_wide_crossings(
+        model, enabled=P.junction.infer_wide_crossing_signals)
+    stats["junctions_with_traffic_lights"] += len(stats["inferred_signal_junctions"])
+    if P.junction.lane_signal_phases:
+        from .lane_signals import split_lane_signals
+        stats["additional_lane_signals"] = split_lane_signals(model)
+    from .pedestrian_signals import connect_pedestrian_signals
+    stats["pedestrian_stages"] = connect_pedestrian_signals(model)
 
 
 def _frame_xy(model: TwinModel, n: OsmNode) -> tuple[float, float]:

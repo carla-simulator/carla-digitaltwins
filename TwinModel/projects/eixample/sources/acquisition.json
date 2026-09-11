@@ -1,0 +1,8 @@
+{
+  "profile": "eu_dense",
+  "files": {
+    "osm.json": "ad438a69f0bec99f790663ca89725ff60c3e3ad8c53e0cc1a7fe216770193220",
+    "dem.npz": "0e90444596a11277aaf12c506e3e398ff5414576d2dc64bd41e6c23dee027abf",
+    "imagery.tif": "83f4d9b0f61823626ae65482b18683db1f6709229030fde42fc666bdd91a957e"
+  }
+}

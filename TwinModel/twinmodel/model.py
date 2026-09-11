@@ -32,10 +32,9 @@ SurfaceSource = Literal["osm_tags", "area_highway", "imagery"]
 #                        dedicated turn lane(s) and its own <controller> (stage). Still type
 #                        1000001 -- InMemoryMap.cpp tests that literal to find junction entries,
 #                        and the Traffic Manager must obey an arrow exactly like a through head.
-# "traffic_light_ped"    a pedestrian head: type 1000002, which CARLA does not know, so it
-#                        spawns no ATrafficLightBase and never appears as a traffic.traffic_light
-#                        actor. Walkers ignore it either way (AWalkerAIController never reads a
-#                        traffic light), so it is a prop with a phase written in the xodr.
+# "traffic_light_ped"    a pedestrian head: type 1000002. MapLogicParser connects the
+#                        baked rig to a protected red/green stage without vehicle triggers.
+#                        Standard walker AI does not yet obey pedestrian signals.
 # "priority_road"        StVO 306 / VC B3: the major road through an unsignalised junction.
 #                        CARLA parses it as an inert sign (no USignComponent model), which is
 #                        exactly right -- the *minor* approaches carry the 205/206 that stops.
@@ -434,6 +433,14 @@ class TwinModel:
             "metadata": self.metadata, "has_elevation": self.elevation is not None,
         }
         (d / "model.json").write_text(json.dumps(meta, indent=2))
+        if 'reviewed_map' in self.metadata:
+            (d / 'reviewed-map.json').write_text(json.dumps(self.metadata['reviewed_map'], indent=2))
+        # Explicit reviewer boundaries retain their WGS84 coordinates and provenance.
+        # Unlike the model-space geometry layers, this is a lossless annotation artifact.
+        (d / "spaces.geojson").write_text(json.dumps(
+            self.metadata.get("space_annotations", {"type": "FeatureCollection", "features": []}), indent=2))
+        (d / "controls.geojson").write_text(json.dumps(
+            self.metadata.get("control_annotations", {"type": "FeatureCollection", "features": []}), indent=2))
         _write_layer(d / "roads.geojson", [_road_feature(r) for r in self.roads])
         _write_layer(d / "junctions.geojson", [_junction_feature(j) for j in self.junctions])
         _write_layer(d / "signals.geojson", [_feature(s.position, _props(s, drop=("position",)))

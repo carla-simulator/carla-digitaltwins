@@ -577,6 +577,30 @@ the baked surfaces).
   patched after refinement and kerbs / sidewalks re-derived; a cut area becomes sidewalk by default). **Rebuild** in the
   editor = save + `twinmodel build --quick` (twin + xodr + validation, no OBJ / previews; ~10 s for Eixample) with the
   arguments recorded in the twin's `model.json`, then the twin layers reload.
+  Editing interactions: selection persists across empty-map clicks, panning and undo/redo. Re-clicking the selected
+  feature leaves its handles intact; **Done editing** / **Esc** clears it. Drag completion does not select underlying
+  features. Generated context layers do not open popups. Right-click starts a missing feature at the cursor.
+  Road class colours stay stable, with yellow reserved for the active edit highlight. Click an outer lane in the
+  cross-section to choose a type and **Apply lane type**; merely selecting it does not change tags. Inner driving lanes
+  use the count controls (the side-tag model does not support arbitrary inner-lane type assignment). Other lane types
+  and the opposite side are preserved. Text fields retain native undo/redo.
+
+  Boundary identification: the street inspector lists generated lanes and sidewalks by road ID, side and lane ID.
+  Selecting one highlights and labels its inner edge (cyan, toward reference centre) and outer edge (purple, away
+  from centre), with a white reference-direction arrow. These are preview bands derived from lane widths, not extra
+  editable geometry. Boundary GeoJSON retains road/lane identity and inner/outer provenance; left/right is relative
+  to the generated road reference, not the screen or vehicle travel. Hover identification stays in a fixed panel.
+  Kerbs may wrap multiple roads, so the hovered segment reports the surface pair and the nearest road/side locally,
+  explicitly as proximity rather than a whole-kerb ownership assignment. No nearby reference means side unassigned.
+
+  Direct geometry gestures: left-click an editable road, kerb or junction outline to identify it and expose handles.
+  Drag a segment to translate the whole shape (one undo step); drag a handle to reshape; double-click anywhere on a
+  segment to insert one projected point. Geoman midpoint handles and right-click vertex deletion are disabled.
+  Right-click starts a new polyline at that location, even over an existing feature or handle; pick Road, Sidewalk,
+  Cycle path or Footpath in the inspector, click more points, double-click to finish, Esc to cancel. Sidewalks are
+  recorded as highway=footway + footway=sidewalk. Shared OSM nodes still move all connected roads. Generated lane
+  previews are optional visual aids, not independently editable geometry.
+
 
 ## Region profiles (`twinmodel/profiles.py`)
 
@@ -761,3 +785,99 @@ portal welds.
 - Do NOT commit — the integrator commits on branch `ue58-twins` (subjects `TwinModel: <module>: ...`).
   Don't touch other workers' modules; if you need a field in `model.py`, add it
   (optional, with default) and note it in your final report.
+
+### Spaces editor (September 2026)
+
+The Layout tab is the canonical Spaces view over the underlying imagery. The unified
+workspace also includes Trees & plants and Furniture tabs on the same map; see
+[`tools/MAP_WORKSPACE.md`](tools/MAP_WORKSPACE.md) for configuration and planning dependencies. **Browse** is the default on every
+load: drag to pan and click to inspect, without editing handles, geometry movement or edit shortcuts.
+**Edit** explicitly enables geometry changes. Switching back cancels active gestures, removes handles
+and preserves selection for inspection. No OSM/source mode or correction list is exposed in Layout. **Save** persists layout
+annotations; procedural tabs provide their own validated saves, regeneration and bake controls.
+
+The collapsible left panel contains the two modes, prominent selected name/type, one overlay-opacity
+slider, editable type colors and per-type/all visibility, and a searchable list of all objects. The
+object list is also the front-to-back stack: each row has up/down controls. Ordering changes actual
+SVG rendering and hit testing across semantic types. Selected outlines and edit handles remain
+legible above the fills; editable space fills participate in the object stack. Selection does not
+fade other objects. Display preferences (opacity, colors, visibility, object order) persist locally
+and never alter correction data. The shared overlay parent composites fills, paths, symbols,
+selection and Geoman handles together: **0% is the underlying imagery only**, 100% is fully colored
+space geometry. Raw source, curb, generated-surface and other reference overlays are not mounted.
+
+Spaces are locally bounded strips with independently editable left/right WGS84 polylines running
+in the same direction; vertex counts may differ. Generated lane bands and standalone OSM cycle/foot
+paths seed unconfirmed estimates split into sections approximately 40 m or shorter. Clicking never
+confirms an estimate. In Edit, dragging inside translates both edges, dragging a boundary translates
+that edge, dragging a point reshapes it, and middle-click inserts a point. Selecting an edge reports
+left/right next to the selected type. Snapping is disabled. Changes record `space.set` with semantic
+kind, exact boundary coordinates, provenance and the estimate key it replaces, without retagging an
+entire source OSM way. Invalid crossed or collapsed geometry is rejected rather than repaired.
+
+Existing `control.set` annotations and generated traffic signals can be inspected; Edit enables
+point movement or line/vertex editing. Controls retain their kind/type, width or clockwise-from-north
+bearing, optional value/name, target road/lane and provenance. Generated crossing polygons expose editable outline points in Edit; their exact Polygon geometry is stored as a crosswalk control annotation. Junction contours use `junction.polygon`, and corrected contours remain visible
+when deselected. Source/tag corrections already in the file are preserved despite removal of their
+old authoring forms.
+
+In Edit, clicking a point or segment marks it orange and shows its boundary/index. Delete removes
+that part; without a selected part, Delete removes the selected space or control; Escape clears the part before clearing the object. Point removal reconnects neighbors,
+with a minimum of two points for lines and three for closed contours. Segment removal leaves separate
+line pieces; a space segment removes the corresponding interval from both boundaries to leave closed
+remaining sections. Closed junction contours support point removal, not segment gaps. Deleting the
+last imported annotation segment records `deleted: true` with its original geometry/provenance/key,
+so refresh and export preserve removal intent. Ctrl+Z/Y undo/redo; Browse never mutates this history.
+
+**Reviewed-map compilation:** authoring data remains lossless WGS84 in correction JSON and
+`spaces.geojson` / `controls.geojson`. `twinmodel.reviewed_map` derives a separate local-metre
+representation, with raw geometry, fitted geometry, provenance, explicit targets, semantic
+relationships and geometry/logic diagnostics. A bounded corner-cutting spline subdivision keeps
+endpoints, shared vertices and sharp corners; default maximum deviation is 0.10 m. Invalid fitting
+falls back to the original shape. Junction polygons retain their current exact pre-surface path;
+changing their outline does not generate new junction lane connections.
+
+Run `python -m twinmodel review-annotations out/v10_eixample/eixample.twin
+ data/corrections/eixample.json --out /tmp/annotation-review` (on one line) to review existing data
+without a build. Exit 2 means unresolved errors; the report is still written. The editor's read-only
+`GET /api/annotations/review` checks a snapshot of current in-memory edits, including unsaved work.
+Neither review path writes annotations. The model-space output is named `reviewed-spaces.local.json`
+to avoid presenting local metres as geographic GeoJSON.
+
+Builds with space/control annotations resolve both stages before exporting. Errors retain existing
+model/mesh/OpenDRIVE outputs and write `<name>.reviewed-map.json`. Accepted patches cut explicit
+source/new footprints from generated surfaces, recreate reviewed raised-surface curb interfaces,
+place crossing overlays and stop-line markings, and retain point-asset placement metadata.
+OpenDRIVE receives exact polygon object outlines, explicit signal lane validity and supported
+complete straight-road lane width fits. Bus/taxi lanes remain driving lanes with access records.
+Crossing connections and bike-crossing semantics survive as userData; this does not implement
+CARLA pedestrian/cyclist routing or guarantee CARLA enforcement of lane access. Point objects do
+not select/spawn Unreal assets automatically.
+
+A `space.set` may carry `target: {road_id, lane_id}`, `source_geometry` (frozen original WGS84
+Polygon), and `replacement_kind` (ground/drivable/sidewalk/parking) for vacated footprints. New first
+edits capture the estimated footprint; legacy edits are not guessed or migrated automatically.
+Controls use `target: {road_id, lane_ids, controller_id}` as applicable and
+`relationships: {connects_to: [id, ...], yields_to: [id, ...], controlled_by: [id, ...]}`. Crossings
+require at least two sidewalk or biking-space references according to kind. Traffic lights require
+an existing controller. Exact source-signal replacements remove the superseded signal.
+
+**Remaining integration limits:** curved/partial-road lane fitting, lane removal and reconnection,
+shared-edge topology reconstruction, semantic binding authoring UI, controller phase creation,
+parking access/routing, bike-crossing simulation behavior and Unreal asset catalog binding are
+not implemented. Unsupported lane changes are diagnostics, not successful simulation exports.
+The editor can still save incomplete annotations without running a build.
+
+Spaces include bus lanes, taxi lanes and bike crosswalks, each with independent display color and visibility. In Edit, the selected space type is an inline selector; Browse keeps it read-only. Bike crosswalk segments also have a distinct `control.set` kind (`bike_crosswalk`, with marked/unmarked/signalized subtypes). Explicit OSM cycleway crossings seed bike-crosswalk estimates; ordinary cycleways are not inferred to be crossings.
+
+Clicking another object in Edit selects it immediately and exposes keypoints. Whole-space/control deletion records a tombstone, so imported estimates stay suppressed after reload; Ctrl+Z restores them. Junction contours support point deletion but not whole-junction deletion.
+
+In Edit, right-click opens a contextual Create object dialog at the first point. Select a type and optional name, width or signal/sign style and facing direction. Lanes and sidewalks follow a centerline, crossings follow an explicit polygon outline, stop lines follow a line, and lights/signs are placed at the clicked position. Click to add points; Enter, double-click or Finish completes the shape. Escape/Cancel or switching to Browse discards the draft without a correction. Creation participates in normal save and undo/redo.
+
+During creation, draft keypoints are draggable and a clicked draft point can be removed with Delete. Draft edits do not create correction operations. Finish validates before dismissing the draft; invalid outlines remain editable with an inline explanation, so the user can repair points and retry. Submission is guarded against duplicate finish events.
+
+## Procedural street furniture
+
+The reusable [furniture tool](furniture/README.md) plans grouped benches and bins
+on final sidewalks, provides a local authoring studio, and previews/bakes through
+a dedicated UE 5.8 PCG actor. Use `twinmodel furniture --help` for batch planning.

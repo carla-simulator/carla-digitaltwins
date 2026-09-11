@@ -1,3 +1,22 @@
+# CARLA Digital Twins
+
+The repository includes the Unreal plugin and the DigitalTwin project CLI and
+web editor in `TwinModel/`. The editor combines map layout, vegetation and street
+furniture authoring, with durable project inputs and build/apply controls.
+
+From `TwinModel`, using a Python environment with the framework dependencies and
+the matching CARLA Python wheel:
+
+```sh
+python -m twinmodel project --help
+python -m twinmodel project edit projects/eixample --port 8791
+```
+
+See [project CLI usage](TwinModel/docs/PROJECT_CLI.md) and the
+[project workflow design](TwinModel/docs/PROJECT_CLI_DESIGN.md). Unreal apply needs
+the compatible CARLA UE 5.8 checkout with the native vegetation/furniture tools.
+Opening the web editor does not reload or replace the running CARLA map.
+
 # Build Instructions for CARLA Digital Twins Plugin (UE 5)
 
 ## Prerequisites

@@ -79,7 +79,8 @@ OSM_OPS = ("node.move", "node.add", "node.delete", "node.tags", "way.tags", "way
            "way.delete", "way.split")
 LANEGRAPH_OPS = ("road.end", "junction.polygon")
 SURFACE_OPS = ("drivable.add", "drivable.cut", "curb.line")
-ALL_OPS = OSM_OPS + LANEGRAPH_OPS + SURFACE_OPS
+SPACE_OPS = ("space.set", "control.set")
+ALL_OPS = OSM_OPS + LANEGRAPH_OPS + SURFACE_OPS + SPACE_OPS
 
 
 @dataclass
@@ -141,6 +142,14 @@ def validate(ops: list[dict[str, Any]]) -> list[str]:
         op = o.get("op")
         if op not in ALL_OPS:
             out.append(f"op {i}: unknown op {op!r}")
+            continue
+        if op == "control.set":
+            from .controls import validate as validate_control
+            out.extend(f"op {i} (control.set): {e}" for e in validate_control(o))
+            continue
+        if op == "space.set":
+            from .spaces import validate as validate_space
+            out.extend(f"op {i} (space.set): {e}" for e in validate_space(o))
             continue
         for k in need[op]:
             if k not in o:

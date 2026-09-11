@@ -1,0 +1,327 @@
+{
+  "seed": 42,
+  "group_spacing_m": 45,
+  "candidate_step_m": 5,
+  "curb_clearance_m": 0.45,
+  "crossing_clearance_m": 5,
+  "pedestrian_width_m": 1.8,
+  "obstacle_clearance_m": 0.3,
+  "max_support_delta_m": 0.025,
+  "max_candidates": 20000,
+  "exclusions": [],
+  "overrides": {},
+  "anchors": [
+    {
+      "id": "osm:10686594569",
+      "position": [
+        55.65987680719806,
+        -180.2747910762653
+      ],
+      "layer": 0,
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/10686594569",
+      "name": "Parada d'autocars Passeig de Gr\u00e0cia ALSA i PLANA",
+      "tags": {
+        "bench": "yes",
+        "bin": "no",
+        "bus": "yes",
+        "highway": "bus_stop",
+        "lit": "yes",
+        "name": "Parada d'autocars Passeig de Gr\u00e0cia ALSA i PLANA",
+        "network": "Alsa",
+        "network:wikidata": "Q294510",
+        "operator": "ALSA",
+        "public_transport": "platform",
+        "shelter": "no",
+        "tactile_paving": "no"
+      },
+      "kind": "bus_stop"
+    },
+    {
+      "id": "osm:11158507105",
+      "position": [
+        -54.395499043672444,
+        15.770937645939538
+      ],
+      "layer": 0,
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/11158507105",
+      "name": "Barcelona - c. Arag\u00f3",
+      "tags": {
+        "bench": "no",
+        "bin": "no",
+        "bus": "yes",
+        "highway": "bus_stop",
+        "lit": "yes",
+        "name": "Barcelona - c. Arag\u00f3",
+        "name:ca": "Barcelona - c. Arag\u00f3",
+        "operator": "Teisa",
+        "public_transport": "platform",
+        "shelter": "no",
+        "tactile_paving": "no"
+      },
+      "kind": "bus_stop"
+    },
+    {
+      "id": "osm:11932795269",
+      "position": [
+        51.77077316498559,
+        -177.28726633081283
+      ],
+      "layer": 0,
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/11932795269",
+      "name": "Casa Batll\u00f3 - Museu T\u00e0pies",
+      "tags": {
+        "bench": "yes",
+        "bin": "no",
+        "bus": "yes",
+        "highway": "bus_stop",
+        "lit": "yes",
+        "name": "Casa Batll\u00f3 - Museu T\u00e0pies",
+        "network": "Barcelona Bus Tur\u00edstic",
+        "public_transport": "platform",
+        "route_ref": "101",
+        "shelter": "yes",
+        "tactile_paving": "no"
+      },
+      "kind": "bus_shelter"
+    },
+    {
+      "id": "osm:2503270803",
+      "position": [
+        78.01355376129783,
+        30.93104900944441
+      ],
+      "layer": 0,
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/2503270803",
+      "name": "Pau Claris - Arag\u00f3",
+      "tags": {
+        "bench": "yes",
+        "bin": "no",
+        "bus": "yes",
+        "check_date:shelter": "2025-09-02",
+        "highway": "bus_stop",
+        "lit": "no",
+        "name": "Pau Claris - Arag\u00f3",
+        "network": "Bus de Barcelona",
+        "operator": "Transports Metropolitans de Barcelona",
+        "public_transport": "platform",
+        "ref": "174",
+        "route_ref": "39 47 B24 V17 N7",
+        "shelter": "yes",
+        "tactile_paving": "yes",
+        "wheelchair": "yes"
+      },
+      "kind": "bus_shelter"
+    },
+    {
+      "id": "osm:2528513653",
+      "position": [
+        -50.12258894201426,
+        -97.44518122498236
+      ],
+      "layer": 0,
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/2528513653",
+      "name": "Pg. de Gr\u00e0cia - Consell de Cent",
+      "tags": {
+        "bench": "yes",
+        "bin": "no",
+        "bus": "yes",
+        "highway": "bus_stop",
+        "lit": "yes",
+        "name": "Pg. de Gr\u00e0cia - Consell de Cent",
+        "network": "Bus de Barcelona",
+        "operator": "Transports Metropolitans de Barcelona",
+        "public_transport": "platform",
+        "ref": "182",
+        "route_ref": "22 24 N24 N6",
+        "shelter": "yes",
+        "tactile_paving": "yes"
+      },
+      "kind": "bus_shelter"
+    },
+    {
+      "id": "osm:2528513677",
+      "position": [
+        -49.294400052306145,
+        -68.01389265225657
+      ],
+      "layer": 0,
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/2528513677",
+      "name": "Pg de Gr\u00e0cia - Arag\u00f3",
+      "tags": {
+        "bench": "yes",
+        "bin": "no",
+        "bus": "yes",
+        "highway": "bus_stop",
+        "lit": "yes",
+        "name": "Pg de Gr\u00e0cia - Arag\u00f3",
+        "network": "Bus de Barcelona",
+        "operator": "Transports Metropolitans de Barcelona",
+        "public_transport": "platform",
+        "ref": "55",
+        "route_ref": "7 22 24 V15 N24 N5 N6 N9",
+        "shelter": "yes",
+        "tactile_paving": "yes"
+      },
+      "kind": "bus_shelter"
+    },
+    {
+      "id": "osm:4871965022",
+      "position": [
+        39.794164478941745,
+        -193.15802603101844
+      ],
+      "layer": 0,
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/4871965022",
+      "name": "Busplana Barcelona",
+      "tags": {
+        "bench": "yes",
+        "bin": "no",
+        "bus": "yes",
+        "highway": "bus_stop",
+        "lit": "no",
+        "name": "Busplana Barcelona",
+        "name:ca": "Busplana Barcelona",
+        "public_transport": "platform",
+        "shelter": "yes",
+        "tactile_paving": "no"
+      },
+      "kind": "bus_shelter"
+    },
+    {
+      "id": "osm:5107212908",
+      "position": [
+        -216.65079400335054,
+        111.63116409509088
+      ],
+      "layer": 0,
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/5107212908",
+      "name": "Pg de Gr\u00e0cia - Mallorca",
+      "tags": {
+        "bench": "yes",
+        "bin": "no",
+        "bus": "yes",
+        "highway": "bus_stop",
+        "lit": "yes",
+        "name": "Pg de Gr\u00e0cia - Mallorca",
+        "network": "Bus de Barcelona",
+        "operator": "Transports Metropolitans de Barcelona",
+        "public_transport": "platform",
+        "ref": "1136",
+        "route_ref": "7 22 24 V15 N24 N5",
+        "shelter": "yes",
+        "tactile_paving": "yes"
+      },
+      "kind": "bus_shelter"
+    },
+    {
+      "id": "osm:5113346721",
+      "position": [
+        -230.50089070691124,
+        95.80532473617257
+      ],
+      "layer": 0,
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/5113346721",
+      "name": "Pg. de Gr\u00e0cia - Val\u00e8ncia",
+      "tags": {
+        "bench": "yes",
+        "bin": "no",
+        "bus": "yes",
+        "highway": "bus_stop",
+        "lit": "yes",
+        "name": "Pg. de Gr\u00e0cia - Val\u00e8ncia",
+        "network": "Bus de Barcelona",
+        "operator": "Transports Metropolitans de Barcelona",
+        "public_transport": "platform",
+        "ref": "1497",
+        "route_ref": "22 24 N24 N6",
+        "shelter": "yes",
+        "tactile_paving": "yes"
+      },
+      "kind": "bus_shelter"
+    },
+    {
+      "id": "osm:5279964924",
+      "position": [
+        161.93717561047578,
+        157.90907270009546
+      ],
+      "layer": 0,
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/5279964924",
+      "name": "Ll\u00faria - Arag\u00f3",
+      "tags": {
+        "bench": "yes",
+        "bin": "no",
+        "bus": "yes",
+        "highway": "bus_stop",
+        "lit": "yes",
+        "name": "Ll\u00faria - Arag\u00f3",
+        "network": "Bus de Barcelona",
+        "operator": "Transports Metropolitans de Barcelona",
+        "public_transport": "platform",
+        "ref": "60",
+        "route_ref": "V17 39 47",
+        "shelter": "yes",
+        "tactile_paving": "yes"
+      },
+      "kind": "bus_shelter"
+    },
+    {
+      "id": "osm:9103861282",
+      "position": [
+        -140.95828887263625,
+        -70.94471282490578
+      ],
+      "layer": 0,
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/9103861282",
+      "name": "Arag\u00f3 - Passeig de Gr\u00e0cia",
+      "tags": {
+        "bench": "no",
+        "bin": "no",
+        "bus": "yes",
+        "highway": "bus_stop",
+        "name": "Arag\u00f3 - Passeig de Gr\u00e0cia",
+        "public_transport": "platform",
+        "ref": "3800",
+        "shelter": "no",
+        "tactile_paving": "yes"
+      },
+      "kind": "bus_stop"
+    },
+    {
+      "id": "eixample-banner-1",
+      "kind": "banner",
+      "position": [
+        -230.99762619196594,
+        23.54229141547865
+      ],
+      "yaw": -315.9987039869981,
+      "layer": 0,
+      "source": "manual",
+      "name": "Proposed avenue decoration"
+    },
+    {
+      "id": "eixample-banner-2",
+      "kind": "banner",
+      "position": [
+        -63.444054351910225,
+        -198.89029805584786
+      ],
+      "yaw": -135.3991363332606,
+      "layer": 0,
+      "source": "manual",
+      "name": "Proposed avenue decoration"
+    }
+  ],
+  "infer_rest_groups": true
+}

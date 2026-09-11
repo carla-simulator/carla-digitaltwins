@@ -1,0 +1,245 @@
+[
+  {
+    "path": "/Game/Carla/Static/Static/SM_Bench01",
+    "class": "StaticMesh",
+    "min_m": [
+      -0.896666259765625,
+      -0.31909549713134766,
+      -0.001490325927734375
+    ],
+    "max_m": [
+      0.8966667175292968,
+      0.31909549713134766,
+      1.0023461151123048
+    ],
+    "materials": [
+      "/Game/Carla/Static/Static/Materials/Bench/Bench/MI_Bench_ATM.MI_Bench_ATM"
+    ]
+  },
+  {
+    "path": "/Game/Carla/Static/Static/SM_Bench02",
+    "class": "StaticMesh",
+    "min_m": [
+      -1.2263656997680663,
+      -0.35963274002075196,
+      -0.006595077514648437
+    ],
+    "max_m": [
+      1.1757595443725586,
+      0.31935819625854495,
+      0.7703041076660156
+    ],
+    "materials": [
+      "/Game/Carla/Static/Static/Materials/Bench/Bench_02/MI_Bench02.MI_Bench02"
+    ]
+  },
+  {
+    "path": "/Game/Carla/Static/Static/SM_Bench_Plant",
+    "class": "StaticMesh",
+    "min_m": [
+      -3.27671630859375,
+      -0.34849609375,
+      -0.0270703125
+    ],
+    "max_m": [
+      0.89666748046875,
+      1.04560546875,
+      1.251171875
+    ],
+    "materials": [
+      "/Game/Carla/Static/Static/Materials/Bench/Bench/MI_Bench_ATM.MI_Bench_ATM",
+      "/Game/Carla/Static/Static/00_LegacyAssets/Materials/PlantPot06/MI_PlantPot06.MI_PlantPot06",
+      "/Game/Carla/Static/Vegetation/Bushes/IndividualComponents/Materials/Bush01/MI_Bush01.MI_Bush01",
+      "/Game/Carla/Static/Vegetation/PlantsAndFlowers/Materials/Poppy/M_Poppy.M_Poppy",
+      "/Game/Carla/Static/Vegetation/PlantsAndFlowers/Materials/Dandelion/MI_Dandelion.MI_Dandelion"
+    ]
+  },
+  {
+    "path": "/Game/Carla/Static/Static/SM_TrashCan01",
+    "class": "StaticMesh",
+    "min_m": [
+      -0.27185859680175783,
+      -0.18728256225585938,
+      1.52587890625e-07
+    ],
+    "max_m": [
+      0.27185859680175783,
+      0.18728256225585938,
+      1.2140139770507812
+    ],
+    "materials": [
+      "/Game/Carla/Static/Static/00_LegacyAssets/Materials/Trashcans/MI_TrashCans.MI_TrashCans"
+    ]
+  },
+  {
+    "path": "/Game/Carla/Static/Static/SM_TrashCan02",
+    "class": "StaticMesh",
+    "min_m": [
+      -0.39655715942382813,
+      -0.33481172561645506,
+      6.34765625e-05
+    ],
+    "max_m": [
+      0.39655715942382813,
+      0.3348116874694824,
+      1.0591493988037108
+    ],
+    "materials": [
+      "/Game/Carla/Static/Static/00_LegacyAssets/Materials/Trashcans/MI_TrashCans.MI_TrashCans"
+    ]
+  },
+  {
+    "path": "/Game/Carla/Static/Static/SM_TrashCan03",
+    "class": "StaticMesh",
+    "min_m": [
+      -0.378281364440918,
+      -0.3786625289916992,
+      -0.0005954742431640625
+    ],
+    "max_m": [
+      0.378281364440918,
+      0.3786626815795898,
+      0.9883933258056641
+    ],
+    "materials": [
+      "/Game/Carla/Static/Static/00_LegacyAssets/Materials/Trashcans/MI_TrashCan_3.MI_TrashCan_3"
+    ]
+  },
+  {
+    "path": "/Game/Carla/Static/Other/SM_TrashCan02",
+    "class": "StaticMesh",
+    "min_m": [
+      -0.39655715942382813,
+      -0.33481172561645506,
+      6.34765625e-05
+    ],
+    "max_m": [
+      0.39655715942382813,
+      0.3348116874694824,
+      1.0591493988037108
+    ],
+    "materials": [
+      "/Game/Carla/Static/Static/00_LegacyAssets/Materials/Trashcans/MI_TrashCans.MI_TrashCans"
+    ]
+  },
+  {
+    "path": "/Game/Carla/Static/Static/Materials/BusStop/SM_BusStop",
+    "class": "StaticMesh",
+    "min_m": [
+      -1.1240353393554687,
+      -1.5711476135253906,
+      0.0
+    ],
+    "max_m": [
+      0.7695746612548828,
+      2.3049310302734374,
+      2.738938293457031
+    ],
+    "materials": [
+      "/Game/Carla/Static/Static/Materials/BusStop/MI_BusStop.MI_BusStop"
+    ]
+  },
+  {
+    "path": "/Game/Carla/Static/Static/Materials/BusStop/SM_BusStop_Glasses",
+    "class": "StaticMesh",
+    "min_m": [
+      0.4796720504760742,
+      -0.11005844116210937,
+      0.5294102478027344
+    ],
+    "max_m": [
+      0.5055621719360351,
+      1.9255882263183595,
+      2.322412567138672
+    ],
+    "materials": [
+      "/Game/Carla/Static/Static/Materials/BusStop/MI_BusStopWindows.MI_BusStopWindows"
+    ]
+  },
+  {
+    "path": "/Game/Carla/Static/Static/Materials/BusStop02/SM_BusStop02",
+    "class": "StaticMesh",
+    "min_m": [
+      -1.9828048706054688,
+      -0.6657391738891602,
+      0.0
+    ],
+    "max_m": [
+      1.9828048706054688,
+      0.6657390975952149,
+      2.2947926330566406
+    ],
+    "materials": [
+      "/Game/Carla/Static/Static/Materials/BusStop02/MI_BusStop02.MI_BusStop02",
+      "/Game/Carla/Static/Static/Materials/Billboard/MI_Billboard.MI_Billboard"
+    ]
+  },
+  {
+    "path": "/Game/Carla/Static/Static/Materials/BusStop02/SM_BusStop02_Glass",
+    "class": "StaticMesh",
+    "min_m": [
+      -1.9314779663085937,
+      -0.5835815811157227,
+      0.4185227966308594
+    ],
+    "max_m": [
+      1.92977783203125,
+      0.5158376693725586,
+      2.1297726440429687
+    ],
+    "materials": [
+      "/Game/Carla/Static/Static/Materials/BusStop02/MI_Glass.MI_Glass"
+    ]
+  },
+  {
+    "path": "/Game/Carla/Static/Other/Banner/SM_Banner01",
+    "class": "StaticMesh",
+    "min_m": [
+      -0.10746466636657714,
+      -1.5277883148193359,
+      -1.946683349609375
+    ],
+    "max_m": [
+      0.10746466636657714,
+      1.5147946929931642,
+      0.056226348876953124
+    ],
+    "materials": [
+      "/Game/Carla/Static/Other/Banner/Materials/MI_Banner01.MI_Banner01"
+    ]
+  },
+  {
+    "path": "/Game/Carla/Static/Other/Banner/SM_BannerIndUAB_01",
+    "class": "StaticMesh",
+    "min_m": [
+      -0.047871336936950684,
+      -1.3501483154296876,
+      -2.99625244140625
+    ],
+    "max_m": [
+      0.04787131309509277,
+      -0.07623626708984375,
+      0.0474932861328125
+    ],
+    "materials": [
+      "/Game/Carla/Static/Other/Banner/Materials/MI_bannerUAB_01.MI_bannerUAB_01"
+    ]
+  },
+  {
+    "path": "/Game/Carla/Static/TrafficSign/TrafficSignPanel/Panel_NoConnectors/SM_BusStop01",
+    "class": "StaticMesh",
+    "min_m": [
+      -0.25777515411376956,
+      -0.005,
+      -0.3809999465942383
+    ],
+    "max_m": [
+      0.25777515411376956,
+      0.005,
+      0.3809999465942383
+    ],
+    "materials": [
+      "/Game/Carla/Static/TrafficSign/TrafficSignPanel/00_GenericComponents/M_TrafficSignAtlas04.M_TrafficSignAtlas04"
+    ]
+  }
+]

@@ -27,7 +27,9 @@ Rules the pools obey (see §5 of the survey):
   * every member sits on a weather-aware master (``M_GeneralMaster``, ``M_RoadMaster``,
     ``M_AutomaterialLandscape_*``, ``M_GenericMaterialMaster``) so rain wets the whole street,
     not half of it. ``M_VertexPaintCB`` (Town15's own ground workhorse) is weather-inert *and*
-    needs vertex colours the bake does not write, so it is not in any pool.
+    needs vertex colours the bake does not write, so it is not in any default pool.
+    Eixample has a reviewed grass-only derivative (setup_eixample_grass.py);
+    this map override retains the source shader's lack of weather wetness.
 """
 import zlib
 
@@ -159,6 +161,18 @@ JITTER_PARAMS = {
 
 
 # --------------------------------------------------------------------------- selection
+
+# Reviewed map-specific parents override a pool slot without changing tile selection.
+MAP_PARENT_OVERRIDES = {
+    ("EixampleDemo", "ground", index):
+        "/Game/Carla/Maps/Twins/EixampleDemo/Materials/MI_TwinUrbanLawn_Dense"
+    for index in range(4)
+}
+
+
+def parent_for(name, key, index, default):
+    return MAP_PARENT_OVERRIDES.get((name, key, int(index)), default)
+
 
 def pool(key):
     """The pool for a surface key (empty list for an unknown key)."""

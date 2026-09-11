@@ -1,0 +1,2081 @@
+[
+  {
+    "x": 97.44655757130828,
+    "y": 209.00281647548053,
+    "z": 25.4236412750583,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900164058",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": 228.69731852123294,
+    "y": -88.38489314081434,
+    "z": 26.815489463147077,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900163057",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -89.48800659179688,
+    "y": 13.259641647338867,
+    "z": 30.10724963461168,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900168063",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -124.46331024169922,
+    "y": -134.76422119140625,
+    "z": 32.35324109849687,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900193091",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -106.66685398019676,
+    "y": -217.31588136662305,
+    "z": 33.35312601747948,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900199097",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -184.69080690223885,
+    "y": -43.27197734767124,
+    "z": 31.97234699893038,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900184080",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": 45.38372039794922,
+    "y": -66.1087417602539,
+    "z": 29.016540312033744,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900178074",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -191.25927734375,
+    "y": -39.63417053222656,
+    "z": 32.013501631823864,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900169064",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -70.34358215332031,
+    "y": 85.61404418945312,
+    "z": 28.72278996517283,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900194092",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -65.6580810546875,
+    "y": 82.52334594726562,
+    "z": 28.71426832354513,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900195093",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": 123.84662338359381,
+    "y": -2.3222676039429495,
+    "z": 26.962900980575224,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900157051",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -177.58428955078125,
+    "y": -85.90055084228516,
+    "z": 32.45770377236179,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900170065",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": 8.414732933044434,
+    "y": -79.60588836669922,
+    "z": 29.26288327502039,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900181077",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -246.89436507099725,
+    "y": 9.951502260161945,
+    "z": 32.282249661632456,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900197095",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -112.68630981445312,
+    "y": -121.68500518798828,
+    "z": 32.35966093139965,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900172068",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -95.56158882912285,
+    "y": 14.516787847729674,
+    "z": 30.1793480527575,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900185081",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": 102.2258529663086,
+    "y": -173.55111694335938,
+    "z": 29.43678062472325,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900192089",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": 230.68243408203125,
+    "y": 122.16094207763672,
+    "z": 24.047072293424545,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900178073",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -259.30352899297833,
+    "y": -126.6019827543054,
+    "z": 34.237574352302346,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900143036",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -52.71761182912993,
+    "y": -162.82079680461229,
+    "z": 31.744147966363393,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900182078",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": 108.72054049358184,
+    "y": 1.9711249301045184,
+    "z": 27.10498788615983,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900159053",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -233.822265625,
+    "y": 160.61009216308594,
+    "z": 29.36167498340906,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900145039",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -132.0655928013005,
+    "y": 219.6088220766895,
+    "z": 27.38306663737257,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900180076",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": 133.77168729003446,
+    "y": 26.301434479490425,
+    "z": 26.49287510140205,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900191088",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -218.73403244064045,
+    "y": -226.90186042981333,
+    "z": 34.83313111324733,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900186082",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": 156.1220318737239,
+    "y": -229.6657691105983,
+    "z": 29.26202197031898,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900148042",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -183.0801544189453,
+    "y": -79.5105209350586,
+    "z": 32.44491806522004,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900144037",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": 239.76023864746094,
+    "y": -86.39968872070312,
+    "z": 26.6848270723777,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900161055",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": 254.7526409648216,
+    "y": -62.55055075860143,
+    "z": 25.824129517532523,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900144038",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": 88.84073424338594,
+    "y": 214.06714231798668,
+    "z": 25.25922748129704,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900167062",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -87.58758274159405,
+    "y": 223.9561350770463,
+    "z": 26.742001655363882,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900156049",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -253.05064374017374,
+    "y": 136.5554524028706,
+    "z": 30.432380369234526,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900146040",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -252.95040893554688,
+    "y": -105.75370025634766,
+    "z": 33.77837818692237,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900173069",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": 6.113609790802002,
+    "y": 110.66960906982422,
+    "z": 27.253094042402182,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900165060",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": 113.42804718017578,
+    "y": -204.94619750976562,
+    "z": 29.936349800510015,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900174070",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -105.40156555175781,
+    "y": -129.42352294921875,
+    "z": 32.29420574242505,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900171066",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": 208.67013549804688,
+    "y": -108.78469848632812,
+    "z": 27.355795269138326,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900175071",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -132.86123657226562,
+    "y": 61.49039077758789,
+    "z": 29.602967934711643,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900147041",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -214.68723588305818,
+    "y": 139.78336139850546,
+    "z": 29.782350484725256,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900179075",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -41.546566009521484,
+    "y": -192.91526794433594,
+    "z": 32.35092907289784,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900198096",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -8.752558708190918,
+    "y": 154.79757690429688,
+    "z": 27.095901780276773,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900164059",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -147.21142578125,
+    "y": -87.44352722167969,
+    "z": 32.37320680209175,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900171067",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -2.5264066399614067,
+    "y": 153.64660240719405,
+    "z": 27.00720029087587,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900166061",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": 198.22596740722656,
+    "y": 112.01432800292969,
+    "z": 24.36556513720224,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900186083",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -216.62266217880767,
+    "y": 171.61903161317738,
+    "z": 29.30294667680758,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900151044",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": 174.0439453125,
+    "y": 65.36552429199219,
+    "z": 25.223593416632937,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900189086",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": 246.0218381362719,
+    "y": 64.74480290944567,
+    "z": 24.213719152808604,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900187084",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -1.8383443179606809,
+    "y": 114.9644632241418,
+    "z": 27.35279754147967,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900196094",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": 31.586833953857422,
+    "y": 104.33358001708984,
+    "z": 27.109872978576558,
+    "layer": 0,
+    "tags": [],
+    "name": "GeoTrafficSign_UAID_A0AD9FB44992EBFD02_1900158052",
+    "cls": "GeoTrafficSign"
+  },
+  {
+    "x": -202.88512498490962,
+    "y": -62.68362910313927,
+    "z": 32.47024715692264,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_0",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -202.88512498490962,
+    "y": -62.68362910313927,
+    "z": 32.47024715692264,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_1",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 240.03302001953125,
+    "y": -77.36670684814453,
+    "z": 26.37916858360891,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_2",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 240.03302001953125,
+    "y": -77.36670684814453,
+    "z": 26.37916858360891,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_3",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 240.03302001953125,
+    "y": -77.36670684814453,
+    "z": 26.37916858360891,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_4",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -231.55477905273438,
+    "y": 156.76170349121094,
+    "z": 29.825105405771463,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_5",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -201.7209930419922,
+    "y": 130.6989288330078,
+    "z": 29.171108074080998,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_6",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -201.7209930419922,
+    "y": 130.6989288330078,
+    "z": 29.171108074080998,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_7",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -201.7209930419922,
+    "y": 130.6989288330078,
+    "z": 29.171108074080998,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_8",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -201.7209930419922,
+    "y": 130.6989288330078,
+    "z": 29.171108074080998,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_9",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -201.7209930419922,
+    "y": 130.6989288330078,
+    "z": 29.171108074080998,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_10",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 123.90278743002686,
+    "y": -198.39094997491932,
+    "z": 29.46997086889211,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_11",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 123.90278743002686,
+    "y": -198.39094997491932,
+    "z": 29.46997086889211,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_12",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 123.90278743002686,
+    "y": -198.39094997491932,
+    "z": 29.46997086889211,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_13",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 123.90278743002686,
+    "y": -198.39094997491932,
+    "z": 29.46997086889211,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_14",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 123.90278743002686,
+    "y": -198.39094997491932,
+    "z": 29.46997086889211,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_15",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -31.510610580444336,
+    "y": 167.0926513671875,
+    "z": 27.2852279047309,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_16",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 130.0880126953125,
+    "y": 26.377349853515625,
+    "z": 26.620225994601757,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_17",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 122.93221229958914,
+    "y": 18.944123936186873,
+    "z": 26.703438897466416,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_18",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 122.93221229958914,
+    "y": 18.944123936186873,
+    "z": 26.703438897466416,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_19",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 122.93221229958914,
+    "y": 18.944123936186873,
+    "z": 26.703438897466416,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_20",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 210.54792828250845,
+    "y": -89.1000587375651,
+    "z": 27.056955117236395,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_21",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 214.71080137349153,
+    "y": -107.38000000000002,
+    "z": 27.268838244659108,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_22",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 214.71080137349153,
+    "y": -107.38000000000002,
+    "z": 27.268838244659108,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_23",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 214.71080137349153,
+    "y": -107.38000000000002,
+    "z": 27.268838244659108,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_24",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 21.754446029663086,
+    "y": 127.64385223388672,
+    "z": 27.018749646017227,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_25",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -66.42336822712349,
+    "y": 33.78549033948409,
+    "z": 29.47040756827393,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_26",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 14.585274696350098,
+    "y": 134.32080078125,
+    "z": 27.058461223022576,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_27",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 14.585274696350098,
+    "y": 134.32080078125,
+    "z": 27.058461223022576,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_28",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 14.585274696350098,
+    "y": 134.32080078125,
+    "z": 27.058461223022576,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_29",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 14.585274696350098,
+    "y": 134.32080078125,
+    "z": 27.058461223022576,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_30",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -161.97215270996094,
+    "y": -69.24400329589844,
+    "z": 32.04544774128477,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_31",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -114.40747833251953,
+    "y": 37.71855163574219,
+    "z": 30.109920174570743,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_32",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -73.8550796508789,
+    "y": -160.7123260498047,
+    "z": 32.2155735032185,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_33",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -73.8550796508789,
+    "y": -160.7123260498047,
+    "z": 32.2155735032185,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_34",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -73.8550796508789,
+    "y": -160.7123260498047,
+    "z": 32.2155735032185,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_35",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -73.8550796508789,
+    "y": -160.7123260498047,
+    "z": 32.2155735032185,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_36",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -206.7362060546875,
+    "y": -56.37119674682617,
+    "z": 32.43120338150047,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_37",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 149.9586944580078,
+    "y": -167.64971923828125,
+    "z": 29.180093486748362,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_38",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 149.9586944580078,
+    "y": -167.64971923828125,
+    "z": 29.180093486748362,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_39",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 149.9586944580078,
+    "y": -167.64971923828125,
+    "z": 29.180093486748362,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_40",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 104.14655303955078,
+    "y": -7.021933555603027,
+    "z": 27.207157676650077,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_41",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 104.14655303955078,
+    "y": -7.021933555603027,
+    "z": 27.207157676650077,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_42",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 104.14655303955078,
+    "y": -7.021933555603027,
+    "z": 27.207157676650077,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_43",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -198.55871952283903,
+    "y": 156.5157412780526,
+    "z": 29.208233373281917,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_44",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -68.67828369140625,
+    "y": -2.05434513092041,
+    "z": 29.63499650730702,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_45",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -68.67828369140625,
+    "y": -2.05434513092041,
+    "z": 29.63499650730702,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_46",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -68.67828369140625,
+    "y": -2.05434513092041,
+    "z": 29.63499650730702,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_47",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -68.67828369140625,
+    "y": -2.05434513092041,
+    "z": 29.63499650730702,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_48",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -68.67828369140625,
+    "y": -2.05434513092041,
+    "z": 29.63499650730702,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_49",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 8.787103652954102,
+    "y": -101.01219177246094,
+    "z": 29.846628157454198,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_50",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 8.787103652954102,
+    "y": -101.01219177246094,
+    "z": 29.846628157454198,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_51",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 8.787103652954102,
+    "y": -101.01219177246094,
+    "z": 29.846628157454198,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_52",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -167.2271270751953,
+    "y": -62.318458557128906,
+    "z": 32.01772580531864,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_53",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -167.2271270751953,
+    "y": -62.318458557128906,
+    "z": 32.01772580531864,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_54",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -167.2271270751953,
+    "y": -62.318458557128906,
+    "z": 32.01772580531864,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_55",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -167.2271270751953,
+    "y": -62.318458557128906,
+    "z": 32.01772580531864,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_56",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -113.4387965378003,
+    "y": 31.60850009905223,
+    "z": 30.13368305534882,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_57",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -113.4387965378003,
+    "y": 31.60850009905223,
+    "z": 30.13368305534882,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_58",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 115.68484497070312,
+    "y": 195.40806579589844,
+    "z": 24.825391338396617,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_59",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 115.68484497070312,
+    "y": 195.40806579589844,
+    "z": 24.825391338396617,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_60",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 222.7157602800925,
+    "y": 89.14464647236392,
+    "z": 24.338060016058947,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_61",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 222.7157602800925,
+    "y": 89.14464647236392,
+    "z": 24.338060016058947,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_62",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 198.328369140625,
+    "y": 89.86236572265625,
+    "z": 24.601783159608175,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_63",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 198.328369140625,
+    "y": 89.86236572265625,
+    "z": 24.601783159608175,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_64",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 198.328369140625,
+    "y": 89.86236572265625,
+    "z": 24.601783159608175,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_65",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 37.488155364990234,
+    "y": -109.02720642089844,
+    "z": 29.28842767132484,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_66",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 37.488155364990234,
+    "y": -109.02720642089844,
+    "z": 29.28842767132484,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_67",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 37.488155364990234,
+    "y": -109.02720642089844,
+    "z": 29.28842767132484,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_68",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 37.488155364990234,
+    "y": -109.02720642089844,
+    "z": 29.28842767132484,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_69",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 37.488155364990234,
+    "y": -109.02720642089844,
+    "z": 29.28842767132484,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_70",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -23.090137481689453,
+    "y": 139.7587432861328,
+    "z": 27.31499703286126,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_71",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -48.36698532104492,
+    "y": 66.7550048828125,
+    "z": 28.38711683161893,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_72",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -48.36698532104492,
+    "y": 66.7550048828125,
+    "z": 28.38711683161893,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_73",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -48.36698532104492,
+    "y": 66.7550048828125,
+    "z": 28.38711683161893,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_74",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -48.36698532104492,
+    "y": 66.7550048828125,
+    "z": 28.38711683161893,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_75",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -19.43705067406832,
+    "y": 133.9980860440929,
+    "z": 27.332429088816006,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_76",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -19.43705067406832,
+    "y": 133.9980860440929,
+    "z": 27.332429088816006,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_77",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -210.99684143066406,
+    "y": -26.174341201782227,
+    "z": 32.29613151252805,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_78",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -210.99684143066406,
+    "y": -26.174341201782227,
+    "z": 32.29613151252805,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_79",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -210.99684143066406,
+    "y": -26.174341201782227,
+    "z": 32.29613151252805,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_80",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -84.39356231689453,
+    "y": -194.48171997070312,
+    "z": 32.61057201988471,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_81",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -84.39356231689453,
+    "y": -194.48171997070312,
+    "z": 32.61057201988471,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_82",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -84.39356231689453,
+    "y": -194.48171997070312,
+    "z": 32.61057201988471,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_83",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -204.13504502128168,
+    "y": -67.22772405018496,
+    "z": 32.60620334497374,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_84",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -186.82339477539062,
+    "y": -82.8990249633789,
+    "z": 32.596537385888446,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_85",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -203.59231745349206,
+    "y": -65.25463335106042,
+    "z": 32.551662846367776,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_86",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -185.08175659179688,
+    "y": -81.02263641357422,
+    "z": 32.521409054493006,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_87",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 241.79957580566406,
+    "y": -74.98188781738281,
+    "z": 26.312492171397174,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_88",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 232.99459838867188,
+    "y": -66.24810028076172,
+    "z": 26.312779245832466,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_89",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -243.9300994873047,
+    "y": 172.5498504638672,
+    "z": 29.34329171946143,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_90",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -231.20989990234375,
+    "y": 185.2854766845703,
+    "z": 29.34329429440431,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_91",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -242.86195373535156,
+    "y": 146.69973754882812,
+    "z": 30.15081822286529,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_92",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -238.68450106779696,
+    "y": 142.32688391849757,
+    "z": 30.150849396438886,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_93",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -134.27418518066406,
+    "y": 63.611202239990234,
+    "z": 29.591666308594103,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_94",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -120.021484375,
+    "y": 77.79208374023438,
+    "z": 29.59166628152426,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_95",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -197.3460693359375,
+    "y": 127.0025634765625,
+    "z": 29.18741357444342,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_96",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -183.0933837890625,
+    "y": 141.18344116210938,
+    "z": 29.18741351094561,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_97",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -215.08689880371094,
+    "y": 173.39080810546875,
+    "z": 29.25388294765328,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_98",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -210.92992695940038,
+    "y": 169.06466264225924,
+    "z": 29.253882660525655,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_99",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -201.1597488968205,
+    "y": 185.2485038187075,
+    "z": 28.870234759850586,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_100",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -196.3733737347746,
+    "y": 183.05183907463504,
+    "z": 28.829695566448994,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_101",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -33.259918212890625,
+    "y": 169.22256469726562,
+    "z": 27.268170693402837,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_102",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -37.35978949486265,
+    "y": 165.17890720089952,
+    "z": 27.268173080955876,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_103",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 127.33817291259766,
+    "y": 26.629074096679688,
+    "z": 26.650370641379237,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_104",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 123.27975747838101,
+    "y": 19.432472011950072,
+    "z": 26.699251944906873,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_105",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 33.53292465209961,
+    "y": 102.74447631835938,
+    "z": 27.100122073702973,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_106",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 29.43897372112166,
+    "y": 98.6387391718245,
+    "z": 27.1001115579599,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_107",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 120.29615020751953,
+    "y": 11.014480590820312,
+    "z": 26.829582527417333,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_108",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 128.49949645996094,
+    "y": 3.098344087600708,
+    "z": 26.829407646309445,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_109",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 228.0682683805693,
+    "y": -89.56624048694125,
+    "z": 26.852388639558242,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_110",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 219.78225708007812,
+    "y": -81.35480499267578,
+    "z": 26.856211588048577,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_111",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 226.0643596903773,
+    "y": -93.32955291628332,
+    "z": 26.92345813346065,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_112",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 216.60914611816406,
+    "y": -84.51862335205078,
+    "z": 26.931129217299407,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_113",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 97.86862750895484,
+    "y": 208.57656376228906,
+    "z": 25.42396523943439,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_114",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 93.59668677968772,
+    "y": 212.8916796448422,
+    "z": 25.42067744436779,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_115",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 23.372488021850586,
+    "y": 130.3145294189453,
+    "z": 26.978589208009726,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_116",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 19.55599594116211,
+    "y": 133.69749450683594,
+    "z": 26.97889522730223,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_117",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -6.752836227416992,
+    "y": 156.14480590820312,
+    "z": 27.04171893813771,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_118",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -3.1112486180509022,
+    "y": 153.51505967474196,
+    "z": 27.023120299708307,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_119",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 0.37628066539764404,
+    "y": 112.60706329345703,
+    "z": 27.28930556953277,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_120",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 4.0229878425598145,
+    "y": 109.18631744384766,
+    "z": 27.289300425453874,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_121",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -65.5546875,
+    "y": 39.512725830078125,
+    "z": 29.28552856761376,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_122",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -68.1686878958837,
+    "y": 43.56912504263683,
+    "z": 29.250425675963914,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_123",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -1.4105975424007315,
+    "y": 153.8975703320128,
+    "z": 26.976826803072363,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_124",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 15.806073188781738,
+    "y": 136.2986297607422,
+    "z": 27.01926437584577,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_125",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 70.3934097290039,
+    "y": 227.91184997558594,
+    "z": 25.298819666558014,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_126",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 86.95783996582031,
+    "y": 212.68458557128906,
+    "z": 25.29862206743923,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_127",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -98.32052612304688,
+    "y": 12.22231674194336,
+    "z": 30.254540410411167,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_128",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -94.73694610595703,
+    "y": 8.735494613647461,
+    "z": 30.25265771775473,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_129",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -160.45272827148438,
+    "y": -66.95307159423828,
+    "z": 31.975207727923806,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_130",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -164.11183166503906,
+    "y": -63.54560470581055,
+    "z": 31.975184114897196,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_131",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -185.7286376953125,
+    "y": -41.40739822387695,
+    "z": 31.957701628241796,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_132",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -189.233642578125,
+    "y": -38.12791442871094,
+    "z": 31.95771885882235,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_133",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -119.65946197509766,
+    "y": 31.590438842773438,
+    "z": 30.162111126072958,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_134",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -116.13697814941406,
+    "y": 28.329740524291992,
+    "z": 30.162319725477715,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_135",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -180.02268981933594,
+    "y": -87.85273742675781,
+    "z": 32.51563696221382,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_136",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -183.67730712890625,
+    "y": -84.4404525756836,
+    "z": 32.51563678668363,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_137",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -76.1146011352539,
+    "y": -159.1047821044922,
+    "z": 32.224173482605664,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_138",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -87.0296630859375,
+    "y": -170.10984802246094,
+    "z": 32.22417347316068,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_139",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -145.75328063964844,
+    "y": -89.52349090576172,
+    "z": 32.37251037068154,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_140",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -156.66812133789062,
+    "y": -100.52876281738281,
+    "z": 32.37251036754415,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_141",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -210.8667755126953,
+    "y": -61.38497543334961,
+    "z": 32.56001657541622,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_142",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -207.36209106445312,
+    "y": -64.66480255126953,
+    "z": 32.560016517455544,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_143",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -208.31573486328125,
+    "y": -58.65904998779297,
+    "z": 32.48563247045546,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_144",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -204.81105041503906,
+    "y": -61.93887710571289,
+    "z": 32.48563241249479,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_145",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 206.5860595703125,
+    "y": -110.23698425292969,
+    "z": 27.41070717342373,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_146",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 198.08970642089844,
+    "y": -101.76280212402344,
+    "z": 27.41070719157547,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_147",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 101.88925170898438,
+    "y": -9.785625457763672,
+    "z": 27.288788694923316,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_148",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 110.48979187011719,
+    "y": -18.99338150024414,
+    "z": 27.289239456803497,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_149",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -225.38987731933594,
+    "y": 129.1492156982422,
+    "z": 30.104777097171926,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_150",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -229.55751908092125,
+    "y": 133.4652774414761,
+    "z": 30.104780941825766,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_151",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -184.0331573486328,
+    "y": 169.077392578125,
+    "z": 28.82641341009477,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_152",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -188.20118156955814,
+    "y": 173.39368557648103,
+    "z": 28.826411642314312,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_153",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -66.40573120117188,
+    "y": -3.6724753379821777,
+    "z": 29.622093302583586,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_154",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -52.58086013793945,
+    "y": 10.079719543457031,
+    "z": 29.622093307378982,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_155",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -50.64144515991211,
+    "y": -161.4030303955078,
+    "z": 31.690182034802525,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_156",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -42.12034606933594,
+    "y": -169.8523406982422,
+    "z": 31.69018064800365,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_157",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -182.66237629399376,
+    "y": -43.23384026353719,
+    "z": 31.95394042761769,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_158",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -166.03866577148438,
+    "y": -60.355655670166016,
+    "z": 31.978307943077404,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_159",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -115.73401641845703,
+    "y": 27.835445404052734,
+    "z": 30.1636292852973,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_160",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -99.14642333984375,
+    "y": 12.633421897888184,
+    "z": 30.260787530284784,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_161",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 117.94882202148438,
+    "y": 193.7609100341797,
+    "z": 24.81262184913844,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_162",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 127.1866455078125,
+    "y": 202.90765380859375,
+    "z": 24.812621906692865,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_163",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 135.85059541662685,
+    "y": 26.29683105139788,
+    "z": 26.464100174300725,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_164",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": 145.07059145491345,
+    "y": 17.359555592419646,
+    "z": 26.463128317210263,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_165",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -68.58016967773438,
+    "y": 87.45060729980469,
+    "z": 28.665467576541754,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_166",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -64.56222534179688,
+    "y": 84.82456970214844,
+    "z": 28.665334493341593,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_167",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -24.704355239868164,
+    "y": 137.4990234375,
+    "z": 27.34626504246627,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_168",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -21.254661560058594,
+    "y": 134.1614227294922,
+    "z": 27.34631088526421,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_169",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -63.624656677246094,
+    "y": 84.04570770263672,
+    "z": 28.668456230736464,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_170",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -47.162452697753906,
+    "y": 68.70797729492188,
+    "z": 28.663648973133135,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_171",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -19.361052749298814,
+    "y": 131.7337013646815,
+    "z": 27.346228197239974,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_172",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -3.094549794006843,
+    "y": 115.45057361990641,
+    "z": 27.362934893777314,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_173",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -213.21145629882812,
+    "y": -24.525808334350586,
+    "z": 32.292806843588274,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_174",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -221.85989379882812,
+    "y": -32.8447380065918,
+    "z": 32.29275105590812,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_175",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -40.08860778808594,
+    "y": -194.99526977539062,
+    "z": 32.34757620353369,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_176",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -51.004215240478516,
+    "y": -205.99978637695312,
+    "z": 32.347576216124246,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_177",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -38.684654235839844,
+    "y": -196.38787841796875,
+    "z": 32.34492401004718,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_178",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -49.60026168823242,
+    "y": -207.39239501953125,
+    "z": 32.344924022637734,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_179",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -86.14817810058594,
+    "y": -196.95750427246094,
+    "z": 32.651936571676075,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_180",
+    "cls": "DigitalTwinsTrafficLight"
+  },
+  {
+    "x": -77.4913330078125,
+    "y": -205.26766967773438,
+    "z": 32.65164741030926,
+    "layer": 0,
+    "tags": [],
+    "name": "DigitalTwinsTrafficLight_181",
+    "cls": "DigitalTwinsTrafficLight"
+  }
+]

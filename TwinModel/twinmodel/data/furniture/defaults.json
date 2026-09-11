@@ -1,0 +1,15 @@
+{
+  "seed": 42,
+  "group_spacing_m": 45,
+  "candidate_step_m": 5,
+  "curb_clearance_m": 0.45,
+  "crossing_clearance_m": 5,
+  "pedestrian_width_m": 1.8,
+  "obstacle_clearance_m": 0.3,
+  "max_support_delta_m": 0.025,
+  "max_candidates": 20000,
+  "exclusions": [],
+  "overrides": {},
+  "anchors": [],
+  "infer_rest_groups": true
+}

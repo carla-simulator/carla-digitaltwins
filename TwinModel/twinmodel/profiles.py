@@ -230,6 +230,11 @@ class JunctionRules:
     unsignalised_control: Literal["all_way_stop", "minor_stop", "minor_yield",
                                   "priority_right", "osm"] = "minor_yield"
 
+    # Infer controls only at crossing approaches with >=2 lanes each, when
+    # every existing control is a synthetic fallback (never override source tags).
+    infer_wide_crossing_signals: bool = False
+    lane_signal_phases: bool = False
+
     # ---- divided (dual) carriageways -------------------------------------------------------
     # A divided arterial is mapped in OSM as two ``oneway=yes`` ways with the same name/ref
     # running in opposite directions with a median between them (El Camino Real, S Mathilda Ave).
@@ -464,6 +469,7 @@ EU_DENSE = StreetProfile(
                                     include_driveways=False, driveway_width=3.0),
     junction=JunctionRules(cluster_m=30.0, trim_margin_m=2.0, through_deg=30.0, uturn_deg=150.0,
                            through_align_m=1.0, signal_search_m=25.0, signal_lateral_m=0.5,
+                           infer_wide_crossing_signals=True, lane_signal_phases=True,
                            plaza_radius_m=45.0, chamfer_scan_m=60.0, dead_end_stub_m=10.0,
                            stub_m=3.0, short_road_m=5.0, band_overlap_m2=0.5,
                            # 2026-09-01 behaviour: hull cover, no plaza cap (Eixample's chamfer

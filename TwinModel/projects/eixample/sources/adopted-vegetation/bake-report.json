@@ -1,0 +1,12 @@
+{
+  "map": "EixampleDemo",
+  "region": "eixample",
+  "actor": "VEGETATION_eixample",
+  "instances": 483,
+  "plan_points": 483,
+  "vegetation_points": 289,
+  "footings": 194,
+  "seconds": 6.531591936014593,
+  "status": "Baked 483 plant and surround instances. Save the level.",
+  "saved": true
+}

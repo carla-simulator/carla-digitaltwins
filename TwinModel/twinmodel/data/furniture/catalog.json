@@ -1,0 +1,147 @@
+{
+  "bench": {
+    "path": "/Game/Carla/Static/Static/SM_Bench01",
+    "class": "StaticMesh",
+    "min_m": [
+      -0.896666259765625,
+      -0.31909549713134766,
+      -0.001490325927734375
+    ],
+    "max_m": [
+      0.8966667175292968,
+      0.31909549713134766,
+      1.0023461151123048
+    ],
+    "materials": [
+      "/Game/Carla/Static/Static/Materials/Bench/Bench/MI_Bench_ATM.MI_Bench_ATM"
+    ],
+    "front_axis": "+Y",
+    "access_depth_m": 0.85
+  },
+  "bin": {
+    "path": "/Game/Carla/Static/Static/SM_TrashCan03",
+    "class": "StaticMesh",
+    "min_m": [
+      -0.378281364440918,
+      -0.3786625289916992,
+      -0.0005954742431640625
+    ],
+    "max_m": [
+      0.378281364440918,
+      0.3786626815795898,
+      0.9883933258056641
+    ],
+    "materials": [
+      "/Game/Carla/Static/Static/00_LegacyAssets/Materials/Trashcans/MI_TrashCan_3.MI_TrashCan_3"
+    ],
+    "front_axis": "+Y",
+    "access_depth_m": 0.5
+  },
+  "bus_shelter": {
+    "path": "/Game/Carla/Static/Static/Materials/BusStop02/SM_BusStop02",
+    "class": "StaticMesh",
+    "min_m": [
+      -1.9828048706054688,
+      -0.6657391738891602,
+      0.0
+    ],
+    "max_m": [
+      1.9828048706054688,
+      0.6657390975952149,
+      2.2947926330566406
+    ],
+    "materials": [
+      "/Game/Carla/Static/Static/Materials/BusStop02/MI_BusStop02.MI_BusStop02",
+      "/Game/Carla/Static/Static/Materials/Billboard/MI_Billboard.MI_Billboard"
+    ],
+    "front_axis": "+Y",
+    "access_depth_m": 1.8
+  },
+  "bus_glass": {
+    "path": "/Game/Carla/Static/Static/Materials/BusStop02/SM_BusStop02_Glass",
+    "class": "StaticMesh",
+    "min_m": [
+      -1.9314779663085937,
+      -0.5835815811157227,
+      0.4185227966308594
+    ],
+    "max_m": [
+      1.92977783203125,
+      0.5158376693725586,
+      2.1297726440429687
+    ],
+    "materials": [
+      "/Game/Carla/Static/Static/Materials/BusStop02/MI_Glass.MI_Glass"
+    ],
+    "front_axis": "+Y",
+    "access_depth_m": 0
+  },
+  "bus_pole": {
+    "path": "/Game/Carla/Static/Pole/SM_Pole08",
+    "min_m": [
+      -0.025,
+      -0.025,
+      -0.15
+    ],
+    "max_m": [
+      0.025,
+      0.025,
+      2.3500006103515627
+    ],
+    "front_axis": "+Y",
+    "access_depth_m": 0.5
+  },
+  "bus_panel": {
+    "path": "/Game/Carla/Static/TrafficSign/TwinFurniture/SM_BusStopMarker",
+    "class": "StaticMesh",
+    "min_m": [
+      -0.17195013046264648,
+      0.0006179032102227211,
+      -0.23578516006469727
+    ],
+    "max_m": [
+      0.17195013046264648,
+      0.006647859811782837,
+      0.23578516006469727
+    ],
+    "materials": [
+      "/CarlaDigitalTwinsTool/Carla/Blueprints/LevelDesign/Signs/Catalog/VC/Guide/Materials/MI_bus_stop_E13"
+    ],
+    "front_axis": "+Y",
+    "access_depth_m": 0
+  },
+  "banner_pole": {
+    "path": "/Game/Carla/Static/Pole/SM_Pole05",
+    "min_m": [
+      -0.19693267822265625,
+      -0.2011326026916504,
+      0.01428955078125
+    ],
+    "max_m": [
+      0.2053326416015625,
+      0.2011326026916504,
+      4.5305859375
+    ],
+    "front_axis": "+Y",
+    "access_depth_m": 0.3
+  },
+  "banner": {
+    "path": "/Game/Carla/Static/Other/Banner/SM_Banner01",
+    "class": "StaticMesh",
+    "min_m": [
+      -0.10746466636657714,
+      -1.5277883148193359,
+      -1.946683349609375
+    ],
+    "max_m": [
+      0.10746466636657714,
+      1.5147946929931642,
+      0.056226348876953124
+    ],
+    "materials": [
+      "/Game/Carla/Static/Other/Banner/Materials/MI_Banner01.MI_Banner01"
+    ],
+    "front_axis": "+Y",
+    "access_depth_m": 0
+  }
+}

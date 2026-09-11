@@ -1,0 +1,118 @@
+{
+  "schema": "twin-vegetation-config/1",
+  "seed": 42,
+  "include_observed": true,
+  "street_rows": false,
+  "row_spacing_m": 9.0,
+  "row_inset_m": 1.5,
+  "tree_preset": "deciduous",
+  "road_clearance_m": 0.35,
+  "crossing_clearance_m": 2.0,
+  "pedestrian_width_m": 1.8,
+  "pole_clearance_m": 1.0,
+  "building_clearance_m": 0.5,
+  "max_slope_degrees": 20,
+  "max_candidates": 200000,
+  "presets": {
+    "deciduous": {
+      "kind": "tree",
+      "species_proxy": true,
+      "spacing_m": 6.0,
+      "pit_radius_m": 0.6,
+      "crown_radius_m": 3.0,
+      "scale": [
+        0.75,
+        0.95
+      ],
+      "meshes": [
+        "/Game/Carla/Static/Vegetation/Trees/SM_AcerSaccharum01_S_D",
+        "/Game/Carla/Static/Vegetation/Trees/SM_AcerSaccharum01_S_E",
+        "/Game/Carla/Static/Vegetation/Trees/SM_AcerSaccharum01_S_F"
+      ]
+    },
+    "pine": {
+      "kind": "tree",
+      "species_proxy": true,
+      "spacing_m": 7.0,
+      "pit_radius_m": 0.7,
+      "crown_radius_m": 7.6,
+      "scale": [
+        0.8,
+        1.0
+      ],
+      "meshes": [
+        "/Game/Carla/Static/Vegetation/Trees/SM_Pine03_A",
+        "/Game/Carla/Static/Vegetation/Trees/SM_Pine03_B"
+      ]
+    },
+    "grass": {
+      "kind": "grass",
+      "species_proxy": true,
+      "spacing_m": 0.7,
+      "pit_radius_m": 0.3,
+      "crown_radius_m": 0.3,
+      "scale": [
+        0.8,
+        1.15
+      ],
+      "meshes": [
+        "/Game/Carla/Static/Vegetation/Grass/SM_Grass01_C",
+        "/Game/Carla/Static/Vegetation/Grass/SM_Grass02_A",
+        "/Game/Carla/Static/Vegetation/Grass/SM_Grass04_A"
+      ]
+    },
+    "shrubs": {
+      "kind": "shrub",
+      "species_proxy": true,
+      "spacing_m": 2.5,
+      "pit_radius_m": 1.2,
+      "crown_radius_m": 1.2,
+      "scale": [
+        0.7,
+        1.0
+      ],
+      "meshes": [
+        "/Game/Carla/Static/Vegetation/Bushes/SM_Bush03_B",
+        "/Game/Carla/Static/Vegetation/Bushes/SM_Bush03_G"
+      ]
+    },
+    "street_mature": {
+      "kind": "tree",
+      "species_proxy": true,
+      "spacing_m": 9,
+      "pit_radius_m": 0.8,
+      "crown_radius_m": 5.6,
+      "scale": [
+        0.55,
+        0.75
+      ],
+      "meshes": [
+        "/Game/Carla/Static/Vegetation/Trees/SM_AcerSaccharum01_C"
+      ]
+    },
+    "low_shrubs": {
+      "kind": "shrub",
+      "species_proxy": true,
+      "spacing_m": 0.85,
+      "pit_radius_m": 0.3,
+      "crown_radius_m": 0.3,
+      "scale": [
+        0.85,
+        1.2
+      ],
+      "meshes": [
+        "/Game/Carla/Static/Vegetation/Bushes/SM_Bush03_G"
+      ]
+    }
+  },
+  "zones": [],
+  "exclusions": [],
+  "overrides": {},
+  "sidewalk_footing": {
+    "mesh": "/Game/Carla/Static/Static/SM_TreeBase02",
+    "radius_m": 1.12,
+    "scale": 0.8,
+    "ground_offset_m": -0.02,
+    "soil_height_m": 0.14744362
+  }
+}

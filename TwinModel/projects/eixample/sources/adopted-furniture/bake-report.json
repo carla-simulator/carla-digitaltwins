@@ -1,0 +1,23 @@
+{
+  "map": "EixampleDemo",
+  "region": "eixample",
+  "actor": "FURNITURE_eixample",
+  "instances": 56,
+  "plan_points": 56,
+  "requested_points": 64,
+  "ground_rejections": {
+    "anchor:osm:4871965022": "Unsupported furniture footprint: anchor:osm:4871965022/bus_shelter",
+    "rest:0:b243947377c6:45": "Uneven furniture support: rest:0:b243947377c6:45/bench (0.044 m)",
+    "rest:0:dd29649f096c:40": "Uneven furniture support: rest:0:dd29649f096c:40/bench (0.026 m)",
+    "rest:0:dd29649f096c:80": "Unsupported furniture footprint: rest:0:dd29649f096c:80/bench"
+  },
+  "groups_by_kind": {
+    "bus_stop": 3,
+    "bus_shelter": 3,
+    "banner": 2,
+    "rest": 20
+  },
+  "seconds": 6.761648075189441,
+  "status": "Baked 56 furniture instances. Save the level.",
+  "saved": true
+}

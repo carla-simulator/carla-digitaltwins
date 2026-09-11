@@ -96,7 +96,7 @@ def _reproject_coords(tf, coords):
     return [_reproject_coords(tf, c) for c in coords]
 
 
-def lane_band_features(roads_fc: dict[str, Any]) -> list[dict[str, Any]]:
+def lane_band_features(roads_fc: dict[str, Any], *, include_boundaries: bool = False) -> list[dict[str, Any]]:
     """One polygon per lane of every road (model metres): the reference line offset by the
     cumulative lane widths on each side (lane id > 0 left, < 0 right). Full-length bands: a
     parking / turn lane that only spans part of the road (``aux_span``) is drawn whole."""
@@ -137,6 +137,11 @@ def lane_band_features(roads_fc: dict[str, Any]) -> list[dict[str, Any]]:
                                              "junction_id": p.get("junction_id"), "highway": p.get("highway"),
                                              "name": p.get("name"), "osm_way_ids": p.get("osm_way_ids")},
                               "geometry": {"type": "Polygon", "coordinates": [list(poly.exterior.coords)]}})
+                if include_boundaries:
+                    props = dict(feats[-1]["properties"], side="left" if sign > 0 else "right")
+                    for edge, curve in (("inner", a), ("outer", b)):
+                        feats.append({"type": "Feature", "properties": dict(props, boundary=edge),
+                                      "geometry": {"type": "LineString", "coordinates": list(curve.coords)}})
     return feats
 
 
@@ -149,7 +154,7 @@ def twin_geojson(twin_dir: Path, frame: LocalFrame) -> dict[str, Any]:
     for layer in TWIN_LAYERS + ("lanes",):
         if layer == "lanes":
             rp = twin_dir / "roads.geojson"
-            fc = {"features": lane_band_features(json.loads(rp.read_text()))} if rp.exists() else {"features": []}
+            fc = {"features": lane_band_features(json.loads(rp.read_text()), include_boundaries=True)} if rp.exists() else {"features": []}
         else:
             p = twin_dir / f"{layer}.geojson"
             if not p.exists():
@@ -167,11 +172,14 @@ def twin_geojson(twin_dir: Path, frame: LocalFrame) -> dict[str, Any]:
                 raw_props["polygon_source"] = t.get("polygon_source")
                 raw_props["tags"] = {k: v for k, v in t.items() if not k.endswith("_wkt")}
             props = _flatten_props(raw_props)
-            props["layer"] = layer
+            props["layer"] = "lane_boundaries" if layer == "lanes" and "boundary" in props else layer
             feats.append({"type": "Feature", "properties": props,
                           "geometry": {"type": geom["type"],
                                        "coordinates": _reproject_coords(tf, geom["coordinates"])}})
-            n += 1
+            if props["layer"] == layer:
+                n += 1
+            else:
+                counts[props["layer"]] = counts.get(props["layer"], 0) + 1
         counts[layer] = n
     log.info("twin: %s", " ".join(f"{k}={v}" for k, v in counts.items()))
     return {"type": "FeatureCollection", "features": feats, "counts": counts}

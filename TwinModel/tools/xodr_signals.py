@@ -11,6 +11,10 @@ at, plus ``kind``: "through", "arrow" (a protected turn: its own signal, its own
 1000001) or "ped" (a pedestrian head, type 1000002 -- never a traffic.traffic_light actor).
 Default type filter: 1000001 and 1000002.
 
+Requires final baked geometry (--twin, or a sibling .twin directory). Each record
+also carries a validated physical ``placement``; its original transform remains
+the logical control anchor. See ue/pole_placement.md.
+
 Traffic lights additionally carry what a rig selector needs:
   ``validities``        the lane ranges the signal governs (from ``<validity>``);
   ``n_driving_lanes``   how many lanes that is;
@@ -23,6 +27,7 @@ Traffic lights additionally carry what a rig selector needs:
 import argparse
 import json
 import math
+from pathlib import Path
 import sys
 
 from lxml import etree
@@ -89,11 +94,35 @@ def _crossings_by_road(xodr_path):
     return out
 
 
-def main(xodr_path: str, out_path: str, kinds=(TL_TYPE, PED_TYPE), crossing_m: float = 25.0) -> int:
+def main(xodr_path: str, out_path: str, kinds=(TL_TYPE, PED_TYPE), crossing_m: float = 25.0, twin_path=None) -> int:
     with open(xodr_path) as f:
         text = f.read()
+    xml_root = etree.fromstring(text.encode())
+    rig_anchors = {s.get('id'):u.get('value') for s in xml_root.iter('signal')
+                   for u in s.findall('userData') if u.get('code') == 'rig_anchor'}
     cmap = carla.Map("xodr_signals", text)
     crossings = _crossings_by_road(xodr_path)
+    # Solve all poles together before filtering so signs and lights reserve space
+    # against one another, regardless of which output file is requested.
+    if twin_path is None:
+        candidate = Path(xodr_path).with_suffix(".twin")
+        twin_path = candidate if candidate.is_dir() else None
+    if twin_path is None:
+        raise ValueError("Final baked geometry is required: supply --twin <map.twin> (or place it beside the xodr)")
+    placements = {}
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from twinmodel.model import TwinModel
+    from twinmodel.pole_placement import PolePlacer
+    from shapely.geometry import Point
+    placer = PolePlacer(TwinModel.load(twin_path))
+    for lm in sorted(cmap.get_all_landmarks(), key=lambda lm: lm.id):
+        if rig_anchors.get(lm.id, lm.id) != lm.id:
+            continue
+        loc = lm.transform.location
+        placements[lm.id] = placer.place(lm.id, Point(loc.x, -loc.y))
+    unresolved = {k: v for k, v in placements.items() if v["status"] != "ok"}
+    if unresolved:
+        raise ValueError("Unsafe pole placement; no output written: " + json.dumps(unresolved))
     out = []
     for lm in cmap.get_all_landmarks():
         if kinds and lm.type not in kinds:
@@ -110,11 +139,32 @@ def main(xodr_path: str, out_path: str, kinds=(TL_TYPE, PED_TYPE), crossing_m: f
         rec["lanes"] = lanes
         if lm.type == TL_TYPE:
             rec["n_driving_lanes"] = len(lanes)
+            rec["lane_centers"] = []
+            for lane in lanes:
+                wp = cmap.get_waypoint_xodr(lm.road_id, lane, lm.s)
+                if wp is not None and wp.lane_type == carla.LaneType.Driving:
+                    p = wp.transform.location
+                    rec["lane_centers"].append({"lane_id":lane, "x":p.x, "y":p.y,
+                                                "z":p.z, "width":wp.lane_width})
             turns = {_turn_of(cmap, lm.road_id, l, lm.s) for l in lanes}
             rec["turns"] = sorted(x for x in turns if x)
             rec["has_crossing"] = any(abs(s - lm.s) <= crossing_m
                                       for s in crossings.get(str(lm.road_id), []))
+        rec["rig_anchor"] = rig_anchors.get(lm.id, lm.id)
+        rec["placement"] = placements[rec["rig_anchor"]]
+        for lane in rec.get("lane_centers", []):
+            lane["signal_id"] = lm.id
         out.append(rec)
+    grouped = {r['id']:r for r in out if r['rig_anchor'] == r['id']}
+    for rec in out:
+        if rec['rig_anchor'] == rec['id']:continue
+        anchor = grouped[rec['rig_anchor']]
+        if (anchor['road_id'],anchor['yaw'],anchor['s']) != (rec['road_id'],rec['yaw'],rec['s']):
+            raise ValueError('Shared rig signals disagree on their approach')
+        anchor['lane_centers'].extend(rec['lane_centers'])
+        anchor['lanes'].extend(rec['lanes'])
+        anchor['n_driving_lanes'] = len(anchor['lane_centers'])
+    out = list(grouped.values())
     with open(out_path, "w") as f:
         json.dump(out, f, indent=1)
     print(f"{len(out)} signals -> {out_path}")
@@ -130,5 +180,6 @@ if __name__ == "__main__":
                          "through + protected turn) and pedestrian heads (1000002)")
     ap.add_argument("--crossing-m", type=float, default=25.0,
                     help="a crosswalk this close on the same road marks the signal has_crossing")
+    ap.add_argument("--twin", help="Final baked .twin geometry for safe physical pole placement; auto-detected beside xodr")
     a = ap.parse_args()
-    sys.exit(main(a.xodr, a.out, tuple(a.types), a.crossing_m))
+    sys.exit(main(a.xodr, a.out, tuple(a.types), a.crossing_m, a.twin))

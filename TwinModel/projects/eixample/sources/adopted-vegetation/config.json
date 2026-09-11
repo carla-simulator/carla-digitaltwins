@@ -1,0 +1,1499 @@
+{
+  "schema": "twin-vegetation-config/1",
+  "seed": 42,
+  "include_observed": true,
+  "street_rows": true,
+  "row_spacing_m": 9.0,
+  "row_inset_m": 1.5,
+  "tree_preset": "street_mature",
+  "road_clearance_m": 0.35,
+  "crossing_clearance_m": 2.0,
+  "pedestrian_width_m": 1.8,
+  "pole_clearance_m": 1.0,
+  "building_clearance_m": 0.5,
+  "max_slope_degrees": 20,
+  "max_candidates": 200000,
+  "presets": {
+    "deciduous": {
+      "kind": "tree",
+      "species_proxy": true,
+      "spacing_m": 6.0,
+      "pit_radius_m": 0.6,
+      "crown_radius_m": 3.0,
+      "scale": [
+        0.75,
+        0.95
+      ],
+      "meshes": [
+        "/Game/Carla/Static/Vegetation/Trees/SM_AcerSaccharum01_S_D",
+        "/Game/Carla/Static/Vegetation/Trees/SM_AcerSaccharum01_S_E",
+        "/Game/Carla/Static/Vegetation/Trees/SM_AcerSaccharum01_S_F"
+      ]
+    },
+    "pine": {
+      "kind": "tree",
+      "species_proxy": true,
+      "spacing_m": 7.0,
+      "pit_radius_m": 0.7,
+      "crown_radius_m": 7.6,
+      "scale": [
+        0.8,
+        1.0
+      ],
+      "meshes": [
+        "/Game/Carla/Static/Vegetation/Trees/SM_Pine03_A",
+        "/Game/Carla/Static/Vegetation/Trees/SM_Pine03_B"
+      ]
+    },
+    "grass": {
+      "kind": "grass",
+      "species_proxy": true,
+      "spacing_m": 0.7,
+      "pit_radius_m": 0.3,
+      "crown_radius_m": 0.3,
+      "scale": [
+        0.8,
+        1.15
+      ],
+      "meshes": [
+        "/Game/Carla/Static/Vegetation/Grass/SM_Grass01_C",
+        "/Game/Carla/Static/Vegetation/Grass/SM_Grass02_A",
+        "/Game/Carla/Static/Vegetation/Grass/SM_Grass04_A"
+      ]
+    },
+    "shrubs": {
+      "kind": "shrub",
+      "species_proxy": true,
+      "spacing_m": 2.5,
+      "pit_radius_m": 1.2,
+      "crown_radius_m": 1.2,
+      "scale": [
+        0.7,
+        1.0
+      ],
+      "meshes": [
+        "/Game/Carla/Static/Vegetation/Bushes/SM_Bush03_B",
+        "/Game/Carla/Static/Vegetation/Bushes/SM_Bush03_G"
+      ]
+    },
+    "street_mature": {
+      "kind": "tree",
+      "species_proxy": true,
+      "spacing_m": 9,
+      "pit_radius_m": 0.8,
+      "crown_radius_m": 5.6,
+      "scale": [
+        0.55,
+        0.75
+      ],
+      "meshes": [
+        "/Game/Carla/Static/Vegetation/Trees/SM_AcerSaccharum01_C"
+      ]
+    },
+    "low_shrubs": {
+      "kind": "shrub",
+      "species_proxy": true,
+      "spacing_m": 0.85,
+      "pit_radius_m": 0.3,
+      "crown_radius_m": 0.3,
+      "scale": [
+        0.85,
+        1.2
+      ],
+      "meshes": [
+        "/Game/Carla/Static/Vegetation/Bushes/SM_Bush03_G"
+      ]
+    }
+  },
+  "zones": [
+    {
+      "id": "demo-bed-grass",
+      "preset": "grass",
+      "density": 0.8,
+      "layer": 0,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              26.984,
+              61.134
+            ],
+            [
+              26.031,
+              62.082
+            ],
+            [
+              31.225,
+              66.859
+            ],
+            [
+              37.378,
+              66.795
+            ],
+            [
+              41.016,
+              62.942
+            ],
+            [
+              41.885,
+              62.598
+            ],
+            [
+              41.654,
+              62.366
+            ],
+            [
+              43.366,
+              60.66
+            ],
+            [
+              44.298,
+              59.699
+            ],
+            [
+              42.536,
+              60.34
+            ],
+            [
+              27.097,
+              59.862
+            ],
+            [
+              24.773,
+              58.911
+            ],
+            [
+              26.984,
+              61.134
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "id": "demo-bed-shrubs",
+      "preset": "low_shrubs",
+      "density": 0.85,
+      "layer": 0,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              26.984,
+              61.134
+            ],
+            [
+              26.031,
+              62.082
+            ],
+            [
+              31.225,
+              66.859
+            ],
+            [
+              37.378,
+              66.795
+            ],
+            [
+              41.016,
+              62.942
+            ],
+            [
+              41.885,
+              62.598
+            ],
+            [
+              41.654,
+              62.366
+            ],
+            [
+              43.366,
+              60.66
+            ],
+            [
+              44.298,
+              59.699
+            ],
+            [
+              42.536,
+              60.34
+            ],
+            [
+              27.097,
+              59.862
+            ],
+            [
+              24.773,
+              58.911
+            ],
+            [
+              26.984,
+              61.134
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "id": "ground_32-low_shrubs",
+      "preset": "low_shrubs",
+      "density": 0.85,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              19.964,
+              -94.702
+            ],
+            [
+              20.064,
+              -94.191
+            ],
+            [
+              20.8,
+              -94.558
+            ],
+            [
+              21.051,
+              -94.624
+            ],
+            [
+              21.653,
+              -94.769
+            ],
+            [
+              22.016,
+              -94.744
+            ],
+            [
+              22.604,
+              -95.334
+            ],
+            [
+              10.285,
+              -99.418
+            ],
+            [
+              5.086,
+              -93.876
+            ],
+            [
+              5.428,
+              -93.758
+            ],
+            [
+              5.804,
+              -93.569
+            ],
+            [
+              5.905,
+              -94.114
+            ],
+            [
+              19.964,
+              -94.702
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "id": "ground_32-grass",
+      "preset": "grass",
+      "density": 0.9,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              19.964,
+              -94.702
+            ],
+            [
+              20.064,
+              -94.191
+            ],
+            [
+              20.8,
+              -94.558
+            ],
+            [
+              21.051,
+              -94.624
+            ],
+            [
+              21.653,
+              -94.769
+            ],
+            [
+              22.016,
+              -94.744
+            ],
+            [
+              22.604,
+              -95.334
+            ],
+            [
+              10.285,
+              -99.418
+            ],
+            [
+              5.086,
+              -93.876
+            ],
+            [
+              5.428,
+              -93.758
+            ],
+            [
+              5.804,
+              -93.569
+            ],
+            [
+              5.905,
+              -94.114
+            ],
+            [
+              19.964,
+              -94.702
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "id": "ground_31-low_shrubs",
+      "preset": "low_shrubs",
+      "density": 0.85,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              36.515,
+              -109.272
+            ],
+            [
+              35.513,
+              -127.704
+            ],
+            [
+              31.777,
+              -123.716
+            ],
+            [
+              31.671,
+              -123.596
+            ],
+            [
+              36.104,
+              -108.86
+            ],
+            [
+              36.515,
+              -109.272
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "id": "ground_31-grass",
+      "preset": "grass",
+      "density": 0.9,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              36.515,
+              -109.272
+            ],
+            [
+              35.513,
+              -127.704
+            ],
+            [
+              31.777,
+              -123.716
+            ],
+            [
+              31.671,
+              -123.596
+            ],
+            [
+              36.104,
+              -108.86
+            ],
+            [
+              36.515,
+              -109.272
+            ]
+          ]
+        ]
+      }
+    }
+  ],
+  "exclusions": [
+    {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [
+            33.15,
+            65.6
+          ],
+          [
+            33.15,
+            66.7
+          ],
+          [
+            31.3,
+            66.7
+          ],
+          [
+            31.3,
+            65.6
+          ],
+          [
+            33.15,
+            65.6
+          ]
+        ]
+      ]
+    },
+    {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [
+            33.880255203659736,
+            104.3346172333092
+          ],
+          [
+            33.875439930331936,
+            104.23660009297964
+          ],
+          [
+            33.86104048406297,
+            104.13952691129307
+          ],
+          [
+            33.83719553939194,
+            104.04433255605474
+          ],
+          [
+            33.80413473617102,
+            103.95193380094412
+          ],
+          [
+            33.76217646800809,
+            103.86322049648321
+          ],
+          [
+            33.711724815962285,
+            103.7790470002896
+          ],
+          [
+            33.65326565702247,
+            103.70022394914555
+          ],
+          [
+            33.58736198484628,
+            103.62751045212265
+          ],
+          [
+            33.51464848782338,
+            103.56160677994646
+          ],
+          [
+            33.43582543667934,
+            103.50314762100666
+          ],
+          [
+            33.35165194048573,
+            103.45269596896085
+          ],
+          [
+            33.26293863602483,
+            103.41073770079791
+          ],
+          [
+            33.1705398809142,
+            103.37767689757699
+          ],
+          [
+            33.075345525675864,
+            103.35383195290598
+          ],
+          [
+            32.978272343989296,
+            103.33943250663701
+          ],
+          [
+            32.880255203659736,
+            103.3346172333092
+          ],
+          [
+            32.782238063330176,
+            103.33943250663701
+          ],
+          [
+            32.68516488164361,
+            103.35383195290598
+          ],
+          [
+            32.589970526405274,
+            103.37767689757699
+          ],
+          [
+            32.497571771294645,
+            103.41073770079791
+          ],
+          [
+            32.40885846683374,
+            103.45269596896085
+          ],
+          [
+            32.324684970640135,
+            103.50314762100666
+          ],
+          [
+            32.24586191949609,
+            103.56160677994646
+          ],
+          [
+            32.17314842247319,
+            103.62751045212265
+          ],
+          [
+            32.107244750297,
+            103.70022394914555
+          ],
+          [
+            32.04878559135719,
+            103.7790470002896
+          ],
+          [
+            31.99833393931138,
+            103.86322049648321
+          ],
+          [
+            31.95637567114845,
+            103.95193380094412
+          ],
+          [
+            31.923314867927527,
+            104.04433255605474
+          ],
+          [
+            31.899469923256504,
+            104.13952691129307
+          ],
+          [
+            31.88507047698754,
+            104.23660009297964
+          ],
+          [
+            31.880255203659736,
+            104.3346172333092
+          ],
+          [
+            31.88507047698754,
+            104.43263437363876
+          ],
+          [
+            31.899469923256504,
+            104.52970755532533
+          ],
+          [
+            31.923314867927527,
+            104.62490191056366
+          ],
+          [
+            31.95637567114845,
+            104.71730066567429
+          ],
+          [
+            31.99833393931138,
+            104.8060139701352
+          ],
+          [
+            32.04878559135719,
+            104.89018746632881
+          ],
+          [
+            32.107244750297,
+            104.96901051747285
+          ],
+          [
+            32.17314842247319,
+            105.04172401449576
+          ],
+          [
+            32.24586191949609,
+            105.10762768667193
+          ],
+          [
+            32.324684970640135,
+            105.16608684561174
+          ],
+          [
+            32.40885846683374,
+            105.21653849765755
+          ],
+          [
+            32.497571771294645,
+            105.2584967658205
+          ],
+          [
+            32.589970526405274,
+            105.29155756904142
+          ],
+          [
+            32.68516488164361,
+            105.31540251371243
+          ],
+          [
+            32.782238063330176,
+            105.3298019599814
+          ],
+          [
+            32.880255203659736,
+            105.3346172333092
+          ],
+          [
+            32.978272343989296,
+            105.3298019599814
+          ],
+          [
+            33.075345525675864,
+            105.31540251371243
+          ],
+          [
+            33.1705398809142,
+            105.29155756904142
+          ],
+          [
+            33.26293863602483,
+            105.2584967658205
+          ],
+          [
+            33.35165194048573,
+            105.21653849765755
+          ],
+          [
+            33.43582543667934,
+            105.16608684561174
+          ],
+          [
+            33.51464848782338,
+            105.10762768667195
+          ],
+          [
+            33.58736198484628,
+            105.04172401449576
+          ],
+          [
+            33.65326565702247,
+            104.96901051747285
+          ],
+          [
+            33.711724815962285,
+            104.89018746632881
+          ],
+          [
+            33.76217646800809,
+            104.8060139701352
+          ],
+          [
+            33.80413473617102,
+            104.71730066567429
+          ],
+          [
+            33.83719553939194,
+            104.62490191056366
+          ],
+          [
+            33.86104048406297,
+            104.52970755532533
+          ],
+          [
+            33.875439930331936,
+            104.43263437363876
+          ],
+          [
+            33.880255203659736,
+            104.3346172333092
+          ]
+        ]
+      ]
+    },
+    {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [
+            32.913771218304106,
+            71.3421142228808
+          ],
+          [
+            32.908955944976306,
+            71.24409708255124
+          ],
+          [
+            32.89455649870734,
+            71.14702390086467
+          ],
+          [
+            32.87071155403632,
+            71.05182954562633
+          ],
+          [
+            32.8376507508154,
+            70.95943079051571
+          ],
+          [
+            32.79569248265246,
+            70.8707174860548
+          ],
+          [
+            32.745240830606654,
+            70.78654398986119
+          ],
+          [
+            32.68678167166685,
+            70.70772093871715
+          ],
+          [
+            32.62087799949066,
+            70.63500744169424
+          ],
+          [
+            32.548164502467756,
+            70.56910376951805
+          ],
+          [
+            32.469341451323714,
+            70.51064461057825
+          ],
+          [
+            32.38516795513011,
+            70.46019295853245
+          ],
+          [
+            32.2964546506692,
+            70.4182346903695
+          ],
+          [
+            32.204055895558575,
+            70.38517388714858
+          ],
+          [
+            32.10886154032024,
+            70.36132894247757
+          ],
+          [
+            32.01178835863367,
+            70.3469294962086
+          ],
+          [
+            31.91377121830411,
+            70.3421142228808
+          ],
+          [
+            31.81575407797455,
+            70.3469294962086
+          ],
+          [
+            31.71868089628798,
+            70.36132894247757
+          ],
+          [
+            31.623486541049648,
+            70.38517388714858
+          ],
+          [
+            31.531087785939018,
+            70.4182346903695
+          ],
+          [
+            31.44237448147811,
+            70.46019295853245
+          ],
+          [
+            31.35820098528451,
+            70.51064461057825
+          ],
+          [
+            31.279377934140463,
+            70.56910376951805
+          ],
+          [
+            31.206664437117563,
+            70.63500744169424
+          ],
+          [
+            31.140760764941373,
+            70.70772093871715
+          ],
+          [
+            31.082301606001565,
+            70.78654398986119
+          ],
+          [
+            31.031849953955756,
+            70.8707174860548
+          ],
+          [
+            30.989891685792823,
+            70.95943079051571
+          ],
+          [
+            30.9568308825719,
+            71.05182954562633
+          ],
+          [
+            30.93298593790088,
+            71.14702390086467
+          ],
+          [
+            30.918586491631913,
+            71.24409708255124
+          ],
+          [
+            30.91377121830411,
+            71.3421142228808
+          ],
+          [
+            30.918586491631913,
+            71.44013136321036
+          ],
+          [
+            30.93298593790088,
+            71.53720454489692
+          ],
+          [
+            30.9568308825719,
+            71.63239890013526
+          ],
+          [
+            30.989891685792823,
+            71.72479765524588
+          ],
+          [
+            31.031849953955753,
+            71.81351095970679
+          ],
+          [
+            31.082301606001565,
+            71.8976844559004
+          ],
+          [
+            31.140760764941373,
+            71.97650750704445
+          ],
+          [
+            31.206664437117563,
+            72.04922100406735
+          ],
+          [
+            31.279377934140463,
+            72.11512467624352
+          ],
+          [
+            31.35820098528451,
+            72.17358383518334
+          ],
+          [
+            31.44237448147811,
+            72.22403548722914
+          ],
+          [
+            31.531087785939018,
+            72.26599375539209
+          ],
+          [
+            31.623486541049648,
+            72.29905455861301
+          ],
+          [
+            31.71868089628798,
+            72.32289950328402
+          ],
+          [
+            31.81575407797455,
+            72.33729894955299
+          ],
+          [
+            31.91377121830411,
+            72.3421142228808
+          ],
+          [
+            32.01178835863367,
+            72.33729894955299
+          ],
+          [
+            32.10886154032024,
+            72.32289950328402
+          ],
+          [
+            32.20405589555857,
+            72.29905455861301
+          ],
+          [
+            32.2964546506692,
+            72.26599375539209
+          ],
+          [
+            32.38516795513011,
+            72.22403548722914
+          ],
+          [
+            32.469341451323714,
+            72.17358383518334
+          ],
+          [
+            32.548164502467756,
+            72.11512467624354
+          ],
+          [
+            32.62087799949066,
+            72.04922100406735
+          ],
+          [
+            32.68678167166684,
+            71.97650750704445
+          ],
+          [
+            32.745240830606654,
+            71.8976844559004
+          ],
+          [
+            32.79569248265246,
+            71.81351095970679
+          ],
+          [
+            32.8376507508154,
+            71.72479765524588
+          ],
+          [
+            32.87071155403632,
+            71.63239890013526
+          ],
+          [
+            32.89455649870734,
+            71.53720454489692
+          ],
+          [
+            32.908955944976306,
+            71.44013136321036
+          ],
+          [
+            32.913771218304106,
+            71.3421142228808
+          ]
+        ]
+      ]
+    },
+    {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [
+            35.5637153950613,
+            66.51970593293663
+          ],
+          [
+            35.5589001217335,
+            66.42168879260707
+          ],
+          [
+            35.54450067546453,
+            66.3246156109205
+          ],
+          [
+            35.52065573079351,
+            66.22942125568217
+          ],
+          [
+            35.48759492757259,
+            66.13702250057155
+          ],
+          [
+            35.44563665940966,
+            66.04830919611064
+          ],
+          [
+            35.39518500736385,
+            65.96413569991702
+          ],
+          [
+            35.33672584842404,
+            65.88531264877298
+          ],
+          [
+            35.27082217624785,
+            65.81259915175008
+          ],
+          [
+            35.198108679224944,
+            65.74669547957389
+          ],
+          [
+            35.1192856280809,
+            65.68823632063409
+          ],
+          [
+            35.035112131887296,
+            65.63778466858828
+          ],
+          [
+            34.94639882742639,
+            65.59582640042534
+          ],
+          [
+            34.85400007231576,
+            65.56276559720442
+          ],
+          [
+            34.75880571707743,
+            65.5389206525334
+          ],
+          [
+            34.66173253539086,
+            65.52452120626444
+          ],
+          [
+            34.5637153950613,
+            65.51970593293663
+          ],
+          [
+            34.46569825473174,
+            65.52452120626444
+          ],
+          [
+            34.36862507304517,
+            65.5389206525334
+          ],
+          [
+            34.27343071780684,
+            65.56276559720442
+          ],
+          [
+            34.18103196269621,
+            65.59582640042534
+          ],
+          [
+            34.09231865823531,
+            65.63778466858828
+          ],
+          [
+            34.0081451620417,
+            65.68823632063409
+          ],
+          [
+            33.92932211089766,
+            65.74669547957389
+          ],
+          [
+            33.856608613874755,
+            65.81259915175008
+          ],
+          [
+            33.790704941698564,
+            65.88531264877298
+          ],
+          [
+            33.73224578275875,
+            65.96413569991702
+          ],
+          [
+            33.681794130712944,
+            66.04830919611064
+          ],
+          [
+            33.639835862550015,
+            66.13702250057155
+          ],
+          [
+            33.606775059329095,
+            66.22942125568217
+          ],
+          [
+            33.58293011465807,
+            66.3246156109205
+          ],
+          [
+            33.5685306683891,
+            66.42168879260707
+          ],
+          [
+            33.5637153950613,
+            66.51970593293663
+          ],
+          [
+            33.5685306683891,
+            66.61772307326619
+          ],
+          [
+            33.58293011465807,
+            66.71479625495276
+          ],
+          [
+            33.606775059329095,
+            66.8099906101911
+          ],
+          [
+            33.639835862550015,
+            66.90238936530172
+          ],
+          [
+            33.681794130712944,
+            66.99110266976263
+          ],
+          [
+            33.73224578275875,
+            67.07527616595624
+          ],
+          [
+            33.790704941698564,
+            67.15409921710028
+          ],
+          [
+            33.856608613874755,
+            67.22681271412318
+          ],
+          [
+            33.92932211089766,
+            67.29271638629936
+          ],
+          [
+            34.0081451620417,
+            67.35117554523917
+          ],
+          [
+            34.09231865823531,
+            67.40162719728498
+          ],
+          [
+            34.18103196269621,
+            67.44358546544792
+          ],
+          [
+            34.27343071780684,
+            67.47664626866884
+          ],
+          [
+            34.36862507304517,
+            67.50049121333986
+          ],
+          [
+            34.46569825473174,
+            67.51489065960882
+          ],
+          [
+            34.5637153950613,
+            67.51970593293663
+          ],
+          [
+            34.66173253539086,
+            67.51489065960882
+          ],
+          [
+            34.75880571707743,
+            67.50049121333986
+          ],
+          [
+            34.85400007231576,
+            67.47664626866884
+          ],
+          [
+            34.94639882742639,
+            67.44358546544792
+          ],
+          [
+            35.035112131887296,
+            67.40162719728498
+          ],
+          [
+            35.1192856280809,
+            67.35117554523917
+          ],
+          [
+            35.198108679224944,
+            67.29271638629936
+          ],
+          [
+            35.27082217624785,
+            67.22681271412318
+          ],
+          [
+            35.33672584842404,
+            67.15409921710028
+          ],
+          [
+            35.39518500736385,
+            67.07527616595624
+          ],
+          [
+            35.44563665940966,
+            66.99110266976263
+          ],
+          [
+            35.48759492757259,
+            66.90238936530172
+          ],
+          [
+            35.52065573079351,
+            66.8099906101911
+          ],
+          [
+            35.54450067546453,
+            66.71479625495276
+          ],
+          [
+            35.5589001217335,
+            66.61772307326619
+          ],
+          [
+            35.5637153950613,
+            66.51970593293663
+          ]
+        ]
+      ]
+    }
+  ],
+  "overrides": {
+    "row:curb_25:16:1": {
+      "disabled": true,
+      "note": "Rejected by rendered planting-surface trace: /Game/Carla/Static/Road/Twins/EixampleDemo/eixample_L0_drivable_0_0.eixample_L0_drivable_0_0"
+    },
+    "row:curb_25:17:1": {
+      "disabled": true,
+      "note": "Rejected by rendered planting-surface trace: /Game/Carla/Static/Road/Twins/EixampleDemo/eixample_L0_drivable_0_0.eixample_L0_drivable_0_0"
+    },
+    "row:curb_37:11:1": {
+      "disabled": true,
+      "note": "Rejected by rendered planting-surface trace: /Game/Carla/Static/Road/Twins/EixampleDemo/eixample_L0_drivable_0_0.eixample_L0_drivable_0_0"
+    },
+    "row:curb_37:13:1": {
+      "disabled": true,
+      "note": "Rejected by rendered planting-surface trace: /Game/Carla/Static/Road/Twins/EixampleDemo/eixample_L0_drivable_0_0.eixample_L0_drivable_0_0"
+    },
+    "row:curb_25:18:1": {
+      "disabled": true,
+      "note": "Rejected by rendered planting-surface trace: /Game/Carla/Static/Road/Twins/EixampleDemo/eixample_L0_drivable_0_0.eixample_L0_drivable_0_0"
+    },
+    "row:curb_37:12:1": {
+      "disabled": true,
+      "note": "Rejected by rendered planting-surface trace: /Game/Carla/Static/Road/Twins/EixampleDemo/eixample_L0_drivable_0_0.eixample_L0_drivable_0_0"
+    },
+    "zone:demo-bed-shrubs:40:78": {
+      "disabled": true,
+      "note": "Rejected by rendered planting-surface trace: /Game/Carla/Static/Road/Twins/EixampleDemo/eixample_L0_drivable_0_0.eixample_L0_drivable_0_0"
+    },
+    "tree12590293687": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at tree12590293687."
+    },
+    "tree12633020972": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at tree12633020972."
+    },
+    "row:curb_0:4:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_0:4:1."
+    },
+    "row:curb_17:9:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_17:9:1."
+    },
+    "row:curb_17:30:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_17:30:1."
+    },
+    "row:curb_24:4:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_24:4:1."
+    },
+    "row:curb_27:3:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_27:3:1."
+    },
+    "row:curb_27:5:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_27:5:1."
+    },
+    "row:curb_27:13:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_27:13:1."
+    },
+    "row:curb_33:1:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_33:1:1."
+    },
+    "row:curb_33:4:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_33:4:1."
+    },
+    "row:curb_33:23:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_33:23:1."
+    },
+    "row:curb_4:0:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_4:0:1."
+    },
+    "row:curb_6:24:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_6:24:1."
+    },
+    "row:curb_75:4:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_75:4:1."
+    },
+    "row:curb_75:6:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_75:6:1."
+    },
+    "row:curb_76:6:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_76:6:1."
+    },
+    "row:curb_76:7:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_76:7:1."
+    },
+    "row:curb_77:11:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_77:11:1."
+    },
+    "row:curb_77:14:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_77:14:1."
+    },
+    "row:curb_24:5:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_24:5:1."
+    },
+    "row:curb_27:4:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_27:4:1."
+    },
+    "row:curb_27:6:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_27:6:1."
+    },
+    "row:curb_27:21:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_27:21:1."
+    },
+    "row:curb_75:17:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_75:17:1."
+    },
+    "row:curb_27:18:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_27:18:1."
+    },
+    "row:curb_27:19:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_27:19:1."
+    },
+    "tree12400308070": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at tree12400308070."
+    },
+    "row:curb_1:19:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_1:19:1."
+    },
+    "row:curb_1:20:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_1:20:1."
+    },
+    "row:curb_17:13:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_17:13:1."
+    },
+    "row:curb_27:8:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_27:8:1."
+    },
+    "row:curb_27:10:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_27:10:1."
+    },
+    "row:curb_27:14:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_27:14:1."
+    },
+    "row:curb_27:16:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_27:16:1."
+    },
+    "row:curb_4:9:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_4:9:1."
+    },
+    "row:curb_4:14:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_4:14:1."
+    },
+    "row:curb_57:6:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_57:6:1."
+    },
+    "row:curb_6:34:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_6:34:1."
+    },
+    "row:curb_75:5:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_75:5:1."
+    },
+    "row:curb_75:21:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_75:21:1."
+    },
+    "row:curb_76:4:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_76:4:1."
+    },
+    "row:curb_76:17:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_76:17:1."
+    },
+    "row:curb_76:18:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_76:18:1."
+    },
+    "row:curb_76:20:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_76:20:1."
+    },
+    "row:curb_77:4:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_77:4:1."
+    },
+    "row:curb_77:6:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_77:6:1."
+    },
+    "row:curb_77:13:1": {
+      "disabled": true,
+      "note": "Footing crosses a sidewalk edge or uneven surface at row:curb_77:13:1."
+    }
+  },
+  "sidewalk_footing": {
+    "mesh": "/Game/Carla/Static/Static/SM_TreeBase02",
+    "radius_m": 1.12,
+    "scale": 0.8,
+    "ground_offset_m": -0.02,
+    "soil_height_m": 0.14744362
+  }
+}

@@ -257,6 +257,12 @@ def graft_signals(deployed_text: str, new_text: str, tol_m: float = 15.0) -> tup
             s.remove(v)
         for v in src.findall("validity"):
             s.append(etree.fromstring(etree.tostring(v)))
+        for u in list(s.findall("userData")):
+            if u.get("code") == "rig_anchor":
+                s.remove(u)
+        for u in src.findall("userData"):
+            if u.get("code") == "rig_anchor":
+                s.append(etree.fromstring(etree.tostring(u)))
         for k in _SIG_ATTRS:
             if src.get(k) is not None:
                 s.set(k, src.get(k))
@@ -454,10 +460,13 @@ def refresh(args: argparse.Namespace) -> int:
     ue_dir = build_dir / "ue"
     ue_dir.mkdir(exist_ok=True)
     xs = TWINMODEL_DIR / "tools/xodr_signals.py"
-    r1 = _run([sys.executable, str(xs), str(deployed), str(ue_dir / "tl_signals.json")])
-    r2 = _run([sys.executable, str(xs), str(deployed), str(ue_dir / "sign_signals.json"), "--types", "205", "206", "274"])
+    # Geometry must describe the existing baked level, not a newer rebuild.
+    twin = build_dir / (twin_name + ".twin")
+    r1 = _run([sys.executable, str(xs), str(deployed), str(ue_dir / "tl_signals.json"), "--twin", str(twin)])
+    r2 = _run([sys.executable, str(xs), str(deployed), str(ue_dir / "sign_signals.json"), "--twin", str(twin), "--types", "205", "206", "274"])
     if r1.returncode or r2.returncode:
-        log.error("xodr_signals failed")
+        shutil.copy2(bak, deployed)
+        log.error("xodr_signals failed; restored deployed OpenDRIVE")
         _write_report(build_dir, out, status="signals-json-failed")
         return 6
     with open(ue_dir / "tl_signals.json") as f:

@@ -1,0 +1,21 @@
+{
+  "schema": "twin-project/1",
+  "id": "947a8a1bfd474512920df294a96a6da8",
+  "name": "eixample",
+  "source": {
+    "mode": "osm",
+    "bbox": [
+      41.3905,
+      2.163,
+      41.3945,
+      2.169
+    ]
+  },
+  "profile": "eu_dense",
+  "build": {
+    "dem": true,
+    "imagery": true,
+    "refine": false,
+    "mask_method": "classical"
+  }
+}

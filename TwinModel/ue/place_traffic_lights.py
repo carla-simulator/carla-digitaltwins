@@ -1,14 +1,18 @@
 """Place geo-styled traffic-light rigs on a baked twin level, at the OpenDRIVE signals.
 
+Physical support positions now come from validated ``placement`` records generated
+with ``tools/xodr_signals.py --twin``. These override the legacy position/forward
+offsets described below; lane control anchors and headings are retained. See
+``pole_placement.md`` for the rules and required runtime identity binding.
+
 Editor Python (headless):
 
     UnrealEditor-Cmd <CarlaUnreal.uproject> -run=pythonscript -script="/abs/ue/place_traffic_lights.py \\
-        --name EixampleDemo --signals /abs/tl_signals.json --rig /abs/ue/rigs/eu_pole.json"
+        --name EixampleDemo --signals /abs/tl_signals.json --rig /abs/ue/rigs --style eu"
 
 ``--rig`` also takes a *directory* of presets, in which case each signal gets one from
 ``pick_rig`` (by lane count, turn movements and whether the approach carries a crossing) or
-from ``--rig-map`` ``{"<signal id>": "<rig name>"}``. ``--style eu`` (the default) keeps every
-approach on ``--default-rig``; ``--style na`` lets the selector reach the North-American mast
+from ``--rig-map`` ``{"<signal id>": "<rig name>"}``. ``--style eu`` (the default) selects European poles, repeaters and geometry-fitted mast arms; ``--style na`` lets the selector reach the North-American mast
 arm / gantry / pedestrian presets in ``ue/rigs/``.
 
 The rig is carla-digitaltwins' ``ATrafficLightActor`` (CarlaTools' "Traffic Light Tool"): a
@@ -36,6 +40,7 @@ drives. Stop / yield / speed signs keep spawning from the xodr as before.
 """
 import argparse
 import json
+import math
 import os
 import shutil
 import sys
@@ -123,41 +128,9 @@ def load_rigs(path):
     return {os.path.splitext(os.path.basename(path))[0]: path}
 
 
-# A protected turn and a pedestrian crossing are their *own* OpenDRIVE signals (the exporter
-# writes kind "arrow"/"ped" into tl_signals.json), and no European pole has an arrow or a
-# pedestrian head to show, so the kind wins over --style.
-KIND_RIG = {"arrow": "na_arrow_left", "ped": "na_ped_only"}
 PED_TYPE = "1000002"
 
-
-def pick_rig(sig, rigs, style, default):
-    """Choose a rig preset for one traffic-light signal.
-
-    ``tl_signals.json`` carries what the choice needs (tools/xodr_signals.py):
-    ``kind`` ("through" / "arrow" / "ped"), ``n_driving_lanes`` (how wide the approach is),
-    ``turns`` (which movements leave it) and ``has_crossing``. The North-American presets are
-    only reachable with ``--style na``; ``--style eu`` keeps every *through* approach on the
-    European pole, which is what a European twin should look like whatever its lane count.
-    """
-    forced = KIND_RIG.get(sig.get("kind"))
-    if forced and forced in rigs:
-        return rigs[forced]
-    if style != "na":
-        return rigs.get(default) or next(iter(rigs.values()))
-    n = int(sig.get("n_driving_lanes") or 1)
-    turns = set(sig.get("turns") or ())
-    order = []
-    if n >= 4 or (n >= 3 and "left" in turns):
-        order.append("na_gantry_8head")     # wide approach, or one with its own left movement
-    if n >= 2:
-        order.append("na_mast_2head")       # mast arm reaching over the carriageway
-    if sig.get("has_crossing"):
-        order.append("na_pole_ped")         # kerbside pole with a pedestrian head
-    order.append(default)
-    for name in order:
-        if name in rigs:
-            return rigs[name]
-    return next(iter(rigs.values()))
+from traffic_rigs import pick_rig, fit_mast
 
 
 def rig_entry(value):
@@ -205,6 +178,14 @@ def find_actor_by_label(label):
     return None
 
 
+def clear_empty_logic(path, signals, saved):
+    """Drop stale runtime bindings only after an empty replacement was saved."""
+    if saved and not signals and os.path.exists(path):
+        os.remove(path)
+        return True
+    return False
+
+
 def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("--name", required=True, help="baked level name under /Game/Carla/Maps/Twins")
@@ -214,8 +195,7 @@ def main(argv):
     ap.add_argument("--rig-map", default=None,
                     help='JSON {"<signal id>": "<rig name or path>"} overriding the selector')
     ap.add_argument("--style", default="eu", choices=("eu", "na"),
-                    help="rig family the fallback selector may draw from (default: eu, which "
-                         "always uses --default-rig)")
+                    help="rig family the fallback selector may draw from (default: eu, with geometry-aware European rigs)")
     ap.add_argument("--default-rig", default="eu_pole")
     ap.add_argument("--map-root", default=MAP_ROOT)
     ap.add_argument("--red", type=float, default=2.0,
@@ -241,9 +221,15 @@ def main(argv):
         signals = [s for s in json.load(f)
                    if s.get("type", "1000001") in ("1000001", PED_TYPE)]
     ped_ids = {str(s["id"]) for s in signals if s.get("kind") == "ped"}
+    for signal in signals:
+        if signal.get("placement", {}).get("status") != "ok":
+            raise ValueError("Unresolved pole placement: " + str(signal["id"]))
+        if not all(math.isfinite(signal["placement"][k]) for k in ("x", "y", "z")):
+            raise ValueError("Non-finite pole position: " + str(signal["id"]))
+
     map_path = "%s/%s/%s" % (args.map_root, args.name, args.name)
     content = unreal.Paths.project_content_dir()
-    xodr_dir = os.path.join(content, "Carla", "Maps", "Twins", args.name, "OpenDrive")
+    xodr_dir = os.path.join(content, args.map_root.removeprefix('/Game/'), args.name, "OpenDrive")
     xodr = os.path.join(xodr_dir, args.name + ".xodr")
     ctl_of = controllers_from_xodr(xodr)
     junction_of_ctl = junctions_from_xodr(xodr)
@@ -269,6 +255,34 @@ def main(argv):
         len(signals), len(set(ctl_of.values())), len(rigs), sorted(rigs), args.style,
         ", %d rig-map overrides" % len(rig_map) if rig_map else ""))
 
+    # Resolve all presets and geometry before deleting any existing level actors.
+    prepared = {}
+    for signal in signals:
+        sid = str(signal["id"])
+        override, tokens = rig_entry(rig_map.get(sid))
+        path = (rigs.get(override, override) if override
+                else pick_rig(signal, rigs, args.style, args.default_rig))
+        text, bound = substitute_head_signals(path, sid, tokens)
+        layout = {}
+        if os.path.splitext(os.path.basename(path))[0] == "eu_mast_2head":
+            try:
+                fitted, layout = fit_mast(json.loads(text), signal, args.yaw_offset)
+                text = json.dumps(fitted)
+                bound = {}
+                for pi, pole in enumerate(fitted["Poles"]):
+                    for hi, head in enumerate(pole.get("Heads", [])):
+                        bound.setdefault(head["SignalID"], []).append("Pole_%02d_Head_%02d" % (pi, hi))
+            except ValueError as exc:
+                if override or "eu_pole_repeater" not in rigs:
+                    raise
+                path = rigs["eu_pole_repeater"]
+                text, bound = substitute_head_signals(path, sid, tokens)
+                layout = {"fallback_reason": str(exc)}
+        required_ids = {lane.get("signal_id", sid) for lane in signal.get("lane_centers", [])}
+        if not required_ids.issubset(bound):
+            raise ValueError("Rig omits independent lane signals: " + str(required_ids - set(bound)))
+        prepared[sid] = (path, text, bound, layout)
+
     # the tool appends map_logic.json under a per-map plugin folder; start clean
     plugin_logic_dir = os.path.join(unreal.Paths.project_plugins_dir(), args.name, "Content", "Maps", "OpenDrive")
     plugin_logic = os.path.join(plugin_logic_dir, "map_logic.json")
@@ -283,7 +297,9 @@ def main(argv):
 
     # previous run's baked lights (labels TL_<signal id>) go away first
     sub = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
-    stale = [a for a in sub.get_all_level_actors() if a.get_actor_label().startswith("TL_")]
+    converted_sign_labels = {"SIGN_" + str(s["id"]) for s in signals if s.get("kind") == "through"}
+    stale = [a for a in sub.get_all_level_actors()
+             if a.get_actor_label().startswith("TL_") or a.get_actor_label() in converted_sign_labels]
     for a in stale:
         a.destroy_actor()
     if stale:
@@ -301,9 +317,8 @@ def main(argv):
         n_stages = stages_of.get(junction_of_ctl.get(ctl), 1)
         green = args.green if args.green is not None else \
             STAGE_GREEN_S[min(n_stages, len(STAGE_GREEN_S) - 1)]
-        override, tokens = rig_entry(rig_map.get(sid))
-        rig_path = (rigs.get(override, override) if override
-                    else pick_rig(s, rigs, args.style, args.default_rig))
+        rig_path, rig_text, bound, layout = prepared[sid]
+        report.setdefault("layouts", {})[sid] = layout
         report["rigs"][sid] = os.path.splitext(os.path.basename(rig_path))[0]
         report["junctions"][sid] = junction
         report["kinds"][sid] = s.get("kind", "through")
@@ -320,6 +335,9 @@ def main(argv):
         loc = unreal.Vector(s["x"] * 100.0 + fwd.x * args.forward_m * 100.0,
                             s["y"] * 100.0 + fwd.y * args.forward_m * 100.0,
                             s["z"] * 100.0)
+        if "placement" in s:
+            p = s["placement"]
+            loc = unreal.Vector(p["x"] * 100.0, p["y"] * 100.0, p["z"] * 100.0)
         rig = spawn(world, rig_cls, loc, rot, label + "_rig", "TrafficLights")
         if rig is None:
             report["failed"].append(s["id"])
@@ -330,7 +348,6 @@ def main(argv):
             # resolved to real signal ids here, and ExportLogicToJSON carries them into
             # map_logic.json as the "Heads" array UMapLogicParser splits the rig by.
             rig.set_editor_property("json_file", unreal.FilePath(rig_path))
-            rig_text, bound = substitute_head_signals(rig_path, sid, tokens)
             rig.build_from_json_string(rig_text)
             if len(bound) > 1:
                 report.setdefault("split_rigs", {})[sid] = bound
@@ -343,7 +360,16 @@ def main(argv):
             rig.set_editor_property("red_duration", args.red)
             rig.set_editor_property("green_duration", green)
             rig.set_editor_property("amber_duration", args.amber)
-            n_mesh = len(rig.get_components_by_class(unreal.StaticMeshComponent))
+            components = rig.get_components_by_class(unreal.StaticMeshComponent)
+            n_mesh = len(components)
+            from collections import Counter
+            expected = Counter(m["ModuleMesh"] for p in json.loads(rig_text)["Poles"]
+                               for h in p.get("Heads", []) for m in h.get("Modules", []))
+            expected.update(p[k] for p in json.loads(rig_text)["Poles"]
+                            for k in ("BaseMesh", "ExtensibleMesh", "CapMesh") if p.get(k))
+            actual = Counter(c.static_mesh.get_name() for c in components if c.static_mesh)
+            if any(actual[name] != count for name, count in expected.items()):
+                raise RuntimeError("Generator mesh count mismatch: " + str(expected) + " vs " + str(actual))
             rig.bake(args.name, label)
         except Exception as exc:
             report["failed"].append(s["id"])
@@ -374,6 +400,9 @@ def main(argv):
         if report["placed"] == 1:
             log("first rig: %d mesh components, baked as %s at (%.0f, %.0f, %.0f)" % (n_mesh, label, loc.x, loc.y, loc.z))
 
+    if report["failed"] or report["placed"] != len(signals):
+        raise RuntimeError("Incomplete traffic-light build; level and deployed logic were not saved: " + str(report["failed"]))
+
     # No two rigs may sit inside UMapLogicParser::ApplyLaneIdsFromMapLogic's 50 cm match
     # radius: it adopts the nearest actor, so a protected-turn pole 20 cm from its through pole
     # would be handed the through signal's identity (or steal it). The exporter puts the arrow
@@ -396,23 +425,17 @@ def main(argv):
     dst = os.path.join(xodr_dir, "map_logic.json")
     if os.path.exists(plugin_logic):
         os.makedirs(xodr_dir, exist_ok=True)
-        # A pedestrian head is a prop, not a traffic light: dropping its entry from
-        # map_logic.json is what keeps UMapLogicParser from turning it into an
-        # ADigitalTwinsTrafficLight -- i.e. an ATrafficLightBase that every client script would
-        # see as a traffic.traffic_light actor. Walkers never read a light anyway
-        # (AWalkerAIController), so the baked rig stays a static, correctly-styled prop.
+        from pedestrian_logic import connect_logic
         with open(plugin_logic) as f:
             logic = json.load(f)
-        kept = [e for e in logic.get("TrafficLights", []) if str(e.get("SignalID")) not in ped_ids]
-        n_dropped = len(logic.get("TrafficLights", [])) - len(kept)
-        logic["TrafficLights"] = kept
+        report["pedestrian_clearance"] = connect_logic(
+            logic, signals, ctl_of, junction_of_ctl)
         with open(plugin_logic, "w") as f:
             json.dump(logic, f, indent=1)
         shutil.move(plugin_logic, dst)
-        n_logic = len(kept)
-        report["ped_entries_dropped"] = n_dropped
-        log("map_logic.json -> %s (%d entries, %d pedestrian heads left out on purpose)"
-            % (dst, n_logic, n_dropped))
+        n_logic = len(logic["TrafficLights"])
+        log("map_logic.json -> %s (%d entries, %d connected pedestrian heads)"
+            % (dst, n_logic, len(ped_ids)))
         report["map_logic"] = dst
         report["map_logic_entries"] = n_logic
         # drop the empty per-map plugin folder the tool created
@@ -426,6 +449,7 @@ def main(argv):
     else:
         warn("no map_logic.json written by Bake (%s); the runtime would spawn its own lights" % plugin_logic)
     ok = save_all()
+    report['cleared_map_logic'] = clear_empty_logic(dst, signals, ok)
     report["level_saved"] = bool(ok)
     report["seconds"] = round(time.time() - t0, 1)
     used = {}
@@ -444,7 +468,7 @@ def main(argv):
     rep = args.report or os.path.join(os.path.dirname(os.path.abspath(args.signals)), "traffic_lights_report.json")
     with open(rep, "w") as f:
         json.dump(report, f, indent=1)
-    return 0 if report["placed"] else 1
+    return 0 if report["placed"] and ok and not report["failed"] else 1
 
 
 if __name__ == "__main__":

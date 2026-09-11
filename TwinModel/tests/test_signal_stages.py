@@ -24,7 +24,10 @@ BBOX = (41.3905, 2.1630, 41.3945, 2.1690)
 
 @pytest.fixture(scope="module")
 def model():
-    profiles.activate("eu_dense")
+    # These tests exercise the legacy approach-stage policy independently.
+    from dataclasses import replace
+    profiles.activate(replace(profiles.EU_DENSE, junction=replace(
+        profiles.EU_DENSE.junction, lane_signal_phases=False)))
     return build_lanegraph(load_fixture(FIXTURE), LocalFrame.from_bbox(*BBOX), BBOX,
                            name="eixample")
 
@@ -264,10 +267,10 @@ def test_protected_turn_gets_a_leading_stage_of_its_own(us_model):
 
 
 def test_pedestrian_heads_are_type_1000002_over_sidewalk_lanes(model):
-    """A pedestrian head is a phased prop: OpenDRIVE type 1000002, which CARLA does not know,
-    so SignalType::IsTrafficLight is false, no ATrafficLightBase is generated and no client
-    sees a traffic.traffic_light for it. Its <validity> names sidewalk lanes, which is also
-    why UTrafficLightComponent::InitializeSign gives it no trigger box."""
+    """Pedestrian landmarks retain sidewalk validities, separate from vehicle lanes.
+
+    MapLogicParser adopts their baked heads as runtime red/green lights.
+    """
     peds = [s for s in model.signals if s.kind == "traffic_light_ped"]
     crossings = [s for s in model.signals if s.kind == "crosswalk"]
     # one head at each end of a crossing, so an even number and at most two per crossing
@@ -284,7 +287,7 @@ def test_pedestrian_heads_are_type_1000002_over_sidewalk_lanes(model):
 def test_pedestrian_head_walks_when_its_own_street_is_red(model):
     """The head is put in a stage that greens no approach of the street it crosses."""
     ctl_of = {c.id: c for c in model.controllers}
-    # only the *vehicle* members of a stage matter: the other pedestrian heads in it are props
+    # A protected walk stage must contain no vehicle movements.
     veh_road = {s.id: s.road_id for s in model.signals
                 if s.kind in ("traffic_light", "traffic_light_arrow")}
     peds = [s for s in model.signals if s.kind == "traffic_light_ped" and s.controller_id]
@@ -292,14 +295,17 @@ def test_pedestrian_head_walks_when_its_own_street_is_red(model):
     for p in peds:
         green_roads = {veh_road[sid] for sid in ctl_of[p.controller_id].signal_ids
                        if sid in veh_road}
-        assert p.road_id not in green_roads, \
+        assert not green_roads, \
             f"{p.id} crosses {p.road_id} in stage {p.controller_id}, which greens it"
 
 
 def test_pedestrian_heads_do_not_change_the_vehicle_plan(model):
     """Adding pedestrian heads must not move a vehicle light into another stage."""
     veh = {s.id: s.controller_id for s in model.signals if s.kind == "traffic_light"}
-    assert len(veh) == 27
+    assert len(veh) == 33
+    inferred = [s for s in model.signals if s.tags.get("source") == "inferred_wide_crossing"]
+    assert len(inferred) == 6
+    assert len({s.controller_id for s in inferred}) == 6
     for c in model.controllers:
         veh_here = [s for s in c.signal_ids if s in veh]
         assert all(veh[s] == c.id for s in veh_here)

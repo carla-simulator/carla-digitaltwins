@@ -965,6 +965,9 @@ def _build_pipeline(args: argparse.Namespace, osm, bbox, frame: LocalFrame, out:
         if args.no_dem:
             model.elevation = None
             build_meta["notes"].append("dem: skipped (--no-dem)")
+        elif getattr(args, 'dem_file', None):
+            from .model import Elevation
+            model.elevation = Elevation.from_npz(Path(args.dem_file))
         else:
             from .ingest.elevation import fetch_dem
             model.elevation = _call_with_sources(fetch_dem, frame, bbox, cache_dir=cache,
@@ -985,6 +988,11 @@ def _build_pipeline(args: argparse.Namespace, osm, bbox, frame: LocalFrame, out:
     with timer.stage("imagery"):
         if args.no_imagery:
             build_meta["notes"].append("imagery: skipped (--no-imagery)")
+        elif getattr(args, 'imagery_file', None):
+            from .ingest.imagery import OrthoImage
+            ortho = OrthoImage.from_geotiff(args.imagery_file)
+            build_meta['imagery'] = {'source': ortho.source, 'width': ortho.width,
+                                     'height': ortho.height, 'dx': ortho.dx}
         else:
             from .ingest.imagery import fetch_ortho
             ortho = _call_with_sources(fetch_ortho, frame, bbox, cache_dir=cache,
@@ -1071,11 +1079,36 @@ def _build_pipeline(args: argparse.Namespace, osm, bbox, frame: LocalFrame, out:
             model.metadata.setdefault("surfaces", {})["drivable_source"] = "correction"
             corr_reports["surfaces"] = {"applied": [{"op": o["op"], "id": o.get("id")} for o in ops
                                                     if o["op"] in corrections_mod.SURFACE_OPS]}
+    if any(o.get("op") == "control.set" and not o.get("disabled") for o in ops):
+        from .controls import feature_collection as control_features
+        model.metadata["control_annotations"] = control_features(ops)
+        corr_reports["controls"] = {"applied": [], "annotations": len(model.metadata["control_annotations"]["features"]),
+                                    "status": "awaiting reviewed-map resolution"}
+        log.info("Traffic-control source annotations retained for reviewed-map resolution.")
+    if any(o.get("op") == "space.set" and not o.get("disabled") for o in ops):
+        from .spaces import feature_collection
+        model.metadata["space_annotations"] = feature_collection(ops)
+        corr_reports["spaces"] = {"applied": [], "annotations": len(model.metadata["space_annotations"]["features"]),
+                                  "status": "awaiting reviewed-map resolution"}
+        log.info("Explicit space boundaries retained for reviewed-map resolution.")
     if ops:
         build_meta["corrections"]["reports"] = _json_safe(corr_reports)
         log.info("corrections: %s", corrections_mod.summary(corr_reports))
         model.metadata["corrections"] = build_meta["corrections"]
     model.metadata["build"] = build_meta
+
+    # Resolve reviewer geometry and semantics before any model/mesh/OpenDRIVE export.
+    if any(o.get('op') in {'space.set','control.set'} and not o.get('disabled') for o in ops):
+        from .reviewed_map import resolve_reviewed_map, apply_reviewed_geometry, apply_reviewed_logic
+        reviewed = resolve_reviewed_map(model, ops)
+        (out / f'{args.name}.reviewed-map.json').write_text(json.dumps(reviewed, indent=2))
+        if not (reviewed['geometry_ready'] and reviewed['logic_ready']):
+            log.error('Reviewed annotations have unresolved geometry/logic; see %s. Existing exports retained.',
+                      out / f'{args.name}.reviewed-map.json')
+            return 2
+        apply_reviewed_geometry(model, reviewed)
+        apply_reviewed_logic(model, reviewed)
+        model.metadata["corrections"]["reports"]["reviewed_map"] = {"status": "applied", "objects": len(reviewed["features"])}
 
     # 5. exports ----------------------------------------------------------------------------
     with timer.stage("export"):
@@ -1208,11 +1241,38 @@ def bake_export(args: argparse.Namespace) -> int:
 
 # --------------------------------------------------------------------------- entry point
 
+def review_annotations(args: argparse.Namespace) -> int:
+    """Review a saved annotation document against an existing twin, without a build."""
+    from . import corrections
+    from .reviewed_map import resolve_reviewed_map
+    model = TwinModel.load(args.twin_dir)
+    ops = corrections.load(Path(args.corrections)).ops
+    report = resolve_reviewed_map(model, ops, tolerance=args.tolerance)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / 'reviewed-map.json').write_text(json.dumps(report, indent=2))
+    # Explicit local CRS: this is a model-space artifact, not a WGS84 web-map layer.
+    (out / 'reviewed-spaces.local.json').write_text(json.dumps({
+        'type':'FeatureCollection', 'crs':report['crs'], 'origin':report['origin'],
+        'features':report['features']}, indent=2))
+    for diagnostic in report['diagnostics']:
+        print(f"{diagnostic['severity']} [{diagnostic['stage']}] {','.join(diagnostic['ids'])}: "
+              f"{diagnostic['code']}: {diagnostic['message']}")
+    print(f"Geometry ready: {report['geometry_ready']}; logic ready: {report['logic_ready']}. Report: {out / 'reviewed-map.json'}")
+    return 0 if report['geometry_ready'] and report['logic_ready'] else 2
+
+
 def _build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="twinmodel", description=__doc__.split("\n\n")[0])
     ap.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     ap.add_argument("-q", "--quiet", action="store_true", help="warnings only")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    review = sub.add_parser('review-annotations', help='check saved annotations against an existing twin; no build')
+    review.add_argument('twin_dir')
+    review.add_argument('corrections')
+    review.add_argument('--out', required=True)
+    review.add_argument('--tolerance', type=float, default=.10, help='maximum boundary smoothing deviation in metres (default 0.10)')
+    review.set_defaults(func=review_annotations)
 
     b = sub.add_parser("build", help="OSM -> twin model -> mesh + OpenDRIVE + report")
     b.add_argument("--bbox", nargs=4, type=float, metavar=("S", "W", "N", "E"),
@@ -1223,6 +1283,8 @@ def _build_parser() -> argparse.ArgumentParser:
     b.add_argument("--cache", default="data", help="Overpass/WMS/DEM cache directory")
     b.add_argument("--no-imagery", action="store_true")
     b.add_argument("--no-dem", action="store_true")
+    b.add_argument('--dem-file', help='Pinned elevation NPZ; bypass DEM acquisition')
+    b.add_argument('--imagery-file', help='Pinned local-frame imagery GeoTIFF; bypass acquisition')
     b.add_argument("--no-refine", action="store_true")
     b.add_argument("--mask-method", default="classical", choices=["classical", "sam", "auto"])
     b.add_argument("--profile", default="auto", choices=list(PROFILE_CHOICES),
@@ -1262,7 +1324,19 @@ def _build_parser() -> argparse.ArgumentParser:
     c.set_defaults(func=compare)
 
     from . import refresh as refresh_mod  # signal refresh of an already baked level (twinmodel.refresh)
+    furniture = sub.add_parser('furniture', help='plan reusable PCG bench/bin groups on final sidewalks')
+    furniture.add_argument('--twin', required=True)
+    furniture.add_argument('--out', required=True)
+    furniture.add_argument('--config')
+    furniture.add_argument('--anchors')
+    furniture.add_argument('--poles', required=True)
+    furniture.add_argument('--vegetation', required=True)
+    furniture.add_argument('--occupied-plan', action='append', default=[])
+    from .furniture import command as furniture_command
+    furniture.set_defaults(func=furniture_command)
     refresh_mod.add_parser(sub)
+    from .project import add_parser as add_project_parser
+    add_project_parser(sub)
     return ap
 
 

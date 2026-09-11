@@ -147,6 +147,9 @@ def mic_scalars(key, parent, name, index):
         (or a second member on the same master) does not render identically. Index 0 is never
         jittered, so the canonical look of every key is exactly what it was before pools.
     """
+    # Reviewed world-space lawn already carries its authored centimetre tiling.
+    if base_master_name(parent) == "M_TwinUrbanLawn":
+        return {}
     out = {}
     for pname in twin_materials.METRIC_UV_PARAMS.get(key, ()):
         shipped = chain_scalar(parent, pname)
@@ -189,6 +192,7 @@ def make_material_instances(name, materials, mat_dir):
             warn("no CARLA material pool for key %s; using road" % key)
             variants = twin_materials.pool("road")
         for i, ppath in enumerate(variants):
+            ppath = twin_materials.parent_for(name, key, i, ppath)
             mi_name = twin_materials.mic_name(name, key, i)
             mi_path = "%s/%s" % (mat_dir, mi_name)
             if not asset_exists(ppath):
@@ -1112,13 +1116,13 @@ def save_all(exclude_prefixes=("/CarlaDigitalTwinsTool",)):
     return ok
 
 
-def copy_xodr(manifest, name):
+def copy_xodr(manifest, name, map_root=MAP_ROOT):
     src = manifest.get("xodr")
     if not src or not os.path.exists(src):
         warn("manifest has no xodr; the map will have no waypoints")
         return None
     content = unreal.Paths.project_content_dir()
-    dst_dir = os.path.join(content, "Carla", "Maps", "Twins", name, "OpenDrive")
+    dst_dir = os.path.join(content, map_root.removeprefix('/Game/'), name, "OpenDrive")
     os.makedirs(dst_dir, exist_ok=True)
     dst = os.path.join(dst_dir, name + ".xodr")
     shutil.copyfile(src, dst)
@@ -1197,7 +1201,7 @@ def main(argv):
     if args.buildings == "procedural":
         roof_mat = load_asset(args.roof_material) if args.roof_material else None
         report["procedural_buildings"] = place_buildings(world, manifest, name, mats, roof_mat)
-    xodr = copy_xodr(manifest, name)
+    xodr = copy_xodr(manifest, name, args.map_root)
     report["xodr"] = xodr
     report["map_default_weather"] = write_map_default_weather(name)
 

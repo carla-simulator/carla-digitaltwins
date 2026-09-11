@@ -1,0 +1,660 @@
+{
+  "name": "eixample",
+  "step": 1.0,
+  "tolerance_m": 0.05,
+  "topology": {
+    "loaded": true,
+    "waypoints": 13445,
+    "driving_waypoints": 13445,
+    "roads_in_xodr": 194,
+    "junctions_in_xodr": 15,
+    "topology_pairs": 304,
+    "roads_no_successor": [
+      "r14",
+      "r19",
+      "r2",
+      "r21",
+      "r23",
+      "r27",
+      "r30",
+      "r32",
+      "r37",
+      "r4",
+      "r53",
+      "r57",
+      "r8"
+    ],
+    "roads_no_predecessor": [
+      "r12",
+      "r14",
+      "r18",
+      "r24",
+      "r3",
+      "r47",
+      "r5",
+      "r54",
+      "r56",
+      "r58",
+      "r59"
+    ],
+    "dead_end_lanes": [
+      {
+        "road_id": "r59",
+        "lane_id": 1
+      },
+      {
+        "road_id": "r59",
+        "lane_id": 2
+      },
+      {
+        "road_id": "r59",
+        "lane_id": 3
+      },
+      {
+        "road_id": "r59",
+        "lane_id": 4
+      },
+      {
+        "road_id": "r57",
+        "lane_id": -5
+      },
+      {
+        "road_id": "r57",
+        "lane_id": -4
+      },
+      {
+        "road_id": "r57",
+        "lane_id": -3
+      },
+      {
+        "road_id": "r57",
+        "lane_id": -2
+      },
+      {
+        "road_id": "r57",
+        "lane_id": -1
+      },
+      {
+        "road_id": "r53",
+        "lane_id": -1
+      },
+      {
+        "road_id": "r37",
+        "lane_id": -1
+      },
+      {
+        "road_id": "r32",
+        "lane_id": -1
+      },
+      {
+        "road_id": "r30",
+        "lane_id": -2
+      },
+      {
+        "road_id": "r30",
+        "lane_id": -1
+      },
+      {
+        "road_id": "r27",
+        "lane_id": -1
+      },
+      {
+        "road_id": "r23",
+        "lane_id": -3
+      },
+      {
+        "road_id": "r23",
+        "lane_id": -2
+      },
+      {
+        "road_id": "r23",
+        "lane_id": -1
+      },
+      {
+        "road_id": "r21",
+        "lane_id": -3
+      },
+      {
+        "road_id": "r21",
+        "lane_id": -2
+      },
+      {
+        "road_id": "r21",
+        "lane_id": -1
+      },
+      {
+        "road_id": "r19",
+        "lane_id": -1
+      },
+      {
+        "road_id": "r14",
+        "lane_id": -3
+      },
+      {
+        "road_id": "r14",
+        "lane_id": -2
+      },
+      {
+        "road_id": "r14",
+        "lane_id": -1
+      },
+      {
+        "road_id": "r8",
+        "lane_id": -1
+      },
+      {
+        "road_id": "r4",
+        "lane_id": -4
+      },
+      {
+        "road_id": "r4",
+        "lane_id": -3
+      },
+      {
+        "road_id": "r4",
+        "lane_id": -2
+      },
+      {
+        "road_id": "r4",
+        "lane_id": -1
+      },
+      {
+        "road_id": "r2",
+        "lane_id": -1
+      }
+    ],
+    "dead_end_lane_count": 31
+  },
+  "lane_in_drivable": {
+    "fraction": 1.0,
+    "inside": 13445,
+    "outside": 0,
+    "total": 13445,
+    "pass": true
+  },
+  "junction_containment": {
+    "fraction": 0.9959125281013693,
+    "inside": 4873,
+    "total": 4893,
+    "reference_line_fraction": 0.9889097157138395,
+    "pass": true
+  },
+  "z_error": {
+    "p50": 2.5572603732371135e-06,
+    "p95": 0.02292565916790394,
+    "max": 0.23894137897318757,
+    "pass": true,
+    "elevation": "ICGC MET2m (LiDAR 2 m DTM) via WMS GetFeatureInfo, point-sampled @8 m, bicubic to 2 m",
+    "surface_z": "road_datum"
+  },
+  "z_error_dem": {
+    "p50": 0.08553504404689605,
+    "p95": 0.30318879649092156,
+    "max": 2.4809737484396805,
+    "elevation": "ICGC MET2m (LiDAR 2 m DTM) via WMS GetFeatureInfo, point-sampled @8 m, bicubic to 2 m"
+  },
+  "sidewalk_coverage": {
+    "drivable_area": 45025.90189249989,
+    "sidewalk_area": 37863.55499050002,
+    "ratio": 0.840928296803469
+  },
+  "lane_coverage": {
+    "expected_lanes": 272,
+    "missing": [],
+    "fraction": 1.0
+  },
+  "landmarks": {
+    "count": 200,
+    "expected_signals": 200,
+    "types": [
+      "1000001",
+      "1000002",
+      "205",
+      "274",
+      "306"
+    ],
+    "crosswalk_vertices": 420,
+    "expected_crosswalks": 84
+  },
+  "grade_separation": null,
+  "notes": [],
+  "violations": [
+    {
+      "kind": "outside_junction",
+      "x": 44.10791778564453,
+      "y": 82.08191680908203,
+      "z": 29.066713333129883,
+      "road_id": "j7c8",
+      "lane_id": -1,
+      "s": 39.0,
+      "junction_id": "j7",
+      "distance": 0.19650798278078074
+    },
+    {
+      "kind": "outside_junction",
+      "x": 44.83218002319336,
+      "y": 81.39688873291016,
+      "z": 29.050355911254883,
+      "road_id": "j7c8",
+      "lane_id": -1,
+      "s": 40.0,
+      "junction_id": "j7",
+      "distance": 0.32161089146618543
+    },
+    {
+      "kind": "outside_junction",
+      "x": 45.55510711669922,
+      "y": 80.71065521240234,
+      "z": 29.03399658203125,
+      "road_id": "j7c8",
+      "lane_id": -1,
+      "s": 41.0,
+      "junction_id": "j7",
+      "distance": 0.3459072945104125
+    },
+    {
+      "kind": "outside_junction",
+      "x": 46.276634216308594,
+      "y": 80.02314758300781,
+      "z": 29.017637252807617,
+      "road_id": "j7c8",
+      "lane_id": -1,
+      "s": 42.0,
+      "junction_id": "j7",
+      "distance": 0.29024487079071215
+    },
+    {
+      "kind": "outside_junction",
+      "x": 46.996707916259766,
+      "y": 79.33432006835938,
+      "z": 29.00127410888672,
+      "road_id": "j7c8",
+      "lane_id": -1,
+      "s": 43.0,
+      "junction_id": "j7",
+      "distance": 0.18681672186326106
+    },
+    {
+      "kind": "outside_junction",
+      "x": 47.71527099609375,
+      "y": 78.64411163330078,
+      "z": 28.984907150268555,
+      "road_id": "j7c8",
+      "lane_id": -1,
+      "s": 44.0,
+      "junction_id": "j7",
+      "distance": 0.08137173250167257
+    },
+    {
+      "kind": "outside_junction",
+      "x": 47.74311447143555,
+      "y": 91.00250244140625,
+      "z": 29.107093811035156,
+      "road_id": "j7c6",
+      "lane_id": -1,
+      "s": 5.000000000000002,
+      "junction_id": "j7",
+      "distance": 0.5462917333975819
+    },
+    {
+      "kind": "outside_junction",
+      "x": 47.525203704833984,
+      "y": 89.87091064453125,
+      "z": 29.097261428833008,
+      "road_id": "j7c6",
+      "lane_id": -1,
+      "s": 6.000000000000002,
+      "junction_id": "j7",
+      "distance": 1.140826775029128
+    },
+    {
+      "kind": "outside_junction",
+      "x": 47.39588928222656,
+      "y": 88.74131774902344,
+      "z": 29.086458206176758,
+      "road_id": "j7c6",
+      "lane_id": -1,
+      "s": 7.000000000000002,
+      "junction_id": "j7",
+      "distance": 1.7999078056318798
+    },
+    {
+      "kind": "outside_junction",
+      "x": 47.34540939331055,
+      "y": 87.61780548095703,
+      "z": 29.074831008911133,
+      "road_id": "j7c6",
+      "lane_id": -1,
+      "s": 8.000000000000002,
+      "junction_id": "j7",
+      "distance": 2.5465890384120344
+    },
+    {
+      "kind": "outside_junction",
+      "x": 47.365718841552734,
+      "y": 86.5035400390625,
+      "z": 29.062496185302734,
+      "road_id": "j7c6",
+      "lane_id": -1,
+      "s": 9.000000000000002,
+      "junction_id": "j7",
+      "distance": 3.3871823806131194
+    },
+    {
+      "kind": "outside_junction",
+      "x": 47.45024490356445,
+      "y": 85.40032196044922,
+      "z": 29.04955291748047,
+      "road_id": "j7c6",
+      "lane_id": -1,
+      "s": 10.000000000000002,
+      "junction_id": "j7",
+      "distance": 4.1805867756607125
+    },
+    {
+      "kind": "outside_junction",
+      "x": 47.59410858154297,
+      "y": 84.30916595458984,
+      "z": 29.03607940673828,
+      "road_id": "j7c6",
+      "lane_id": -1,
+      "s": 11.000000000000002,
+      "junction_id": "j7",
+      "distance": 4.3064908868335205
+    },
+    {
+      "kind": "outside_junction",
+      "x": 47.793724060058594,
+      "y": 83.23114776611328,
+      "z": 29.022136688232422,
+      "road_id": "j7c6",
+      "lane_id": -1,
+      "s": 12.000000000000002,
+      "junction_id": "j7",
+      "distance": 3.711431297477733
+    },
+    {
+      "kind": "outside_junction",
+      "x": 48.04644012451172,
+      "y": 82.16716766357422,
+      "z": 29.007780075073242,
+      "road_id": "j7c6",
+      "lane_id": -1,
+      "s": 13.000000000000002,
+      "junction_id": "j7",
+      "distance": 3.069037930633348
+    },
+    {
+      "kind": "outside_junction",
+      "x": 48.350730895996094,
+      "y": 81.11797332763672,
+      "z": 28.993051528930664,
+      "road_id": "j7c6",
+      "lane_id": -1,
+      "s": 14.000000000000002,
+      "junction_id": "j7",
+      "distance": 2.426080686017713
+    },
+    {
+      "kind": "outside_junction",
+      "x": 48.70603561401367,
+      "y": 80.08455657958984,
+      "z": 28.977989196777344,
+      "road_id": "j7c6",
+      "lane_id": -1,
+      "s": 15.000000000000002,
+      "junction_id": "j7",
+      "distance": 1.8268419638537756
+    },
+    {
+      "kind": "outside_junction",
+      "x": 49.11272048950195,
+      "y": 79.06817626953125,
+      "z": 28.962623596191406,
+      "road_id": "j7c6",
+      "lane_id": -1,
+      "s": 16.0,
+      "junction_id": "j7",
+      "distance": 1.3283211064242202
+    },
+    {
+      "kind": "outside_junction",
+      "x": 49.572139739990234,
+      "y": 78.07051849365234,
+      "z": 28.94698715209961,
+      "road_id": "j7c6",
+      "lane_id": -1,
+      "s": 17.0,
+      "junction_id": "j7",
+      "distance": 0.8959808083864469
+    },
+    {
+      "kind": "outside_junction",
+      "x": 50.086666107177734,
+      "y": 77.0938720703125,
+      "z": 28.931108474731445,
+      "road_id": "j7c6",
+      "lane_id": -1,
+      "s": 18.0,
+      "junction_id": "j7",
+      "distance": 0.5080723365913602
+    }
+  ],
+  "terminal_lanes": {
+    "inside_m": 30.0,
+    "count": 0,
+    "cul_de_sacs": 0,
+    "at_bbox_edge": 31,
+    "pass": true,
+    "lanes": []
+  },
+  "junction_slivers": {
+    "max_m": 5.0,
+    "count": 0,
+    "pass": true,
+    "roads": []
+  },
+  "junction_lane_links": {
+    "unlinked_arms": 0,
+    "pass": true,
+    "arms": []
+  },
+  "unreachable_lanes": {
+    "count": 0,
+    "by_kind": {},
+    "in_bbox_count": 0,
+    "return_lane_count": 0,
+    "groups": [],
+    "lanes": [],
+    "pass": true
+  },
+  "ramp_continuity": {
+    "checked": 0,
+    "failures": 0,
+    "pass": true,
+    "details": []
+  },
+  "violation_count": 20,
+  "build": {
+    "started": "2026-09-08T09:46:56",
+    "args": {
+      "verbose": false,
+      "quiet": false,
+      "cmd": "build",
+      "bbox": [
+        41.3905,
+        2.163,
+        41.3945,
+        2.169
+      ],
+      "name": "eixample",
+      "out": "out/v10_eixample",
+      "fixture": "tests/fixtures/eixample_overpass.json",
+      "cache": "data",
+      "no_imagery": false,
+      "no_dem": false,
+      "no_refine": true,
+      "mask_method": "classical",
+      "profile": "eu_dense",
+      "step": 1.0,
+      "junction_zooms": 3,
+      "corrections": "data/corrections/eixample.json",
+      "quick": true
+    },
+    "timings": {
+      "osm": 0.017,
+      "profile": 1.019,
+      "lanegraph": 3.704,
+      "dem": 0.223,
+      "imagery": 0.075,
+      "surfaces": 1.22,
+      "refine": 0.0,
+      "export": 0.369,
+      "preview": 0.0,
+      "validate": 0.745
+    },
+    "outputs": {
+      "twin": "out/v10_eixample/eixample.twin",
+      "xodr": "out/v10_eixample/eixample.xodr",
+      "junction_png": {},
+      "report": "out/v10_eixample/report.json",
+      "violations": "out/v10_eixample/violations.geojson"
+    },
+    "notes": [
+      "quick: obj + previews skipped"
+    ],
+    "osm_source": "fixture:tests/fixtures/eixample_overpass.json",
+    "corrections": {
+      "path": "data/corrections/eixample.json",
+      "n_ops": 12,
+      "n_active": 12,
+      "reports": {
+        "osm": {
+          "applied": [],
+          "unmatched": [],
+          "n_ops": 0
+        },
+        "lanegraph": {
+          "applied": [
+            {
+              "id": "c9",
+              "op": "junction.polygon",
+              "junction": "j7"
+            }
+          ],
+          "unmatched": [],
+          "road_ends_shifted": 0
+        },
+        "controls": {
+          "applied": [],
+          "annotations": 1,
+          "status": "exported; simulation binding pending"
+        },
+        "spaces": {
+          "applied": [],
+          "annotations": 10,
+          "status": "exported; lane graph fitting pending"
+        }
+      }
+    },
+    "bbox_swne": [
+      41.3905,
+      2.163,
+      41.3945,
+      2.169
+    ],
+    "profile": {
+      "name": "eu_dense",
+      "source": "cli",
+      "iso2": null,
+      "building_coverage": 0.5465050530336525
+    },
+    "imagery": {
+      "source": "icgc",
+      "width": 2024,
+      "height": 1794,
+      "dx": 0.25
+    },
+    "finished": "2026-09-08T09:47:03",
+    "total_seconds": 7.372,
+    "status": "ok"
+  },
+  "profile": {
+    "name": "eu_dense",
+    "source": "cli",
+    "iso2": null,
+    "building_coverage": 0.5465050530336525
+  },
+  "elevation": {
+    "z_min": 19.461988157493796,
+    "z_max": 35.17872705968803,
+    "z_mean": 28.740468844432346,
+    "slope_pct": 1.9539844046877097,
+    "uphill_azimuth_deg": 313.94318291688626,
+    "uphill_toward": "NW",
+    "source": "ICGC MET2m (LiDAR 2 m DTM) via WMS GetFeatureInfo, point-sampled @8 m, bicubic to 2 m",
+    "applied": true,
+    "roads": 65,
+    "bridge_decks": 0,
+    "deck_chains_lifted": 0,
+    "abutments_welded": 0,
+    "tunnel_roads": 0,
+    "tunnel_chains_sunk": 0,
+    "portals_welded": 0,
+    "portal_sink_m": 0.0,
+    "connecting_roads": 129,
+    "connecting_roads_dem_fallback": 0,
+    "road_z_min": 23.231407708600415,
+    "road_z_max": 34.723133230329566,
+    "smoothing": {
+      "resample_m": 2.0,
+      "window_m": 10.0,
+      "filter": "savgol1"
+    },
+    "max_abs_smoothing_residual_m": 0.172286834624245,
+    "junction_planes": {
+      "junctions": 15,
+      "contacts": 66,
+      "connecting_roads": 129,
+      "blend_m": 20.0,
+      "contact_adjust_max_m": 0.22882262446023205,
+      "contact_adjust_rms_m": 0.0726616749833963
+    },
+    "grid": {
+      "shape": [
+        234,
+        262
+      ],
+      "dx": 2.0,
+      "dy": 2.0
+    }
+  },
+  "refine": {
+    "status": "skipped",
+    "reason": "--no-refine",
+    "surfaces_unrefined": {
+      "slivers_paved": 0,
+      "profile": "eu_dense",
+      "drivable_area": 45025.90189250011,
+      "sidewalk_area": 37863.55499049999,
+      "verge_area": 0.0,
+      "island_count": 0,
+      "island_area": 0.0,
+      "curb_length": 6488.268956690114,
+      "marking_count": 208,
+      "junctions_with_polygon": 15,
+      "junctions_with_plaza": 14,
+      "boundary_steps_tapered": 30,
+      "junctions_plaza_capped": 0,
+      "plaza_ratio_max": 3.6280453358978613,
+      "junction_cover": "convex",
+      "sidewalk_sides_to_face": 89,
+      "ground_area": 5513.265804000002,
+      "parking_lot_count": 0,
+      "parking_area": 0.0,
+      "inferred_lot_count": 0,
+      "inferred_lot_area": 0.0,
+      "drivable_source": "osm_tags"
+    }
+  }
+}

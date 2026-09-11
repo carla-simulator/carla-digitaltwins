@@ -4,3 +4,11 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .omc/
+
+# Curated furniture definitions are framework package data, not generated maps.
+!twinmodel/data/
+!twinmodel/data/furniture/
+!twinmodel/data/furniture/*.json
+
+# Cooked distribution archives and local binary verification packages
+/dist/
