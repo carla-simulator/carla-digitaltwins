@@ -1,5 +1,5 @@
 """Stage adapters around the canonical compiler, planners and Unreal scripts."""
-from pathlib import Path
+from pathlib import Path, PurePath, PurePosixPath
 import shlex
 import shutil
 import subprocess
@@ -11,9 +11,10 @@ from .project_pipeline import PrerequisiteError, StageFailure
 
 def unreal(pipe, script, arguments, work, label):
     target = pipe.target
-    script = Path(script)
+    # UE's -script= parser has no POSIX quoting; forward slashes keep shlex from quoting paths
+    arg = lambda a: a.as_posix() if isinstance(a, PurePath) else str(a)
     command = [target['engine'], target['uproject'], '-run=pythonscript',
-               '-script='+shlex.join([str(script), *map(str, arguments)]),
+               '-script='+shlex.join([arg(Path(script)), *map(arg, arguments)]),
                '-nullrhi', '-unattended', '-nosound']
     with (work/(label+'.log')).open('w') as log:
         result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT)
@@ -37,7 +38,7 @@ def require_report(path, field='saved'):
 
 
 def level_parts(pipe):
-    level = Path(pipe.target['level'])
+    level = PurePosixPath(pipe.target['level'])
     if level.parent.name != level.name:
         raise ValueError('Target level must use <folder>/<name>/<name> naming')
     return level.name, str(level.parent.parent)

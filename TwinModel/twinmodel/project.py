@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager, redirect_stdout
-import fcntl
+from .filelock import lock_exclusive, unlock
 import hashlib
 import json
 import math
@@ -58,13 +58,13 @@ def locked(root):
     (root/'state').mkdir(exist_ok=True)
     with (root/'state/project.lock').open('a') as handle:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock_exclusive(handle)
         except BlockingIOError:
             raise ProjectBusy('Project is busy; another writer holds its lock')
         try:
             yield
         finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            unlock(handle)
 
 
 class Project:
