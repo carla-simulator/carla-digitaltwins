@@ -4,7 +4,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import fcntl
+from twinmodel.filelock import lock_exclusive, unlock
 import threading
 from types import SimpleNamespace
 import webbrowser
@@ -89,10 +89,10 @@ class ProjectWorkspace(MapWorkspace):
         if path.exists() and not getattr(self.writing, 'active', False):
             with path.open('r') as file:
                 try:
-                    fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    lock_exclusive(file)
                 except BlockingIOError:
                     return True
-                fcntl.flock(file, fcntl.LOCK_UN)
+                unlock(file)
         return False
 
     def token(self):

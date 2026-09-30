@@ -926,8 +926,7 @@ def place_buildings(world, manifest, name, mats, roof_material=None):
         hs, n = snap_height_cm(float(b["height_m"]) * 100.0, fams[fam]["dims"])
         snapped.append((b, fam, hs, n))
     osm_manifest = {"buildings": [dict(b, height_m=hs / 100.0, levels=n) for b, fam, hs, n in snapped]}
-    base = os.path.dirname(os.path.abspath(manifest["_path"]))
-    osm_path = os.path.join(base, "buildings.osm")
+    osm_path = os.path.join(manifest["_scratch"], "buildings.osm")
     n_ways = twin_buildings.write_buildings_osm(osm_manifest, osm_path)
     import_dir = "%s/%s/Import" % (MAP_ROOT, name)
     t = unreal.AssetImportTask()
@@ -1160,6 +1159,8 @@ def main(argv):
     with open(args.manifest) as f:
         manifest = json.load(f)
     manifest["_path"] = os.path.abspath(args.manifest)
+    # scratch files go beside the report, not into the fingerprinted export dir
+    manifest["_scratch"] = os.path.dirname(os.path.abspath(args.report or args.manifest))
     name = args.name
     if args.buildings == "procedural":
         n_all = len(manifest["assets"])

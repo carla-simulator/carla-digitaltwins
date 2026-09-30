@@ -1,6 +1,6 @@
 """Dependency-aware project stages, resumable receipts and one target writer."""
 from contextlib import contextmanager, redirect_stdout
-import fcntl
+from .filelock import lock_exclusive, unlock
 from pathlib import Path
 import tempfile
 import uuid
@@ -36,13 +36,13 @@ def target_lock(target):
     path = Path(tempfile.gettempdir())/('twin-target-'+key+'.lock')
     with path.open('a') as file:
         try:
-            fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock_exclusive(file)
         except BlockingIOError:
             raise PrerequisiteError('Another Unreal writer is using this target project')
         try:
             yield
         finally:
-            fcntl.flock(file, fcntl.LOCK_UN)
+            unlock(file)
 
 
 class Pipeline:
