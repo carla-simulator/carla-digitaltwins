@@ -1,21 +1,144 @@
 # CARLA Digital Twins
 
-The repository includes the Unreal plugin and the DigitalTwin project CLI and
-web editor in `TwinModel/`. The editor combines map layout, vegetation and street
-furniture authoring, with durable project inputs and build/apply controls.
+Build a drivable CARLA map from OpenStreetMap data.
 
-From `TwinModel`, using a Python environment with the framework dependencies and
-the matching CARLA Python wheel:
+The command line pipeline in `TwinModel/` is the supported way to make a twin: it runs headless, produces the OpenDRIVE, the meshes and the baked Unreal level, and needs no editor interaction.
+An Unreal editor plugin is also included and is documented at the end of this file.
+
+---
+
+## Requirements
+
+* Python 3.11 or newer, with the `twinmodel` package installed from `TwinModel/`
+* A CARLA UE 5.8 checkout, built, for the baking stage
+* The matching CARLA Python wheel, used to validate the generated OpenDRIVE
+
+```sh
+cd TwinModel
+pip install -e .
+```
+
+---
+
+## The pipeline
+
+A twin is built in three stages. The first two are pure Python and need no Unreal; the third runs inside the editor as a commandlet.
+
+```
+OSM  ──1──>  <name>.twin + <name>.xodr  ──2──>  manifest.json + *.glb  ──3──>  Unreal level
+      build                              bake-export                    bake_level.py
+```
+
+### 1. Build the model
+
+Fetches the OpenStreetMap extract for a bounding box and turns it into the twin model and its OpenDRIVE.
+
+```sh
+python -m twinmodel build --bbox <south> <west> <north> <east> --name MyCity --out build/mycity
+```
+
+Useful options:
+
+| option | effect |
+| --- | --- |
+| `--quick` | skip the OBJ mesh and preview PNGs; the twin and the OpenDRIVE only |
+| `--no-imagery`, `--no-dem` | skip orthophoto and elevation acquisition |
+| `--no-refine` | skip the imagery-driven refinement pass |
+| `--fixture <file>` | use a cached Overpass JSON instead of fetching |
+| `--profile <name>` | region profile: `eu_dense`, `us_urban`, `us_suburban`, `auto` |
+
+The stage ends by parsing the result with `carla.Map` and writing `report.json`; a non-zero exit means the OpenDRIVE did not validate.
+
+### 2. Export the bake input
+
+Turns the model into the per-tile geometry the baker imports.
+
+```sh
+python -m twinmodel bake-export build/mycity MyCity
+```
+
+Writes `build/mycity/ue/manifest.json` and one `.glb` per (layer, kind, tile) under `build/mycity/ue/meshes/`, plus the spawn points.
+
+### 3. Bake the Unreal level
+
+Run inside the CARLA editor as a commandlet.
+
+```sh
+UnrealEditor-Cmd <CarlaUnreal.uproject> -run=pythonscript \
+    -script="<repo>/TwinModel/ue/bake_level.py --manifest <abs>/build/mycity/ue/manifest.json --name MyCity" \
+    -unattended -nosplash -nullrhi
+```
+
+This imports the meshes with Nanite and complex-as-simple collision, places one actor per asset in a World Partition level, copies the OpenDRIVE next to the map, cooks the Traffic Manager cache, builds the pedestrian navigation, and writes `bake_report.json`.
+
+| option | effect |
+| --- | --- |
+| `--buildings procedural` | use the modular facade generator instead of the manifest's extruded slabs |
+| `--map-root`, `--mesh-root` | destination package paths, for baking into a content pack mount |
+| `--skip-import` | reuse meshes already imported |
+| `--no-navmesh` | skip the nav bounds volume, the RecastNavMesh and both World Partition navigation builders |
+| `--no-tm-cache` | skip the Traffic Manager cache |
+| `--python-bin` | interpreter holding the CARLA wheel, when the editor's own Python does not |
+| `--no-nanite` | import without Nanite |
+
+The level is then loadable in the editor and in a CARLA server.
+
+---
+
+## Shipping the map
+
+Two routes, both verified.
+
+**Cook it into a CARLA package.** Add the map to the cook scope and build the package:
+
+```sh
+cmake -S . -B Build/Release -DCARLA_MAPS_TO_COOK=/Game/Carla/Maps/Twins/MyCity/MyCity
+cmake --build Build/Release --target package
+```
+
+**Ship it as a content pack**, with no repackaging of CARLA:
+
+```sh
+carla-pack init MyCityPack
+carla-pack add MyCityPack --map /Game/Carla/Maps/Twins/MyCity/MyCity
+carla-pack build MyCityPack --base <release-metadata.tar.gz>
+carla-pack install MyCityPack-1.0.0-<release>.tar.gz --server /opt/carla/Linux
+```
+
+The pack carries the map's OpenDRIVE and Traffic Manager data as sidecar files, so a packaged server picks them up when it mounts the pack.
+
+---
+
+## Project CLI and web editor
+
+For durable map projects with vegetation and street furniture authoring, and build/apply controls:
 
 ```sh
 python -m twinmodel project --help
 python -m twinmodel project edit projects/eixample --port 8791
 ```
 
-See [project CLI usage](TwinModel/docs/PROJECT_CLI.md) and the
-[project workflow design](TwinModel/docs/PROJECT_CLI_DESIGN.md). Unreal apply needs
-the compatible CARLA UE 5.8 checkout with the native vegetation/furniture tools.
+See [project CLI usage](TwinModel/docs/PROJECT_CLI.md) and the [project workflow design](TwinModel/docs/PROJECT_CLI_DESIGN.md).
+Unreal apply needs a compatible CARLA UE 5.8 checkout with the native vegetation and furniture tools.
 Opening the web editor does not reload or replace the running CARLA map.
+
+---
+
+## Other commands
+
+| command | purpose |
+| --- | --- |
+| `twinmodel validate <twin_dir> <xodr>` | re-run the OpenDRIVE validation on an existing build |
+| `twinmodel compare` | OSM tiles, orthophoto, mesh top view and difference rasters |
+
+---
+
+# Unreal editor plugin
+
+The repository also ships a Digital Twins editor plugin, which generates a map from inside Unreal rather than from the command line.
+The rest of this file documents building and using it.
+
+---
 
 # Build Instructions for CARLA Digital Twins Plugin (UE 5)
 

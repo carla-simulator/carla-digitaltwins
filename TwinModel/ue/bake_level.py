@@ -19,10 +19,17 @@ What it does (DESIGN.md §Baker):
                          PlayerStart, BP_Carla_Sky)
   4. OpenDRIVE           <Content>/Carla/Maps/Twins/<Name>/OpenDrive/<Name>.xodr, which is where
                          UOpenDrive::GetXODR looks for a level saved under Maps/Twins/<Name>/
+  4b. TM cache          <Content>/Carla/Maps/Twins/<Name>/TM/<Name>.bin, so a connecting client
+                         does not rebuild the Traffic Manager's map graph every session
   5. buildings           ``--buildings procedural``: instead of the manifest's extruded facade
                          slabs, every footprint is fed to carla-digitaltwins' BP_BuildingGen
                          (modular Nanite facade atoms as ISM instances + a generated roof cap),
                          see place_buildings(). Needs the CarlaDigitalTwinsTool content mounted.
+  5b. navigation        a NavMeshBoundsVolume over the twin and a RecastNavMesh saved into
+                         the level, then the CarlaCrosswalkNavBuilder and
+                         WorldPartitionNavigationDataBuilder World Partition builders. Without
+                         the saved RecastNavMesh the server spawns an empty one and every
+                         get_random_location_from_navigation returns the origin
   6. report              <manifest dir>/bake_report.json
 
 Idempotent: re-running replaces the meshes and recreates the level.
@@ -31,6 +38,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 import time
 import traceback
@@ -1115,18 +1123,174 @@ def save_all(exclude_prefixes=("/CarlaDigitalTwinsTool",)):
     return ok
 
 
+
+def content_dir_for(package_root):
+    """Filesystem directory backing a /Mount/... package path.
+
+    /Game/ is the project's Content; any other mount is a plugin, which is how
+    a twin baked straight into a content pack (/<Pack>/Maps) resolves.
+    """
+    parts = [p for p in package_root.strip("/").split("/") if p]
+    if not parts:
+        return unreal.Paths.project_content_dir()
+    mount, rest = parts[0], parts[1:]
+    if mount == "Game":
+        base = unreal.Paths.project_content_dir()
+    else:
+        base = None
+        plugins = unreal.Paths.project_plugins_dir()
+        for root, dirs, files in os.walk(plugins):
+            if (mount + ".uplugin") in files:
+                base = os.path.join(root, "Content")
+                break
+        if base is None:
+            warn("no plugin mounted at /%s/; falling back to the project content" % mount)
+            base = unreal.Paths.project_content_dir()
+    return os.path.join(base, *rest)
+
+
 def copy_xodr(manifest, name, map_root=MAP_ROOT):
     src = manifest.get("xodr")
     if not src or not os.path.exists(src):
         warn("manifest has no xodr; the map will have no waypoints")
         return None
-    content = unreal.Paths.project_content_dir()
-    dst_dir = os.path.join(content, map_root.removeprefix('/Game/'), name, "OpenDrive")
+    dst_dir = os.path.join(content_dir_for(map_root), name, "OpenDrive")
     os.makedirs(dst_dir, exist_ok=True)
     dst = os.path.join(dst_dir, name + ".xodr")
     shutil.copyfile(src, dst)
     log("xodr -> %s (%.1f MB)" % (dst, os.path.getsize(dst) / 1e6))
     return dst
+
+
+TM_COOK_SNIPPET = (
+    "import sys, carla;"
+    "m = carla.Map(sys.argv[1], open(sys.argv[2], encoding='utf-8').read());"
+    "m.cook_in_memory_map(sys.argv[3])"
+)
+
+
+def cook_tm_cache(xodr_path, name, map_root=MAP_ROOT, python_bin=None):
+    """Cook the Traffic Manager's InMemoryMap cache next to the map.
+
+    Without it every client that connects rebuilds the map graph itself and
+    logs "No InMemoryMap cache found. Setting up local map.".
+    """
+    if not xodr_path or not os.path.exists(xodr_path):
+        return None
+    dst_dir = os.path.join(content_dir_for(map_root), name, "TM")
+    os.makedirs(dst_dir, exist_ok=True)
+    dst = os.path.join(dst_dir, name + ".bin")
+
+    try:
+        import carla  # when the editor's own interpreter has a matching wheel
+        carla.Map(name, open(xodr_path, encoding="utf-8").read()).cook_in_memory_map(dst)
+    except ImportError:
+        # The editor ships its own Python, so the client wheel is usually built
+        # for another version: cook in whichever interpreter does have it.
+        exe = python_bin or os.environ.get("CARLA_PYTHON") or "python3"
+        proc = subprocess.run([exe, "-c", TM_COOK_SNIPPET, name, xodr_path, dst],
+                              capture_output=True, text=True)
+        if proc.returncode != 0:
+            tail = (proc.stderr or "").strip().splitlines()
+            warn("TM cache: %s could not cook it (%s); the map still works, every client "
+                 "just rebuilds the graph per session" % (exe, tail[-1] if tail else "no output"))
+            return None
+    except Exception as exc:  # noqa: BLE001 - a missing cache must not fail the bake
+        warn("TM cache: %s" % exc)
+        return None
+
+    if not os.path.exists(dst):
+        warn("TM cache: nothing written to %s" % dst)
+        return None
+    log("TM cache -> %s (%.1f MB)" % (dst, os.path.getsize(dst) / 1e6))
+    return dst
+
+
+NAV_PAD_XY = 500.0
+NAV_PAD_Z = 1000.0
+NAV_BUILDERS = ("CarlaCrosswalkNavBuilder", "WorldPartitionNavigationDataBuilder")
+
+
+def setup_navigation(manifest, name, map_root=MAP_ROOT):
+    """Nav bounds volume over the whole twin, plus a RecastNavMesh saved into the level.
+
+    Without a saved RecastNavMesh the server logs "No saved navigation data found for
+    'CarlaWalker'", spawns an empty one, and the built navigation chunks never attach:
+    get_random_location_from_navigation then falls back to the legacy client-side path
+    and returns the origin for every call.
+    """
+    level = "%s/%s/%s" % (map_root.rstrip("/"), name, name)
+    eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+    boxes = [a["bbox_ue"] for a in manifest["assets"] if a.get("bbox_ue")]
+    if not boxes:
+        warn("manifest carries no bbox_ue; leaving the level without navigation")
+        return None
+    mn = [min(b["min"][i] for b in boxes) for i in range(3)]
+    mx = [max(b["max"][i] for b in boxes) for i in range(3)]
+    centre = unreal.Vector(*[(mn[i] + mx[i]) / 2.0 for i in range(3)])
+    want = unreal.Vector((mx[0] - mn[0]) / 2.0 + NAV_PAD_XY,
+                         (mx[1] - mn[1]) / 2.0 + NAV_PAD_XY,
+                         (mx[2] - mn[2]) / 2.0 + NAV_PAD_Z)
+
+    for a in list(eas.get_all_level_actors()):
+        if a.get_class().get_name() == "NavMeshBoundsVolume":
+            eas.destroy_actor(a)
+    try:
+        vol = eas.spawn_actor_from_class(unreal.NavMeshBoundsVolume, centre)
+    except Exception as exc:  # noqa: BLE001 - fall back to the vetted spawn path
+        warn("spawn_actor_from_class: %s" % exc)
+        vol = spawn(None, unreal.NavMeshBoundsVolume, centre, unreal.Rotator(0, 0, 0))
+    if vol is None:
+        warn("could not place a NavMeshBoundsVolume; the level gets no navmesh")
+        return None
+    vol.set_actor_label("NavMeshBounds_%s" % name)
+    _, ext = vol.get_actor_bounds(False)
+    if min(ext.x, ext.y, ext.z) > 0.0:
+        vol.set_actor_scale3d(unreal.Vector(want.x / ext.x, want.y / ext.y, want.z / ext.z))
+    _, ext = vol.get_actor_bounds(False)
+    save_all()
+
+    # the nav system spawns an agent's RecastNavMesh at world init, so the bounds have to
+    # be on disk first and the level reopened before there is anything to persist
+    unreal.EditorLoadingAndSavingUtils.load_map(level)
+    navs = [a for a in unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+            .get_all_level_actors() if "RecastNavMesh" in a.get_class().get_name()]
+    for a in navs:
+        try:
+            a.set_editor_property("is_spatially_loaded", False)
+        except Exception:
+            pass
+    save_all()
+
+    info = {"bounds_extent": [ext.x, ext.y, ext.z], "recast_navmesh": len(navs)}
+    if not navs:
+        warn("no RecastNavMesh in the level after reopening it; walkers will not move")
+    log("navigation: volume extent (%.0f, %.0f, %.0f), %d RecastNavMesh" % (
+        ext.x, ext.y, ext.z, len(navs)))
+    return info
+
+
+def build_navigation_data(name, map_root=MAP_ROOT):
+    """Run the crosswalk and navigation-data World Partition builders over the saved level.
+
+    They need their own editor process: each loads the map cell by cell and resaves the
+    external actors, which the commandlet running this script still has open.
+    """
+    level = "%s/%s/%s" % (map_root.rstrip("/"), name, name)
+    editor = os.path.join(unreal.Paths.engine_dir(), "Binaries", "Linux", "UnrealEditor")
+    uproject = unreal.Paths.convert_relative_path_to_full(unreal.Paths.get_project_file_path())
+    done = {}
+    for builder in NAV_BUILDERS:
+        cmd = [editor, uproject, level, "-run=WorldPartitionBuilderCommandlet",
+               "-Builder=%s" % builder, "-SCCProvider=None", "-nullrhi", "-unattended"]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        done[builder] = proc.returncode == 0
+        if proc.returncode != 0:
+            tail = (proc.stdout or proc.stderr or "").strip().splitlines()
+            warn("%s failed (%s)" % (builder, tail[-1] if tail else "no output"))
+        else:
+            log("%s ok" % builder)
+    return done
 
 
 def dir_size(path):
@@ -1148,6 +1312,14 @@ def main(argv):
     ap.add_argument("--no-nanite", action="store_true")
     ap.add_argument("--skip-import", action="store_true", help="reuse already imported meshes")
     ap.add_argument("--report", default=None)
+    ap.add_argument("--no-navmesh", action="store_true",
+                    help="skip the nav bounds volume, the RecastNavMesh and both "
+                         "World Partition navigation builders")
+    ap.add_argument("--no-tm-cache", action="store_true",
+                    help="skip cooking the Traffic Manager's InMemoryMap cache")
+    ap.add_argument("--python-bin", default=None,
+                    help="interpreter holding the carla wheel, for the TM cache "
+                         "(default: $CARLA_PYTHON, else python3)")
     ap.add_argument("--buildings", choices=("slabs", "procedural"), default="slabs",
                     help="slabs: the manifest's extruded facade meshes; procedural: "
                          "BP_BuildingGen modular facades from the footprints")
@@ -1204,24 +1376,36 @@ def main(argv):
         report["procedural_buildings"] = place_buildings(world, manifest, name, mats, roof_mat)
     xodr = copy_xodr(manifest, name, args.map_root)
     report["xodr"] = xodr
+    report["tm_cache"] = (None if args.no_tm_cache
+                          else cook_tm_cache(xodr, name, args.map_root, args.python_bin))
     report["map_default_weather"] = write_map_default_weather(name)
 
     ok = save_all()
     log("saved level: %s" % ok)
     report["level_saved"] = bool(ok)
 
-    content = unreal.Paths.project_content_dir()
+    report["navigation"] = (None if args.no_navmesh
+                            else setup_navigation(manifest, name, args.map_root))
+
+    # after the save: both builders load the level from disk in their own editor
+    report["navigation_builders"] = (None if args.no_navmesh
+                                     else build_navigation_data(name, args.map_root))
+
     sizes = {}
-    for rel in ("Carla/Maps/Twins/%s" % name, "Carla/__ExternalActors__/Carla/Maps/Twins/%s" % name,
-                "Carla/__ExternalObjects__/Carla/Maps/Twins/%s" % name):
-        p = os.path.join(content, rel)
+    map_dir = content_dir_for(args.map_root)
+    mount = args.map_root.strip("/").split("/")[0]
+    external = os.path.dirname(map_dir)
+    for label, p in (
+            (args.map_root + "/" + name, os.path.join(map_dir, name)),
+            ("__ExternalActors__", os.path.join(external, "__ExternalActors__")),
+            ("__ExternalObjects__", os.path.join(external, "__ExternalObjects__"))):
         if os.path.isdir(p):
-            sizes[rel] = dir_size(p)
+            sizes[label] = dir_size(p)
     for sem in sorted({a["semantic"] for a in manifest["assets"]}):
-        rel = args.mesh_root.format(semantic=sem, name=name).replace("/Game/", "")
-        p = os.path.join(content, rel)
+        root = args.mesh_root.format(semantic=sem, name=name)
+        p = content_dir_for(root)
         if os.path.isdir(p):
-            sizes[rel] = dir_size(p)
+            sizes[root] = dir_size(p)
     report["content_bytes"] = sizes
     report["content_total_mb"] = round(sum(sizes.values()) / 1e6, 1)
     report["seconds"] = round(time.time() - t_start, 1)
