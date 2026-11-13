@@ -62,6 +62,11 @@ ICGC_TERR_WMS = "https://geoserveis.icgc.cat/servei/catalunya/elevacions-territo
 ICGC_TERR_LAYER = "model-elevacions-terreny-catalunya-lidar-50cm-2021-2023"
 ICGC_CRS = "EPSG:25831"
 IGN_WCS = "https://servicios.idee.es/wcs-inspire/mdt"
+# Netherlands: AHN (Actueel Hoogtebestand Nederland) terrain model, 0.5 m, via PDOK's WCS (RD New, NAP metres)
+AHN_WCS = "https://service.pdok.nl/rws/ahn/wcs/v1_0"
+AHN_COVERAGE = "dtm_05m"
+AHN_CRS = "EPSG:28992"
+AHN_TILE_M = 1000.0      # metres per request (2000 x 2000 px at 0.5 m)
 IGN_COVERAGE = "Elevacion25830_5"
 IGN_CRS = "EPSG:25830"
 OPENTOPO_URL = "https://portal.opentopography.org/API/globaldem"
@@ -258,6 +263,49 @@ def _ign_wcs(frame: LocalFrame, bbox_swne, grid) -> Optional[Elevation]:
                                     f"IGN MDT05 WCS {IGN_COVERAGE} (5 m, int16)")
 
 
+def _ahn_wcs(frame: LocalFrame, bbox_swne, grid) -> Optional[Elevation]:
+    """AHN 0.5 m DTM (the Netherlands) from PDOK, requested in AHN_TILE_M tiles and warped onto the grid.
+    AHN leaves water and buildings empty (nodata); those cells are filled from their neighbours."""
+    import requests
+    from rasterio.io import MemoryFile
+    from rasterio.warp import transform_bounds
+    x0, y0, width, height, transform = grid
+    xmin, ymin, xmax, ymax = _grid_bounds(transform, width, height)
+    bx0, by0, bx1, by1 = transform_bounds(frame.crs, AHN_CRS, xmin, ymin, xmax, ymax, densify_pts=21)
+    pad = 20.0
+    bx0, by0, bx1, by1 = bx0 - pad, by0 - pad, bx1 + pad, by1 + pad
+    z = np.full((height, width), np.nan)
+    session = requests.Session()
+    x = bx0
+    while x < bx1:
+        y = by0
+        while y < by1:
+            tx1, ty1 = min(x + AHN_TILE_M, bx1), min(y + AHN_TILE_M, by1)
+            params = [("service", "WCS"), ("version", "2.0.1"), ("request", "GetCoverage"),
+                      ("coverageId", AHN_COVERAGE), ("format", "image/tiff"),
+                      ("subset", f"x({x:.1f},{tx1:.1f})"), ("subset", f"y({y:.1f},{ty1:.1f})")]
+            r = session.get(AHN_WCS, params=params, timeout=180)
+            if r.status_code != 200 or not r.headers.get("content-type", "").startswith("image"):
+                log.warning("elevation: AHN WCS returned %s: %s", r.status_code, r.text[:200])
+                return None
+            with MemoryFile(r.content) as mem, mem.open() as ds:
+                arr = ds.read(1).astype("float64")
+                nodata = ds.nodata
+                if nodata is not None:
+                    arr[arr == nodata] = np.nan
+                arr[np.abs(arr) > 1e4] = np.nan          # AHN marks no-data as ~3.4e38
+                tile = _reproject_to_grid(arr, ds.transform, ds.crs or AHN_CRS, np.nan, transform, frame.crs,
+                                          width, height)
+            hit = np.isfinite(tile)
+            z[hit] = tile[hit]
+            y = ty1
+        x = tx1
+    if not np.isfinite(z).any():
+        return None
+    return _elevation_from_north_up(_fill_nan(z), x0, y0, transform.a,
+                                    f"AHN {AHN_COVERAGE} via PDOK WCS (0.5 m, NAP)")
+
+
 # --------------------------------------------------------------------------- source 4: Copernicus AWS
 
 def _copernicus_aws(frame: LocalFrame, bbox_swne, grid) -> Optional[Elevation]:
@@ -334,6 +382,7 @@ PROVIDERS = {
     "icgc_terr": lambda frame, bbox, grid, spacing: _icgc_gfi_sample(frame, grid, spacing, "terr"),
     "opentopo": lambda frame, bbox, grid, spacing: _opentopo(frame, bbox, grid),
     "ign_wcs": lambda frame, bbox, grid, spacing: _ign_wcs(frame, bbox, grid),
+    "ahn_wcs": lambda frame, bbox, grid, spacing: _ahn_wcs(frame, bbox, grid),
     "copernicus_aws": lambda frame, bbox, grid, spacing: _copernicus_aws(frame, bbox, grid),
     "usgs_3dep": lambda frame, bbox, grid, spacing: _usgs_3dep(frame, bbox, grid),
 }

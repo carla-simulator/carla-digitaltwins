@@ -20,6 +20,8 @@ Rules
 """
 from __future__ import annotations
 
+import dataclasses
+
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
@@ -649,7 +651,17 @@ US_SUBURBAN = US_URBAN.with_(
 
 # --------------------------------------------------------------------------- registry / selection
 
-PROFILES: dict[str, StreetProfile] = {p.name: p for p in (EU_DENSE, US_URBAN, US_SUBURBAN)}
+# The Netherlands: the dense European street rules with the national open data first (AHN 0.5 m terrain,
+# PDOK 8 cm aerial photos) and Dutch building storeys (lower, fewer than the Barcelona-tuned default).
+NL_URBAN = EU_DENSE.with_(
+    name="nl_urban",
+    description="Dutch towns: EU dense street rules, AHN elevation and PDOK aerial photos",
+    countries=frozenset({"NL"}),
+    sources=DataSources(ortho=("pdok_luchtfoto", "osm_tiles"), dem=("ahn_wcs", "copernicus_aws")),
+    building=dataclasses.replace(EU_DENSE.building, level_height_m=3.0, default_levels=3),
+)
+
+PROFILES: dict[str, StreetProfile] = {p.name: p for p in (NL_URBAN, EU_DENSE, US_URBAN, US_SUBURBAN)}
 
 US_DENSITY_THRESHOLD = 0.30   # building footprint area / land area above this -> us_urban
 

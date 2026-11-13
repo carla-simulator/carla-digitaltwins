@@ -199,6 +199,11 @@ def model_grid(frame: LocalFrame, bbox_swne: tuple[float, float, float, float],
 
 
 
+# Netherlands: PDOK Luchtfoto, the national aerial photograph (8 cm "orthoHR"); JPEG only, RD New
+PDOK_WMS = "https://service.pdok.nl/hwh/luchtfotorgb/wms/v1_0"
+PDOK_LAYER = "Actueel_orthoHR"
+PDOK_CRS = "EPSG:28992"
+PDOK_RES = 0.08
 IGN_ES_WMS = "https://www.ign.es/wms-inspire/pnoa-ma"
 IGN_ES_LAYER = "OI.OrthoimageCoverage"
 IGN_ES_CRS = "EPSG:25830"
@@ -353,6 +358,39 @@ def _naip_export_tile(session, bbox, w: int, h: int) -> bytes:
     return r.content
 
 
+def _getmap_jpeg_as_tiff(session, layer: str, crs: str, bbox, width: int, height: int, url: str) -> bytes:
+    """GetMap as JPEG (for servers without TIFF output), returned as an in-memory GeoTIFF of the bbox."""
+    import rasterio
+    from rasterio.io import MemoryFile
+    from rasterio.transform import from_bounds
+    params = dict(SERVICE="WMS", VERSION="1.3.0", REQUEST="GetMap", LAYERS=layer, STYLES="",
+                  CRS=crs, BBOX=",".join(f"{v:.3f}" for v in bbox), WIDTH=width, HEIGHT=height,
+                  FORMAT="image/jpeg")
+    r = session.get(url, params=params, timeout=REQUEST_TIMEOUT)
+    r.raise_for_status()
+    if not r.headers.get("content-type", "").startswith("image/jpeg"):
+        raise RuntimeError(f"WMS returned {r.headers.get('content-type')}: {r.text[:300]}")
+    with MemoryFile(r.content) as src_mem, src_mem.open() as src:
+        arr = src.read()[:3]
+    with MemoryFile() as mem:
+        with mem.open(driver="GTiff", width=width, height=height, count=arr.shape[0], dtype=arr.dtype,
+                      crs=rasterio.crs.CRS.from_string(crs), transform=from_bounds(*bbox, width, height)) as dst:
+            dst.write(arr)
+        return mem.read()
+
+
+def _fetch_pdok(frame: LocalFrame, bbox_swne, resolution: float, grid, **_) -> Optional[OrthoImage]:
+    import requests
+    session = requests.Session()
+    dst = _mosaic_tiles(frame, grid, resolution, PDOK_CRS, max(PDOK_RES, resolution), TILE_PX,
+                        lambda bbox, w, h: _getmap_jpeg_as_tiff(session, PDOK_LAYER, PDOK_CRS, bbox, w, h,
+                                                                PDOK_WMS))
+    if dst is None:
+        return None
+    return _to_image(dst, grid, resolution, "pdok_luchtfoto",
+                     f"PDOK Luchtfoto WMS {PDOK_LAYER} ({PDOK_CRS} -> local)")
+
+
 def _fetch_naip(frame: LocalFrame, bbox_swne, resolution: float, grid, **_) -> Optional[OrthoImage]:
     import requests
     session = requests.Session()
@@ -389,6 +427,7 @@ PROVIDERS = {
     "icgc": _fetch_icgc,
     "ign_es": _fetch_ign_es,
     "naip": _fetch_naip,
+    "pdok_luchtfoto": _fetch_pdok,
     "osm_tiles": _fetch_osm_tiles,
 }
 # providers whose own module caches the result (skip the imagery-level cache for them)

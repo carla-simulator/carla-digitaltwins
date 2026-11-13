@@ -19,6 +19,8 @@ import requests
 log = logging.getLogger("twinmodel.ingest.osm")
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_MIRRORS = ("https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter",
+                    "https://overpass.private.coffee/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter")
 _USER_AGENT = "twinmodel/0.1 (carla-digitaltwins spike)"
 
 
@@ -137,12 +139,15 @@ def fetch_overpass(bbox_swne: tuple[float, float, float, float],
 
     query = overpass_query(bbox_swne)
     last_err: Optional[Exception] = None
-    for attempt in range(retries):
+    # the public Overpass servers are often overloaded (502/504): rotate through mirrors on retry
+    urls = [url] + [m for m in OVERPASS_MIRRORS if m != url]
+    for attempt in range(max(retries, len(urls))):
         try:
-            log.info("overpass fetch bbox=%s attempt %d", bbox_swne, attempt + 1)
-            resp = requests.post(url, data={"data": query}, timeout=240,
+            url_now = urls[attempt % len(urls)]
+            log.info("overpass fetch bbox=%s attempt %d (%s)", bbox_swne, attempt + 1, url_now)
+            resp = requests.post(url_now, data={"data": query}, timeout=240,
                                  headers={"User-Agent": _USER_AGENT})
-            if resp.status_code in (429, 504):
+            if resp.status_code in (429, 502, 503, 504):
                 raise RuntimeError(f"overpass busy: HTTP {resp.status_code}")
             resp.raise_for_status()
             data = resp.json()
@@ -237,7 +242,7 @@ def country_for_bbox(bbox_swne: tuple[float, float, float, float],
         try:
             resp = requests.post(url, data={"data": query}, timeout=90,
                                  headers={"User-Agent": _USER_AGENT})
-            if resp.status_code in (429, 504):
+            if resp.status_code in (429, 502, 503, 504):
                 raise RuntimeError(f"overpass busy: HTTP {resp.status_code}")
             resp.raise_for_status()
             data = resp.json()
