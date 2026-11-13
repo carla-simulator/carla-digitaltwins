@@ -45,7 +45,7 @@ Useful options:
 | `--no-imagery`, `--no-dem` | skip orthophoto and elevation acquisition |
 | `--no-refine` | skip the imagery-driven refinement pass |
 | `--fixture <file>` | use a cached Overpass JSON instead of fetching |
-| `--profile <name>` | region profile: `eu_dense`, `us_urban`, `us_suburban`, `auto` |
+| `--profile <name>` | region profile: `nl_urban`, `eu_dense`, `us_urban`, `us_suburban`, `auto` |
 
 The stage ends by parsing the result with `carla.Map` and writing `report.json`; a non-zero exit means the OpenDRIVE did not validate.
 
@@ -58,6 +58,28 @@ python -m twinmodel bake-export build/mycity MyCity
 ```
 
 Writes `build/mycity/ue/manifest.json` and one `.glb` per (layer, kind, tile) under `build/mycity/ue/meshes/`, plus the spawn points.
+
+#### The Netherlands: national open data
+
+`--profile nl_urban` (also chosen by `auto` when the country lookup returns NL) uses the Dutch national datasets
+instead of the global ones:
+
+| Layer | Provider | Source |
+| --- | --- | --- |
+| elevation | `ahn_wcs` | [AHN](https://www.ahn.nl) DTM, 0.5 m, NAP heights, from the PDOK WCS in 1 km tiles (CC0) |
+| orthophoto | `pdok_luchtfoto` | [PDOK Luchtfoto](https://www.pdok.nl) RGB, current year, 8 cm, from the WMS (CC BY 4.0) |
+
+After the bake export, the extruded OSM buildings can be swapped for [3DBAG](https://3dbag.nl) LoD 2.2
+buildings (BAG footprints with AHN lidar roof shapes, CC BY 4.0); the OSM meshes are kept in
+`meshes/osm_buildings/`:
+
+```sh
+python TwinModel/tools/threedbag_buildings.py build/mycity
+```
+
+Central Eindhoven (1.6 x 1.6 km): 2,094 roads, 242 junctions, AHN terrain 12.1-23.9 m NAP, 3,654 3DBAG
+buildings (274k triangles). Public Overpass servers often time out on an area this size; the OSM stage then
+fetches it in four quarters and merges them.
 
 ### 3. Bake the Unreal level
 

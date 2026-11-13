@@ -19,6 +19,8 @@ import requests
 log = logging.getLogger("twinmodel.ingest.osm")
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_MIRRORS = ("https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter",
+                    "https://overpass.private.coffee/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter")
 _USER_AGENT = "twinmodel/0.1 (carla-digitaltwins spike)"
 
 
@@ -137,12 +139,15 @@ def fetch_overpass(bbox_swne: tuple[float, float, float, float],
 
     query = overpass_query(bbox_swne)
     last_err: Optional[Exception] = None
-    for attempt in range(retries):
+    # the public Overpass servers are often overloaded (502/504): rotate through mirrors on retry
+    urls = [url] + [m for m in OVERPASS_MIRRORS if m != url]
+    for attempt in range(max(retries, len(urls))):
         try:
-            log.info("overpass fetch bbox=%s attempt %d", bbox_swne, attempt + 1)
-            resp = requests.post(url, data={"data": query}, timeout=240,
+            url_now = urls[attempt % len(urls)]
+            log.info("overpass fetch bbox=%s attempt %d (%s)", bbox_swne, attempt + 1, url_now)
+            resp = requests.post(url_now, data={"data": query}, timeout=240,
                                  headers={"User-Agent": _USER_AGENT})
-            if resp.status_code in (429, 504):
+            if resp.status_code in (429, 502, 503, 504):
                 raise RuntimeError(f"overpass busy: HTTP {resp.status_code}")
             resp.raise_for_status()
             data = resp.json()
@@ -156,6 +161,21 @@ def fetch_overpass(bbox_swne: tuple[float, float, float, float],
             last_err = exc
             log.warning("overpass attempt %d failed: %s", attempt + 1, exc)
             time.sleep(5 * (attempt + 1))
+    # a large bbox can time out on every server: fetch it as four quarters and merge them
+    s_, w_, n_, e_ = bbox_swne
+    if (n_ - s_) > 0.004 and (e_ - w_) > 0.006:
+        log.warning("overpass: bbox too heavy for the servers now; fetching it in four parts")
+        ms, mw = (s_ + n_) / 2, (w_ + e_) / 2
+        merged: dict[tuple[str, int], dict[str, Any]] = {}
+        for part in ((s_, w_, ms, mw), (s_, mw, ms, e_), (ms, w_, n_, mw), (ms, mw, n_, e_)):
+            for el in fetch_overpass(part, cache_dir, url, force, retries)["elements"]:
+                key = (el["type"], el["id"])
+                if key not in merged or (el.get("tags") and not merged[key].get("tags")):
+                    merged[key] = el
+        data = {"elements": list(merged.values()), "twinmodel": {"bbox_swne": list(bbox_swne), "parts": 4}}
+        path.write_text(json.dumps(data))
+        log.info("overpass: %d elements from 4 parts cached -> %s", len(data["elements"]), path)
+        return data
     raise RuntimeError(f"overpass fetch failed after {retries} attempts: {last_err}")
 
 
@@ -237,7 +257,7 @@ def country_for_bbox(bbox_swne: tuple[float, float, float, float],
         try:
             resp = requests.post(url, data={"data": query}, timeout=90,
                                  headers={"User-Agent": _USER_AGENT})
-            if resp.status_code in (429, 504):
+            if resp.status_code in (429, 502, 503, 504):
                 raise RuntimeError(f"overpass busy: HTTP {resp.status_code}")
             resp.raise_for_status()
             data = resp.json()
