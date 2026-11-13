@@ -28,13 +28,14 @@ API = "https://api.3dbag.nl/collections/pand/items"
 SKIP_SURFACES = {"GroundSurface"}
 
 
-def fetch(bbox_rd, limit=100):
-    """All 3DBAG features (CityJSONFeature with real coordinates) in an RD New bbox."""
-    url, params, features = API, {"bbox": ",".join(f"{v:.2f}" for v in bbox_rd), "limit": limit}, []
+def _fetch_pages(bbox_rd, limit=50):
+    """One bbox, following the API's next links (it returns at most 50 features a page)."""
+    url, params, features, matched = API, {"bbox": ",".join(f"{v:.2f}" for v in bbox_rd), "limit": limit}, [], None
     while url:
         r = requests.get(url, params=params, timeout=120, headers={"User-Agent": "twinmodel-3dbag/0.1"})
         r.raise_for_status()
         page = r.json()
+        matched = page.get("numberMatched", matched)
         tf = page["metadata"]["transform"]
         scale, translate = np.array(tf["scale"]), np.array(tf["translate"])
         for f in page["features"]:
@@ -42,8 +43,27 @@ def fetch(bbox_rd, limit=100):
             features.append(f)
         url = next((l["href"] for l in page.get("links", []) if l.get("rel") == "next"), None)
         params = None
-        print(f"3dbag: {len(features)} / {page.get('numberMatched')}", flush=True)
-    return features
+    return features, matched
+
+
+def fetch(bbox_rd, tile_m=400.0):
+    """All 3DBAG features (CityJSONFeature with real coordinates) in an RD New bbox, fetched in tiles of
+    tile_m. The API repeats buildings across pages (its numberMatched counts each about twice) and a building
+    on a tile edge comes in both tiles, so every building is kept once, by id."""
+    x0, y0, x1, y1 = bbox_rd
+    nx, ny = max(1, math.ceil((x1 - x0) / tile_m)), max(1, math.ceil((y1 - y0) / tile_m))
+    seen, out = set(), []
+    for i in range(nx):
+        for j in range(ny):
+            tb = (x0 + i * (x1 - x0) / nx, y0 + j * (y1 - y0) / ny,
+                  x0 + (i + 1) * (x1 - x0) / nx, y0 + (j + 1) * (y1 - y0) / ny)
+            feats, matched = _fetch_pages(tb)
+            for f in feats:
+                if f["id"] not in seen:
+                    seen.add(f["id"])
+                    out.append(f)
+            print(f"3dbag: tile {i + 1},{j + 1} of {nx}x{ny}: {len(out)} buildings so far", flush=True)
+    return out
 
 
 def newell(pts):

@@ -161,6 +161,21 @@ def fetch_overpass(bbox_swne: tuple[float, float, float, float],
             last_err = exc
             log.warning("overpass attempt %d failed: %s", attempt + 1, exc)
             time.sleep(5 * (attempt + 1))
+    # a large bbox can time out on every server: fetch it as four quarters and merge them
+    s_, w_, n_, e_ = bbox_swne
+    if (n_ - s_) > 0.004 and (e_ - w_) > 0.006:
+        log.warning("overpass: bbox too heavy for the servers now; fetching it in four parts")
+        ms, mw = (s_ + n_) / 2, (w_ + e_) / 2
+        merged: dict[tuple[str, int], dict[str, Any]] = {}
+        for part in ((s_, w_, ms, mw), (s_, mw, ms, e_), (ms, w_, n_, mw), (ms, mw, n_, e_)):
+            for el in fetch_overpass(part, cache_dir, url, force, retries)["elements"]:
+                key = (el["type"], el["id"])
+                if key not in merged or (el.get("tags") and not merged[key].get("tags")):
+                    merged[key] = el
+        data = {"elements": list(merged.values()), "twinmodel": {"bbox_swne": list(bbox_swne), "parts": 4}}
+        path.write_text(json.dumps(data))
+        log.info("overpass: %d elements from 4 parts cached -> %s", len(data["elements"]), path)
+        return data
     raise RuntimeError(f"overpass fetch failed after {retries} attempts: {last_err}")
 
 
