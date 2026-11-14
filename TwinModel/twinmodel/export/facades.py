@@ -156,19 +156,25 @@ def classify(b: BuildingInfo) -> tuple[str, bool]:
     return "brick_modern", shop_floor
 
 
-# --buildings procedural (bake_level.py): carla-digitaltwins' modular atoms need door + window + top
-# rows (Skysc21: 9 m and more), and they are apartment / office kits, not sheds or warehouses
-PROCEDURAL_MIN_HEIGHT_M = 9.5
+# --buildings procedural (bake_level.py): carla-digitaltwins' modular atom kits need door + window + top
+# rows (measured in the content, 2026-11-14: Skysc21 apartment kit 508 + 350 + 99 cm, Skysc19 glass office
+# kit 533 + 502 + 502 cm), and they are apartment / office kits, not sheds, shops or warehouses
+PROCEDURAL_FAMILY_MIN_M = {"Skysc21": 9.6, "Skysc19": 15.4}
+PROCEDURAL_MIN_HEIGHT_M = min(PROCEDURAL_FAMILY_MIN_M.values())
 PROCEDURAL_STYLES = {"brick_old", "brick_postwar", "brick_modern", "render_modern", "office_concrete", "office_glass"}
 
 
+def procedural_family(style: str, height_m: float = 1e9) -> str:
+    """bake_level.FAMILIES member for a building: the glass office kit for offices tall enough for its
+    5 m storeys, else the apartment kit."""
+    if style in ("office_glass", "office_concrete") and height_m >= PROCEDURAL_FAMILY_MIN_M["Skysc19"]:
+        return "Skysc19"
+    return "Skysc21"
+
+
 def procedural_ok(style: str, height_m: float, min_height_m: float = PROCEDURAL_MIN_HEIGHT_M) -> bool:
-    return style in PROCEDURAL_STYLES and height_m >= min_height_m
-
-
-def procedural_family(style: str) -> str:
-    """bake_level.FAMILIES member for a style: the glass office kit for offices, else the apartment kit."""
-    return "Skysc19" if style in ("office_glass", "office_concrete") else "Skysc21"
+    fam = procedural_family(style, height_m)
+    return style in PROCEDURAL_STYLES and height_m >= max(min_height_m, PROCEDURAL_FAMILY_MIN_M[fam])
 
 
 def storeys_for(height_m: float, storey_m: float) -> tuple[int, float]:

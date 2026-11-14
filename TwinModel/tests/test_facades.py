@@ -154,5 +154,8 @@ def test_procedural_capable_buildings():
     assert not fc.procedural_ok("brick_postwar", 6.0)          # too low for door + window + top rows
     assert not fc.procedural_ok("industrial", 20.0)            # no warehouse kit
     assert not fc.procedural_ok("blank_brick", 20.0)
-    assert fc.procedural_family("office_glass") == "Skysc19"
-    assert fc.procedural_family("brick_old") == "Skysc21"
+    assert not fc.procedural_ok("brick_postwar", 9.55)         # Skysc21 needs 5.08 + 3.5 + 0.99 m
+    assert fc.procedural_family("office_glass", 30.0) == "Skysc19"
+    assert fc.procedural_family("office_glass", 12.0) == "Skysc21"   # too low for 5 m office storeys
+    assert fc.procedural_ok("office_glass", 12.0)
+    assert fc.procedural_family("brick_old", 30.0) == "Skysc21"

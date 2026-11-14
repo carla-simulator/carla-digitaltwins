@@ -1426,8 +1426,11 @@ def build_navigation_data(name, map_root=MAP_ROOT):
         cmd = [editor, uproject, level, "-run=WorldPartitionBuilderCommandlet",
                "-Builder=%s" % builder, "-SCCProvider=None", "-nullrhi", "-unattended"]
         proc = subprocess.run(cmd, capture_output=True, text=True)
-        done[builder] = proc.returncode == 0
-        if proc.returncode != 0:
+        # the editor binary can exit non-zero in its shutdown handler after the builder itself
+        # finished and saved (seen on lin5080 2026-11-14): trust the commandlet's own result line
+        ok = proc.returncode == 0 or "finished execution (result 0)" in (proc.stdout or "")
+        done[builder] = ok
+        if not ok:
             tail = (proc.stdout or proc.stderr or "").strip().splitlines()
             warn("%s failed (%s)" % (builder, tail[-1] if tail else "no output"))
         else:

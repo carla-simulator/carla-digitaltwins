@@ -560,7 +560,7 @@ def main():
                 "year": i["year"], "uses": {k: round(v) for k, v in i["uses"].items()},
                 "roof_type": a.get("b3_dak_type"), "style": i["style"], "shopfront": bool(i["shop"]),
                 "roof_rgb": list(rgb) if rgb else None, "procedural": bool(i.get("procedural")),
-                "family": facades.procedural_family(i["style"])})
+                "family": facades.procedural_family(i["style"], i["height"])})
     man["stats"]["buildings"] = n_buildings
     man["stats"]["building_source"] = f"3DBAG {args.lod} via api.3dbag.nl ({n_parts} parts, {n_tris} triangles)"
     if looks:
