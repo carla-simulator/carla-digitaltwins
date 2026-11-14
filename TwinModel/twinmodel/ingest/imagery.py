@@ -36,7 +36,6 @@ regular model grid (``model_grid``; rows increase with y — south-up — like `
 from __future__ import annotations
 
 import hashlib
-import io
 import logging
 import re
 from dataclasses import dataclass
@@ -172,7 +171,8 @@ class OrthoImage:
         img = Image.fromarray(self.array[::-1])
         if max(img.size) > max_px:
             f = max_px / max(img.size)
-            img = img.resize((int(img.width * f), int(img.height * f)), Image.BILINEAR)
+            resample = getattr(Image, "Resampling", Image).BILINEAR
+            img = img.resize((max(1, int(img.width * f)), max(1, int(img.height * f))), resample)
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         img.save(path)
@@ -263,29 +263,74 @@ def _mosaic_tiles(frame: LocalFrame, grid, resolution: float, src_crs: str, src_
     them into a north-up (3, H, W) uint8 array; ``None`` if nothing usable came back."""
     import rasterio
     from rasterio.io import MemoryFile
+    from rasterio.transform import from_origin
     from rasterio.warp import reproject, Resampling
     _, _, width, height, dst_transform = grid
     sminx, sminy, smaxx, smaxy = _source_bounds(frame, grid, resolution, src_crs)
     margin = 2 * max(resolution, src_res) if margin is None else margin
+    aminx = float(np.floor((sminx - margin) / src_res) * src_res)
+    aminy = float(np.floor((sminy - margin) / src_res) * src_res)
+    amaxx = float(np.ceil((smaxx + margin) / src_res) * src_res)
+    amaxy = float(np.ceil((smaxy + margin) / src_res) * src_res)
+    nx = int(np.ceil((amaxx - aminx) / src_res))
+    ny = int(np.ceil((amaxy - aminy) / src_res))
+    tile_jobs = []
+    for jy in range(0, ny, tile_px):
+        for ix in range(0, nx, tile_px):
+            w = min(tile_px, nx - ix)
+            h = min(tile_px, ny - jy)
+            x0 = aminx + ix * src_res
+            y0 = aminy + jy * src_res
+            tile_jobs.append((ix, jy, w, h, (x0, y0, x0 + w * src_res, y0 + h * src_res)))
+    if not tile_jobs:
+        log.warning("imagery: provider returned no usable pixels")
+        return None
     dst = np.zeros((3, height, width), dtype=np.uint8)
-    n_tiles = 0
-    for bbox, w, h in _tiles(sminx - margin, sminy - margin, smaxx + margin, smaxy + margin,
-                             src_res, tile_px):
+    default_crs = rasterio.crs.CRS.from_string(src_crs)
+    if len(tile_jobs) == 1:
+        _, _, w, h, bbox = tile_jobs[0]
         data = get_tile(bbox, w, h)
         with MemoryFile(data) as mem, mem.open() as src:
             src_arr = src.read()[:3]
             if src_arr.shape[0] == 1:
                 src_arr = np.repeat(src_arr, 3, axis=0)
             src_transform = src.transform
-            file_crs = src.crs or rasterio.crs.CRS.from_string(src_crs)
-        n_tiles += 1
-        tile_dst = np.zeros_like(dst)
-        reproject(src_arr, tile_dst, src_transform=src_transform, src_crs=file_crs,
+            file_crs = src.crs or default_crs
+        reproject(src_arr, dst, src_transform=src_transform, src_crs=file_crs,
                   dst_transform=dst_transform, dst_crs=frame.crs,
                   resampling=Resampling.bilinear, src_nodata=None, dst_nodata=0)
-        hit = tile_dst.max(axis=0) > 0
-        dst[:, hit] = tile_dst[:, hit]
-    if n_tiles == 0 or dst.max() == 0:
+    else:
+        mosaic = np.zeros((3, ny, nx), dtype=np.uint8)
+        mosaic_crs = default_crs
+        fallback_tiles = []
+        stitched_any = False
+        for ix, jy, w, h, bbox in tile_jobs:
+            data = get_tile(bbox, w, h)
+            with MemoryFile(data) as mem, mem.open() as src:
+                src_arr = src.read()[:3]
+                if src_arr.shape[0] == 1:
+                    src_arr = np.repeat(src_arr, 3, axis=0)
+                src_transform = src.transform
+                file_crs = src.crs or default_crs
+            if src_arr.shape[1:] == (h, w) and file_crs == mosaic_crs:
+                r0 = ny - jy - h
+                mosaic[:, r0:r0 + h, ix:ix + w] = src_arr
+                stitched_any = True
+            else:
+                fallback_tiles.append((src_arr, src_transform, file_crs))
+        if stitched_any:
+            mosaic_transform = from_origin(aminx, aminy + ny * src_res, src_res, src_res)
+            reproject(mosaic, dst, src_transform=mosaic_transform, src_crs=mosaic_crs,
+                      dst_transform=dst_transform, dst_crs=frame.crs,
+                      resampling=Resampling.bilinear, src_nodata=None, dst_nodata=0)
+        for src_arr, src_transform, file_crs in fallback_tiles:
+            tile_dst = np.zeros_like(dst)
+            reproject(src_arr, tile_dst, src_transform=src_transform, src_crs=file_crs,
+                      dst_transform=dst_transform, dst_crs=frame.crs,
+                      resampling=Resampling.bilinear, src_nodata=None, dst_nodata=0)
+            hit = tile_dst.max(axis=0) > 0
+            dst[:, hit] = tile_dst[:, hit]
+    if dst.max() == 0:
         log.warning("imagery: provider returned no usable pixels")
         return None
     return dst
@@ -310,20 +355,19 @@ def _icgc_native_res(layer: str) -> float:
 def _fetch_icgc(frame: LocalFrame, bbox_swne, resolution: float, grid, layer: str = DEFAULT_LAYER,
                 **_) -> Optional[OrthoImage]:
     import requests
-    session = requests.Session()
+    with requests.Session() as session:
+        def get_tile(bbox, w, h):
+            try:
+                return _getmap_tiff(session, layer, SOURCE_CRS, bbox, w, h, url=WMS_URL)
+            except Exception as exc:
+                if layer == FALLBACK_LAYER:
+                    raise
+                log.warning("GetMap %s failed (%s); retrying with %s", layer, exc, FALLBACK_LAYER)
+                return _getmap_tiff(session, FALLBACK_LAYER, SOURCE_CRS, bbox, w, h, url=WMS_URL)
 
-    def get_tile(bbox, w, h):
-        try:
-            return _getmap_tiff(session, layer, SOURCE_CRS, bbox, w, h, url=WMS_URL)
-        except Exception as exc:
-            if layer == FALLBACK_LAYER:
-                raise
-            log.warning("GetMap %s failed (%s); retrying with %s", layer, exc, FALLBACK_LAYER)
-            return _getmap_tiff(session, FALLBACK_LAYER, SOURCE_CRS, bbox, w, h, url=WMS_URL)
-
-    native = _icgc_native_res(layer)
-    dst = _mosaic_tiles(frame, grid, resolution, SOURCE_CRS, max(native, resolution), TILE_PX,
-                        get_tile)
+        native = _icgc_native_res(layer)
+        dst = _mosaic_tiles(frame, grid, resolution, SOURCE_CRS, max(native, resolution), TILE_PX,
+                            get_tile)
     if dst is None:
         return None
     return _to_image(dst, grid, resolution, "icgc",
@@ -332,10 +376,10 @@ def _fetch_icgc(frame: LocalFrame, bbox_swne, resolution: float, grid, layer: st
 
 def _fetch_ign_es(frame: LocalFrame, bbox_swne, resolution: float, grid, **_) -> Optional[OrthoImage]:
     import requests
-    session = requests.Session()
-    dst = _mosaic_tiles(frame, grid, resolution, IGN_ES_CRS, max(IGN_ES_RES, resolution), TILE_PX,
-                        lambda bbox, w, h: _getmap_tiff(session, IGN_ES_LAYER, IGN_ES_CRS, bbox, w, h,
-                                                        url=IGN_ES_WMS))
+    with requests.Session() as session:
+        dst = _mosaic_tiles(frame, grid, resolution, IGN_ES_CRS, max(IGN_ES_RES, resolution), TILE_PX,
+                            lambda bbox, w, h: _getmap_tiff(session, IGN_ES_LAYER, IGN_ES_CRS, bbox, w, h,
+                                                            url=IGN_ES_WMS))
     if dst is None:
         return None
     return _to_image(dst, grid, resolution, "ign_es",
@@ -355,18 +399,18 @@ def _naip_export_tile(session, bbox, w: int, h: int) -> bytes:
 
 def _fetch_naip(frame: LocalFrame, bbox_swne, resolution: float, grid, **_) -> Optional[OrthoImage]:
     import requests
-    session = requests.Session()
     src_res = max(NAIP_RES, resolution)
-    try:
-        dst = _mosaic_tiles(frame, grid, resolution, NAIP_CRS, src_res, NAIP_MAX_PX,
-                            lambda bbox, w, h: _naip_export_tile(session, bbox, w, h))
-        detail = f"USGS NAIP Plus ImageServer exportImage @{src_res:g} m ({NAIP_CRS} -> local)"
-    except Exception as exc:
-        log.warning("imagery: NAIP exportImage failed (%s); trying the WMS endpoint", exc)
-        dst = _mosaic_tiles(frame, grid, resolution, NAIP_CRS, src_res, NAIP_MAX_PX,
-                            lambda bbox, w, h: _getmap_tiff(session, NAIP_WMS_LAYER, NAIP_CRS, bbox,
-                                                            w, h, url=NAIP_WMS_URL))
-        detail = f"USGS NAIP Plus WMS {NAIP_WMS_LAYER} @{src_res:g} m ({NAIP_CRS} -> local)"
+    with requests.Session() as session:
+        try:
+            dst = _mosaic_tiles(frame, grid, resolution, NAIP_CRS, src_res, NAIP_MAX_PX,
+                                lambda bbox, w, h: _naip_export_tile(session, bbox, w, h))
+            detail = f"USGS NAIP Plus ImageServer exportImage @{src_res:g} m ({NAIP_CRS} -> local)"
+        except Exception as exc:
+            log.warning("imagery: NAIP exportImage failed (%s); trying the WMS endpoint", exc)
+            dst = _mosaic_tiles(frame, grid, resolution, NAIP_CRS, src_res, NAIP_MAX_PX,
+                                lambda bbox, w, h: _getmap_tiff(session, NAIP_WMS_LAYER, NAIP_CRS, bbox,
+                                                                w, h, url=NAIP_WMS_URL))
+            detail = f"USGS NAIP Plus WMS {NAIP_WMS_LAYER} @{src_res:g} m ({NAIP_CRS} -> local)"
     if dst is None:
         return None
     return _to_image(dst, grid, resolution, "naip", detail)

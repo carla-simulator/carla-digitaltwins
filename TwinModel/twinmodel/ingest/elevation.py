@@ -136,6 +136,7 @@ def _parse_gfi(text: str, kind: str) -> float:
 def _icgc_gfi_sample(frame: LocalFrame, grid, sample_spacing: float, service: str = "mdt2m",
                      threads: int = GFI_THREADS) -> Optional[Elevation]:
     import requests
+    import threading
     from pyproj import Transformer
     from scipy.interpolate import RectBivariateSpline
 
@@ -157,12 +158,19 @@ def _icgc_gfi_sample(frame: LocalFrame, grid, sample_spacing: float, service: st
         url, layer, kind = ICGC_MDT2M_WMS, ICGC_MDT2M_LAYER, "mdt2m"
     else:
         url, layer, kind = ICGC_TERR_WMS, ICGC_TERR_LAYER, "terr"
-    session = requests.Session()
-    try:
-        from requests.adapters import HTTPAdapter
-        session.mount("https://", HTTPAdapter(pool_connections=threads, pool_maxsize=threads))
-    except Exception:
-        pass
+
+    tls = threading.local()
+    sessions = []
+    sessions_lock = threading.Lock()
+
+    def get_session():
+        sess = getattr(tls, "session", None)
+        if sess is None:
+            sess = requests.Session()
+            with sessions_lock:
+                sessions.append(sess)
+            tls.session = sess
+        return sess
 
     def one(i: int) -> float:
         x, y = ux[i], uy[i]
@@ -171,22 +179,26 @@ def _icgc_gfi_sample(frame: LocalFrame, grid, sample_spacing: float, service: st
                       BBOX=f"{x - 1:.3f},{y - 1:.3f},{x + 1:.3f},{y + 1:.3f}", WIDTH=2, HEIGHT=2,
                       I=1, J=1, INFO_FORMAT="text/plain")
         try:
-            r = session.get(url, params=params, timeout=GFI_TIMEOUT)
+            r = get_session().get(url, params=params, timeout=GFI_TIMEOUT)
             if r.status_code != 200:
                 return np.nan
             return _parse_gfi(r.text, kind)
         except Exception:
             return np.nan
 
-    # probe one point first so an unreachable service fails fast
-    probe = one(ux.size // 2)
-    if not np.isfinite(probe):
-        log.warning("elevation: ICGC %s GetFeatureInfo probe failed", service)
-        return None
-    log.info("elevation: sampling ICGC %s via GetFeatureInfo: %d points @ %.1f m (%d threads)",
-             service, ux.size, sample_spacing, threads)
-    with ThreadPoolExecutor(threads) as ex:
-        vals = np.fromiter(ex.map(one, range(ux.size)), dtype=np.float64, count=ux.size)
+    try:
+        # probe one point first so an unreachable service fails fast
+        probe = one(ux.size // 2)
+        if not np.isfinite(probe):
+            log.warning("elevation: ICGC %s GetFeatureInfo probe failed", service)
+            return None
+        log.info("elevation: sampling ICGC %s via GetFeatureInfo: %d points @ %.1f m (%d threads)",
+                 service, ux.size, sample_spacing, threads)
+        with ThreadPoolExecutor(threads) as ex:
+            vals = np.fromiter(ex.map(one, range(ux.size)), dtype=np.float64, count=ux.size)
+    finally:
+        for s in sessions:
+            s.close()
     zs = vals.reshape(gy.shape)
     bad = ~np.isfinite(zs)
     if bad.mean() > 0.05:
@@ -262,29 +274,45 @@ def _ign_wcs(frame: LocalFrame, bbox_swne, grid) -> Optional[Elevation]:
 
 def _copernicus_aws(frame: LocalFrame, bbox_swne, grid) -> Optional[Elevation]:
     import rasterio
+    from rasterio.errors import RasterioIOError
     from rasterio.windows import from_bounds
     s, w, n, e = bbox_swne
     x0, y0, width, height, transform = grid
-    tiles = {(int(np.floor(la)), int(np.floor(lo))) for la in (s, n) for lo in (w, e)}
+    tiles = [(la, lo)
+             for la in range(int(np.floor(s)), int(np.floor(n)) + 1)
+             for lo in range(int(np.floor(w)), int(np.floor(e)) + 1)]
     zs = []
+    missing_tiles = 0
     pad = 0.002
     with rasterio.Env(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif"):
-        for la, lo in sorted(tiles):
+        for la, lo in tiles:
             lat = f"{'N' if la >= 0 else 'S'}{abs(la):02d}"
             lon = f"{'E' if lo >= 0 else 'W'}{abs(lo):03d}"
             url = "/vsicurl/" + COPERNICUS_AWS.format(lat=lat, lon=lon)
-            with rasterio.open(url) as ds:
-                win = from_bounds(max(w - pad, ds.bounds.left), max(s - pad, ds.bounds.bottom),
-                                  min(e + pad, ds.bounds.right), min(n + pad, ds.bounds.top),
-                                  ds.transform)
-                arr = ds.read(1, window=win)
-                z = _reproject_to_grid(arr, ds.window_transform(win), ds.crs, ds.nodata, transform,
-                                       frame.crs, width, height)
-            zs.append(z)
+            try:
+                with rasterio.open(url) as ds:
+                    win = from_bounds(max(w - pad, ds.bounds.left), max(s - pad, ds.bounds.bottom),
+                                      min(e + pad, ds.bounds.right), min(n + pad, ds.bounds.top),
+                                      ds.transform)
+                    arr = ds.read(1, window=win)
+                    z = _reproject_to_grid(arr, ds.window_transform(win), ds.crs, ds.nodata, transform,
+                                           frame.crs, width, height)
+                zs.append(z)
+            except RasterioIOError as exc:
+                # Copernicus GLO-30 omits pure-ocean 1x1 deg tiles on S3 (HTTP 404).
+                missing_tiles += 1
+                log.info("elevation: Copernicus tile %s_%s unavailable (%s); treating as sea level if coastal",
+                         lat, lon, exc)
+    if not zs:
+        return None
     z = zs[0]
     for other in zs[1:]:
         z = np.where(np.isnan(z), other, z)
-    return _elevation_from_north_up(_fill_nan(z), x0, y0, transform.a,
+    if missing_tiles > 0:
+        z = np.where(np.isnan(z), 0.0, z)
+    else:
+        z = _fill_nan(z)
+    return _elevation_from_north_up(z, x0, y0, transform.a,
                                     "Copernicus GLO-30 DSM (AWS COG, 30 m; buildings included)")
 
 
@@ -435,11 +463,13 @@ def save_quicklook(el: Elevation, path: Path | str, contour_m: float = 1.0) -> P
     rgb = ls.shade(el.z, cmap=plt.cm.terrain, blend_mode="overlay", vert_exag=3,
                    dx=el.dx, dy=el.dy)
     ax.imshow(rgb, extent=extent, origin="lower")
-    levels = np.arange(np.floor(el.z.min()), np.ceil(el.z.max()) + contour_m, contour_m)
-    xs = el.x0 + np.arange(W) * el.dx
-    ys = el.y0 + np.arange(H) * el.dy
-    cs = ax.contour(xs, ys, el.z, levels=levels, colors="k", linewidths=0.5, alpha=0.7)
-    ax.clabel(cs, fmt="%.0f", fontsize=7)
+    if float(el.z.max() - el.z.min()) > 1e-6 and contour_m > 0:
+        levels = np.arange(np.floor(el.z.min()), np.ceil(el.z.max()) + contour_m, contour_m)
+        if len(levels) >= 2:
+            xs = el.x0 + np.arange(W) * el.dx
+            ys = el.y0 + np.arange(H) * el.dy
+            cs = ax.contour(xs, ys, el.z, levels=levels, colors="k", linewidths=0.5, alpha=0.7)
+            ax.clabel(cs, fmt="%.0f", fontsize=7)
     st = plane_fit(el)
     ax.set_title(f"{el.source}\nz {st['z_min']:.1f}..{st['z_max']:.1f} m, slope {st['slope_pct']:.2f}% "
                  f"uphill toward {st['uphill_toward']} ({st['uphill_azimuth_deg']:.0f} deg)", fontsize=9)

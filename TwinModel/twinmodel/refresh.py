@@ -32,10 +32,11 @@ import os
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Optional
 
 log = logging.getLogger("twinmodel.refresh")
@@ -44,8 +45,10 @@ TWINMODEL_DIR = Path(__file__).resolve().parents[1]
 CARLA_SOURCE = Path(os.environ.get("CARLA_SOURCE", str(TWINMODEL_DIR.parents[1])))
 DEFAULT_CONTENT = CARLA_SOURCE / "carla-ue5/Unreal/CarlaUnreal/Content"
 DEFAULT_UPROJECT = CARLA_SOURCE / "carla-ue58-dtupgrade/Unreal/CarlaUnreal/CarlaUnreal.uproject"
-DEFAULT_UE_CMD = CARLA_SOURCE / "UnrealEngine_5/Engine/Binaries/Linux/UnrealEditor-Cmd"
-DEFAULT_UE = CARLA_SOURCE / "UnrealEngine_5/Engine/Binaries/Linux/UnrealEditor"
+_UE_BIN_SUBDIR = "Win64" if os.name == "nt" else "Linux"
+_UE_EXE_SUFFIX = ".exe" if os.name == "nt" else ""
+DEFAULT_UE_CMD = CARLA_SOURCE / f"UnrealEngine_5/Engine/Binaries/{_UE_BIN_SUBDIR}/UnrealEditor-Cmd{_UE_EXE_SUFFIX}"
+DEFAULT_UE = CARLA_SOURCE / f"UnrealEngine_5/Engine/Binaries/{_UE_BIN_SUBDIR}/UnrealEditor{_UE_EXE_SUFFIX}"
 UE_LOCK = CARLA_SOURCE / ".omc/ue.lock"
 LOG_DIR = CARLA_SOURCE / ".omc/logs"
 DEMO_UNITS = ("int-demo-tour", "int-game-demo")
@@ -311,23 +314,33 @@ def graft_signals(deployed_text: str, new_text: str, tol_m: float = 15.0) -> tup
     return etree.tostring(old, xml_declaration=True, encoding="UTF-8", pretty_print=True).decode(), stats
 
 
+def _quote_ue_script_arg(a: str) -> str:
+    if not a or any(ch.isspace() or ch == '"' for ch in a):
+        return '"' + a.replace('"', '\\"') + '"'
+    return a
+
+
 def editor_commands(level: str, build_dir: Path, style: str, rig_map: Optional[str],
                     uproject: Path = DEFAULT_UPROJECT, ue_cmd: Path = DEFAULT_UE_CMD) -> list[list[str]]:
     """The two placement commandlets (lights, then signs) as argv lists."""
     ue = TWINMODEL_DIR / "ue"
-    lights = ["--name", level, "--signals", str(build_dir / "ue/tl_signals.json"), "--rig", str(ue / "rigs"),
-              "--style", style, "--report", str(build_dir / "ue/traffic_lights_report.json")]
+    lights = ["--name", level, "--signals", (build_dir / "ue/tl_signals.json").as_posix(),
+              "--rig", (ue / "rigs").as_posix(), "--style", style,
+              "--report", (build_dir / "ue/traffic_lights_report.json").as_posix()]
     if rig_map:
-        lights += ["--rig-map", str(Path(rig_map).resolve())]
-    signs = ["--name", level, "--signals", str(build_dir / "ue/sign_signals.json"),
-             "--manifest", str(ue / "assets/sign_catalog_manifest.json"),
-             "--report", str(build_dir / "ue/traffic_signs_report.json")]
+        rig_arg = (PurePosixPath(rig_map).as_posix()
+                   if os.name == "nt" and rig_map.startswith("/")
+                   else Path(rig_map).resolve().as_posix())
+        lights += ["--rig-map", rig_arg]
+    signs = ["--name", level, "--signals", (build_dir / "ue/sign_signals.json").as_posix(),
+             "--manifest", (ue / "assets/sign_catalog_manifest.json").as_posix(),
+             "--report", (build_dir / "ue/traffic_signs_report.json").as_posix()]
     common = ["-unattended", "-nosplash", "-nosound", "-stdout", "-FullStdOutLogOutput"]
+    lights_script = " ".join(_quote_ue_script_arg(x) for x in [(ue / "place_traffic_lights.py").as_posix(), *lights])
+    signs_script = " ".join(_quote_ue_script_arg(x) for x in [(ue / "place_traffic_signs.py").as_posix(), *signs])
     return [
-        [str(ue_cmd), str(uproject), "-run=pythonscript",
-         "-script=%s %s" % (ue / "place_traffic_lights.py", " ".join(lights))] + common,
-        [str(ue_cmd), str(uproject), "-run=pythonscript",
-         "-script=%s %s" % (ue / "place_traffic_signs.py", " ".join(signs))] + common,
+        [ue_cmd.as_posix(), uproject.as_posix(), "-run=pythonscript", f"-script={lights_script}"] + common,
+        [ue_cmd.as_posix(), uproject.as_posix(), "-run=pythonscript", f"-script={signs_script}"] + common,
     ]
 
 
@@ -343,7 +356,17 @@ def _run(argv: list[str], **kw) -> subprocess.CompletedProcess:
 
 
 def _unit_active(unit: str) -> bool:
+    if os.name == "nt" or shutil.which("systemctl") is None:
+        return False
     return subprocess.run(["systemctl", "--user", "is-active", "-q", unit]).returncode == 0
+
+
+def _port_listening(port: int, host: str = "127.0.0.1") -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=0.5):
+            return True
+    except OSError:
+        return False
 
 
 def _relaunch_demo(units: list[str]) -> None:
@@ -356,7 +379,7 @@ def _relaunch_demo(units: list[str]) -> None:
              check=True)
         for _ in range(60):
             time.sleep(5)
-            if subprocess.run("ss -ltn | grep -q ':3000 '", shell=True).returncode == 0:
+            if _port_listening(3000):
                 break
         time.sleep(60)
     if "int-demo-tour" in units:
@@ -378,7 +401,7 @@ def refresh(args: argparse.Namespace) -> int:
     if not report_path.exists():
         log.error("no report.json in %s", build_dir)
         return 2
-    with open(report_path) as f:
+    with open(report_path, encoding="utf-8") as f:
         report = json.load(f)
     twin_name = report["build"]["args"]["name"]
     deployed = content / "Carla/Maps/Twins" / level / "OpenDrive" / (level + ".xodr")
@@ -390,7 +413,11 @@ def refresh(args: argparse.Namespace) -> int:
 
     # 1. rebuild with the recorded args
     rebuild = Path(args.rebuild_out).resolve() if args.rebuild_out else build_dir.with_name(build_dir.name + "_refresh")
-    argv = build_argv_from_report(report, os.path.relpath(rebuild, TWINMODEL_DIR))
+    try:
+        rebuild_arg = os.path.relpath(rebuild, TWINMODEL_DIR)
+    except ValueError:
+        rebuild_arg = str(rebuild)
+    argv = build_argv_from_report(report, rebuild_arg)
     out["build_argv"] = argv
     new_xodr = rebuild / (twin_name + ".xodr")
     if args.reuse_rebuild and new_xodr.exists():
@@ -404,8 +431,8 @@ def refresh(args: argparse.Namespace) -> int:
     # 2. the level's geometry must stay what it is: either the rebuild reproduces it byte for byte
     #    (level baked with the current exporter) or, if only the geometry moved while the
     #    topology is the same, graft the new signal semantics onto the deployed geometry
-    old_text = deployed.read_text()
-    new_text = new_xodr.read_text()
+    old_text = deployed.read_text(encoding="utf-8")
+    new_text = new_xodr.read_text(encoding="utf-8")
     out["geometry_identical"] = geometry_identical(old_text, new_text)
     out["topology_diff"] = topology_diff(old_text, new_text)
     out["topology_identical"] = out["geometry_identical"] or topology_identical(old_text, new_text)
@@ -430,7 +457,7 @@ def refresh(args: argparse.Namespace) -> int:
         _write_report(build_dir, out, status="topology-mismatch")
         return 4
     candidate = rebuild / (level + ".candidate.xodr")
-    candidate.write_text(candidate_text)
+    candidate.write_text(candidate_text, encoding="utf-8")
     out["after"] = xodr_stats(candidate_text)
     out["candidate_xodr"] = str(candidate)
 
@@ -469,9 +496,9 @@ def refresh(args: argparse.Namespace) -> int:
         log.error("xodr_signals failed; restored deployed OpenDRIVE")
         _write_report(build_dir, out, status="signals-json-failed")
         return 6
-    with open(ue_dir / "tl_signals.json") as f:
+    with open(ue_dir / "tl_signals.json", encoding="utf-8") as f:
         out["tl_signals"] = len(json.load(f))
-    with open(ue_dir / "sign_signals.json") as f:
+    with open(ue_dir / "sign_signals.json", encoding="utf-8") as f:
         out["sign_signals"] = len(json.load(f))
 
     # 6. placement commandlets
@@ -489,32 +516,43 @@ def refresh(args: argparse.Namespace) -> int:
         time.sleep(3)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     logf = LOG_DIR / ("refresh-signals-%s.log" % level.lower())
-    unit = "int-refresh-%s" % level.lower()
-    r = _run(["systemd-run", "--user", "--collect", "--wait", "--unit", unit,
-              "-p", "StandardOutput=file:%s" % logf, "-p", "StandardError=file:%s" % logf,
-              "--setenv=DLSS_SDK=%s" % os.environ.get("DLSS_SDK", "/home/german/SDKs/DLSS"),
-              "/usr/bin/flock", str(UE_LOCK), "/bin/bash", "-c", chained_shell(cmds)])
-    out["editor_rc"] = r.returncode
+    if os.name == "nt" or shutil.which("systemd-run") is None:
+        rc = 0
+        with open(logf, "w", encoding="utf-8") as lf:
+            for cmd in cmds:
+                res = _run(cmd, stdout=lf, stderr=subprocess.STDOUT, close_fds=True)
+                if res.returncode != 0:
+                    rc = res.returncode
+                    break
+        editor_rc = rc
+    else:
+        unit = "int-refresh-%s" % level.lower()
+        r = _run(["systemd-run", "--user", "--collect", "--wait", "--unit", unit,
+                  "-p", "StandardOutput=file:%s" % logf, "-p", "StandardError=file:%s" % logf,
+                  "--setenv=DLSS_SDK=%s" % os.environ.get("DLSS_SDK", "/home/german/SDKs/DLSS"),
+                  "/usr/bin/flock", str(UE_LOCK), "/bin/bash", "-c", chained_shell(cmds)])
+        editor_rc = r.returncode
+    out["editor_rc"] = editor_rc
     out["editor_log"] = str(logf)
     for name in ("traffic_lights_report.json", "traffic_signs_report.json"):
         p = ue_dir / name
         if p.exists():
-            with open(p) as f:
+            with open(p, encoding="utf-8") as f:
                 out[name.replace(".json", "")] = json.load(f)
     if running:
         _relaunch_demo(running)
         out["demo_units_relaunched"] = running
-    status = "ok" if r.returncode == 0 else "editor-failed"
+    status = "ok" if editor_rc == 0 else "editor-failed"
     _write_report(build_dir, out, status=status)
     _summary(out)
-    return 0 if r.returncode == 0 else 7
+    return 0 if editor_rc == 0 else 7
 
 
 def _write_report(build_dir: Path, out: dict, status: str) -> None:
     out["status"] = status
     out["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     (build_dir / "ue").mkdir(exist_ok=True)
-    with open(build_dir / "ue/refresh_report.json", "w") as f:
+    with open(build_dir / "ue/refresh_report.json", "w", encoding="utf-8") as f:
         json.dump(out, f, indent=1)
 
 

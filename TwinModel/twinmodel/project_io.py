@@ -9,7 +9,7 @@ import stat
 import tempfile
 import zipfile
 
-from .project import Project, checksum, digest, locked, read, write
+from .project import Project, _is_num, _replace_retry, checksum, digest, locked, read, write
 
 ARCHIVE_SCHEMA = 'twin-project-archive/1'
 
@@ -24,10 +24,14 @@ def revision(project):
 
 
 def validate_authoring(name, value):
+    if not isinstance(value, dict):
+        raise ValueError('Authoring document must be an object')
     if name == 'layout':
         from .corrections import SCHEMA, validate
         if value.get('schema') != SCHEMA:
             raise ValueError('Unsupported corrections schema')
+        if not isinstance(value.get('ops'), list):
+            raise ValueError('Corrections ops must be a list')
         problems = validate(value['ops'])
         if problems:
             raise ValueError(str(problems))
@@ -41,7 +45,7 @@ def validate_authoring(name, value):
         if value.get('style', 'eu') not in ('eu', 'na'):
             raise ValueError('Invalid traffic style')
         for key in ('green', 'red', 'amber'):
-            if key in value and (not isinstance(value[key], (int, float)) or not 0 < value[key] < 3600):
+            if key in value and (not _is_num(value[key]) or not 0 < value[key] < 3600):
                 raise ValueError('Invalid traffic duration')
     else:
         raise ValueError('Unknown authoring document')
@@ -60,6 +64,8 @@ def save_authoring(project, name, value, expected_revision):
 
 
 def validate_project(project):
+    if not project.path('authoring/layout.json').is_file():
+        raise ValueError('Missing authoring/layout.json')
     for file in project.path('authoring').glob('*.json'):
         validate_authoring(file.stem, read(file))
     mode = project.spec['source']['mode']
@@ -70,14 +76,17 @@ def validate_project(project):
                  'bbox_wgs84': list(model.bbox_wgs84)}
     else:
         bbox = project.spec['source'].get('bbox', [])
-        if len(bbox) != 4 or not (-90 <= bbox[0] < bbox[2] <= 90 and -180 <= bbox[1] < bbox[3] <= 180):
+        if (not isinstance(bbox, list) or len(bbox) != 4 or not all(_is_num(v) for v in bbox)
+                or not (-90 <= bbox[0] < bbox[2] <= 90 and -180 <= bbox[1] < bbox[3] <= 180)):
             raise ValueError('Invalid source bounding box')
         if project.path('sources/osm.json').exists() and 'elements' not in read(project.path('sources/osm.json')):
             raise ValueError('Invalid OSM snapshot')
         frame = {'bbox_wgs84': bbox}
     expected = project.spec.get('frame')
     if expected and mode == 'snapshot':
-        if expected.get('crs') != 'local-enu' or any(abs(expected[k]-frame[k]) > 1e-9 for k in ('origin_lat','origin_lon')):
+        if expected.get('crs') != 'local-enu' or any(
+                not _is_num(expected.get(k)) or abs(expected[k] - frame[k]) > 1e-9
+                for k in ('origin_lat', 'origin_lon')):
             raise ValueError('Project frame does not match its model snapshot')
     return {'valid': True, 'frame': frame, 'revision': revision(project)}
 
@@ -100,24 +109,24 @@ def export_project(project, destination):
                 raise ValueError('Portable projects cannot contain external links')
             data = file.read_bytes()
             if file.name == 'model.json' and file.parent.suffix == '.twin':
-                model = json.loads(data)
+                model = json.loads(data.decode('utf-8'))
                 # Build diagnostics contain host-specific paths, not model geometry.
                 model.get('metadata', {}).pop('build', None)
                 model.get('metadata', {}).pop('corrections', None)
-                data = (json.dumps(model, indent=2) + '\n').encode()
-            payload[str(file.relative_to(project.root))] = data
+                data = (json.dumps(model, indent=2) + '\n').encode('utf-8')
+            payload[file.relative_to(project.root).as_posix()] = data
         reference = project.path('build/model')/(project.spec['name']+'.twin')
         if reference.exists():
             for file in sorted(p for p in reference.rglob('*') if p.is_file()):
-                if not file.resolve().is_relative_to(project.root):
+                if file.is_symlink() or not file.resolve().is_relative_to(project.root):
                     raise ValueError('External link in editor reference model')
                 data = file.read_bytes()
                 if file.name == 'model.json':
-                    value = json.loads(data)
+                    value = json.loads(data.decode('utf-8'))
                     value.get('metadata', {}).pop('build', None)
                     value.get('metadata', {}).pop('corrections', None)
-                    data = (json.dumps(value, indent=2)+'\n').encode()
-                payload['sources/editor-reference.twin/'+str(file.relative_to(reference))] = data
+                    data = (json.dumps(value, indent=2)+'\n').encode('utf-8')
+                payload['sources/editor-reference.twin/'+file.relative_to(reference).as_posix()] = data
         manifest = {'schema': ARCHIVE_SCHEMA, 'files': {
             name: hashlib.sha256(data).hexdigest() for name, data in payload.items()}}
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -128,7 +137,7 @@ def export_project(project, destination):
                 for name, data in payload.items():
                     archive.writestr(name, data)
                 archive.writestr('archive.json', json.dumps(manifest))
-            temporary.replace(destination)
+            _replace_retry(temporary, destination)
         finally:
             temporary.unlink(missing_ok=True)
     return {'archive': str(destination), 'files': len(payload)}
@@ -147,9 +156,14 @@ def import_project(source, destination):
             if len(names) != len(set(names)) or sum(i.file_size for i in infos) > 8 * 1024**3:
                 raise ValueError('Duplicate archive paths or oversized project')
             for info in infos:
+                raw_name = getattr(info, 'orig_filename', info.filename)
                 path = PurePosixPath(info.filename)
-                if path.is_absolute() or path.as_posix() != info.filename or '..' in path.parts or '\\' in info.filename or stat.S_ISLNK(info.external_attr >> 16):
+                if (path.is_absolute() or path.as_posix() != info.filename or raw_name != info.filename
+                        or '..' in path.parts or '\\' in raw_name or ':' in raw_name
+                        or stat.S_ISLNK(info.external_attr >> 16)):
                     raise ValueError('Unsafe archive path')
+            if 'archive.json' not in names:
+                raise ValueError('Invalid archive manifest')
             manifest = json.loads(archive.read('archive.json'))
             if manifest.get('schema') != ARCHIVE_SCHEMA or set(names) != set(manifest['files']) | {'archive.json'}:
                 raise ValueError('Invalid archive manifest')
@@ -172,8 +186,8 @@ def import_project(source, destination):
             # A review baseline is not a successful build receipt. This lets users
             # open and repair pending annotations after importing a project.
             shutil.copytree(reference, temporary/'build/model'/(imported.spec['name']+'.twin'))
-        (temporary/'.gitignore').write_text('build/\nstate/\nruns/\n')
-        temporary.rename(destination)
+        (temporary/'.gitignore').write_text('build/\nstate/\nruns/\n', encoding='utf-8', newline='\n')
+        _replace_retry(temporary, destination)
     finally:
         if temporary.exists():
             shutil.rmtree(temporary)
@@ -181,13 +195,15 @@ def import_project(source, destination):
 
 
 def import_model(project, source):
+    import math
     from .model import TwinModel
     with locked(project.root):
         old_path = project.path('sources/model.twin')
         if not old_path.exists():
             raise ValueError('Model replacement requires a snapshot project')
         old, new = TwinModel.load(old_path), TwinModel.load(source)
-        if (old.origin_lat, old.origin_lon) != (new.origin_lat, new.origin_lon):
+        if not (math.isclose(old.origin_lat, new.origin_lat, abs_tol=1e-9)
+                and math.isclose(old.origin_lon, new.origin_lon, abs_tol=1e-9)):
             raise ValueError('Coordinate origin changed; authoring coordinates must be reviewed')
         # IDs of generated groups depend on geometry; require explicit review if
         # positional overrides exist rather than silently dropping them.

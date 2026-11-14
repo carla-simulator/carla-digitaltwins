@@ -120,17 +120,44 @@ const VEC = __VECTORS_JSON__;
 const IMG = { osm: "__IMG_OSM__", ortho: "__IMG_ORTHO__", mesh: "__IMG_MESH__", diff: "__IMG_DIFF__" };
 
 const LAYERS = [
-  { id: "osm",   name: "OSM tiles (z" + (L.zoom || 19) + ")", key: "1", alpha: 1.0, on: true,  sw: "#f2efe9" },
-  { id: "ortho", name: "Orthophoto " + (L.ortho_label || L.ortho_source || "n/a"), key: "2", alpha: 1.0, on: false, sw: "#6d6a5c" },
-  { id: "mesh",  name: "Twin mesh (top render)", key: "3", alpha: 0.65, on: true, sw: "#3a3a3a" },
+  { id: "osm",   name: "OSM tiles (z" + (L.zoom || 19) + ")", key: "1", alpha: 1.0, on: Boolean(IMG.osm), sw: "#f2efe9", available: Boolean(IMG.osm) },
+  { id: "ortho", name: "Orthophoto " + (L.ortho_label || L.ortho_source || "n/a"), key: "2", alpha: 1.0, on: false, sw: "#6d6a5c", available: Boolean(IMG.ortho) },
+  { id: "mesh",  name: "Twin mesh (top render)", key: "3", alpha: IMG.osm ? 0.65 : 1.0, on: true, sw: "#3a3a3a", available: Boolean(IMG.mesh) },
 ];
 const images = {};
 let loaded = 0;
 for (const k of Object.keys(IMG)) {
+  if (!IMG[k]) continue;
   const im = new Image();
   im.onload = () => { loaded++; if (loaded === 1) fit(); draw(); };
   im.src = IMG[k];
   images[k] = im;
+}
+
+function esc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function modelToWgs(x, y) {
+  const a = 6378137.0, e2 = 0.0066943799901413165, ep2 = e2 / (1 - e2);
+  const lat0 = L.origin_lat * Math.PI / 180, lon0 = L.origin_lon * Math.PI / 180;
+  const M0 = a * ((1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 * e2 * e2 / 256) * lat0
+    - (3 * e2 / 8 + 3 * e2 * e2 / 32 + 45 * e2 * e2 * e2 / 1024) * Math.sin(2 * lat0)
+    + (15 * e2 * e2 / 256 + 45 * e2 * e2 * e2 / 1024) * Math.sin(4 * lat0)
+    - (35 * e2 * e2 * e2 / 3072) * Math.sin(6 * lat0));
+  const M = M0 + y;
+  const mu = M / (a * (1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 * e2 * e2 / 256));
+  const e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
+  const phi1 = mu + (3 * e1 / 2 - 27 * Math.pow(e1, 3) / 32) * Math.sin(2 * mu)
+    + (21 * e1 * e1 / 16 - 55 * Math.pow(e1, 4) / 32) * Math.sin(4 * mu)
+    + (151 * Math.pow(e1, 3) / 96) * Math.sin(6 * mu);
+  const s1 = Math.sin(phi1), c1 = Math.cos(phi1), t1 = Math.tan(phi1);
+  const N1 = a / Math.sqrt(1 - e2 * s1 * s1);
+  const R1 = a * (1 - e2) / Math.pow(1 - e2 * s1 * s1, 1.5);
+  const D = x / N1, T1 = t1 * t1, C1 = ep2 * c1 * c1;
+  const lat = phi1 - (N1 * t1 / R1) * (D * D / 2 - (5 + 3 * T1 + 10 * C1 - 4 * C1 * C1 - 9 * ep2) * Math.pow(D, 4) / 24);
+  const lon = lon0 + (D - (1 + 2 * T1 + C1) * Math.pow(D, 3) / 6 + (5 - 2 * C1 + 28 * T1 - 3 * C1 * C1 + 8 * ep2 + 24 * T1 * T1) * Math.pow(D, 5) / 120) / Math.max(c1, 1e-12);
+  return [lat * 180 / Math.PI, lon * 180 / Math.PI];
 }
 
 // ---- view state: model space (metres, y up) -> screen
@@ -160,7 +187,7 @@ function toModel(sx, sy) {
 }
 // raster rect in model space: images are north-up; top edge is y0 + height*dy
 function drawRaster(im, alpha, clipX) {
-  if (!im.complete || !im.naturalWidth) return;
+  if (!im || !im.complete || !im.naturalWidth) return;
   const [sx, sy] = toScreen(L.x0, L.y0 + L.height * L.dy);
   const sw = L.width * L.dx * view.ppm, sh = L.height * L.dy * view.ppm;
   ctx.save();
@@ -256,7 +283,7 @@ canvas.addEventListener("pointermove", e => {
     draw();
   }
   const [x, y] = toModel(e.offsetX * devicePixelRatio, e.offsetY * devicePixelRatio);
-  const lat = L.origin_lat + y / 111320, lon = L.origin_lon + x / (111320 * Math.cos(L.origin_lat * Math.PI / 180));
+  const [lat, lon] = modelToWgs(x, y);
   document.getElementById("readout").innerHTML = `<span>x</span> ${x.toFixed(1)} <span>y</span> ${y.toFixed(1)} m &nbsp; <span>lat</span> ${lat.toFixed(6)} <span>lon</span> ${lon.toFixed(6)}`;
 });
 canvas.addEventListener("pointerup", () => { drag = null; dragSwipe = false; });
@@ -299,10 +326,11 @@ function renderLayerPanel() {
   const host = document.getElementById("layers"); host.innerHTML = "";
   for (const l of LAYERS) {
     const d = document.createElement("div"); d.className = "layer";
-    d.innerHTML = `<input type="checkbox" ${l.on ? "checked" : ""} aria-label="show ${l.name}">
-      <span class="name"><span class="sw" style="background:${l.sw};display:inline-block;vertical-align:-2px;margin-right:6px"></span>${l.name}</span>
+    const sName = esc(l.name);
+    d.innerHTML = `<input type="checkbox" ${l.on ? "checked" : ""} ${l.available ? "" : "disabled"} aria-label="show ${sName}">
+      <span class="name"><span class="sw" style="background:${l.sw};display:inline-block;vertical-align:-2px;margin-right:6px"></span>${sName}</span>
       <span class="key">${Math.round(l.alpha * 100)} %</span>
-      <input type="range" min="0" max="100" value="${Math.round(l.alpha * 100)}" aria-label="${l.name} opacity">`;
+      <input type="range" min="0" max="100" value="${Math.round(l.alpha * 100)}" ${l.available ? "" : "disabled"} aria-label="${sName} opacity">`;
     d.querySelector("[type=checkbox]").addEventListener("change", e => { l.on = e.target.checked; draw(); });
     d.querySelector("[type=range]").addEventListener("input", e => { l.alpha = e.target.value / 100; d.querySelector(".key").textContent = e.target.value + " %"; draw(); });
     host.appendChild(d);

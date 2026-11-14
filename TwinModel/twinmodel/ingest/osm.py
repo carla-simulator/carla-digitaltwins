@@ -59,12 +59,19 @@ class OsmData:
     ways: list[OsmWay] = field(default_factory=list)
     relations: list[OsmRelation] = field(default_factory=list)
     bbox_swne: Optional[tuple[float, float, float, float]] = None
+    _way_idx: dict[int, int] = field(default_factory=dict, init=False, repr=False, compare=False)
 
     # -- convenience lookups
     def way(self, way_id: int) -> OsmWay:
-        for w in self.ways:
+        idx = self._way_idx.get(way_id)
+        if idx is not None and idx < len(self.ways):
+            w = self.ways[idx]
             if w.id == way_id:
                 return w
+        self._way_idx = {w.id: i for i, w in enumerate(self.ways)}
+        idx = self._way_idx.get(way_id)
+        if idx is not None:
+            return self.ways[idx]
         raise KeyError(way_id)
 
     def ways_with(self, key: str) -> list[OsmWay]:
@@ -133,7 +140,7 @@ def fetch_overpass(bbox_swne: tuple[float, float, float, float],
     path = _cache_path(cache_dir, bbox_swne)
     if path.exists() and not force:
         log.info("overpass cache hit %s", path)
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
 
     query = overpass_query(bbox_swne)
     last_err: Optional[Exception] = None
@@ -149,7 +156,7 @@ def fetch_overpass(bbox_swne: tuple[float, float, float, float],
             if "elements" not in data:
                 raise RuntimeError(f"unexpected overpass payload: {list(data)[:5]}")
             data.setdefault("twinmodel", {})["bbox_swne"] = list(bbox_swne)
-            path.write_text(json.dumps(data))
+            path.write_text(json.dumps(data), encoding="utf-8")
             log.info("overpass: %d elements cached -> %s", len(data["elements"]), path)
             return data
         except Exception as exc:  # noqa: BLE001 - retry any transport error
@@ -198,7 +205,7 @@ def parse_osm(data: dict[str, Any]) -> OsmData:
 
 
 def load_fixture(path: Path | str) -> OsmData:
-    return parse_osm(json.loads(Path(path).read_text()))
+    return parse_osm(json.loads(Path(path).read_text(encoding="utf-8")))
 
 
 # --------------------------------------------------------------------------- region helpers
@@ -226,7 +233,7 @@ def country_for_bbox(bbox_swne: tuple[float, float, float, float],
     path = _country_cache_path(cache_dir, lat, lon)
     if path.exists():
         try:
-            d = json.loads(path.read_text())
+            d = json.loads(path.read_text(encoding="utf-8"))
             log.info("country cache hit %s -> %s", path, d.get("iso2"))
             return d.get("iso2")
         except Exception as exc:  # noqa: BLE001
@@ -253,7 +260,7 @@ def country_for_bbox(bbox_swne: tuple[float, float, float, float],
                 return None
             try:
                 cache_dir.mkdir(parents=True, exist_ok=True)
-                path.write_text(json.dumps({"iso2": iso2, "name": name, "lat": lat, "lon": lon}))
+                path.write_text(json.dumps({"iso2": iso2, "name": name, "lat": lat, "lon": lon}), encoding="utf-8")
             except Exception as exc:  # noqa: BLE001
                 log.warning("country: could not write cache %s (%s)", path, exc)
             log.info("country for (%.5f, %.5f): %s (%s)", lat, lon, iso2, name)
@@ -268,42 +275,64 @@ def country_for_bbox(bbox_swne: tuple[float, float, float, float],
 
 def building_footprints(osm: OsmData, frame) -> list:
     """Shapely polygons (model space) of every ``building=*`` way and multipolygon relation
-    outer ring in ``osm``; invalid rings are repaired with ``buffer(0)``; failures skipped."""
+    in ``osm`` (subtracting inner courtyard rings); invalid rings are repaired; failures skipped."""
     from shapely.geometry import Polygon
+    from shapely.ops import unary_union
     from shapely.validation import make_valid
 
     ways_by_id = {w.id: w for w in osm.ways}
     polys = []
 
-    def add(way: OsmWay) -> None:
+    def way_poly(way: OsmWay):
         coords = osm.way_coords(way)
         if len(coords) < 4 or coords[0] != coords[-1]:
             if len(coords) >= 3 and coords[0] != coords[-1]:
                 coords = coords + [coords[0]]
             else:
-                return
+                return None
         lon, lat = zip(*coords)
         x, y = frame.to_local(lon, lat)
         try:
             p = Polygon(zip(x.tolist(), y.tolist()))
             if not p.is_valid:
                 p = make_valid(p)
-            if not p.is_empty:
-                polys.append(p)
+            return p if not p.is_empty else None
         except Exception:  # noqa: BLE001 - degenerate ring
-            return
+            return None
 
-    for w in osm.ways:
-        if "building" in w.tags and w.tags["building"] != "no":
-            add(w)
+    rel_member_ways: set[int] = set()
     for r in osm.relations:
         if "building" not in r.tags or r.tags["building"] == "no":
             continue
+        outers = []
+        inners = []
         for m in r.members:
-            if m.type == "way" and m.role in ("outer", ""):
-                w = ways_by_id.get(m.ref)
-                if w is not None and "building" not in w.tags:
-                    add(w)
+            if m.type != "way":
+                continue
+            rel_member_ways.add(m.ref)
+            w = ways_by_id.get(m.ref)
+            if w is None:
+                continue
+            p = way_poly(w)
+            if p is None:
+                continue
+            if m.role == "inner":
+                inners.append(p)
+            elif m.role in ("outer", ""):
+                outers.append(p)
+        if outers:
+            geom = unary_union(outers)
+            if inners:
+                geom = geom.difference(unary_union(inners))
+            if not geom.is_empty:
+                polys.append(geom)
+    for w in osm.ways:
+        if w.id in rel_member_ways:
+            continue
+        if "building" in w.tags and w.tags["building"] != "no":
+            p = way_poly(w)
+            if p is not None:
+                polys.append(p)
     return polys
 
 

@@ -22,11 +22,11 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import shapely
-from shapely.geometry import LineString, MultiPolygon, Polygon, mapping
+from shapely.geometry import MultiPolygon, Polygon, mapping
 
 from .frame import LocalFrame
 from .ingest.imagery import OrthoImage, model_grid
@@ -136,7 +136,7 @@ def read_mtl_colors(mtl_path: Path | str | None) -> dict[str, tuple[int, int, in
     if mtl_path is None or not Path(mtl_path).exists():
         return colors
     name = None
-    for line in Path(mtl_path).read_text().splitlines():
+    for line in Path(mtl_path).read_text(encoding="utf-8").splitlines():
         parts = line.split()
         if not parts:
             continue
@@ -597,12 +597,12 @@ def compare_build(build_dir: Path | str, name: str, out_dir: Path | str | None =
         "ortho_fetched": getattr(ortho, "fetched", None),
         "ortho_cached": getattr(ortho, "cached", None), "zoom": zoom,
         "note": "PNG/JPG row 0 is the north edge (y = bounds[3]); model arrays are south-up",
-        "zoom": zoom, "osm_tiles": tiles is not None, "ortho": ortho is not None,
+        "osm_tiles": tiles is not None, "ortho": ortho is not None,
         "stats": stats, "files": files, "junctions": jinfo,
         "sources": {"osm_tiles": tiles.source if tiles else None,
                     "ortho": ortho.source if ortho else None},
     }
-    (out_dir / "layers.json").write_text(json.dumps(_json_safe(layers), indent=2))
+    (out_dir / "layers.json").write_text(json.dumps(_json_safe(layers), indent=2), encoding="utf-8")
     log.info("wrote %s", out_dir / "layers.json")
     return layers
 

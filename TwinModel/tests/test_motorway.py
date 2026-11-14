@@ -346,6 +346,7 @@ def test_taper_wedge_is_in_the_drivable_surface(model_aux):
 
 
 def _export_and_validate(m):
+    pytest.importorskip("carla")
     from twinmodel.export.xodr import export_xodr
     from twinmodel import validate as V
     with profiles.use("us_suburban"):

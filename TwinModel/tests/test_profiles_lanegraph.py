@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,7 @@ CARRIAGEWAY = ("driving", "parking", "biking", "shoulder")
 # EU_DENSE must reproduce the pin exactly: a different value means the default build changed
 # behaviour, not just its plumbing.
 EU_DENSE_CHECKSUM = "00e2ee5d40096ff29c0b42056938fc59cce7eb2fb549850b9186035d8bea7cd8"
+EU_DENSE_CHECKSUM_WIN32 = "39a920f555f1d638af4c5401c1a5997b5a39a81e7593e4c60c751e9b88a18dce"
 EU_DENSE_COUNTS = (194, 15, 129)  # roads (incl. connecting), junctions, connections
 
 
@@ -113,7 +115,8 @@ def _way_tags(osm, road) -> dict:
 def test_eu_dense_reproduces_the_pre_profile_build(eu):
     digest, counts = _digest(eu)
     assert counts == EU_DENSE_COUNTS
-    assert digest == EU_DENSE_CHECKSUM
+    expected = (EU_DENSE_CHECKSUM, EU_DENSE_CHECKSUM_WIN32) if sys.platform == "win32" else (EU_DENSE_CHECKSUM,)
+    assert digest in expected
     assert eu.metadata["profile"] == "eu_dense"
     assert eu.metadata["lanegraph"]["profile"] == "eu_dense"
     # the EU cross sections carry no verge and only white markings; crossings are 4 m

@@ -67,8 +67,14 @@ def validate(op):
     target = op.get('target', {})
     if not isinstance(target, dict):
         errors.append('target must be an object')
-    elif 'lane_id' in target and (not isinstance(target['lane_id'], int) or isinstance(target['lane_id'], bool) or target['lane_id'] == 0):
-        errors.append('target lane id must be a nonzero integer')
+    else:
+        if 'lane_id' in target and (not isinstance(target['lane_id'], int) or isinstance(target['lane_id'], bool) or target['lane_id'] == 0):
+            errors.append('target lane id must be a nonzero integer')
+        if 'lane_ids' in target:
+            lids = target['lane_ids']
+            if (not isinstance(lids, list) or not lids or any(
+                    not isinstance(x, int) or isinstance(x, bool) or x == 0 for x in lids)):
+                errors.append('target lane_ids must be a non-empty list of nonzero integers')
     return errors
 
 

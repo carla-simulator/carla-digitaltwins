@@ -37,7 +37,7 @@ from shapely.geometry import LineString
 from shapely.strtree import STRtree
 
 from . import profiles
-from .model import Elevation, Road, TwinModel, road_osm_layer
+from .model import Elevation, Road, TwinModel, aux_width_at, road_osm_layer
 
 log = logging.getLogger("twinmodel.datum")
 
@@ -53,13 +53,24 @@ LAYER_FALLBACK_M = 20.0
 
 def _densify(xyz: np.ndarray, step: float) -> np.ndarray:
     """Insert vertices so that no segment is longer than ``step`` (z interpolated linearly)."""
-    out = [xyz[0]]
-    for p, q in zip(xyz[:-1], xyz[1:]):
-        d = float(np.hypot(q[0] - p[0], q[1] - p[1]))
-        n = max(1, int(np.ceil(d / step)))
-        for k in range(1, n + 1):
-            out.append(p + (q - p) * (k / n))
-    return np.asarray(out, dtype=np.float64)
+    xyz = np.asarray(xyz, dtype=np.float64)
+    if len(xyz) < 2:
+        return xyz.copy()
+    diffs = xyz[1:] - xyz[:-1]
+    dists = np.hypot(diffs[:, 0], diffs[:, 1])
+    counts = np.maximum(1, np.ceil(dists / step).astype(np.int64))
+    total = 1 + int(counts.sum())
+    out = np.empty((total, xyz.shape[1]), dtype=np.float64)
+    out[0] = xyz[0]
+    if np.all(counts == 1):
+        out[1:] = xyz[1:]
+        return out
+    seg_idx = np.repeat(np.arange(len(counts)), counts)
+    starts = np.cumsum(counts) - counts
+    k = np.arange(total - 1) - np.repeat(starts, counts) + 1
+    t = (k / counts[seg_idx])[:, None]
+    out[1:] = xyz[seg_idx] + diffs[seg_idx] * t
+    return out
 
 
 def _side_widths(road: Road) -> tuple[float, float]:
@@ -67,6 +78,17 @@ def _side_widths(road: Road) -> tuple[float, float]:
     wl = sum(l.width for l in road.lanes if l.id > 0)
     wr = sum(l.width for l in road.lanes if l.id < 0)
     return float(wl), float(wr)
+
+
+def _side_widths_at_s(road: Road, s: np.ndarray, left: np.ndarray, pad: float) -> np.ndarray:
+    """Side-specific half-width + ``pad`` at station ``s`` on a road with auxiliary lanes."""
+    out = np.empty(len(s), dtype=np.float64)
+    left_lanes = [l for l in road.lanes if l.id > 0]
+    right_lanes = [l for l in road.lanes if l.id < 0]
+    for idx, (sv, is_left) in enumerate(zip(s, left)):
+        lanes = left_lanes if is_left else right_lanes
+        out[idx] = sum(aux_width_at(l, road, float(sv)) for l in lanes) + pad
+    return out
 
 
 class RoadDatum:
@@ -92,6 +114,8 @@ class RoadDatum:
         lines, covers, s_arrays, z_arrays, wl, wr = [], [], [], [], [], []
         pts, zs, rid = [], [], []
         road_layers: list[int] = []
+        road_objs: list[Road] = []
+        has_aux: list[bool] = []
         for r in roads:
             c = np.asarray(r.reference_line.coords, dtype=np.float64)
             if len(c) < 2:
@@ -105,6 +129,8 @@ class RoadDatum:
             l, rr = _side_widths(r)
             line = LineString(c[:, :2])
             lines.append(line)
+            road_objs.append(r)
+            has_aux.append(any(bool(ln.tags.get("aux")) for ln in r.lanes))
             # coverage: symmetric buffer with flat caps (no reach past the road's ends); the
             # side-specific reach is applied when ranking
             covers.append(line.buffer(max(l, rr) + self.reach_pad, cap_style="flat"))
@@ -119,6 +145,9 @@ class RoadDatum:
             rid.append(np.full(len(dense), i, dtype=np.int64))
         self.n_roads = len(lines)
         self.layers = np.asarray(road_layers, dtype=np.int64)
+        self.roads_list = road_objs
+        self.has_aux = np.asarray(has_aux, dtype=bool)
+        self.any_aux = bool(self.has_aux.any())
         # a tunnel is under the ground: no query for the surface (layer >= 0, or no layer)
         # may ever land on it, see ``nearest``
         self.has_tunnels = bool(len(self.layers)) and bool((self.layers < 0).any())
@@ -231,16 +260,33 @@ class RoadDatum:
             dist = np.hypot(dx, dy)
             left = (tx * dy - ty * dx) >= 0
             reach = np.where(left, self.wl[ri], self.wr[ri])
-            nd = dist / reach
-            z = np.empty(len(pi))
-            for road in np.unique(ri):
-                sel = ri == road
-                z[sel] = np.interp(s[sel], self.s_arrays[road], self.z_arrays[road])
-            order = np.lexsort((nd, pi))
-            first = np.concatenate([[True], pi[order][1:] != pi[order][:-1]])
-            win = order[first]
-            z_out[pi[win]] = z[win]
-            d_out[pi[win]] = dist[win]
+            if self.any_aux and self.has_aux[ri].any():
+                reach = reach.copy()
+                for road in np.unique(ri[self.has_aux[ri]]):
+                    sel = ri == road
+                    reach[sel] = _side_widths_at_s(
+                        self.roads_list[road], s[sel], left[sel], self.reach_pad
+                    )
+                keep_aux = dist <= reach
+                if not keep_aux.all():
+                    pi, ri, s, dist, reach = (
+                        pi[keep_aux],
+                        ri[keep_aux],
+                        s[keep_aux],
+                        dist[keep_aux],
+                        reach[keep_aux],
+                    )
+            if len(pi):
+                nd = dist / np.maximum(reach, 1e-6)
+                z = np.empty(len(pi))
+                for road in np.unique(ri):
+                    sel = ri == road
+                    z[sel] = np.interp(s[sel], self.s_arrays[road], self.z_arrays[road])
+                order = np.lexsort((nd, pi))
+                first = np.concatenate([[True], pi[order][1:] != pi[order][:-1]])
+                win = order[first]
+                z_out[pi[win]] = z[win]
+                d_out[pi[win]] = dist[win]
         miss = np.isnan(z_out)
         if miss.any() and layer is not None:
             # just past the end of a deck (its surface polygon reaches a little further than the

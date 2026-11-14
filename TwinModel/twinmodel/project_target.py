@@ -1,5 +1,5 @@
 """Recoverable checkpoints for framework-owned Unreal target content."""
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 import uuid
 
@@ -8,12 +8,26 @@ from .project import checksum, locked, read, write
 
 def content_paths(target):
     content = Path(target['uproject']).parent/'Content'
-    level = target['level'].removeprefix('/Game/')
-    paths = [str(Path(level).parent), '__ExternalActors__/'+level, '__ExternalObjects__/'+level]
-    mount = Path(level).parts[0]
-    paths += [mount+'/__ExternalActors__/'+level, mount+'/__ExternalObjects__/'+level]
-    paths += ['Carla/Static/'+semantic+'/Twins/'+Path(level).name
-              for semantic in ('Road', 'SideWalk', 'RoadLine', 'Building', 'Terrain')]
+    level = PurePosixPath(target['level'].removeprefix('/Game/'))
+    level_posix = level.as_posix()
+    mount = level.parts[0]
+    raw = [
+        level.parent.as_posix(),
+        f'__ExternalActors__/{level_posix}',
+        f'__ExternalObjects__/{level_posix}',
+        f'{mount}/__ExternalActors__/{level_posix}',
+        f'{mount}/__ExternalObjects__/{level_posix}',
+        *[f'Carla/Static/{semantic}/Twins/{level.name}'
+          for semantic in ('Road', 'SideWalk', 'RoadLine', 'Building', 'Terrain')],
+    ]
+    paths = []
+    seen_posix = []
+    for item in raw:
+        cand = PurePosixPath(item)
+        if any(cand == prev or cand.is_relative_to(prev) for prev in seen_posix):
+            continue
+        seen_posix.append(cand)
+        paths.append(cand.as_posix())
     return content, paths
 
 
@@ -38,7 +52,8 @@ def restore(project, target_name, run, stage, dry_run=False):
     if manifest['target'] != pipe.target:
         raise ValueError('Checkpoint belongs to a different target')
     content, paths = content_paths(pipe.target)
-    if set(manifest['entries']) != set(paths):
+    norm_entries = {PurePosixPath(k.replace('\\', '/')).as_posix(): v for k, v in manifest['entries'].items()}
+    if set(norm_entries) != set(paths):
         raise ValueError('Checkpoint content paths do not match the target')
     for relative, expected in manifest['entries'].items():
         if checksum(source/'content'/relative) != expected:
@@ -49,11 +64,15 @@ def restore(project, target_name, run, stage, dry_run=False):
         # Retain the displaced target too, including a partial failed apply.
         displaced = project.path('runs/'+run+'/before-restore-'+stage)
         if displaced.exists():
-            raise ValueError('This checkpoint was already restored; inspect its recovery run')
+            if (displaced/'checkpoint.json').is_file():
+                raise ValueError('This checkpoint was already restored; inspect its recovery run')
+            shutil.rmtree(displaced)
         checkpoint(pipe, displaced)
         for relative, expected in manifest['entries'].items():
-            destination = content/relative
-            if destination.exists():shutil.rmtree(destination)
+            norm_rel = PurePosixPath(relative.replace('\\', '/')).as_posix()
+            destination = content/norm_rel
+            if destination.exists():
+                shutil.rmtree(destination)
             if expected is not None:
                 shutil.copytree(source/'content'/relative, destination)
         write(pipe.state, manifest['receipts'])
@@ -104,11 +123,11 @@ for a in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_
     known=known or (cls=='Actor' and label.startswith('Bldg_') and folder=='Twin/Buildings')
     if cls=='StaticMeshActor' and folder.startswith('Twin/'):
         mesh=a.static_mesh_component.static_mesh
-        known=bool(mesh and ('/Twins/'+{Path(pipe.target['level']).name!r}+'/') in mesh.get_path_name())
+        known=label.startswith(('TL_','SIGN_')) or bool(mesh and ('/Twins/'+{PurePosixPath(pipe.target['level']).name!r}+'/') in mesh.get_path_name())
     record=dict(label=label,actor_class=cls,folder=folder,generated=known)
     inventory.append(record)
     if not known:unknown.append(record)
-Path({str(report)!r}).write_text(json.dumps(dict(saved=True,inventory=inventory,unmanaged=unknown),indent=2))
+Path({str(report)!r}).write_text(json.dumps(dict(saved=True,inventory=inventory,unmanaged=unknown),indent=2),encoding='utf-8')
 '''
         python_script(pipe, script, work, 'inspect_target')
         result = require_report(report)

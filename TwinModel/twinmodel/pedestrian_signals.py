@@ -27,10 +27,11 @@ def connect_pedestrian_signals(model):
             raise ValueError('Pedestrian controller ID collision: ' + cid)
         planned.append((cid, junction, signals))
     ped_ids = {s.id for _, _, signals in planned for s in signals}
+    had_ped = {c.id for c in model.controllers if set(c.signal_ids) & ped_ids}
     kept = [Controller(c.id, c.junction_id,
                        [sid for sid in c.signal_ids if sid not in ped_ids], c.sequence)
             for c in model.controllers]
-    kept = [c for c in kept if c.signal_ids]
+    kept = [c for c in kept if c.signal_ids or c.id not in had_ped]
     for cid, junction, signals in planned:
         sequence = max((c.sequence for c in kept if c.junction_id == junction), default=-1) + 1
         for signal in signals:

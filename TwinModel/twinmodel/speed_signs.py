@@ -6,9 +6,11 @@ def redundant_speed_signals(model):
     roads={r.id:r for r in model.roads}
     redundant=[]
     for signal in model.signals:
-        if signal.kind!='speed_limit' or signal.osm_node_id is not None:
+        if signal.kind!='speed_limit' or signal.osm_node_id is not None or signal.value is None:
             continue
-        road=roads[signal.road_id]
+        road=roads.get(signal.road_id)
+        if road is None:
+            continue
         forward=signal.orientation=='+'
         if not math.isclose(signal.s,0.0 if forward else road.length,abs_tol=.01):
             continue
@@ -38,7 +40,9 @@ def redundant_speed_signals(model):
         seen=[];current=key
         while current not in seen:
             seen.append(current)
-            r=roads[current[0]]
+            r=roads.get(current[0])
+            if r is None:
+                break
             link=r.predecessor if current[1]=='+' else r.successor
             if link is None or link.element!='road' or link.id not in roads or link.contact not in ('start','end'):
                 break

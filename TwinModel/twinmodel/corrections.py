@@ -103,7 +103,7 @@ class Corrections:
             raise ValueError("Corrections.save: no path")
         p = Path(target)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(self.to_json(), indent=1, ensure_ascii=False) + "\n")
+        p.write_text(json.dumps(self.to_json(), indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
         self.path = p
         return p
 
@@ -114,7 +114,7 @@ def default_path(cache_dir: Path | str, name: str) -> Path:
 
 def load(path: Path | str) -> Corrections:
     p = Path(path)
-    raw = json.loads(p.read_text())
+    raw = json.loads(p.read_text(encoding="utf-8"))
     ops = raw.get("ops", [])
     problems = validate(ops)
     if problems:
@@ -159,8 +159,15 @@ def validate(ops: list[dict[str, Any]]) -> list[str]:
         for k in ("base", "line"):
             if op == "curb.line" and k in o and (not isinstance(o[k], list) or len(o[k]) < 2):
                 out.append(f"op {i} ({op}): {k} needs >= 2 [lon, lat] points")
-        if op in ("node.add", "way.add") and int(o.get(op.split(".")[0], 0)) >= 0:
-            out.append(f"op {i} ({op}): new elements need a negative id")
+        if op in ("node.add", "way.add"):
+            key = op.split(".")[0]
+            val = o.get(key, 0)
+            if isinstance(val, bool) or not isinstance(val, int) or val >= 0:
+                out.append(f"op {i} ({op}): new elements need a negative integer id")
+        elif op == "way.split":
+            val = o.get("new_way", 0)
+            if isinstance(val, bool) or not isinstance(val, int) or val >= 0:
+                out.append(f"op {i} ({op}): new_way needs a negative integer id")
     return out
 
 
@@ -222,8 +229,25 @@ def apply_osm(raw: dict[str, Any], ops: list[dict[str, Any]]) -> tuple[dict[str,
                 miss(o, f"node {nid} not in extract")
                 continue
             elements.remove(nodes.pop(nid))
-            for w in ways.values():
-                w["nodes"] = [x for x in w.get("nodes", []) if int(x) != nid]
+            drop_wids: list[int] = []
+            for wid, w in ways.items():
+                old_nodes = [int(x) for x in w.get("nodes", [])]
+                if nid not in old_nodes:
+                    continue
+                was_closed = len(old_nodes) >= 4 and old_nodes[0] == old_nodes[-1]
+                new_nodes = [x for x in old_nodes if x != nid]
+                if was_closed:
+                    if len(new_nodes) < 3:
+                        drop_wids.append(wid)
+                        continue
+                    if new_nodes[0] != new_nodes[-1]:
+                        new_nodes.append(new_nodes[0])
+                elif len(new_nodes) < 2:
+                    drop_wids.append(wid)
+                    continue
+                w["nodes"] = new_nodes
+            for wid in drop_wids:
+                elements.remove(ways.pop(wid))
         elif op == "node.tags":
             n = nodes.get(int(o["node"]))
             if n is None:
@@ -402,7 +426,8 @@ def drivable_patch(ops: list[dict[str, Any]], frame, base):
         if isinstance(g, (Polygon, MultiPolygon)):
             return g
         # GeometryCollection with slivers: keep the polygons
-        return unary_union([p for p in getattr(g, "geoms", []) if isinstance(p, (Polygon, MultiPolygon))])
+        polys = [p for p in getattr(g, "geoms", []) if isinstance(p, (Polygon, MultiPolygon))]
+        return unary_union(polys) if polys else Polygon()
 
     if isinstance(base, dict):
         from .refine import ground_layer

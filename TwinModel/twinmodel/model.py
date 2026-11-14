@@ -315,10 +315,18 @@ class Elevation:
 
     def sample(self, x, y):
         """Bilinear sample; accepts scalars or arrays; clamps to the grid edge."""
+        scalar = np.ndim(x) == 0 and np.ndim(y) == 0
         x = np.asarray(x, dtype=np.float64)
         y = np.asarray(y, dtype=np.float64)
-        fi = np.clip((x - self.x0) / self.dx, 0, self.z.shape[1] - 1)
-        fj = np.clip((y - self.y0) / self.dy, 0, self.z.shape[0] - 1)
+        if self.z.ndim != 2 or self.z.shape[0] == 0 or self.z.shape[1] == 0:
+            out = np.zeros(np.broadcast_shapes(x.shape, y.shape), dtype=np.float64)
+            return float(out) if scalar else out
+        x, y = np.broadcast_arrays(x, y)
+        bad = ~(np.isfinite(x) & np.isfinite(y))
+        xs = np.where(bad, self.x0, x) if np.any(bad) else x
+        ys = np.where(bad, self.y0, y) if np.any(bad) else y
+        fi = np.zeros_like(xs) if self.dx == 0 else np.clip((xs - self.x0) / self.dx, 0, self.z.shape[1] - 1)
+        fj = np.zeros_like(ys) if self.dy == 0 else np.clip((ys - self.y0) / self.dy, 0, self.z.shape[0] - 1)
         i0 = np.floor(fi).astype(int)
         j0 = np.floor(fj).astype(int)
         i1 = np.minimum(i0 + 1, self.z.shape[1] - 1)
@@ -326,7 +334,9 @@ class Elevation:
         ti, tj = fi - i0, fj - j0
         z = (self.z[j0, i0] * (1 - ti) * (1 - tj) + self.z[j0, i1] * ti * (1 - tj)
              + self.z[j1, i0] * (1 - ti) * tj + self.z[j1, i1] * ti * tj)
-        return z if z.shape else float(z)
+        if np.any(bad):
+            z = np.where(bad, np.nan, z)
+        return float(z) if scalar else z
 
     def to_npz(self, path: Path) -> None:
         np.savez_compressed(path, z=self.z, x0=self.x0, y0=self.y0, dx=self.dx, dy=self.dy,
@@ -334,9 +344,10 @@ class Elevation:
 
     @classmethod
     def from_npz(cls, path: Path) -> "Elevation":
-        d = np.load(path, allow_pickle=False)
-        return cls(d["z"], float(d["x0"]), float(d["y0"]), float(d["dx"]), float(d["dy"]),
-                   str(d["source"]) if "source" in d else "")
+        with np.load(path, allow_pickle=False) as d:
+            return cls(np.array(d["z"], dtype=np.float64), float(d["x0"]), float(d["y0"]),
+                       float(d["dx"]), float(d["dy"]),
+                       str(d["source"]) if "source" in d else "")
 
 
 # --------------------------------------------------------------------------- the model
@@ -362,31 +373,66 @@ class TwinModel:
     # rebuilt lazily by sample_z() when a reference line object changed, or on rebuild_datum()
     _datum: Any = field(default=None, init=False, repr=False, compare=False)
     _datum_key: Any = field(default=None, init=False, repr=False, compare=False)
+    _datum_refs: Any = field(default=None, init=False, repr=False, compare=False)
+    _road_idx: dict[str, int] = field(default_factory=dict, init=False, repr=False, compare=False)
+    _junction_idx: dict[str, int] = field(default_factory=dict, init=False, repr=False, compare=False)
 
     # -- lookups
     def road(self, road_id: str) -> Road:
-        for r in self.roads:
+        idx = self._road_idx.get(road_id)
+        if idx is not None and idx < len(self.roads):
+            r = self.roads[idx]
             if r.id == road_id:
                 return r
+        self._road_idx = {r.id: i for i, r in enumerate(self.roads)}
+        idx = self._road_idx.get(road_id)
+        if idx is not None:
+            return self.roads[idx]
         raise KeyError(road_id)
 
     def junction(self, junction_id: str) -> Junction:
-        for j in self.junctions:
+        idx = self._junction_idx.get(junction_id)
+        if idx is not None and idx < len(self.junctions):
+            j = self.junctions[idx]
             if j.id == junction_id:
                 return j
+        self._junction_idx = {j.id: i for i, j in enumerate(self.junctions)}
+        idx = self._junction_idx.get(junction_id)
+        if idx is not None:
+            return self.junctions[idx]
         raise KeyError(junction_id)
 
     def surfaces_of(self, kind: SurfaceKind) -> list[Surface]:
         return [s for s in self.surfaces if s.kind == kind]
 
     def _datum_fingerprint(self) -> tuple:
-        # LineStrings are immutable: a changed z means a new object (cli.apply_elevation)
-        return (self.elevation is not None, tuple(id(r.reference_line) for r in self.roads))
+        # Hold reference_line refs on _datum_refs so object ids cannot be recycled while cached.
+        elev_key = (
+            None
+            if self.elevation is None
+            else (
+                id(self.elevation),
+                id(self.elevation.z),
+                self.elevation.z.shape,
+                self.elevation.x0,
+                self.elevation.y0,
+                self.elevation.dx,
+                self.elevation.dy,
+            )
+        )
+        return (
+            elev_key,
+            tuple(
+                (r.id, id(r.reference_line), road_osm_layer(r), len(r.lanes))
+                for r in self.roads
+            ),
+        )
 
     def rebuild_datum(self, **kw):
         """(Re)build the cached ``RoadDatum`` from the current reference lines. Returns it, or
         None when no road carries a non-zero z (``sample_z`` then falls back to the DEM / 0)."""
         from .datum import RoadDatum, roads_have_z
+        self._datum_refs = tuple(r.reference_line for r in self.roads)
         self._datum_key = self._datum_fingerprint()
         self._datum = RoadDatum(self.roads, self.elevation, **kw) if roads_have_z(self.roads) else None
         return self._datum
@@ -432,15 +478,15 @@ class TwinModel:
             "bbox_wgs84": list(self.bbox_wgs84), "geo_reference": self.geo_reference,
             "metadata": self.metadata, "has_elevation": self.elevation is not None,
         }
-        (d / "model.json").write_text(json.dumps(meta, indent=2))
+        (d / "model.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
         if 'reviewed_map' in self.metadata:
-            (d / 'reviewed-map.json').write_text(json.dumps(self.metadata['reviewed_map'], indent=2))
+            (d / 'reviewed-map.json').write_text(json.dumps(self.metadata['reviewed_map'], indent=2), encoding="utf-8")
         # Explicit reviewer boundaries retain their WGS84 coordinates and provenance.
         # Unlike the model-space geometry layers, this is a lossless annotation artifact.
         (d / "spaces.geojson").write_text(json.dumps(
-            self.metadata.get("space_annotations", {"type": "FeatureCollection", "features": []}), indent=2))
+            self.metadata.get("space_annotations", {"type": "FeatureCollection", "features": []}), indent=2), encoding="utf-8")
         (d / "controls.geojson").write_text(json.dumps(
-            self.metadata.get("control_annotations", {"type": "FeatureCollection", "features": []}), indent=2))
+            self.metadata.get("control_annotations", {"type": "FeatureCollection", "features": []}), indent=2), encoding="utf-8")
         _write_layer(d / "roads.geojson", [_road_feature(r) for r in self.roads])
         _write_layer(d / "junctions.geojson", [_junction_feature(j) for j in self.junctions])
         _write_layer(d / "signals.geojson", [_feature(s.position, _props(s, drop=("position",)))
@@ -455,7 +501,7 @@ class TwinModel:
                                                for b in self.buildings])
         _write_layer(d / "objects.geojson", [_feature(o.position, _props(o, drop=("position",)))
                                              for o in self.objects])
-        (d / "controllers.json").write_text(json.dumps([asdict(c) for c in self.controllers], indent=2))
+        (d / "controllers.json").write_text(json.dumps([asdict(c) for c in self.controllers], indent=2), encoding="utf-8")
         if self.elevation is not None:
             self.elevation.to_npz(d / "elevation.npz")
         log.info("saved twin model %s -> %s", self.name, d)
@@ -464,15 +510,14 @@ class TwinModel:
     @classmethod
     def load(cls, directory: Path | str) -> "TwinModel":
         d = Path(directory)
-        meta = json.loads((d / "model.json").read_text())
+        meta = json.loads((d / "model.json").read_text(encoding="utf-8"))
         if meta.get("crs") != "local-enu":
             raise ValueError("twin model directories must be stored in local-enu model space")
         m = cls(name=meta["name"], origin_lat=meta["origin_lat"], origin_lon=meta["origin_lon"],
                 bbox_wgs84=tuple(meta["bbox_wgs84"]), metadata=meta.get("metadata", {}))
         m.roads = [_road_from_feature(f) for f in _read_layer(d / "roads.geojson")]
         m.junctions = [_junction_from_feature(f) for f in _read_layer(d / "junctions.geojson")]
-        m.signals = [Signal(position=shape(f["geometry"]), **f["properties"])
-                     for f in _read_layer(d / "signals.geojson")]
+        m.signals = [_signal_from_feature(f) for f in _read_layer(d / "signals.geojson")]
         m.surfaces = [Surface(geometry=shape(f["geometry"]), **f["properties"])
                       for f in _read_layer(d / "surfaces.geojson")]
         m.curbs = [CurbLine(geometry=shape(f["geometry"]), **f["properties"])
@@ -485,7 +530,7 @@ class TwinModel:
                      for f in _read_layer(d / "objects.geojson")]
         cpath = d / "controllers.json"
         if cpath.exists():
-            m.controllers = [Controller(**c) for c in json.loads(cpath.read_text())]
+            m.controllers = [Controller(**c) for c in json.loads(cpath.read_text(encoding="utf-8"))]
         epath = d / "elevation.npz"
         if epath.exists():
             m.elevation = Elevation.from_npz(epath)
@@ -506,13 +551,20 @@ def _props(obj, drop: tuple[str, ...] = ()) -> dict[str, Any]:
 
 
 def _write_layer(path: Path, features: list[dict[str, Any]]) -> None:
-    path.write_text(json.dumps({"type": "FeatureCollection", "features": features}))
+    path.write_text(json.dumps({"type": "FeatureCollection", "features": features}), encoding="utf-8")
 
 
 def _read_layer(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
-    return json.loads(path.read_text())["features"]
+    return json.loads(path.read_text(encoding="utf-8"))["features"]
+
+
+def _signal_from_feature(f: dict[str, Any]) -> Signal:
+    p = dict(f["properties"])
+    if p.get("validities") is not None:
+        p["validities"] = [(int(v[0]), int(v[1])) for v in p["validities"]]
+    return Signal(position=shape(f["geometry"]), **p)
 
 
 def _marking_dict(m: Optional[Marking]) -> Optional[dict[str, Any]]:

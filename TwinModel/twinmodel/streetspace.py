@@ -12,9 +12,10 @@ import math
 from typing import Literal
 
 import numpy as np
-from shapely import prepared
+import shapely
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon, box
 from shapely.ops import unary_union
+from shapely.strtree import STRtree
 
 from . import profiles
 
@@ -60,19 +61,49 @@ def street_void(model, extent: Polygon | None = None, pad: float | None = None) 
     return extent.difference(building_union(model, pad))
 
 
+_TREE_CACHE: list[tuple[int, object, np.ndarray, STRtree]] = []
+
+
+def _geom_tree(geom) -> tuple[np.ndarray, STRtree]:
+    gid = id(geom)
+    for cid, ref, parts, tree in _TREE_CACHE:
+        if cid == gid and ref is geom:
+            return parts, tree
+    raw_parts = list(geom.geoms) if hasattr(geom, "geoms") else [geom]
+    parts = np.asarray([g for g in raw_parts if not g.is_empty], dtype=object)
+    tree = STRtree(parts)
+    _TREE_CACHE.append((gid, geom, parts, tree))
+    if len(_TREE_CACHE) > 8:
+        _TREE_CACHE.pop(0)
+    return parts, tree
+
+
+def _samples_vec(line: LineString, step: float, s0: float = 0.0, s1: float | None = None):
+    L = line.length
+    if s1 is None:
+        n = max(2, int(math.ceil(L / step)) + 1)
+        s = np.linspace(0.0, L, n)
+    else:
+        s0 = max(0.0, min(L, s0))
+        s1 = max(0.0, min(L, s1))
+        if s1 <= s0:
+            s0, s1 = 0.0, L
+        n = max(2, int(math.ceil((s1 - s0) / step)) + 1)
+        s = np.linspace(s0, s1, n)
+    pts = shapely.line_interpolate_point(line, s)
+    eps = min(0.5, L / 4)
+    a = shapely.line_interpolate_point(line, np.maximum(0.0, s - eps))
+    b = shapely.line_interpolate_point(line, np.minimum(L, s + eps))
+    dx = shapely.get_x(b) - shapely.get_x(a)
+    dy = shapely.get_y(b) - shapely.get_y(a)
+    norm = np.hypot(dx, dy)
+    norm = np.where(norm == 0.0, 1.0, norm)
+    return s, pts, dx / norm, dy / norm
+
+
 def _samples(line: LineString, step: float):
-    n = max(2, int(math.ceil(line.length / step)) + 1)
-    s = np.linspace(0.0, line.length, n)
-    pts = [line.interpolate(v) for v in s]
-    # tangent by central differences on the same parametrisation
-    eps = min(0.5, line.length / 4)
-    tang = []
-    for v in s:
-        a = line.interpolate(max(0.0, v - eps)); b = line.interpolate(min(line.length, v + eps))
-        dx, dy = b.x - a.x, b.y - a.y
-        norm = math.hypot(dx, dy) or 1.0
-        tang.append((dx / norm, dy / norm))
-    return s, pts, tang
+    s, pts, tx, ty = _samples_vec(line, step)
+    return s, list(pts), list(zip(tx.tolist(), ty.tolist()))
 
 
 def face_distances(line: LineString, buildings, side: Side, step: float | None = None,
@@ -93,52 +124,64 @@ def face_distances(line: LineString, buildings, side: Side, step: float | None =
     max_dist = S.max_face_dist_m if max_dist is None else max_dist
     blocker_min = S.blocker_min_dist_m
     if s_range is None:
-        s, pts, tang = _samples(line, step)
+        s, pts, tx, ty = _samples_vec(line, step)
     else:
-        s, pts, tang = _samples_in(line, step, *s_range)
+        s, pts, tx, ty = _samples_vec(line, step, s_range[0], s_range[1])
     out = np.full(len(s), np.nan)
     if buildings is None or buildings.is_empty:
         return s, out
-    prep = prepared.prep(buildings)
-    prep_block = prepared.prep(blockers) if blockers is not None and not blockers.is_empty else None
     sign = 1.0 if side == "left" else -1.0
-    for i, (p, (tx, ty)) in enumerate(zip(pts, tang)):
-        nx, ny = -ty * sign, tx * sign
-        ray = LineString([(p.x, p.y), (p.x + nx * max_dist, p.y + ny * max_dist)])
-        if not prep.intersects(ray):
-            continue
-        hit = ray.intersection(buildings)
-        if hit.is_empty:
-            continue
-        d = p.distance(hit)
-        if prep_block is not None and prep_block.intersects(ray):
-            bh = ray.intersection(blockers)
-            if not bh.is_empty:
-                db = min((p.distance(g) for g in getattr(bh, "geoms", [bh])
-                          if p.distance(g) >= blocker_min), default=math.inf)
-                if db < d:
-                    continue
-        out[i] = d
+    nx, ny = -ty * sign, tx * sign
+    px, py = shapely.get_x(pts), shapely.get_y(pts)
+    ray_coords = np.empty((len(s), 2, 2), dtype=np.float64)
+    ray_coords[:, 0, 0] = px
+    ray_coords[:, 0, 1] = py
+    ray_coords[:, 1, 0] = px + nx * max_dist
+    ray_coords[:, 1, 1] = py + ny * max_dist
+    rays = shapely.linestrings(ray_coords)
+
+    bld_parts, bld_tree = _geom_tree(buildings)
+    if len(bld_parts) == 0:
+        return s, out
+    ri, bi = bld_tree.query(rays, predicate="intersects")
+    if len(ri) == 0:
+        return s, out
+    hits = shapely.intersection(rays[ri], bld_parts[bi])
+    non_empty = ~shapely.is_empty(hits)
+    if not non_empty.any():
+        return s, out
+    ri, hits = ri[non_empty], hits[non_empty]
+    dists = shapely.distance(pts[ri], hits)
+    best_d = np.full(len(s), np.inf)
+    np.minimum.at(best_d, ri, dists)
+    hit_mask = np.isfinite(best_d)
+
+    if blockers is not None and not blockers.is_empty and hit_mask.any():
+        hit_idx = np.flatnonzero(hit_mask)
+        blk_parts, blk_tree = _geom_tree(blockers)
+        if len(blk_parts):
+            qri, qbi = blk_tree.query(rays[hit_idx], predicate="intersects")
+            if len(qri):
+                bh = shapely.intersection(rays[hit_idx[qri]], blk_parts[qbi])
+                for ray_local, geom in zip(qri.tolist(), bh.tolist()):
+                    if geom.is_empty:
+                        continue
+                    i = int(hit_idx[ray_local])
+                    p = pts[i]
+                    db = min((p.distance(g) for g in getattr(geom, "geoms", [geom])
+                              if p.distance(g) >= blocker_min), default=math.inf)
+                    if db < best_d[i]:
+                        best_d[i] = np.inf
+                        hit_mask[i] = False
+
+    out[hit_mask] = best_d[hit_mask]
     return s, out
 
 
 def _samples_in(line: LineString, step: float, s0: float, s1: float):
     """Like ``_samples`` but only between s0 and s1 (clamped to the line)."""
-    s0 = max(0.0, min(line.length, s0))
-    s1 = max(0.0, min(line.length, s1))
-    if s1 <= s0:
-        s0, s1 = 0.0, line.length
-    n = max(2, int(math.ceil((s1 - s0) / step)) + 1)
-    s = np.linspace(s0, s1, n)
-    pts = [line.interpolate(v) for v in s]
-    eps = min(0.5, line.length / 4)
-    tang = []
-    for v in s:
-        a = line.interpolate(max(0.0, v - eps)); b = line.interpolate(min(line.length, v + eps))
-        dx, dy = b.x - a.x, b.y - a.y
-        norm = math.hypot(dx, dy) or 1.0
-        tang.append((dx / norm, dy / norm))
-    return s, pts, tang
+    s, pts, tx, ty = _samples_vec(line, step, s0, s1)
+    return s, list(pts), list(zip(tx.tolist(), ty.tolist()))
 
 
 def canyon_fraction(dists: np.ndarray) -> float:

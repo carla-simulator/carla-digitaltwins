@@ -9,7 +9,7 @@ description = "OSM -> Twin Model -> {surface mesh, OpenDRIVE} for CARLA digital 
 requires-python = ">=3.11"
 dependencies = ["numpy", "shapely>=2", "pyproj", "geopandas", "rasterio", "requests",
                 "networkx", "scipy", "scenariogeneration", "trimesh", "mapbox-earcut", "matplotlib",
-                "msgpack"]
+                "msgpack", "Pillow", "lxml"]
 
 [project.scripts]
 twinmodel = "twinmodel.cli:main"
@@ -21,4 +21,4 @@ include = ["twinmodel*"]
 testpaths = ["tests"]
 
 [tool.setuptools.package-data]
-twinmodel = ["templates/*.html", "data/furniture/*.json"]
+twinmodel = ["templates/*.html", "data/furniture/*.json", "data/vegetation/*.json"]

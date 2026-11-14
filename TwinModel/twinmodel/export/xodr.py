@@ -236,7 +236,12 @@ def fit_planview(coords: np.ndarray, max_offset: Optional[float] = None) -> list
     tang = np.zeros_like(pts)
     tang[0], tang[-1] = chord_dir[0], chord_dir[-1]
     tang[1:-1] = pts[2:] - pts[:-2]
-    tang /= np.linalg.norm(tang, axis=1, keepdims=True)
+    tnorm = np.linalg.norm(tang, axis=1, keepdims=True)
+    degen = (tnorm[:, 0] < 1e-9)
+    if degen.any():
+        tang[degen] = chord_dir[np.minimum(np.flatnonzero(degen), n - 2)]
+        tnorm = np.linalg.norm(tang, axis=1, keepdims=True)
+    tang /= np.where(tnorm < 1e-9, 1.0, tnorm)
     t_out = tang.copy()          # tangent used at the start of segment i
     t_in = tang.copy()           # tangent used at the end of segment i-1
     corner = np.zeros(n, dtype=bool)
@@ -555,8 +560,12 @@ def _signal_attrs(sig: Signal) -> dict[str, str]:
         unit = "km/h"
     # The name is what an offline reader (tools/xodr_tl_check.py, tools/xodr_signals.py) and a
     # prop selector key on to tell an arrow head from a through head: both are type 1000001.
+    arrow_turn = str(sig.tags.get("arrow_turn", "")).lower()
+    arrow_default = ("Signal_3Light_ArrowRight01"
+                     if "right" in arrow_turn and "left" not in arrow_turn
+                     else "Signal_3Light_ArrowLeft01")
     name = sig.tags.get("name") or {"traffic_light": "Signal_3Light_Post01",
-                                    "traffic_light_arrow": "Signal_3Light_ArrowLeft01",
+                                    "traffic_light_arrow": arrow_default,
                                     "traffic_light_ped": "Signal_2Light_Pedestrian01",
                                     "stop": "Sign_Stop",
                                     "yield": "Sign_Yield",
@@ -584,12 +593,15 @@ def _validity_ranges(sig: Signal, sections: list, ids_per_section: list[dict[int
     different ids than the model carries. Translate through the section that covers ``sig.s``;
     lanes absent there are dropped.
     """
-    if not sig.validities:
+    if not sig.validities or not sections:
         return []
-    k = 0
-    for i, (s0, _s1, _lanes) in enumerate(sections):
-        if s0 <= sig.s + AUX_EPS:
-            k = i
+    want = {lid for a, b in sig.validities for lid in range(min(a, b), max(a, b) + 1) if lid != 0}
+    cands = [i for i, (s0, s1, _lanes) in enumerate(sections)
+             if s0 - AUX_EPS <= sig.s <= s1 + AUX_EPS]
+    if not cands:
+        k = 0 if sig.s < sections[0][0] else len(sections) - 1
+    else:
+        k = max(cands, key=lambda i: (len(want & set(ids_per_section[i])), i))
     ids = ids_per_section[k]
     out: set[int] = set()
     for a, b in sig.validities:
@@ -716,30 +728,31 @@ def _write_road(parent, model: TwinModel, road: Road, ids: IdMap, signals: list[
         prev_ids = ids_per_section[k - 1] if k > 0 else None
         next_ids = ids_per_section[k + 1] if k + 1 < len(sections) else None
 
-        def write_lane(container, lane: Lane):
-            le = _sub(container, "lane", id=str(ids[lane.id]), type=xodr_lane_type(lane.type), level="false")
+        def write_lane(container, lane: Lane, *, _k=k, _s0=s0, _s1=s1,
+                       _ids=ids, _prev_ids=prev_ids, _next_ids=next_ids):
+            le = _sub(container, "lane", id=str(_ids[lane.id]), type=xodr_lane_type(lane.type), level="false")
             lk = _sub(le, "link")
             # predecessor: the previous section (an auxiliary lane starting here branches off
             # the lane inboard of it), or the linked road at the road start
-            if prev_ids is not None:
-                if lane.id in prev_ids:
-                    _sub(lk, "predecessor", id=str(prev_ids[lane.id]))
+            if _prev_ids is not None:
+                if lane.id in _prev_ids:
+                    _sub(lk, "predecessor", id=str(_prev_ids[lane.id]))
                 else:
-                    inb = _inboard_continuing(lane, sections[k - 1][2])
+                    inb = _inboard_continuing(lane, sections[_k - 1][2])
                     if inb is not None:
-                        _sub(lk, "predecessor", id=str(prev_ids[inb.id]))
+                        _sub(lk, "predecessor", id=str(_prev_ids[inb.id]))
             elif "predecessor" in links[lane.id]:
                 _sub(lk, "predecessor", id=str(links[lane.id]["predecessor"]))
-            if next_ids is not None:
-                if lane.id in next_ids:
-                    _sub(lk, "successor", id=str(next_ids[lane.id]))
+            if _next_ids is not None:
+                if lane.id in _next_ids:
+                    _sub(lk, "successor", id=str(_next_ids[lane.id]))
                 else:
-                    inb = _inboard_continuing(lane, sections[k + 1][2])
+                    inb = _inboard_continuing(lane, sections[_k + 1][2])
                     if inb is not None:
-                        _sub(lk, "successor", id=str(next_ids[inb.id]))
+                        _sub(lk, "successor", id=str(_next_ids[inb.id]))
             elif "successor" in links[lane.id]:
                 _sub(lk, "successor", id=str(links[lane.id]["successor"]))
-            for s_off, a, b in width_records(lane, s0, s1):
+            for s_off, a, b in width_records(lane, _s0, _s1):
                 _sub(le, "width", sOffset=s_off, a=a, b=b, c=0, d=0)
             _road_mark(le, lane.marking)
             for user in lane.tags.get('reviewed_access',[]) or ([lane.type] if lane.type in {'bus','taxi'} else []):
@@ -766,14 +779,22 @@ def _write_road(parent, model: TwinModel, road: Road, ids: IdMap, signals: list[
 
     objects = _sub(r, "objects")
     sigs = _sub(r, "signals")
-    wl = road.width_left()
-    wr = road.width_right()
+    wl_base = road.width_left()
+    wr_base = road.width_right()
+    has_aux = any(l.tags.get("aux") for l in road.lanes)
     reviewed=model.metadata.get('reviewed_map',{})
     replaced_signals={f['properties'].get('source_signal_id') for f in reviewed.get('features',[]) if f['properties'].get('source_signal_id')}
     for sig in signals:
         if sig.id in replaced_signals:continue
         if sig.kind == CROSSWALK_KIND:
             width_s = float(sig.tags.get("width", P.crossing.width))
+            if has_aux:
+                wl = sum(aux_width_at(l, road, sig.s) if l.tags.get("aux") else l.width
+                         for l in road.lanes if l.id > 0 and l.type in ("driving", "parking", "biking", "shoulder"))
+                wr = sum(aux_width_at(l, road, sig.s) if l.tags.get("aux") else l.width
+                         for l in road.lanes if l.id < 0 and l.type in ("driving", "parking", "biking", "shoulder"))
+            else:
+                wl, wr = wl_base, wr_base
             half_t = (wl + wr) / 2.0
             centre_t = (wl - wr) / 2.0
             ob = _sub(objects, "object", id=sig.id, name="Crosswalk", s=sig.s, t=centre_t,
@@ -858,7 +879,9 @@ def export_xodr(model: TwinModel, path: Optional[Path | str] = None) -> str:
 
     text = etree.tostring(root, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode()
     if path is not None:
-        Path(path).write_text(text)
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8", newline="\n")
         log.info("wrote %s (%d roads, %d junctions, %d signals)", path, len(model.roads),
                  len(model.junctions), len(model.signals))
     return text

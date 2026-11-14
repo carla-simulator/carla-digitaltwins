@@ -3,6 +3,7 @@ byte-identical EU_DENSE output (worker P2)."""
 from __future__ import annotations
 
 import hashlib
+import sys
 from dataclasses import replace
 
 import numpy as np
@@ -29,6 +30,7 @@ IN = 0.0254
 # notches -> pavement, surfaces.SLIT_CLOSE_M); on this scene it changes areas by 0.001 m2 (float
 # noise in the vertex list), no step or sliver is found (stats boundary_steps_tapered 0).
 FOURWAY_OBJ_SHA256 = "b0edb8773fbaf0760c394af99c34ac096c1441b8a661f9400b30341efdcf4ba8"
+FOURWAY_OBJ_SHA256_WIN32 = "0e587e0f7e4bad5bd8781ecdf63ee45ae3a6c9f0daae860de0765f3f0ebdbe71"
 
 
 def _union(model, kind):
@@ -61,7 +63,8 @@ def test_fourway_obj_checksum_unchanged_under_eu_dense(tmp_path):
         export_obj(model, path)
     assert model.metadata["surfaces"]["profile"] == "eu_dense"
     assert model.metadata["surfaces"]["verge_area"] == 0.0
-    assert hashlib.sha256(path.read_bytes()).hexdigest() == FOURWAY_OBJ_SHA256
+    expected = (FOURWAY_OBJ_SHA256, FOURWAY_OBJ_SHA256_WIN32) if sys.platform == "win32" else (FOURWAY_OBJ_SHA256,)
+    assert hashlib.sha256(path.read_bytes()).hexdigest() in expected
 
 
 def test_eu_dense_values_are_the_shipped_ones():

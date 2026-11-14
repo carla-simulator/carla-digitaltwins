@@ -67,7 +67,8 @@ def lonlat_to_tile(lon: float, lat: float, zoom: int) -> tuple[float, float]:
     """Fractional slippy-map tile coordinates (x east, y south)."""
     n = 2 ** zoom
     x = (lon + 180.0) / 360.0 * n
-    lat_r = math.radians(lat)
+    lat_c = max(-85.05112878, min(85.05112878, float(lat)))
+    lat_r = math.radians(lat_c)
     y = (1.0 - math.log(math.tan(lat_r) + 1.0 / math.cos(lat_r)) / math.pi) / 2.0 * n
     return x, y
 
@@ -160,13 +161,25 @@ def fetch_osm_tiles(frame: LocalFrame, bbox_swne: tuple[float, float, float, flo
     log.info("osm tiles z%d: %dx%d tiles (%d..%d, %d..%d) -> grid %dx%d @ %.2f m",
              zoom, nx, ny, tx0, tx1, ty0, ty1, width, height, resolution)
 
+    import threading
     mosaic = np.zeros((ny * TILE_PX, nx * TILE_PX, 3), dtype=np.uint8)
-    session = requests.Session()
+    tls = threading.local()
+    sessions = []
+    sessions_lock = threading.Lock()
     jobs = [(x, y) for y in range(ty0, ty1 + 1) for x in range(tx0, tx1 + 1)]
+
+    def get_session():
+        sess = getattr(tls, "session", None)
+        if sess is None:
+            sess = requests.Session()
+            with sessions_lock:
+                sessions.append(sess)
+            tls.session = sess
+        return sess
 
     def work(xy):
         x, y = xy
-        return x, y, _decode_png(_fetch_tile(session, tile_url, zoom, x, y,
+        return x, y, _decode_png(_fetch_tile(get_session(), tile_url, zoom, x, y,
                                              _tile_path(cache_dir, zoom, x, y)))
 
     n_ok = 0
@@ -181,6 +194,9 @@ def fetch_osm_tiles(frame: LocalFrame, bbox_swne: tuple[float, float, float, flo
     except Exception as exc:
         log.warning("osmtiles: tile fetch failed (%s); no tile layer", exc)
         return None
+    finally:
+        for s in sessions:
+            s.close()
     if n_ok == 0:
         return None
 
@@ -243,7 +259,7 @@ def road_mask_from_tiles(img: OrthoImage | np.ndarray, tol: int = 4,
         res = 0.25 if resolution is None else resolution
     arr = arr[..., :3].astype(np.int16)
     mask = np.zeros(arr.shape[:2], dtype=bool)
-    for rgb in (colors or OSM_ROAD_COLORS).values():
+    for rgb in dict.fromkeys((colors or OSM_ROAD_COLORS).values()):
         d = np.abs(arr - np.asarray(rgb, dtype=np.int16)).max(axis=-1)
         mask |= d <= tol
     radius = int(round(open_m / max(res, 1e-6)))

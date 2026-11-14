@@ -154,9 +154,12 @@ def _polygons(geom: BaseGeometry) -> list[Polygon]:
 
 def _grid_split(geom: BaseGeometry, cell: float) -> list[Polygon]:
     """Cut a polygon by a square grid so a flat triangulation can follow the terrain."""
+    if cell <= 0:
+        return _polygons(geom)
     out: list[Polygon] = []
     for poly in _polygons(geom):
         poly = poly.segmentize(cell)
+        shapely.prepare(poly)
         minx, miny, maxx, maxy = poly.bounds
         x0 = np.floor(minx / cell) * cell
         y0 = np.floor(miny / cell) * cell
@@ -164,7 +167,10 @@ def _grid_split(geom: BaseGeometry, cell: float) -> list[Polygon]:
         ys = np.arange(y0, maxy + cell, cell)
         for x in xs:
             for y in ys:
-                piece = poly.intersection(box(x, y, x + cell, y + cell))
+                cell_box = box(x, y, x + cell, y + cell)
+                if not poly.intersects(cell_box):
+                    continue
+                piece = poly.intersection(cell_box)
                 out.extend(p for p in _polygons(piece) if p.area > 1e-6)
     return out
 
@@ -186,7 +192,7 @@ class _ObjWriter:
         g.extend((int(a) + base + 1, int(b) + base + 1, int(c) + base + 1) for a, b, c in faces)
 
     def write(self, path_obj: Path, mtl_name: str) -> None:
-        with open(path_obj, "w") as f:
+        with open(path_obj, "w", encoding="utf-8", newline="\n") as f:
             f.write("# twinmodel surface mesh — model space (x east, y north, z up, metres)\n")
             f.write(f"mtllib {mtl_name}\n")
             for x, y, z in self.vertices:
@@ -202,7 +208,7 @@ class _ObjWriter:
 
 def _write_mtl(path_mtl: Path, groups: Iterable[str] = ()) -> None:
     used = set(groups)
-    with open(path_mtl, "w") as f:
+    with open(path_mtl, "w", encoding="utf-8", newline="\n") as f:
         f.write("# twinmodel materials\n")
         for name, (r, g, b) in list(MATERIALS.items()) + [
                 (n, c) for n, c in TUNNEL_MATERIALS.items() if n in used]:
@@ -245,7 +251,10 @@ def _add_wall(w: _ObjWriter, model: TwinModel, s: Surface, subdivide: bool) -> i
     layer = s.tags.get("layer")
     n = 0
     for poly in _polygons(s.geometry):
-        for ring in [poly.exterior] + list(poly.interiors):
+        poly = shapely.geometry.polygon.orient(shapely.force_2d(poly), 1.0)
+        rings = [poly.exterior] + [shapely.geometry.polygon.orient(Polygon(h), -1.0).exterior
+                                   for h in poly.interiors]
+        for ring in rings:
             line = LineString(ring.coords)
             if subdivide:
                 line = line.segmentize(profiles.get().elevation.mesh_grid_m)
@@ -295,18 +304,22 @@ def _add_marking(w: _ObjWriter, model: TwinModel, mk: Marking, subdivide: bool) 
     from shapely.ops import substring
 
     M = profiles.get().marking
-    line = shapely.force_2d(mk.geometry)
-    pieces: list[LineString]
+    geom2d = shapely.force_2d(mk.geometry)
+    lines = [g for g in getattr(geom2d, "geoms", [geom2d]) if isinstance(g, LineString) and not g.is_empty]
+    pieces: list[LineString] = []
     if mk.kind == "broken":
-        pieces = []
-        s, L = 0.0, line.length
-        while s < L:
-            e = min(L, s + M.broken_dash)
-            if e - s > 0.05:
-                pieces.append(substring(line, s, e))
-            s += M.broken_dash + M.broken_gap
+        step = max(0.1, M.broken_dash + M.broken_gap)
+        for line in lines:
+            s, L = 0.0, line.length
+            while s < L:
+                e = min(L, s + M.broken_dash)
+                if e - s > 0.05:
+                    sub_piece = substring(line, s, e)
+                    if isinstance(sub_piece, LineString) and not sub_piece.is_empty:
+                        pieces.append(sub_piece)
+                s += step
     else:
-        pieces = [line]
+        pieces = lines
     group = "marking_yellow" if mk.color == "yellow" else "marking_white"
     width = mk.width or M.width
     n = 0
@@ -390,8 +403,10 @@ def export_preview_png(model: TwinModel, path_png: Path | str, ortho: np.ndarray
     if window is not None:
         plot_extent = tuple(window)
     elif extent is None:
-        if geoms:
-            minx, miny, maxx, maxy = unary_union([shapely.force_2d(g) for g in geoms]).bounds
+        non_empty = [shapely.force_2d(g) for g in geoms if g is not None and not g.is_empty]
+        valid_union = unary_union(non_empty) if non_empty else Polygon()
+        if not valid_union.is_empty:
+            minx, miny, maxx, maxy = valid_union.bounds
         else:
             minx, miny, maxx, maxy = -50, -50, 50, 50
         pad = 0.03 * max(maxx - minx, maxy - miny, 10)

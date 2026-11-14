@@ -74,3 +74,87 @@ def test_dedicated_pack_name_cannot_pull_in_another_map(setup):
     write(manifest,{'maps':[{'package':'/Game/Other'}],'catalogs':[]})
     with pytest.raises(PrerequisiteError,match='other content'):
         package_project(project,'local',base,out,name='TestPack',saved_target=True,dry_run=True)
+
+
+def test_world_partition_navigation_satisfies_require_nav(setup):
+    project,base,out,pipe,od=setup
+    geom_report=project.path('build/targets/local/unreal.geometry/report.json')
+    write(geom_report,{
+        'navigation':{'recast_navmesh':1},
+        'navigation_builders':{
+            'CarlaCrosswalkNavBuilder':False,
+            'WorldPartitionNavigationDataBuilder':True,
+        },
+    })
+    with pytest.raises(PrerequisiteError,match='navigation'):
+        package_project(project,'local',base,out,saved_target=True,require_nav=True,dry_run=True)
+    write(geom_report,{
+        'navigation':{'recast_navmesh':1},
+        'navigation_builders':{
+            'CarlaCrosswalkNavBuilder':True,
+            'WorldPartitionNavigationDataBuilder':True,
+        },
+    })
+    res=package_project(project,'local',base,out,saved_target=True,require_nav=True,dry_run=True)
+    assert res['pedestrian_navigation'] is True
+
+
+def test_windows_engine_selects_win64_and_verify_archive_checks_files(setup, tmp_path):
+    project,base,out,pipe,od=setup
+    win_engine=tmp_path/'win_engine/Engine/Binaries/Win64/UnrealEditor-Cmd.exe'
+    win_engine.parent.mkdir(parents=True)
+    win_engine.touch()
+    pipe.target['engine']=str(win_engine)
+    res=package_project(project,'local',base,out,saved_target=True,dry_run=True)
+    assert res['platform']=='Win64'
+    idx=res['command'].index('--platform')
+    assert res['command'][idx+1]=='Win64'
+
+    pak_bytes=b'cooked-pak-payload'
+    import hashlib
+    pak_sha=hashlib.sha256(pak_bytes).hexdigest()
+    archive=tmp_path/'built_pack.tar.gz'
+    level='/Game/Test'
+    entry={'package':level,'xodr':'Maps/OpenDrive/Test/Test.xodr'}
+
+    def write_pack(files_dict):
+        blobs={
+            'Pack/carla-pack.json':json.dumps({'maps':[entry],'files':files_dict}).encode(),
+            'Pack/Content/'+entry['xodr']:od.read_bytes(),
+            'Pack/Content/Paks/Pack-Win64.pak':pak_bytes,
+        }
+        with tarfile.open(archive,'w:gz') as tar:
+            for name,blob in blobs.items():
+                info=tarfile.TarInfo(name);info.size=len(blob);tar.addfile(info,io.BytesIO(blob))
+
+    write_pack({'Content/'+entry['xodr']:'bad'})
+    with pytest.raises(RuntimeError,match='pak'):
+        verify_archive(archive,level,od)
+
+    write_pack({
+        'Content/'+entry['xodr']:hashlib.sha256(od.read_bytes()).hexdigest(),
+        'Content/Paks/Pack-Win64.pak':'0'*64,
+    })
+    with pytest.raises(RuntimeError,match='digest'):
+        verify_archive(archive,level,od)
+
+    write_pack({
+        'Content/'+entry['xodr']:hashlib.sha256(od.read_bytes()).hexdigest(),
+        'Content/Paks/Pack-Win64.pak':pak_sha,
+    })
+    assert verify_archive(archive,level,od)['files']['Content/Paks/Pack-Win64.pak']==pak_sha
+
+    write_pack({
+        'carla-pack.json':'sha256:'+'f'*64,
+        'Content/'+entry['xodr']:'sha256:'+hashlib.sha256(od.read_bytes()).hexdigest(),
+        'Content/Paks/Pack-Win64.pak':'sha256:'+pak_sha,
+    })
+    assert verify_archive(archive,level,od)['files']['Content/Paks/Pack-Win64.pak']=='sha256:'+pak_sha
+
+    write_pack({
+        'Content/'+entry['xodr']:'sha256:'+hashlib.sha256(od.read_bytes()).hexdigest(),
+        'Content/Paks/Pack-Win64.pak':'sha256:'+'0'*64,
+    })
+    with pytest.raises(RuntimeError,match='digest'):
+        verify_archive(archive,level,od)
+
