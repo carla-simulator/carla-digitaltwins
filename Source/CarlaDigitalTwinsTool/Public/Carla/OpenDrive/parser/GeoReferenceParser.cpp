@@ -13,6 +13,7 @@
 
 #include <Carla/pugixml/pugixml.hpp>
 
+#include <cstdlib>
 #include <limits>
 #include <string>
 #include <vector>
@@ -22,7 +23,15 @@ namespace opendrive {
 namespace parser {
 
   static double ParseDouble(const std::string &string_value) {
-    return std::stod(string_value);
+    if (string_value.empty()) {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+    char *endptr = nullptr;
+    const double val = std::strtod(string_value.c_str(), &endptr);
+    if (endptr == string_value.c_str() || *endptr != '\0') {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+    return val;
   }
 
   static geom::GeoLocation ParseGeoReference(const std::string &geo_reference_string) {

@@ -37,7 +37,7 @@ public:
 	void SignGenerationForCurrentMap();
 
 	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite)
-	UStreetMap* StreetMapData;
+	UStreetMap* StreetMapData = nullptr;
 
 	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite)
 	FName SignPackagePath;
@@ -46,23 +46,22 @@ public:
 	FName PolePackagePath;
 
 	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite)
-	ESignStyle SignStyle;
+	ESignStyle SignStyle = ESignStyle::None;
 
 	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite)
-	bool bDisplaceSignsToEdge;
+	bool bDisplaceSignsToEdge = true;
 
 	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite)
-	int MaxDisplacementIterations;
+	int MaxDisplacementIterations = 20;
 
 	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite)
-	float RoadBorderPadding;
+	float RoadBorderPadding = 50.0f;
 
 	UPROPERTY(Category = "SignGeneration", EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0", ClampMax = "2.0"))
-	float StepPercentOfLaneWidth;
+	float StepPercentOfLaneWidth = 0.33f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	TArray<AActor*> GeneratedSigns;
-	//TMap<int32, AStaticMeshActor*> GeneratedSigns;
 
 private:
 
@@ -72,7 +71,5 @@ private:
 	UFUNCTION()
 	void GetSignPropertyValue(FStreetMapMisc Sign, FString KeyToFind, FString& Out_KeyName, FString& Out_Value);
 
-	USignDataAsset* current_data_asset;
-
-	bool has_spawned_sign;
+	bool has_spawned_sign = false;
 };

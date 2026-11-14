@@ -25,11 +25,11 @@ namespace client {
 
     static const std::string& GetFilesBaseFolder();
 
-    static bool FileExists(std::string file);
+    static bool FileExists(const std::string &file);
 
-    static bool WriteFile(std::string path, std::vector<uint8_t> content);
+    static bool WriteFile(const std::string &path, const std::vector<uint8_t> &content);
 
-    static std::vector<uint8_t> ReadFile(std::string path);
+    static std::vector<uint8_t> ReadFile(const std::string &path);
 
   private:
 

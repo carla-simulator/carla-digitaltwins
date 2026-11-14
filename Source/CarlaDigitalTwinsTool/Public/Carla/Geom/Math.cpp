@@ -12,7 +12,11 @@ namespace carla {
 namespace geom {
 
   double Math::GetVectorAngle(const Vector3D &a, const Vector3D &b) {
-    return std::acos(Dot(a, b) / (a.Length() * b.Length()));
+    const double denom = static_cast<double>(a.Length()) * static_cast<double>(b.Length());
+    if (denom <= 1e-12) {
+      return 0.0;
+    }
+    return std::acos(Clamp(Dot(a, b) / denom, -1.0, 1.0));
   }
 
   std::pair<float, float> Math::DistanceSegmentToPoint(
@@ -57,6 +61,13 @@ namespace geom {
 
     // transport point relative to the arc starting poistion and rotation
     const Vector3D rotated_p(RotatePointOnOrigin2D(p - start_pos, -heading));
+
+    if (curvature <= 1e-6f) {
+      return DistanceSegmentToPoint(
+          rotated_p,
+          Vector3D(0.0f, 0.0f, 0.0f),
+          Vector3D(length, 0.0f, 0.0f));
+    }
 
     const float radius = 1.0f / curvature;
     const Vector3D circ_center(0.0f, radius, 0.0f);

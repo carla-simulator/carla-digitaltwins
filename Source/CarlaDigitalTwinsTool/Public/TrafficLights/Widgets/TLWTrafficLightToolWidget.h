@@ -64,6 +64,9 @@ private:
 	void RefreshPoleList();
 	void RebuildModuleChain(FTLHead& Head);
 	void UpdatePreviewActor();
+	void UpdatePreviewLightParameter(int32 PoleIndex, int32 HeadIndex, int32 ModuleIndex, int32 LightIndex);
+	void InitializeDefaultLight(FTLModuleLight& Light) const;
+	void SyncModuleLightsWithMesh(FTLModule& Module, FEditorModule& EditorModule);
 	void Rebuild();
 	void RefreshPoleMeshes(int32 PoleIndex);
 	void RefreshModuleMeshOptions(int32 PoleIndex, int32 HeadIndex, int32 ModuleIndex);
@@ -91,7 +94,7 @@ private:
 	TSharedRef<SWidget> BuildPoleEntry(int32 Index);
 	TSharedRef<SWidget> BuildPoleSection();
 	TSharedRef<SWidget> BuildHeadEntry(int32 PoleIndex, int32 HeadIndex);
-	TSharedRef<SWidget> BuildHeadSection(int32 HeadIndex);
+	TSharedRef<SWidget> BuildHeadSection(int32 PoleIndex);
 	TSharedRef<SWidget> BuildModuleEntry(int32 PoleIndex, int32 HeadIndex, int32 ModuleIndex);
 	TSharedRef<SWidget> BuildModuleSection(int32 PoleIndex, int32 HeadIndex);
 	TSharedRef<SWidget> BuildModuleLightEntry(int32 PoleIndex, int32 HeadIndex, int32 ModuleIndex, int32 LightIndex);

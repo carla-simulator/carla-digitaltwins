@@ -33,4 +33,8 @@ public:
 
   UFUNCTION(BlueprintCallable)
   void CreatePlugin(FString PluginName);
+
+private:
+  UPROPERTY(Transient)
+  TObjectPtr<UOpenDriveToMap> OpenDriveToMapInstance = nullptr;
 };

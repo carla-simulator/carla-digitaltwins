@@ -16,9 +16,12 @@
 #include <boost/asio/post.hpp>
 #include <Carla/enable-ue4-macros.h>
 
-#include <Carla/RPC/server.h>
+#include <rpc/server.h>
 
+#include <cstddef>
 #include <future>
+#include <string>
+#include <utility>
 
 namespace carla {
 namespace rpc {

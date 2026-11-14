@@ -151,10 +151,16 @@ struct vec3f
     vec3f plane;
     plane.cross(b, w);
 
-    if (plane.x * a.x + plane.y * a.y + plane.z * a.z > 0)
-      return (double)-acos(dot / len);
+    double input = dot / len;
+    if (input < -1.0)
+      input = -1.0;
+    if (input > 1.0)
+      input = 1.0;
 
-    return (double)acos(dot / len);
+    if (plane.x * a.x + plane.y * a.y + plane.z * a.z > 0)
+      return (double)-acos(input);
+
+    return (double)acos(input);
   }
 
   inline vec3f rot_x(double a)
@@ -227,16 +233,17 @@ struct vec3f
   inline vec3f normalize(double desired_length = 1)
   {
     double square = sqrt(x * x + y * y + z * z);
-    /*
-    if (square <= 0.00001f )
+    if (square <= 1e-12)
     {
-      x=1;y=0;z=0;
+      x = 1;
+      y = 0;
+      z = 0;
       return *this;
-    }*/
-    // double len = desired_length / square;
-    x /= square;
-    y /= square;
-    z /= square;
+    }
+    double scale = desired_length / square;
+    x *= scale;
+    y *= scale;
+    z *= scale;
 
     return *this;
   }
@@ -275,6 +282,10 @@ vec3f barycentric(const vec3f &p, const vec3f &a, const vec3f &b, const vec3f &c
   double d20 = v2.dot(v0);
   double d21 = v2.dot(v1);
   double denom = d00 * d11 - d01 * d01;
+  if (fabs(denom) <= 1e-15)
+  {
+    return vec3f(1.0, 0.0, 0.0);
+  }
   double v = (d11 * d20 - d01 * d21) / denom;
   double w = (d00 * d21 - d01 * d20) / denom;
   double u = 1.0 - v - w;
@@ -1065,8 +1076,8 @@ namespace Simplify
             {
               printf("unrecognized sequence\n");
               printf("%s\n", line);
-              while (1)
-                ;
+              fclose(fn);
+              return;
             }
           if (tri_ok)
           {
@@ -1120,7 +1131,7 @@ namespace Simplify
       if (!file)
       {
         printf("write_obj: can't write data file \"%s\".\n", filename);
-        exit(0);
+        return;
       }
       if (!mtllib.empty())
       {

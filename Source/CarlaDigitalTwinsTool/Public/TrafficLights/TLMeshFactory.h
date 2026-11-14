@@ -14,6 +14,7 @@
 #include "TrafficLights/TLLightType.h"
 #include "TrafficLights/TLModule.h"
 #include "TrafficLights/TLPole.h"
+#include "UObject/WeakObjectPtrTemplates.h"
 
 class FTLMeshFactory
 {
@@ -45,8 +46,8 @@ private:
 	static FTLBackplateRow* GetBackplateRow(ETLStyle Style);
 
 private:
-	static UDataTable* s_LightTypeMeshTable;
-	static UDataTable* s_ModuleMeshTable;
-	static UDataTable* s_PoleMeshTable;
-	static UDataTable* s_BackplateMeshTable;
+	static TWeakObjectPtr<UDataTable> s_LightTypeMeshTable;
+	static TWeakObjectPtr<UDataTable> s_ModuleMeshTable;
+	static TWeakObjectPtr<UDataTable> s_PoleMeshTable;
+	static TWeakObjectPtr<UDataTable> s_BackplateMeshTable;
 };

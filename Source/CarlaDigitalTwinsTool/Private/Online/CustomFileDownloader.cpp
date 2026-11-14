@@ -21,18 +21,28 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(
   IPlatformFile &FileManager = FPlatformFileManager::Get().GetPlatformFile();
 
   FString FileContent;
-  // Always first check if the file that you want to manipulate exist.
   if (FileManager.FileExists(*FilePath))
   {
-    // We use the LoadFileToString to load the file into
     if (!FFileHelper::LoadFileToString(FileContent, *FilePath, FFileHelper::EHashOptions::None))
     {
-      UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("FileManipulation: Did not load text from \"%s\""), *FilePath);
+      UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("FileManipulation: Did not load text from \"%s\""), *FilePath);
+      return;
     }
   }
   else
   {
     UE_LOG(LogCarlaDigitalTwinsTool, Warning, TEXT("File: \"%s\" does not exist"), *FilePath);
+    return;
+  }
+
+  if (!FileContent.Contains(TEXT("<osm"), ESearchCase::IgnoreCase) ||
+      !FileContent.Contains(TEXT("<node"), ESearchCase::IgnoreCase) ||
+      !FileContent.Contains(TEXT("<way"), ESearchCase::IgnoreCase))
+  {
+    const FString Snippet = FileContent.Left(256).Replace(TEXT("\r"), TEXT(" ")).Replace(TEXT("\n"), TEXT(" "));
+    UE_LOG(LogCarlaDigitalTwinsTool, Error,
+           TEXT("FileManipulation: \"%s\" is not a valid OSM road payload (missing <osm>, <node>, or <way>). Snippet: %s"),
+           *FilePath, *Snippet);
     return;
   }
 
@@ -42,7 +52,8 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(
   Settings.default_sidewalk_width = OpenDriveGenParams.DefaultSidewalkWidth;
   Settings.default_lane_width = OpenDriveGenParams.DefaultLaneWidth;
   Settings.elevation_layer_height = OpenDriveGenParams.DefaultOSMLayerHeight;
-  Settings.proj_string += " +lat_0=" + std::to_string(Lat_0) + " +lon_0=" + std::to_string(Lon_0);
+  const FString ProjCoords = FString::Printf(TEXT(" +lat_0=%.8f +lon_0=%.8f"), Lat_0, Lon_0);
+  Settings.proj_string += TCHAR_TO_UTF8(*ProjCoords);
   Settings.center_map = false;
 
   try
@@ -51,28 +62,46 @@ void UCustomFileDownloader::ConvertOSMInOpenDrive(
     auto OsmFile = std::string(FileContentUTF8.Get(), FileContentUTF8.Length());
     OpenDriveFile = osm2odr::ConvertOSMToOpenDRIVE(OsmFile, Settings);
   }
-  catch (std::runtime_error& re)
+  catch (const std::exception& Ex)
   {
-    FString fs;
-    fs = re.what();
-    UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("FileManipulation: osm2odr::ConvertOSMToOpenDRIVE failed: %s"), *fs);
+    const FString ErrorMsg = UTF8_TO_TCHAR(Ex.what());
+    UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("FileManipulation: osm2odr::ConvertOSMToOpenDRIVE failed: %s"), *ErrorMsg);
+    return;
   }
-  
-  FilePath.RemoveFromEnd(".osm", ESearchCase::Type::IgnoreCase);
-  FilePath += ".xodr";
+  catch (...)
+  {
+    UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("FileManipulation: osm2odr::ConvertOSMToOpenDRIVE failed with unknown exception."));
+    return;
+  }
 
-  if (FFileHelper::SaveStringToFile(FString(OpenDriveFile.c_str()), *FilePath))
+  if (OpenDriveFile.empty())
+  {
+    UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("FileManipulation: osm2odr::ConvertOSMToOpenDRIVE produced empty output for \"%s\""), *FilePath);
+    return;
+  }
+
+  FilePath.RemoveFromEnd(TEXT(".osm"), ESearchCase::Type::IgnoreCase);
+  FilePath += TEXT(".xodr");
+
+  FUTF8ToTCHAR OpenDriveTCHAR(OpenDriveFile.c_str(), OpenDriveFile.size());
+  const FString OpenDriveString(OpenDriveTCHAR.Length(), OpenDriveTCHAR.Get());
+  if (FFileHelper::SaveStringToFile(OpenDriveString, *FilePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
   {
     UE_LOG(LogCarlaDigitalTwinsTool, Display, TEXT("FileManipulation: Successfully Written: \"%s\" to the text file"), *FilePath);
   }
   else
   {
-    UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("FileManipulation: Failed to write FString to file."));
+    UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("FileManipulation: Failed to write FString to file \"%s\"."), *FilePath);
   }
 }
 
 void UCustomFileDownloader::StartDownload()
 {
+  if (Url.IsEmpty() || ResultFileName.IsEmpty())
+  {
+    UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("StartDownload called with empty Url or ResultFileName"));
+    return;
+  }
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FHttpDownloader CREATED"));
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Map Name Is %s"), *ResultFileName );
   FHttpDownloader *Download = new FHttpDownloader("GET", Url, ResultFileName, DownloadDelegate);
@@ -101,60 +130,78 @@ void FHttpDownloader::Run(void)
   UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Map Name Is %s"), *Filename );
   Request->OnProcessRequestComplete().BindRaw(this, &FHttpDownloader::RequestComplete);
   Request->SetURL(Url);
-  float Timeout = CVarCFDTimeout.GetValueOnAnyThread();
+  const float Timeout = CVarCFDTimeout.GetValueOnAnyThread();
   if (Timeout > 0.0F)
+  {
     Request->SetTimeout(Timeout);
-  Request->SetActivityTimeout(Timeout);
+#if ENGINE_MAJOR_VERSION >= 5
+    Request->SetActivityTimeout(Timeout);
+#endif
+  }
   Request->SetVerb(Verb);
-  Request->ProcessRequest();
+  if (!Request->ProcessRequest())
+  {
+    UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Failed to start HTTP request [%s] Url=[%s]"), *Verb, *Url);
+    delete this;
+  }
 }
 
 void FHttpDownloader::RequestComplete(FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded)
 {
-  if (!HttpResponse.IsValid() )
+  if (!bSucceeded || !HttpResponse.IsValid())
   {
-    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Download failed. NULL response"));
+    UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Download failed (bSucceeded=%d, validResponse=%d)"),
+           bSucceeded ? 1 : 0, HttpResponse.IsValid() ? 1 : 0);
   }
   else
   {
-    // If we do not get success responses codes we do not do anything
-    if (HttpResponse->GetResponseCode() < 200 || 300 <= HttpResponse->GetResponseCode())
+    const int32 ResponseCode = HttpResponse->GetResponseCode();
+    if (ResponseCode < 200 || ResponseCode >= 300)
     {
       UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Error during download [%s] Url=[%s] Response=[%d]"),
-             *HttpRequest->GetVerb(),
-             *HttpRequest->GetURL(),
-             HttpResponse->GetResponseCode());
+             HttpRequest.IsValid() ? *HttpRequest->GetVerb() : TEXT(""),
+             HttpRequest.IsValid() ? *HttpRequest->GetURL() : *Url,
+             ResponseCode);
+      delete this;
       return;
     }
 
     UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Completed download [%s] Url=[%s] Response=[%d]"),
-           *HttpRequest->GetVerb(),
-           *HttpRequest->GetURL(),
-           HttpResponse->GetResponseCode());
+           HttpRequest.IsValid() ? *HttpRequest->GetVerb() : TEXT(""),
+           HttpRequest.IsValid() ? *HttpRequest->GetURL() : *Url,
+           ResponseCode);
 
-    FString CurrentFile = UGenerationPathsHelper::GetRawMapDirectoryPath(Filename) + "OpenDrive/";
-    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FHttpDownloader::RequestComplete CurrentFile %s."), *CurrentFile);
+    const FString CurrentDir = FPaths::Combine(UGenerationPathsHelper::GetRawMapDirectoryPath(Filename), TEXT("OpenDrive"));
+    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FHttpDownloader::RequestComplete CurrentDir %s."), *CurrentDir);
 
-    // We will use this FileManager to deal with the file.
     IPlatformFile &FileManager = FPlatformFileManager::Get().GetPlatformFile();
-    if (!FileManager.DirectoryExists(*CurrentFile))
+    if (!FileManager.DirectoryExists(*CurrentDir))
     {
-      FileManager.CreateDirectory(*CurrentFile);
+      FileManager.CreateDirectoryTree(*CurrentDir);
     }
-    CurrentFile += Filename + ".osm";
+    const FString CurrentFile = FPaths::Combine(CurrentDir, Filename + TEXT(".osm"));
 
-    FString StringToWrite = HttpResponse->GetContentAsString();
+    const FString StringToWrite = HttpResponse->GetContentAsString();
+    if (!StringToWrite.Contains(TEXT("<osm"), ESearchCase::IgnoreCase) ||
+        !StringToWrite.Contains(TEXT("<node"), ESearchCase::IgnoreCase) ||
+        !StringToWrite.Contains(TEXT("<way"), ESearchCase::IgnoreCase))
+    {
+      const FString Snippet = StringToWrite.Left(256).Replace(TEXT("\r"), TEXT(" ")).Replace(TEXT("\n"), TEXT(" "));
+      UE_LOG(LogCarlaDigitalTwinsTool, Error,
+             TEXT("Download response for \"%s\" does not contain valid OSM road data (<osm>/<node>/<way>). Snippet: %s"),
+             *Filename, *Snippet);
+      delete this;
+      return;
+    }
 
-    // We use the LoadFileToString to load the file into
     if (FFileHelper::SaveStringToFile(StringToWrite, *CurrentFile, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
     {
-      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FileManipulation: Successfully Written "));
+      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FileManipulation: Successfully Written \"%s\""), *CurrentFile);
       DelegateToCall.ExecuteIfBound();
     }
     else
     {
-      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FileManipulation: Failed to write FString to file."));
-      UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("FileManipulation: CurrentFile %s."), *CurrentFile);
+      UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("FileManipulation: Failed to write FString to file \"%s\"."), *CurrentFile);
     }
   }
   delete this;

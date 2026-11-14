@@ -67,11 +67,16 @@ struct FDVector
     return *this;
   }
 
-  bool operator==(const FDVector& Other)
+  bool operator==(const FDVector& Other) const
   {
     return X == Other.X &&
            Y == Other.Y &&
            Z == Other.Z;
+  }
+
+  bool operator!=(const FDVector& Other) const
+  {
+    return !(*this == Other);
   }
 
   FDVector operator+(const FDVector& V) const
@@ -79,22 +84,38 @@ struct FDVector
     return FDVector(X + V.X, Y + V.Y, Z + V.Z);
   }
 
-  FDVector& operator+=(float Scalar)
+  FDVector& operator+=(const FDVector& V)
+  {
+    this->X += V.X;
+    this->Y += V.Y;
+    this->Z += V.Z;
+    return *this;
+  }
+
+  FDVector& operator+=(double Scalar)
   {
     this->X += Scalar;
     this->Y += Scalar;
     this->Z += Scalar;
     return *this;
   }
-  
+
   FDVector operator-(const FDVector& V) const
   {
     return FDVector(X - V.X, Y - V.Y, Z - V.Z);
   }
 
-  FDVector operator-=(const FIntVector& V) const
+  FDVector operator-(const FIntVector& V) const
   {
     return FDVector(X - V.X, Y - V.Y, Z - V.Z);
+  }
+
+  FDVector& operator-=(const FDVector& V)
+  {
+    this->X -= V.X;
+    this->Y -= V.Y;
+    this->Z -= V.Z;
+    return *this;
   }
 
   FDVector& operator-=(const FIntVector& V)
@@ -105,26 +126,21 @@ struct FDVector
     return *this;
   }
 
-  FDVector operator/(float Scale) const
+  FDVector operator/(double Scale) const
   {
-    const float RScale = 1.f/Scale;
-    return FDVector(X * RScale, Y * RScale, Z * RScale);
+    if (std::abs(Scale) <= 1e-15)
+    {
+      return FDVector(0.0, 0.0, 0.0);
+    }
+    return FDVector(X / Scale, Y / Scale, Z / Scale);
   }
 
-  FDVector operator*(float Scale) const
+  FDVector operator*(double Scale) const
   {
     return FDVector(X * Scale, Y * Scale, Z * Scale);
   }
 
-  FDVector operator*=(float Scale)
-  {
-    this->X *= Scale;
-    this->Y *= Scale;
-    this->Z *= Scale;
-    return *this;
-  }
-
-  FDVector operator*=(double Scale)
+  FDVector& operator*=(double Scale)
   {
     this->X *= Scale;
     this->Y *= Scale;

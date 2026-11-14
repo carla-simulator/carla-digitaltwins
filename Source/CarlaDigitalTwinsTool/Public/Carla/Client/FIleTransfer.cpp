@@ -23,10 +23,11 @@ namespace client {
       "HOME";
 #endif
     const char* override = std::getenv(OverridePathEV);
-    if (override != NULL)
+    if (override != nullptr && *override != '\0') {
       return override;
-    std::string path;
-    path += std::getenv(HomePathEV);
+    }
+    const char* home = std::getenv(HomePathEV);
+    std::string path = (home != nullptr && *home != '\0') ? home : ".";
     path += "/carlaCache";
     return path;
   }
@@ -39,7 +40,9 @@ namespace client {
     // Check that the path ends in a slash, add it otherwise
     if (path[path.size() - 1] != '/' && path[path.size() - 1] != '\\') {
       _filesBaseFolder = path + "/";
-  }
+    } else {
+      _filesBaseFolder = path;
+    }
 
     return true;
   }
@@ -48,7 +51,7 @@ namespace client {
     return _filesBaseFolder;
   }
 
-  bool FileTransfer::FileExists(std::string file) {
+  bool FileTransfer::FileExists(const std::string &file) {
     // Check if the file exists or not
     struct stat buffer;
     std::string fullpath = _filesBaseFolder;
@@ -60,7 +63,7 @@ namespace client {
     return (stat(fullpath.c_str(), &buffer) == 0);
   }
 
-  bool FileTransfer::WriteFile(std::string path, std::vector<uint8_t> content) {
+  bool FileTransfer::WriteFile(const std::string &path, const std::vector<uint8_t> &content) {
     std::string writePath = _filesBaseFolder;
     writePath += "/";
     writePath += ::carla::version();
@@ -72,18 +75,19 @@ namespace client {
 
     // Open the file to truncate it in binary mode
     std::ofstream out(writePath, std::ios::trunc | std::ios::binary);
-    if(!out.good()) return false;
+    if (!out.good()) return false;
 
-    // Write the content on and close it
-    for(auto file : content) {
-          out << file;
+    // Write the content and close it
+    if (!content.empty()) {
+      out.write(reinterpret_cast<const char*>(content.data()), static_cast<std::streamsize>(content.size()));
     }
+    const bool ok = out.good();
     out.close();
 
-    return true;
+    return ok;
   }
 
-  std::vector<uint8_t> FileTransfer::ReadFile(std::string path) {
+  std::vector<uint8_t> FileTransfer::ReadFile(const std::string &path) {
     std::string fullpath = _filesBaseFolder;
     fullpath += "/";
     fullpath += ::carla::version();
@@ -91,6 +95,9 @@ namespace client {
     fullpath += path;
     // Read the binary file from the base folder
     std::ifstream file(fullpath, std::ios::binary);
+    if (!file.good()) {
+      return {};
+    }
     std::vector<uint8_t> content(std::istreambuf_iterator<char>(file), {});
     return content;
   }

@@ -18,8 +18,8 @@ class CARLADIGITALTWINSTOOL_API UPoleDataAsset : public UPrimaryDataAsset
 	
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	UStaticMesh* PoleMesh;
+	TObjectPtr<UStaticMesh> PoleMesh = nullptr;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	ESignStyle SignStyle;
+	ESignStyle SignStyle = ESignStyle::None;
 };

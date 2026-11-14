@@ -28,6 +28,7 @@ public:
 	ATrafficLightActor();
 
 	virtual void OnConstruction(const FTransform& Transform) override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	void Build();
 
@@ -52,6 +53,7 @@ public:
 	UFUNCTION(CallInEditor, BlueprintCallable, Category = "TrafficLight|Demo")
 	void StopDemoSequence();
 
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "TrafficLight|JSON")
 	void BuildFromJSONString(const FString& JSONConfig);
 
 	UPROPERTY(EditAnywhere, Category = "TrafficLight|JSON")
@@ -128,6 +130,7 @@ private:
 	float GetAmberBlinkInterval() const;
 
 private:
+	UPROPERTY(Transient)
 	TArray<UStaticMeshComponent*> ModuleMeshComponents;
 	TArray<FTLModuleLight*> DemoLights;
 };

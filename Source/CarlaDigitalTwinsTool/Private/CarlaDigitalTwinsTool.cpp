@@ -1,5 +1,6 @@
 #include "CarlaDigitalTwinsTool.h"
 #include "LevelEditor.h"
+#include "Framework/Application/SlateApplication.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "TrafficLights/Widgets/TLWTrafficLightToolWidget.h"
@@ -10,15 +11,21 @@ DEFINE_LOG_CATEGORY(LogCarlaDigitalTwinsTool);
 
 void FCarlaDigitalTwinsToolModule::StartupModule()
 {
-    // Agregar entrada al menú de LevelEditor
+    if (IsRunningCommandlet() || GUsingNullRHI || !FSlateApplication::IsInitialized())
+    {
+        return;
+    }
+
     FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
 
-    TSharedPtr<FExtender> MenuExtender = MakeShareable(new FExtender());
+    MenuExtender = MakeShareable(new FExtender());
     MenuExtender->AddMenuExtension("WindowLayout", EExtensionHook::After, nullptr,
         FMenuExtensionDelegate::CreateRaw(this, &FCarlaDigitalTwinsToolModule::AddMenuEntry));
-    LevelEditorModule.GetMenuExtensibilityManager()->AddExtender(MenuExtender);
+    if (TSharedPtr<FExtensibilityManager> MenuExtensibility = LevelEditorModule.GetMenuExtensibilityManager())
+    {
+        MenuExtensibility->AddExtender(MenuExtender);
+    }
 
-    // Registrar la pestaña
     FGlobalTabmanager::Get()->RegisterNomadTabSpawner("TrafficLightToolTab", FOnSpawnTab::CreateLambda([](const FSpawnTabArgs&) {
         return SNew(SDockTab)
             .TabRole(ETabRole::NomadTab)
@@ -28,11 +35,26 @@ void FCarlaDigitalTwinsToolModule::StartupModule()
     }))
     .SetDisplayName(LOCTEXT("TrafficLightToolTab", "Traffic Light Tool"))
     .SetMenuType(ETabSpawnerMenuType::Hidden);
+    bTabSpawnerRegistered = true;
 }
 
 void FCarlaDigitalTwinsToolModule::ShutdownModule()
 {
-    FGlobalTabmanager::Get()->UnregisterNomadTabSpawner("TrafficLightToolTab");
+    if (MenuExtender.IsValid() && FModuleManager::Get().IsModuleLoaded("LevelEditor"))
+    {
+        FLevelEditorModule& LevelEditorModule = FModuleManager::GetModuleChecked<FLevelEditorModule>("LevelEditor");
+        if (TSharedPtr<FExtensibilityManager> MenuExtensibility = LevelEditorModule.GetMenuExtensibilityManager())
+        {
+            MenuExtensibility->RemoveExtender(MenuExtender);
+        }
+        MenuExtender.Reset();
+    }
+
+    if (bTabSpawnerRegistered && FSlateApplication::IsInitialized())
+    {
+        FGlobalTabmanager::Get()->UnregisterNomadTabSpawner("TrafficLightToolTab");
+        bTabSpawnerRegistered = false;
+    }
 }
 
 void FCarlaDigitalTwinsToolModule::AddMenuEntry(FMenuBuilder& Builder)

@@ -8,7 +8,11 @@
 
 #include "Carla/RPC/Metadata.h"
 
-#include <Carla/RPC/client.h>
+#include <rpc/client.h>
+
+#include <cstdint>
+#include <string>
+#include <utility>
 
 namespace carla {
 namespace rpc {

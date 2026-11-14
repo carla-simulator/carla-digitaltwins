@@ -7,6 +7,7 @@
 
 #include "BlueprintUtil/BlueprintUtilFunctions.h"
 #include "GeneralProjectSettings.h"
+#include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "AssetToolsModule.h"
 #include "Engine/AssetManager.h"
@@ -24,27 +25,62 @@ DEFINE_LOG_CATEGORY(LogDigitalTwinsToolBlueprintUtil);
 FString UBlueprintUtilFunctions::GetProjectName()
 {
   const UGeneralProjectSettings* ProjectSettings = GetDefault<UGeneralProjectSettings>();
-  return ProjectSettings->ProjectName;
+  return ProjectSettings ? ProjectSettings->ProjectName : FString();
 }
 
 UObject* UBlueprintUtilFunctions::CopyAssetToPlugin(UObject* SourceObject, FString PluginName)
 {
 #if WITH_EDITOR
-  if (!SourceObject || PluginName.IsEmpty()) {
+  while (PluginName.RemoveFromStart(TEXT("/"))) {}
+  while (PluginName.RemoveFromEnd(TEXT("/"))) {}
+  if (!SourceObject || PluginName.IsEmpty())
+  {
     return nullptr;
   }
 
-  FString SourcePath = SourceObject->GetPathName();
-  FString SourceAssetName = SourceObject->GetName();
+  const FString SourcePath = SourceObject->GetPathName();
+  const FString SourceAssetName = SourceObject->GetName();
 
-  FString RootPath = TEXT("/CarlaDigitalTwinsTool/");
-  int32 RootIndex = SourcePath.Find(RootPath);
+  const FString TargetMountPrefix = FString::Printf(TEXT("/%s/"), *PluginName);
+  if (SourcePath.StartsWith(TargetMountPrefix) || SourcePath.StartsWith(TEXT("/Engine/")) || SourcePath.StartsWith(TEXT("/Script/")))
+  {
+    return SourceObject;
+  }
 
-  FString SourceFolderPath = FPaths::GetPath(SourcePath);
+  // CARLA 1.0 digital-twin maps live under /Game/Carla/Maps/Twins/<Name> without a mounted
+  // /<Name>/ plugin. Keep the source asset reference intact instead of failing DuplicateAsset.
+  FString MountFilename;
+  if (!FPackageName::TryConvertLongPackageNameToFilename(TargetMountPrefix, MountFilename))
+  {
+    return SourceObject;
+  }
 
-  FString RelativePath = SourceFolderPath.Mid(RootIndex + RootPath.Len());
-  FString DestinationPath = FString::Printf(TEXT("/%s/%s"), *PluginName, *RelativePath);
-  FString TargetAssetPath = DestinationPath + "/" + SourceAssetName;
+  const FString SourceFolderPath = FPaths::GetPath(SourcePath);
+  const FString RootPath = TEXT("/CarlaDigitalTwinsTool");
+  FString RelativePath;
+  if (SourceFolderPath.Equals(RootPath))
+  {
+    RelativePath.Empty();
+  }
+  else if (SourceFolderPath.StartsWith(RootPath + TEXT("/")))
+  {
+    RelativePath = SourceFolderPath.Mid(RootPath.Len() + 1);
+  }
+  else
+  {
+    FString Stripped = SourceFolderPath;
+    Stripped.RemoveFromStart(TEXT("/"));
+    int32 SlashIdx = INDEX_NONE;
+    if (Stripped.FindChar(TEXT('/'), SlashIdx))
+    {
+      RelativePath = Stripped.Mid(SlashIdx + 1);
+    }
+  }
+
+  const FString DestinationPath = RelativePath.IsEmpty()
+      ? FString::Printf(TEXT("/%s"), *PluginName)
+      : FString::Printf(TEXT("/%s/%s"), *PluginName, *RelativePath);
+  const FString TargetAssetPath = FString::Printf(TEXT("%s/%s"), *DestinationPath, *SourceAssetName);
 
   if (UEditorAssetLibrary::DoesAssetExist(TargetAssetPath))
   {
@@ -62,11 +98,11 @@ UObject* UBlueprintUtilFunctions::CopyAssetToPlugin(UObject* SourceObject, FStri
 
   if (!DuplicatedAsset)
   {
-    UE_LOG(LogDigitalTwinsToolBlueprintUtil, Error, TEXT("Failed to duplicate asset."));
+    UE_LOG(LogDigitalTwinsToolBlueprintUtil, Error, TEXT("Failed to duplicate asset: %s -> %s"), *SourcePath, *DestinationPath);
     return nullptr;
   }
 
-  FString DuplicatedPath = DuplicatedAsset->GetPathName();
+  const FString DuplicatedPath = DuplicatedAsset->GetPathName();
   if (!UEditorAssetLibrary::SaveAsset(DuplicatedPath, false))
   {
     UE_LOG(LogDigitalTwinsToolBlueprintUtil, Warning, TEXT("Duplicated asset created but not saved: %s"), *DuplicatedPath);
@@ -81,7 +117,10 @@ UObject* UBlueprintUtilFunctions::CopyAssetToPlugin(UObject* SourceObject, FStri
     UObject* CurrentObject = nullptr;
     Pending.Dequeue(CurrentObject);
 
-    if(!CurrentObject|| SubObjects.Contains(CurrentObject)) continue;
+    if (!CurrentObject || SubObjects.Contains(CurrentObject))
+    {
+      continue;
+    }
 
     SubObjects.Add(CurrentObject);
 
@@ -91,7 +130,8 @@ UObject* UBlueprintUtilFunctions::CopyAssetToPlugin(UObject* SourceObject, FStri
 
     for (UObject* Ref : FoundRefs)
     {
-      if (Ref && !SubObjects.Contains(Ref) && Ref->IsAsset())
+      if (Ref && !SubObjects.Contains(Ref) && Ref->IsAsset() &&
+          Ref->GetPathName().StartsWith(TEXT("/CarlaDigitalTwinsTool/")))
       {
         Pending.Enqueue(Ref);
       }
@@ -104,32 +144,39 @@ UObject* UBlueprintUtilFunctions::CopyAssetToPlugin(UObject* SourceObject, FStri
 
   for (UObject* RefObj : SubObjects)
   {
-    if (RefObj)
+    if (!RefObj || RefObj == DuplicatedAsset)
     {
-      FString RefObjPath = RefObj->GetPathName();
-      RootPath = TEXT("/CarlaDigitalTwinsTool/");
-      RootIndex = RefObjPath.Find(RootPath);
+      continue;
+    }
 
-      SourceFolderPath = FPaths::GetPath(RefObjPath);
-      RelativePath = SourceFolderPath.Mid(RootIndex + RootPath.Len());
+    const FString RefObjPath = RefObj->GetPathName();
+    if (!RefObjPath.StartsWith(TEXT("/CarlaDigitalTwinsTool/")))
+    {
+      continue;
+    }
 
-      DestinationPath = FString::Printf(TEXT("/%s/%s"), *PluginName, *RelativePath);
-      FString TargetRefObjPath = DestinationPath + "/" + RefObj->GetName();
+    const FString RefFolderPath = FPaths::GetPath(RefObjPath);
+    FString RefRelativePath;
+    if (RefFolderPath.StartsWith(RootPath + TEXT("/")))
+    {
+      RefRelativePath = RefFolderPath.Mid(RootPath.Len() + 1);
+    }
 
-      UObject* LoadedDuplicatedRefObject = nullptr;
+    const FString RefDestinationPath = RefRelativePath.IsEmpty()
+        ? FString::Printf(TEXT("/%s"), *PluginName)
+        : FString::Printf(TEXT("/%s/%s"), *PluginName, *RefRelativePath);
+    const FString TargetRefObjPath = FString::Printf(TEXT("%s/%s"), *RefDestinationPath, *RefObj->GetName());
 
-      if (!UEditorAssetLibrary::DoesAssetExist(TargetRefObjPath) && RefObjPath.Contains(TEXT("/CarlaDigitalTwinsTool")))
-      {
-        AssetToolsModule.Get().DuplicateAsset(*RefObj->GetName(), DestinationPath, RefObj);
-      }
+    if (!UEditorAssetLibrary::DoesAssetExist(TargetRefObjPath))
+    {
+      AssetToolsModule.Get().DuplicateAsset(RefObj->GetName(), RefDestinationPath, RefObj);
+    }
 
-      LoadedDuplicatedRefObject = UEditorAssetLibrary::LoadAsset(TargetRefObjPath);
-
-      if (LoadedDuplicatedRefObject)
-      {
-        ReplacementMap.Add(RefObj, LoadedDuplicatedRefObject);
-        ObjectsToReplaceWithin.Add(LoadedDuplicatedRefObject);
-      }
+    UObject* LoadedDuplicatedRefObject = UEditorAssetLibrary::LoadAsset(TargetRefObjPath);
+    if (LoadedDuplicatedRefObject)
+    {
+      ReplacementMap.Add(RefObj, LoadedDuplicatedRefObject);
+      ObjectsToReplaceWithin.Add(LoadedDuplicatedRefObject);
     }
   }
 
@@ -142,7 +189,10 @@ UObject* UBlueprintUtilFunctions::CopyAssetToPlugin(UObject* SourceObject, FStri
     ObjectTools::ForceReplaceReferences(Replacement, ObjectsToReplace, ObjectsToReplaceWithin);
   }
 
-  UEditorLoadingAndSavingUtils::SaveDirtyPackages(true, true);
+  if (ReplacementMap.Num() > 0)
+  {
+    FEditorFileUtils::SaveDirtyPackages(false, false, true, false, false, false);
+  }
 
   return DuplicatedAsset;
 
@@ -156,39 +206,26 @@ void UBlueprintUtilFunctions::UnloadRegionWorldPartition(
     const FBox& RegionBounds,
     const FString& RegionName)
 {
-  // 1. Query descriptors in your region
   TArray<FActorDesc> Descs;
-  //UWorldPartitionBlueprintLibrary::GetIntersectingActorDescs(RegionBounds, Descs);  // :contentReference[oaicite:0]{index=0}
 
-  // 2. Prepare an array for GUIDs to unload
   TArray<FGuid> ToUnload;
   ToUnload.Reserve(Descs.Num());
 
-  // 3. Filter out any actor whose CDO has a spline component
   for (const FActorDesc& Desc : Descs)
   {
-      // a) Get the actor class from the descriptor
-      UClass* ActorClass = Cast<UClass>(Desc.Class.TryLoad());
-      if (!ActorClass)
-      {
-          // No valid class—safe to unload
-          ToUnload.Add(Desc.Guid);
-          continue;
-      }
-
-      // b) Grab the class default object and check for spline
-      AActor* CDO = Cast<AActor>(ActorClass->GetDefaultObject());
-      if (CDO && CDO->FindComponentByClass<USplineComponent>())  // :contentReference[oaicite:1]{index=1}
-      {
-          // Skip any actor types that include a spline component
-          continue;
-      }
-
-      // c) Otherwise mark for unload
+    UClass* ActorClass = Cast<UClass>(Desc.Class.TryLoad());
+    if (!ActorClass)
+    {
       ToUnload.Add(Desc.Guid);
-  }
+      continue;
+    }
 
-  // 4. Issue the unload call for all the remaining GUIDs
-  //UWorldPartitionBlueprintLibrary::UnloadActors(ToUnload);
-  
+    AActor* CDO = Cast<AActor>(ActorClass->GetDefaultObject());
+    if (CDO && CDO->FindComponentByClass<USplineComponent>())
+    {
+      continue;
+    }
+
+    ToUnload.Add(Desc.Guid);
+  }
 }

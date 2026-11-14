@@ -61,8 +61,4 @@ public:
   FString Url;
 
   FDownloadComplete DownloadDelegate;
-private:
-  void RequestComplete(FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded);
-
-  FString Payload;
 };

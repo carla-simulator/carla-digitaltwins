@@ -28,16 +28,37 @@ struct FRoadSignInfo
   FString RoadId;
 
   UPROPERTY(BlueprintReadOnly)
-  double S;
+  double S = 0.0;
 
   UPROPERTY(BlueprintReadOnly)
-  double T;
+  double T = 0.0;
 
   UPROPERTY(BlueprintReadOnly)
   FString Orientation;
 
   UPROPERTY(BlueprintReadOnly)
-  FTransform Transform;
+  FString Type;
+
+  UPROPERTY(BlueprintReadOnly)
+  FString Subtype;
+
+  UPROPERTY(BlueprintReadOnly)
+  FString Name;
+
+  UPROPERTY(BlueprintReadOnly)
+  double Value = 0.0;
+
+  UPROPERTY(BlueprintReadOnly)
+  FString Unit;
+
+  UPROPERTY(BlueprintReadOnly)
+  FString Country;
+
+  UPROPERTY(BlueprintReadOnly)
+  bool bIsDynamic = false;
+
+  UPROPERTY(BlueprintReadOnly)
+  FTransform Transform = FTransform::Identity;
 };
 
 class UProceduralMeshComponent;
@@ -129,6 +150,16 @@ public:
   UFUNCTION(BlueprintCallable, Category = "Assets Placement")
   static FVector DisplaceLocationOutsideNeighboringRoads(const UObject* WorldContextObject, FVector InLocation, float SteppingPercentage = 0.66f, float RoadLimitPadding = 10.0f);
 
+  static FVector DisplaceLocationOutsideNeighboringRoadsWithMap(
+      const carla::road::Map& Map,
+      FVector InLocation,
+      float SteppingPercentage = 0.66f,
+      float RoadLimitPadding = 10.0f,
+      int32 MaxIterations = 10,
+      bool* bOutIsClear = nullptr);
+
+  static FString ResolveLevelXodrPath(const UWorld* World);
+
 
   UFUNCTION(BlueprintCallable)
   void UnloadWorldPartitionRegion(const FBox& RegionBox);
@@ -146,28 +177,28 @@ public:
   FString LocalFilePath;
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
-  FVector2D FinalGeoCoordinates;
+  FVector2D FinalGeoCoordinates = FVector2D::ZeroVector;
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
   FString PythonBinPath;
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
-  FVector2D OriginGeoCoordinates;
+  FVector2D OriginGeoCoordinates = FVector2D::ZeroVector;
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defaults")
-  UMaterialInstance* DefaultRoadMaterial;
+  UMaterialInstance* DefaultRoadMaterial = nullptr;
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defaults")
-  UMaterialInstance* DefaultLaneMarksWhiteMaterial;
+  UMaterialInstance* DefaultLaneMarksWhiteMaterial = nullptr;
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defaults")
-  UMaterialInstance* DefaultLaneMarksYellowMaterial;
+  UMaterialInstance* DefaultLaneMarksYellowMaterial = nullptr;
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defaults")
-  UMaterialInstance* DefaultSidewalksMaterial;
+  UMaterialInstance* DefaultSidewalksMaterial = nullptr;
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defaults")
-  UMaterialInstance* DefaultLandscapeMaterial;
+  UMaterialInstance* DefaultLandscapeMaterial = nullptr;
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Parameters")
   FOpenDriveFileGenerationParameters OpenDriveGenParams;
@@ -194,46 +225,46 @@ public:
   TArray<TSubclassOf<class UDGTImplementable>> ToolsClasses;
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="TileGeneration" )
-  FVector MinPosition;
+  FVector MinPosition = FVector::ZeroVector;
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="TileGeneration" )
-  FVector MaxPosition;
+  FVector MaxPosition = FVector::ZeroVector;
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="TileGeneration" )
-  float TileSize;
+  float TileSize = 0.0f;
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="TileGeneration" )
-  FVector Tile0Offset;
+  FVector Tile0Offset = FVector::ZeroVector;
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="TileGeneration" )
-  bool bTileFinished;
+  bool bTileFinished = false;
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="TileGeneration" )
-  FIntVector NumTilesInXY;
+  FIntVector NumTilesInXY = FIntVector(1, 1, 0);
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="TileGeneration" )
-  FIntVector CurrentTilesInXY;
+  FIntVector CurrentTilesInXY = FIntVector::ZeroValue;
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="TileGeneration" )
   FString BaseLevelName;
 
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heightmap")
-  UTexture2D* DefaultHeightmap;
+  UTexture2D* DefaultHeightmap = nullptr;
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Heightmap" )
-  FVector WorldEndPosition;
+  FVector WorldEndPosition = FVector::ZeroVector;
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Heightmap" )
-  FVector WorldOriginPosition;
+  FVector WorldOriginPosition = FVector::ZeroVector;
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Heightmap" )
-  float MinHeight;
+  float MinHeight = 0.0f;
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Heightmap" )
-  float MaxHeight;
+  float MaxHeight = 0.0f;
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Heightmap" )
-  class AStreetMapActor* StreetMapActorReference;
+  class AStreetMapActor* StreetMapActorReference = nullptr;
 
   UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Heightmap" )
   TArray<USplineComponent*> GeneratedSplines;
@@ -315,12 +346,12 @@ private:
 
   float DistanceToLaneBorder(
       const boost::optional<carla::road::Map>& CarlaMap,
-      FVector &location,
+      const FVector& location,
       int32_t lane_type = static_cast<int32_t>(carla::road::Lane::LaneType::Driving)) const;
 
   bool IsInRoad(
       const boost::optional<carla::road::Map>& ParamCarlaMap,
-      FVector &location) const;
+      const FVector& location) const;
 
   void InitTextureData();
 
@@ -332,13 +363,13 @@ private:
   boost::optional<carla::road::Map> CarlaMap;
 
   UPROPERTY()
-  UCustomFileDownloader* FileDownloader;
+  UCustomFileDownloader* FileDownloader = nullptr;
 
   UPROPERTY()
   TArray<AActor*> Landscapes;
 
   UPROPERTY()
-  UTexture2D* Heightmap;
+  UTexture2D* Heightmap = nullptr;
 
   UPROPERTY()
   TArray<UDGTImplementable*> ToolInstances;

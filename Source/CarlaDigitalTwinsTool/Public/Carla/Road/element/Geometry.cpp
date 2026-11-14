@@ -47,10 +47,14 @@ namespace element {
   DirectedPoint GeometryArc::PosFromDist(double dist) const {
     dist = geom::Math::Clamp(dist, 0.0, _length);
     DEBUG_ASSERT(_length > 0.0);
-    DEBUG_ASSERT(std::fabs(_curvature) > 1e-15);
+    DirectedPoint p(_start_position, _heading);
+    if (std::fabs(_curvature) <= 1e-12) {
+      p.location.x += static_cast<float>(dist * std::cos(p.tangent));
+      p.location.y += static_cast<float>(dist * std::sin(p.tangent));
+      return p;
+    }
     const double radius = 1.0 / _curvature;
     constexpr double pi_half = geom::Math::Pi<double>() / 2.0;
-    DirectedPoint p(_start_position, _heading);
     p.location.x += static_cast<float>(radius * std::cos(p.tangent + pi_half));
     p.location.y += static_cast<float>(radius * std::sin(p.tangent + pi_half));
     p.tangent += dist * _curvature;
@@ -69,6 +73,9 @@ namespace element {
   }
 
   DirectedPoint GeometrySpiral::PosFromDist(double dist) const {
+    if (_length <= 1e-12) {
+      return DirectedPoint(_start_position, _heading);
+    }
     dist = geom::Math::Clamp(dist, 0.0, _length);
     DEBUG_ASSERT(_length > 0.0);
     DirectedPoint p(_start_position, _heading);
@@ -76,6 +83,21 @@ namespace element {
     const double curve_end = (_curve_end);
     const double curve_start = (_curve_start);
     const double curve_dot = (curve_end - curve_start) / (_length);
+    if (std::fabs(curve_dot) <= 1e-12) {
+      if (std::fabs(curve_start) <= 1e-12) {
+        p.location.x += static_cast<float>(dist * std::cos(p.tangent));
+        p.location.y += static_cast<float>(dist * std::sin(p.tangent));
+      } else {
+        const double radius = 1.0 / curve_start;
+        constexpr double pi_half = geom::Math::Pi<double>() / 2.0;
+        p.location.x += static_cast<float>(radius * std::cos(p.tangent + pi_half));
+        p.location.y += static_cast<float>(radius * std::sin(p.tangent + pi_half));
+        p.tangent += dist * curve_start;
+        p.location.x -= static_cast<float>(radius * std::cos(p.tangent + pi_half));
+        p.location.y -= static_cast<float>(radius * std::sin(p.tangent + pi_half));
+      }
+      return p;
+    }
     const double s_o = curve_start / curve_dot;
     double s = s_o + dist;
 
@@ -109,16 +131,21 @@ namespace element {
   }
 
   DirectedPoint GeometryPoly3::PosFromDist(double dist) const {
-    auto result = _rtree.GetNearestNeighbours(
-        Rtree::BPoint(static_cast<float>(dist))).front();
+    auto neighbours = _rtree.GetNearestNeighbours(
+        Rtree::BPoint(static_cast<float>(dist)));
+    if (neighbours.empty()) {
+      return DirectedPoint(_start_position, _heading);
+    }
+    const auto &result = neighbours.front();
 
     auto &val1 = result.second.first;
     auto &val2 = result.second.second;
 
-    double rate = (val2.s - dist) / (val2.s - val1.s);
+    const double denom = val2.s - val1.s;
+    const double rate = (std::fabs(denom) > 1e-12) ? (val2.s - dist) / denom : 0.0;
     double u = rate * val1.u + (1.0 - rate) * val2.u;
     double v = rate * val1.v + (1.0 - rate) * val2.v;
-    double tangent = atan((rate * val1.t + (1.0 - rate) * val2.t)); // ?
+    double tangent = atan((rate * val1.t + (1.0 - rate) * val2.t));
 
     geom::Vector2D pos = RotatebyAngle(_heading, u, v);
     DirectedPoint p(_start_position, _heading + tangent);
@@ -166,12 +193,17 @@ namespace element {
   }
 
   DirectedPoint GeometryParamPoly3::PosFromDist(double dist) const {
-    auto result = _rtree.GetNearestNeighbours(
-        Rtree::BPoint(static_cast<float>(dist))).front();
+    auto neighbours = _rtree.GetNearestNeighbours(
+        Rtree::BPoint(static_cast<float>(dist)));
+    if (neighbours.empty()) {
+      return DirectedPoint(_start_position, _heading);
+    }
+    const auto &result = neighbours.front();
 
     auto &val1 = result.second.first;
     auto &val2 = result.second.second;
-    double rate = (val2.s - dist) / (val2.s - val1.s);
+    const double denom = val2.s - val1.s;
+    const double rate = (std::fabs(denom) > 1e-12) ? (val2.s - dist) / denom : 0.0;
     double u = rate * val1.u + (1.0 - rate) * val2.u;
     double v = rate * val1.v + (1.0 - rate) * val2.v;
     double t_u = (rate * val1.t_u + (1.0 - rate) * val2.t_u);

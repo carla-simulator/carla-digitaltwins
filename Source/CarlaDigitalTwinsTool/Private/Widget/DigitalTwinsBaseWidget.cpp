@@ -10,44 +10,87 @@
 #include "ContentBrowserModule.h"
 #include "IContentBrowserSingleton.h"
 #include "Misc/Paths.h"
+#include "Misc/PackageName.h"
 #include "CarlaDigitalTwinsTool.h"
 #include "HAL/PlatformFileManager.h"
+#include "UObject/StrongObjectPtr.h"
 
-static UOpenDriveToMap* OpenDriveToMapObject = nullptr;
+namespace
+{
+// TStrongObjectPtr roots the shared UOpenDriveToMap instance across GC passes
+// after OpenDriveToMap calls RemoveFromRoot(), avoiding dangling/collected state
+// before DestroyOpenDriveToMap() explicitly releases it.
+TStrongObjectPtr<UOpenDriveToMap> SharedOpenDriveToMap;
+}
 
-UOpenDriveToMap* UDigitalTwinsBaseWidget::InitializeOpenDriveToMap(TSubclassOf<UOpenDriveToMap> BaseClass){
-  if( OpenDriveToMapObject == nullptr && BaseClass != nullptr ){
-    UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Creating New Object") );
-    OpenDriveToMapObject = NewObject<UOpenDriveToMap>(this, BaseClass);
+UOpenDriveToMap* UDigitalTwinsBaseWidget::InitializeOpenDriveToMap(TSubclassOf<UOpenDriveToMap> BaseClass)
+{
+  if (!SharedOpenDriveToMap.IsValid() && BaseClass != nullptr)
+  {
+    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Creating UOpenDriveToMap instance"));
+    UOpenDriveToMap* Created = NewObject<UOpenDriveToMap>(GetTransientPackage(), BaseClass);
+    OpenDriveToMapInstance = Created;
+    SharedOpenDriveToMap.Reset(Created);
   }
-  return OpenDriveToMapObject;
+  else if (SharedOpenDriveToMap.IsValid())
+  {
+    OpenDriveToMapInstance = SharedOpenDriveToMap.Get();
+  }
+  return OpenDriveToMapInstance;
 }
 
-UOpenDriveToMap* UDigitalTwinsBaseWidget::GetOpenDriveToMap(){
-  return OpenDriveToMapObject;
+UOpenDriveToMap* UDigitalTwinsBaseWidget::GetOpenDriveToMap()
+{
+  if (!IsValid(OpenDriveToMapInstance) && SharedOpenDriveToMap.IsValid())
+  {
+    OpenDriveToMapInstance = SharedOpenDriveToMap.Get();
+  }
+  return OpenDriveToMapInstance;
 }
 
-void UDigitalTwinsBaseWidget::SetOpenDriveToMap(UOpenDriveToMap* ToSet){
-  OpenDriveToMapObject = ToSet;
+void UDigitalTwinsBaseWidget::SetOpenDriveToMap(UOpenDriveToMap* ToSet)
+{
+  OpenDriveToMapInstance = ToSet;
+  SharedOpenDriveToMap.Reset(ToSet);
 }
 
-void UDigitalTwinsBaseWidget::DestroyOpenDriveToMap(){
-  OpenDriveToMapObject->ConditionalBeginDestroy();
-  OpenDriveToMapObject = nullptr;
+void UDigitalTwinsBaseWidget::DestroyOpenDriveToMap()
+{
+  UOpenDriveToMap* Existing = SharedOpenDriveToMap.Get();
+  if (!Existing)
+  {
+    Existing = OpenDriveToMapInstance;
+  }
+  OpenDriveToMapInstance = nullptr;
+  SharedOpenDriveToMap.Reset();
+  if (IsValid(Existing) && !Existing->IsRooted())
+  {
+    Existing->MarkAsGarbage();
+  }
 }
 
-void UDigitalTwinsBaseWidget::CreatePlugin(FString PluginName){
+void UDigitalTwinsBaseWidget::CreatePlugin(FString PluginName)
+{
+  PluginName.TrimStartAndEndInline();
+  if (PluginName.IsEmpty() || PluginName.Contains(TEXT("..")) || PluginName.Contains(TEXT("/")) || PluginName.Contains(TEXT("\\")))
+  {
+    UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("CreatePlugin: Invalid plugin name \"%s\""), *PluginName);
+    return;
+  }
 
-  const FString PluginsDir = FPaths::Combine(FPaths::ProjectDir(), TEXT("Plugins"));
+  const FString PluginsDir = FPaths::ProjectPluginsDir();
   const FString PluginDir = FPaths::Combine(PluginsDir, PluginName);
   const FString ContentDir = FPaths::Combine(PluginDir, TEXT("Content"));
   const FString UPluginFile = FPaths::Combine(PluginDir, PluginName + TEXT(".uplugin"));
 
-  // Ensure directories exist
   IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
-  PlatformFile.CreateDirectoryTree(*ContentDir); // creates both plugin and content folders
+  if (!PlatformFile.CreateDirectoryTree(*ContentDir))
+  {
+    UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("CreatePlugin: Failed to create directory \"%s\""), *ContentDir);
+    return;
+  }
 
-  // Format the .uplugin JSON
+  const FString EscapedName = PluginName.ReplaceCharWithEscapedChar();
   const FString UPluginContent = FString::Printf(
       TEXT("{\n")
       TEXT("  \"FileVersion\": 3,\n")
@@ -64,27 +107,25 @@ void UDigitalTwinsBaseWidget::CreatePlugin(FString PluginName){
       TEXT("  \"IsExperimentalVersion\": false,\n")
       TEXT("  \"EnabledByDefault\": true,\n")
       TEXT("  \"Installed\": false\n")
-      TEXT("}")
-      , *PluginName
+      TEXT("}"),
+      *EscapedName
   );
 
-  // Write the .uplugin file
-  if (FFileHelper::SaveStringToFile(UPluginContent, *UPluginFile))
+  if (FFileHelper::SaveStringToFile(UPluginContent, *UPluginFile, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
   {
-      UE_LOG(LogTemp, Log, TEXT("Successfully created content-only plugin: %s"), *PluginName);
+    UE_LOG(LogCarlaDigitalTwinsTool, Log, TEXT("Successfully created content-only plugin: %s"), *PluginName);
   }
   else
   {
-      UE_LOG(LogTemp, Error, TEXT("Failed to create plugin file for: %s"), *PluginName);
+    UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("Failed to create plugin file for: %s"), *PluginName);
+    return;
   }
 
-  FString PluginPath = FPaths::Combine(FPaths::ProjectPluginsDir(), PluginName);
-  FString MountPoint = FString::Printf(TEXT("/%s/"), *PluginName);
-  FString VirtualPath = FString::Printf(TEXT("/%s"), *PluginName);
-  // Mount the content folder
-  FPackageName::RegisterMountPoint(MountPoint, PluginPath / TEXT("Content"));
+  const FString MountPoint = FString::Printf(TEXT("/%s/"), *PluginName);
+  const FString VirtualPath = FString::Printf(TEXT("/%s"), *PluginName);
+  FPackageName::RegisterMountPoint(MountPoint, ContentDir);
   TArray<FString> PathsToOpen = { VirtualPath };
-  
+
   FContentBrowserModule& ContentBrowserModule = FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
   ContentBrowserModule.Get().SyncBrowserToFolders(PathsToOpen);
 }

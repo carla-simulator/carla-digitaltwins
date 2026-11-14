@@ -47,4 +47,8 @@ struct FTLHead
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Head")
 	TArray<FTLModule> Modules{};
 
+	/** Optional per-head OpenDRIVE Signal ID override (falls back to actor SignalID when empty) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Light|Head")
+	FString SignalID{};
+
 };

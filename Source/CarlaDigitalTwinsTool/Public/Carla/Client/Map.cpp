@@ -19,8 +19,7 @@ namespace carla {
 namespace client {
 
   static auto MakeMap(const std::string &opendrive_contents) {
-    auto stream = std::istringstream(opendrive_contents);
-    auto map = opendrive::OpenDriveParser::Load(stream.str());
+    auto map = opendrive::OpenDriveParser::Load(opendrive_contents);
     if (!map.has_value()) {
       throw_exception(std::runtime_error("failed to generate map"));
     }
@@ -30,13 +29,12 @@ namespace client {
   Map::Map(rpc::MapInfo description, std::string xodr_content)
     : _description(std::move(description)),
       _map(MakeMap(xodr_content)){
-    open_drive_file = xodr_content;
+    open_drive_file = std::move(xodr_content);
   }
   Map::Map(std::string name, std::string xodr_content)
     : Map(rpc::MapInfo{
     std::move(name),
-    std::vector<geom::Transform>{}}, xodr_content) {
-    open_drive_file = xodr_content;
+    std::vector<geom::Transform>{}}, std::move(xodr_content)) {
   }
 
   Map::~Map() = default;
@@ -118,6 +116,9 @@ namespace client {
 
   SharedPtr<Junction> Map::GetJunction(const Waypoint &waypoint) const {
     const road::Junction *juncptr = GetMap().GetJunction(waypoint.GetJunctionId());
+    if (juncptr == nullptr) {
+      return nullptr;
+    }
     auto junction = SharedPtr<Junction>(new Junction(shared_from_this(), juncptr));
     return junction;
   }
@@ -139,8 +140,10 @@ namespace client {
     std::vector<SharedPtr<Landmark>> result;
     auto signal_references = _map.GetAllSignalReferences();
     for(auto* signal_reference : signal_references) {
-      result.emplace_back(
-          new Landmark(nullptr, shared_from_this(), signal_reference, 0));
+      if (signal_reference != nullptr && signal_reference->GetSignal() != nullptr) {
+        result.emplace_back(
+            new Landmark(nullptr, shared_from_this(), signal_reference, 0));
+      }
     }
     return result;
   }
@@ -149,7 +152,9 @@ namespace client {
     std::vector<SharedPtr<Landmark>> result;
     auto signal_references = _map.GetAllSignalReferences();
     for(auto* signal_reference : signal_references) {
-      if(signal_reference->GetSignalId() == id) {
+      if(signal_reference != nullptr &&
+         signal_reference->GetSignal() != nullptr &&
+         signal_reference->GetSignalId() == id) {
         result.emplace_back(
             new Landmark(nullptr, shared_from_this(), signal_reference, 0));
       }
@@ -161,7 +166,9 @@ namespace client {
     std::vector<SharedPtr<Landmark>> result;
     auto signal_references = _map.GetAllSignalReferences();
     for(auto* signal_reference : signal_references) {
-      if(signal_reference->GetSignal()->GetType() == type) {
+      if(signal_reference != nullptr &&
+         signal_reference->GetSignal() != nullptr &&
+         signal_reference->GetSignal()->GetType() == type) {
         result.emplace_back(
             new Landmark(nullptr, shared_from_this(), signal_reference, 0));
       }
@@ -172,12 +179,23 @@ namespace client {
   std::vector<SharedPtr<Landmark>>
       Map::GetLandmarkGroup(const Landmark &landmark) const {
     std::vector<SharedPtr<Landmark>> result;
+    if (landmark._signal == nullptr || landmark._signal->GetSignal() == nullptr) {
+      return result;
+    }
     auto &controllers = landmark._signal->GetSignal()->GetControllers();
+    const auto &controllers_map = _map.GetControllers();
+    const auto &signals_map = _map.GetSignals();
     for (auto& controller_id : controllers) {
-      const auto &controller = _map.GetControllers().at(controller_id);
-      for(auto& signal_id : controller->GetSignals()) {
-        auto& signal = _map.GetSignals().at(signal_id);
-        auto new_landmarks = GetLandmarksFromId(signal->GetSignalId());
+      auto ctrl_it = controllers_map.find(controller_id);
+      if (ctrl_it == controllers_map.end() || !ctrl_it->second) {
+        continue;
+      }
+      for(auto& signal_id : ctrl_it->second->GetSignals()) {
+        auto sig_it = signals_map.find(signal_id);
+        if (sig_it == signals_map.end() || !sig_it->second) {
+          continue;
+        }
+        auto new_landmarks = GetLandmarksFromId(sig_it->second->GetSignalId());
         result.insert(result.end(), new_landmarks.begin(), new_landmarks.end());
       }
     }

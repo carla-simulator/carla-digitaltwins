@@ -289,7 +289,11 @@ namespace road {
       const double hdg,
       const double pitch,
       const double roll) {
-    std::unique_ptr<Signal> &signal = _temp_signal_container[signal_id];
+    auto it = _temp_signal_container.find(signal_id);
+    if (it == _temp_signal_container.end() || !it->second) {
+      return;
+    }
+    std::unique_ptr<Signal> &signal = it->second;
     signal->_using_inertial_position = true;
     geom::Location location = geom::Location(x, -y, z);
     signal->_transform = geom::Transform (location, geom::Rotation(
@@ -307,7 +311,11 @@ namespace road {
       const double hOffset,
       const double pitch,
       const double roll) {
-    std::unique_ptr<Signal> &signal = _temp_signal_container[signal_id];
+    auto it = _temp_signal_container.find(signal_id);
+    if (it == _temp_signal_container.end() || !it->second) {
+      return;
+    }
+    std::unique_ptr<Signal> &signal = it->second;
     signal->_road_id = road_id;
     signal->_s = s;
     signal->_t = t;
@@ -324,10 +332,13 @@ namespace road {
         const double t_position,
         const std::string signal_reference_orientation) {
 
+      if (road == nullptr) {
+        return nullptr;
+      }
       const double epsilon = 0.00001;
       RELEASE_ASSERT(s_position >= 0.0);
       // Prevent s_position from being equal to the road length
-      double fixed_s = geom::Math::Clamp(s_position, 0.0, road->GetLength() - epsilon);
+      double fixed_s = geom::Math::Clamp(s_position, 0.0, std::max(0.0, road->GetLength() - epsilon));
       _temp_road_info_container[road].emplace_back(std::make_unique<element::RoadInfoSignal>(
           signal_id, road->GetId(), fixed_s, t_position, signal_reference_orientation));
       auto road_info_signal = static_cast<element::RoadInfoSignal*>(
@@ -340,6 +351,9 @@ namespace road {
         element::RoadInfoSignal* signal_reference,
         const LaneId from_lane,
         const LaneId to_lane) {
+      if (signal_reference == nullptr) {
+        return;
+      }
       signal_reference->_validities.emplace_back(LaneValidity(from_lane, to_lane));
     }
 
@@ -347,7 +361,11 @@ namespace road {
         const SignId signal_id,
         const std::string dependency_id,
         const std::string dependency_type) {
-      _temp_signal_container[signal_id]->_dependencies.emplace_back(
+      auto it = _temp_signal_container.find(signal_id);
+      if (it == _temp_signal_container.end() || !it->second) {
+        return;
+      }
+      it->second->_dependencies.emplace_back(
           SignalDependency(dependency_id, dependency_type));
     }
 
@@ -574,8 +592,11 @@ namespace road {
       const ConId connection_id,
       const RoadId incoming_road,
       const RoadId connecting_road) {
-    DEBUG_ASSERT(_map_data.GetJunction(junction_id) != nullptr);
-    _map_data.GetJunction(junction_id)->GetConnections().emplace(connection_id,
+    auto *junction = _map_data.GetJunction(junction_id);
+    if (junction == nullptr) {
+      return;
+    }
+    junction->GetConnections().emplace(connection_id,
         Junction::Connection(connection_id, incoming_road, connecting_road));
   }
 
@@ -584,15 +605,25 @@ namespace road {
       const ConId connection_id,
       const LaneId from,
       const LaneId to) {
-    DEBUG_ASSERT(_map_data.GetJunction(junction_id) != nullptr);
-    _map_data.GetJunction(junction_id)->GetConnection(connection_id)->AddLaneLink(from, to);
+    auto *junction = _map_data.GetJunction(junction_id);
+    if (junction == nullptr) {
+      return;
+    }
+    auto *connection = junction->GetConnection(connection_id);
+    if (connection == nullptr) {
+      return;
+    }
+    connection->AddLaneLink(from, to);
   }
 
   void MapBuilder::AddJunctionController(
       const JuncId junction_id,
       std::set<road::ContId>&& controllers) {
-    DEBUG_ASSERT(_map_data.GetJunction(junction_id) != nullptr);
-    _map_data.GetJunction(junction_id)->_controllers = std::move(controllers);
+    auto *junction = _map_data.GetJunction(junction_id);
+    if (junction == nullptr) {
+      return;
+    }
+    junction->_controllers = std::move(controllers);
   }
 
   Lane *MapBuilder::GetLane(
@@ -624,7 +655,9 @@ namespace road {
     }
 
     // get the lane
-    DEBUG_ASSERT(section != nullptr);
+    if (section == nullptr) {
+      return nullptr;
+    }
     return section->GetLane(lane_id);
   }
 
@@ -646,7 +679,15 @@ namespace road {
 
     // get the lane
     Lane *lane = section.GetLane(lane_id);
-    DEBUG_ASSERT(lane != nullptr);
+    if (lane == nullptr) {
+      return result;
+    }
+
+    auto push_if_valid = [&result](Lane *candidate) {
+      if (candidate != nullptr) {
+        result.push_back(candidate);
+      }
+    };
 
     // successor and predecessor (road and lane)
     LaneId next;
@@ -670,16 +711,16 @@ namespace road {
       if (next != 0 || (lane_id == 0 && next == 0)) {
         // change to next / prev section
         if (lane_id <= 0) {
-          result.push_back(road.GetNextLane(s, next));
+          push_if_valid(road.GetNextLane(s, next));
         } else {
-          result.push_back(road.GetPrevLane(s, next));
+          push_if_valid(road.GetPrevLane(s, next));
         }
       }
     } else if (!next_is_junction) {
       // change to another road / junction
       if (next != 0 || (lane_id == 0 && next == 0)) {
         // single road
-        result.push_back(GetEdgeLanePointer(next_road, (next <= 0), next));
+        push_if_valid(GetEdgeLanePointer(next_road, (next <= 0), next));
       }
     } else {
       // several roads (junction)
@@ -689,7 +730,7 @@ namespace road {
       auto next_road_as_junction = static_cast<JuncId>(next_road);
       auto options = GetJunctionLanes(next_road_as_junction, road_id, lane_id);
       for (auto opt : options) {
-        result.push_back(GetEdgeLanePointer(opt.first, (opt.second <= 0), opt.second));
+        push_if_valid(GetEdgeLanePointer(opt.first, (opt.second <= 0), opt.second));
       }
     }
 
@@ -801,13 +842,20 @@ namespace road {
 
   void MapBuilder::SolveSignalReferencesAndTransforms() {
     for(auto signal_reference : _temp_signal_reference_container){
+      if (signal_reference == nullptr) {
+        continue;
+      }
+      auto sig_it = _temp_signal_container.find(signal_reference->_signal_id);
       signal_reference->_signal =
-          _temp_signal_container[signal_reference->_signal_id].get();
+          (sig_it != _temp_signal_container.end() && sig_it->second) ? sig_it->second.get() : nullptr;
     }
 
     for(auto& signal_pair : _temp_signal_container) {
       auto& signal = signal_pair.second;
-      if (signal->_using_inertial_position) {
+      if (!signal || signal->_using_inertial_position) {
+        continue;
+      }
+      if (!_map_data.ContainsRoad(signal->_road_id)) {
         continue;
       }
       auto transform = ComputeSignalTransform(signal, _map_data);
@@ -832,7 +880,7 @@ namespace road {
             it->second->_junctions.insert(junction.first);
             for(const auto & signal : it->second->_signals) {
               auto signal_it = _map_data._signals.find(signal);
-              if( signal_it->second != nullptr ){
+              if( signal_it != _map_data._signals.end() && signal_it->second != nullptr ){
                 signal_it->second->_controllers.insert(controller);
               }
             }
@@ -845,6 +893,9 @@ namespace road {
   void MapBuilder::CreateJunctionBoundingBoxes(Map &map) {
     for (auto &junctionpair : map._data.GetJunctions()) {
       auto* junction = map.GetJunction(junctionpair.first);
+      if (junction == nullptr) {
+        continue;
+      }
       auto waypoints = map.GetJunctionWaypoints(junction->GetId(), Lane::LaneType::Any);
       const int number_intervals = 10;
 
@@ -903,10 +954,15 @@ namespace road {
           get_min_max(location);
         }
       }
-      carla::geom::Location location(0.5f * (maxx + minx), 0.5f * (maxy + miny), 0.5f * (maxz + minz));
-      carla::geom::Vector3D extent(0.5f * (maxx - minx), 0.5f * (maxy - miny), 0.5f * (maxz - minz));
-
-      junction->_bounding_box = carla::geom::BoundingBox(location, extent);
+      if (minx > maxx || miny > maxy || minz > maxz) {
+        junction->_bounding_box = carla::geom::BoundingBox(
+            carla::geom::Location(0.0f, 0.0f, 0.0f),
+            carla::geom::Vector3D(0.0f, 0.0f, 0.0f));
+      } else {
+        carla::geom::Location location(0.5f * (maxx + minx), 0.5f * (maxy + miny), 0.5f * (maxz + minz));
+        carla::geom::Vector3D extent(0.5f * (maxx - minx), 0.5f * (maxy - miny), 0.5f * (maxz - minz));
+        junction->_bounding_box = carla::geom::BoundingBox(location, extent);
+      }
     }
   }
 
@@ -930,10 +986,10 @@ void MapBuilder::CreateController(
 
     // Add ContId to the signal owned by this Controller
     auto& signals_map = _map_data._signals;
-    for(auto signal: signals) {
+    for(const auto& signal : controller_pair.first->second->_signals) {
       auto it = signals_map.find(signal);
-      if(it != signals_map.end()) {
-        it->second->_controllers.insert(signal);
+      if(it != signals_map.end() && it->second != nullptr) {
+        it->second->_controllers.insert(controller_id);
       }
     }
 }
@@ -1057,6 +1113,9 @@ void MapBuilder::ComputeJunctionRoadConflicts(Map &map) {
   void MapBuilder::CheckSignalsOnRoads(Map &map) {
     for (auto& signal_pair : map._data._signals) {
       auto& signal = signal_pair.second;
+      if (!signal) {
+        continue;
+      }
       auto signal_position = signal->GetTransform().location;
       auto signal_rotation = signal->GetTransform().rotation;
       auto closest_waypoint_to_signal =
@@ -1090,24 +1149,26 @@ void MapBuilder::ComputeJunctionRoadConflicts(Map &map) {
           auto left_waypoint = map.GetLeft(closest_waypoint_to_signal.get());
           auto left_lane_type = (left_waypoint) ? map.GetLaneType(left_waypoint.get()) : carla::road::Lane::LaneType::None;
 
-          if (right_lane_type != carla::road::Lane::LaneType::Driving) {
+          if (right_lane_type != carla::road::LaneType::Driving) {
             displacement_direction = 1;
-          } else if (left_lane_type != carla::road::Lane::LaneType::Driving) {
+          } else if (left_lane_type != carla::road::LaneType::Driving) {
             displacement_direction = -1;
           } else {
             displacement_direction = 0;
           }
 
           geom::Vector3D displacement = 1.f*(road_transform.GetRightVector()) *
-              static_cast<float>(abs(lane_width))*0.2f;
+              static_cast<float>(std::abs(lane_width))*0.2f;
           signal_position += (displacement * displacement_direction);
           signal_rotation = road_transform.rotation;
           closest_waypoint_to_signal =
               map.GetClosestWaypointOnRoad(signal_position,
               static_cast<int32_t>(carla::road::Lane::LaneType::Shoulder) |  static_cast<int32_t>(carla::road::Lane::LaneType::Driving));
-          distance_to_road =
-              (map.ComputeTransform(closest_waypoint_to_signal.get()).location -
-              signal_position).Length();
+          if (!closest_waypoint_to_signal) {
+            break;
+          }
+          road_transform = map.ComputeTransform(closest_waypoint_to_signal.get());
+          distance_to_road = (road_transform.location - signal_position).Length();
           lane_width = map.GetLaneWidth(closest_waypoint_to_signal.get());
           iter++;
         }
