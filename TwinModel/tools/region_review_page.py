@@ -115,7 +115,7 @@ def load_image(image_dir: Path | str, carla_map: str) -> tuple[dict, str] | tupl
     meta_p, jpg = d / f"topview_{carla_map}.json", d / f"topview_{carla_map}.jpg"
     if not (meta_p.exists() and jpg.exists()):
         return (None, None)
-    raw = json.loads(meta_p.read_text())
+    raw = json.loads(meta_p.read_text(encoding="utf-8"))
     blob = jpg.read_bytes()
     meta = {
         "bounds": [float(v) for v in raw["bounds"]],
@@ -137,7 +137,7 @@ def load_detail(image_dir: Path | str, carla_map: str) -> tuple[dict, dict[str, 
     man = d / f"topview_{carla_map}_detail.json"
     if not man.exists():
         return (None, {})
-    raw = json.loads(man.read_text())
+    raw = json.loads(man.read_text(encoding="utf-8"))
     tiles: list[dict] = []
     srcs: dict[str, str] = {}
     total = 0
@@ -259,7 +259,7 @@ def _load(twin_dir: Path, stem: str) -> list[dict]:
     if not p.exists():
         log.warning("%s missing in %s", p.name, twin_dir)
         return []
-    return json.loads(p.read_text()).get("features") or []
+    return json.loads(p.read_text(encoding="utf-8")).get("features") or []
 
 
 def _bounds(layers: dict) -> list[float]:
@@ -293,7 +293,7 @@ def _bounds(layers: dict) -> list[float]:
 def extract_twin(twin_dir: Path | str, name: str, carla_map: str) -> dict[str, Any]:
     """Read a ``*.twin`` directory into the compact payload the page embeds."""
     twin_dir = Path(twin_dir)
-    model = json.loads((twin_dir / "model.json").read_text())
+    model = json.loads((twin_dir / "model.json").read_text(encoding="utf-8"))
 
     surfaces = _load(twin_dir, "surfaces")
     layers: dict[str, Any] = {}
@@ -616,7 +616,8 @@ function prepare(m){
 
 /* ------------------------------------------------------------------------- canvas & view */
 const cv = $("#cv"), g = cv.getContext("2d");
-let DPR = 1, W = 0, H = 0;
+let DPR = 1, W = 0, H = 0, RAF = 0;
+function schedule(){ if (RAF) return; RAF = requestAnimationFrame(() => { RAF = 0; draw(); }); }
 
 function readPalette(){
   const cs = getComputedStyle(document.documentElement);
@@ -707,7 +708,7 @@ function detailImage(map, key){
     if (!src) return null;
     const img = new Image();
     img.decoding = "async";
-    img.addEventListener("load", () => draw());
+    img.addEventListener("load", schedule);
     img.src = src;                    // this is the decode; nothing before it costs memory
     e = {img: img};
     TCACHE.set(id, e);
@@ -913,9 +914,9 @@ cv.addEventListener("pointermove", e => {
   if (dragging){
     dragMoved += Math.abs(e.clientX-lastX) + Math.abs(e.clientY-lastY);
     S.cx -= (e.clientX-lastX)/S.k; S.cy += (e.clientY-lastY)/S.k;
-    lastX = e.clientX; lastY = e.clientY; draw();
+    lastX = e.clientX; lastY = e.clientY; schedule();
   } else if (S.mode && S.draft.length){
-    S.cursor = [wx(px), wy(py)]; draw();
+    S.cursor = [wx(px), wy(py)]; schedule();
   }
   readout(px, py); tooltip(px, py);
 });
@@ -1445,15 +1446,16 @@ def build_page(maps: Sequence[dict], images: dict[str, str] | None = None,
         '<label><select id="mapsel"></select></label>'
     blocks = []
     for m in maps:
+        cmap_esc = _esc(m["carla_map"])
         src = images.get(m["carla_map"])
         if src:
             blocks.append('<img class="basemap" data-mapimg="%s" alt="" src="%s">'
-                          % (m["carla_map"], src))
+                          % (cmap_esc, _esc(src)))
         blocks.append('<script type="application/json" data-map="%s">%s</script>'
-                      % (m["carla_map"], json.dumps(m, separators=(",", ":"))))
+                      % (cmap_esc, json.dumps(m, separators=(",", ":")).replace("</", "<\\/")))
         for key, dsrc in (details.get(m["carla_map"]) or {}).items():
             blocks.append('<script type="text/plain" data-detail="%s|%s">%s</script>'
-                          % (m["carla_map"], key, dsrc))
+                          % (cmap_esc, _esc(key), dsrc.replace("</", "<\\/")))
     title = ("%s Twin Review" % one["name"]) if one else "Twin Region Review"
     return "\n".join([
         "<title>%s</title>" % _esc(title),
@@ -1535,7 +1537,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     # the combined page is the overview: every map, level 0 only.  Three maps' worth of level-1
     # tiles in one page would be ~25 MB, so the detail lives on the per-map pages.
     overview = [{k: v for k, v in m.items() if k != "detail"} for m in maps]
-    out.write_text(build_page(overview, images))
+    out.write_text(build_page(overview, images), encoding="utf-8")
     written = [(out.name, "all maps, level 0", out.stat().st_size)]
 
     if not args.no_per_map:
@@ -1544,7 +1546,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             p.write_text(build_page([m], {m["carla_map"]: images.get(m["carla_map"])}
                                     if images.get(m["carla_map"]) else {},
                                     {m["carla_map"]: details.get(m["carla_map"]) or {}},
-                                    single=True))
+                                    single=True), encoding="utf-8")
             written.append((p.name, "%s, level 0+1" % m["name"], p.stat().st_size))
 
     for name, level, d, size, img_bytes, det_bytes, det_n, counts in report:

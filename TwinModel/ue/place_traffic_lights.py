@@ -39,6 +39,7 @@ signal) into an ``ADigitalTwinsTrafficLight``, a real ATrafficLightBase the Traf
 drives. Stop / yield / speed signs keep spawning from the xodr as before.
 """
 import argparse
+from collections import Counter
 import json
 import math
 import os
@@ -51,7 +52,7 @@ import xml.etree.ElementTree as ET
 import unreal
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bake_level import MAP_ROOT, log, warn, spawn, save_all  # noqa: E402
+from bake_level import MAP_ROOT, content_dir_for, log, warn, spawn, save_all  # noqa: E402
 
 
 def controllers_from_xodr(xodr_path):
@@ -152,7 +153,7 @@ def substitute_head_signals(rig_path, anchor_signal, tokens):
     Returns (json text, {signal id: [head prefixes]}). A head whose SignalID is missing or
     unresolved falls back to the anchor, which is what ExportLogicToJSON does for an empty one.
     """
-    with open(rig_path) as f:
+    with open(rig_path, encoding="utf-8") as f:
         rig = json.load(f)
     table = {"@through": anchor_signal}
     table.update(tokens or {})
@@ -217,9 +218,9 @@ def main(argv):
     args = ap.parse_args(argv)
 
     t0 = time.time()
-    with open(args.signals) as f:
+    with open(args.signals, encoding="utf-8") as f:
         signals = [s for s in json.load(f)
-                   if s.get("type", "1000001") in ("1000001", PED_TYPE)]
+                   if str(s.get("type", "1000001")) in ("1000001", PED_TYPE)]
     ped_ids = {str(s["id"]) for s in signals if s.get("kind") == "ped"}
     for signal in signals:
         if signal.get("placement", {}).get("status") != "ok":
@@ -228,8 +229,7 @@ def main(argv):
             raise ValueError("Non-finite pole position: " + str(signal["id"]))
 
     map_path = "%s/%s/%s" % (args.map_root, args.name, args.name)
-    content = unreal.Paths.project_content_dir()
-    xodr_dir = os.path.join(content, args.map_root.removeprefix('/Game/'), args.name, "OpenDrive")
+    xodr_dir = os.path.join(content_dir_for(args.map_root), args.name, "OpenDrive")
     xodr = os.path.join(xodr_dir, args.name + ".xodr")
     ctl_of = controllers_from_xodr(xodr)
     junction_of_ctl = junctions_from_xodr(xodr)
@@ -237,7 +237,7 @@ def main(argv):
     rigs = load_rigs(args.rig)
     rig_map = {}
     if args.rig_map:
-        with open(args.rig_map) as f:
+        with open(args.rig_map, encoding="utf-8") as f:
             rig_map = json.load(f)
     # a signal bound to another rig's head gets no rig of its own: the gantry carrying it is
     # split into one ADigitalTwinsTrafficLight per signal at load time (UMapLogicParser), and
@@ -309,6 +309,7 @@ def main(argv):
     report = {"placed": 0, "failed": [], "labels": [], "rigs": {}, "junctions": {}, "timing": {},
               "kinds": {}}
     placed_at = {}
+    seen_paths = {a.get_path_name() for a in sub.get_all_level_actors()}
     for s in signals:
         label = "TL_%s" % s["id"]
         sid = str(s["id"])
@@ -362,14 +363,27 @@ def main(argv):
             rig.set_editor_property("amber_duration", args.amber)
             components = rig.get_components_by_class(unreal.StaticMeshComponent)
             n_mesh = len(components)
-            from collections import Counter
-            expected = Counter(m["ModuleMesh"] for p in json.loads(rig_text)["Poles"]
+            rig_obj = json.loads(rig_text)
+            expected = Counter(m["ModuleMesh"] for p in rig_obj["Poles"]
                                for h in p.get("Heads", []) for m in h.get("Modules", []))
-            expected.update(p[k] for p in json.loads(rig_text)["Poles"]
+            expected.update(p[k] for p in rig_obj["Poles"]
                             for k in ("BaseMesh", "ExtensibleMesh", "CapMesh") if p.get(k))
             actual = Counter(c.static_mesh.get_name() for c in components if c.static_mesh)
             if any(actual[name] != count for name, count in expected.items()):
-                raise RuntimeError("Generator mesh count mismatch: " + str(expected) + " vs " + str(actual))
+                hint = ""
+                if not actual:
+                    content_dir = os.path.join(
+                        unreal.Paths.project_plugins_dir(), "CarlaDigitalTwinsTool", "Content"
+                    )
+                    if not os.path.isdir(content_dir):
+                        hint = " (Plugins/CarlaDigitalTwinsTool/Content is missing; link or install the digital-twins content pack)"
+                    else:
+                        sample = os.path.join(content_dir, "TrafficLightTool", "Meshes", "SM_TrafficLight_Base.uasset")
+                        if os.path.isfile(sample):
+                            with open(sample, "rb") as lf:
+                                if lf.read(64).startswith(b"version https://git-lfs.github.com/spec/v1"):
+                                    hint = " (CarlaDigitalTwinsTool Content contains unpulled Git LFS pointers; run 'git lfs pull')"
+                raise RuntimeError("Generator mesh count mismatch: " + str(expected) + " vs " + str(actual) + hint)
             rig.bake(args.name, label)
         except Exception as exc:
             report["failed"].append(s["id"])
@@ -377,7 +391,19 @@ def main(argv):
             rig.destroy_actor()
             continue
         rig.destroy_actor()
-        baked = find_actor_by_label(label)
+        baked = None
+        for a in sub.get_all_level_actors():
+            p_name = a.get_path_name()
+            if p_name in seen_paths:
+                continue
+            seen_paths.add(p_name)
+            try:
+                if a.get_actor_label() == label:
+                    baked = a
+            except Exception:
+                continue
+        if baked is None:
+            baked = find_actor_by_label(label)
         if baked is None:
             report["failed"].append(s["id"])
             warn("signal %s: baked actor %s not found" % (s["id"], label))
@@ -426,11 +452,11 @@ def main(argv):
     if os.path.exists(plugin_logic):
         os.makedirs(xodr_dir, exist_ok=True)
         from pedestrian_logic import connect_logic
-        with open(plugin_logic) as f:
+        with open(plugin_logic, encoding="utf-8") as f:
             logic = json.load(f)
         report["pedestrian_clearance"] = connect_logic(
             logic, signals, ctl_of, junction_of_ctl)
-        with open(plugin_logic, "w") as f:
+        with open(plugin_logic, "w", encoding="utf-8") as f:
             json.dump(logic, f, indent=1)
         shutil.move(plugin_logic, dst)
         n_logic = len(logic["TrafficLights"])
@@ -466,9 +492,9 @@ def main(argv):
         ", ".join("%s x%d" % kv for kv in sorted(kinds.items())),
         len(report["junctions"]) - n_bad_junction, n_bad_junction))
     rep = args.report or os.path.join(os.path.dirname(os.path.abspath(args.signals)), "traffic_lights_report.json")
-    with open(rep, "w") as f:
+    with open(rep, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=1)
-    return 0 if report["placed"] and ok and not report["failed"] else 1
+    return 0 if (report["placed"] or not signals) and ok and not report["failed"] else 1
 
 
 if __name__ == "__main__":
@@ -479,3 +505,5 @@ if __name__ == "__main__":
         unreal.log_error("[place_traffic_lights] FAILED\n" + traceback.format_exc())
         rc = 1
     print("[place_traffic_lights] exit %d" % rc, flush=True)
+    if rc:
+        sys.exit(rc)

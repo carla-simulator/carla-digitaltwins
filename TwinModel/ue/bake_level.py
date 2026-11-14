@@ -574,7 +574,7 @@ def write_map_default_weather(name):
     data = {}
     if os.path.exists(path):
         try:
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
         except Exception as exc:
             warn("MapDefaults.json unreadable (%s); leaving it alone" % exc)
@@ -583,7 +583,8 @@ def write_map_default_weather(name):
         log("MapDefaults.json already has %s" % name)
         return True
     data[name] = dict(TOWN10_WEATHER)
-    with open(path, "w") as f:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=1)
     log("MapDefaults.json: %s -> Town10 runtime weather (sun alt 10, az 170)" % name)
     return True
@@ -875,7 +876,17 @@ def _instance_count(actor):
     return sum(c.get_instance_count() for c in _ism_components(actor))
 
 
-def place_buildings(world, manifest, name, mats, roof_material=None):
+def _init_bgen(gen, host, sma, name, warn_on_err=False):
+    for k, v in (("CurrentActor", host), ("BatchSize", 100), ("BuildingLevelFloorFactor", 3.0),
+                 ("StreetMapActor", sma), ("MapName", name)):
+        try:
+            gen.set_editor_property(k, v)
+        except Exception as exc:
+            if warn_on_err:
+                warn("BP_BuildingGen.%s: %s" % (k, str(exc).splitlines()[0][:100]))
+
+
+def place_buildings(world, manifest, name, mats, roof_material=None, map_root=MAP_ROOT):
     """Modular facades for every manifest building through BP_BuildingGen.ProcessPoints.
 
     Per building: a host actor at the origin (the generator adds ISM components to it and
@@ -883,6 +894,7 @@ def place_buildings(world, manifest, name, mats, roof_material=None):
     base_z, and the roof cap (StreetMapComponent.GenerateTopOfBuilding, from the .osm the
     twin_buildings writer produced with the row-snapped heights) is spawned at base_z too.
     """
+    from collections import defaultdict
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import twin_buildings
 
@@ -897,7 +909,16 @@ def place_buildings(world, manifest, name, mats, roof_material=None):
     bgen_bp = unreal.EditorAssetLibrary.load_asset(BGEN_BP)
     bgen_cls = unreal.load_object(None, BGEN_BP + ".BP_BuildingGen_C")
     if bgen_bp is None or bgen_cls is None:
-        raise RuntimeError("BP_BuildingGen not mounted at %s (CarlaDigitalTwinsTool content)" % BGEN_BP)
+        disk_bgen = os.path.join(
+            unreal.Paths.project_plugins_dir(),
+            "CarlaDigitalTwinsTool", "Content", "Blueprints", "BP_BuildingGen.uasset",
+        )
+        hint = "install optional CarlaDigitalTwinsTool Content or pass --buildings slabs"
+        if os.path.isfile(disk_bgen):
+            with open(disk_bgen, "rb") as lf:
+                if lf.read(64).startswith(b"version https://git-lfs.github.com/spec/v1"):
+                    hint = "BP_BuildingGen.uasset is an unpulled Git LFS pointer; run 'git lfs pull'"
+        raise RuntimeError("BP_BuildingGen not mounted at %s (%s)" % (BGEN_BP, hint))
     # the variables ProcessPoints reads from the object are not instance-editable in the
     # shipped BP; unlock them in memory (the BP package is excluded from the save below)
     for v in ("CurrentActor", "BatchSize", "BuildingLevelFloorFactor", "StreetMapActor", "MapName"):
@@ -926,17 +947,23 @@ def place_buildings(world, manifest, name, mats, roof_material=None):
         fams[fam] = meshes
         log("family %s: %s" % (fam, {k: round(v, 1) for k, v in meshes["dims"].items()}))
 
-    # one row-snapped .osm (the roof cap reads the way's height tag), one StreetMap import
-    rings = []
+    # one row-snapped .osm (one single-ring entry per ring so StreetMap indices align 1-to-1)
     snapped = []
     for b in blds:
         fam = family_for(b)
         hs, n = snap_height_cm(float(b["height_m"]) * 100.0, fams[fam]["dims"])
-        snapped.append((b, fam, hs, n))
-    osm_manifest = {"buildings": [dict(b, height_m=hs / 100.0, levels=n) for b, fam, hs, n in snapped]}
+        valid_rings = [r for r in b["rings_ue"] if r and len(r) >= 3]
+        for ri, ring in enumerate(valid_rings):
+            snapped.append((b, ri, ring, fam, hs, n))
+    osm_manifest = {
+        "buildings": [
+            dict(b, rings_ue=[ring], height_m=hs / 100.0, levels=n)
+            for b, ri, ring, fam, hs, n in snapped
+        ]
+    }
     osm_path = os.path.join(manifest["_scratch"], "buildings.osm")
     n_ways = twin_buildings.write_buildings_osm(osm_manifest, osm_path)
-    import_dir = "%s/%s/Import" % (MAP_ROOT, name)
+    import_dir = "%s/%s/Import" % (map_root.rstrip("/"), name)
     t = unreal.AssetImportTask()
     t.set_editor_property("filename", osm_path)
     t.set_editor_property("destination_path", import_dir)
@@ -952,12 +979,13 @@ def place_buildings(world, manifest, name, mats, roof_material=None):
         raise RuntimeError("StreetMap import of %s failed" % osm_path)
     sm_blds = list(street_map.get_editor_property("buildings"))
     log("buildings.osm: %d ways -> StreetMap %d buildings" % (n_ways, len(sm_blds)))
-    # the importer keeps way order, but match rings by their first vertex to be safe
-    first = {}
+    # Match rings by full rounded vertex signature (queued so duplicate/shared corners never collide)
+    by_sig = defaultdict(list)
     for i, sb in enumerate(sm_blds):
         pts = list(sb.get_editor_property("building_points"))
         if pts:
-            first.setdefault((round(pts[0].x), round(pts[0].y)), i)
+            sig = tuple((round(p.x), round(p.y)) for p in pts)
+            by_sig[sig].append(i)
     sma = spawn(world, unreal.StreetMapActor, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0),
                 "TwinStreetMap", "Twin/Buildings")
     if sma is None:
@@ -977,21 +1005,30 @@ def place_buildings(world, manifest, name, mats, roof_material=None):
 
     t0 = time.time()
     outer = None  # new_object's default outer is the transient package
-    for bi, (b, fam, hs, n) in enumerate(snapped):
-        ring = b["rings_ue"][0]
-        key = (round(ring[0][0]), round(ring[0][1]))
-        si = first.get(key, bi if bi < len(sm_blds) else None)
+    used_si = set()
+    for bi, (b, ri, ring, fam, hs, n) in enumerate(snapped):
+        sig = tuple((round(pt[0]), round(pt[1])) for pt in ring)
+        cands = by_sig.get(sig)
+        if cands:
+            si = cands.pop(0)
+        elif bi < len(sm_blds) and bi not in used_si:
+            si = bi
+        else:
+            si = None
         if si is None:
             report["skipped"] += 1
             continue
+        used_si.add(si)
         sb = sm_blds[si]
         pts = list(sb.get_editor_property("building_points"))
         if len(pts) < 3:
             report["skipped"] += 1
             continue
         meshes = fams[fam]
+        bid = b.get("id", bi)
+        suffix = "%s_r%d" % (bid, ri) if ri else "%s" % bid
         host = spawn(world, unreal.Actor, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0),
-                     "Bldg_%s" % b.get("id", bi), "Twin/Buildings")
+                     "Bldg_%s" % suffix, "Twin/Buildings")
         if host is None:
             report["skipped"] += 1
             continue
@@ -1000,13 +1037,7 @@ def place_buildings(world, manifest, name, mats, roof_material=None):
         # spectator would otherwise look at an empty footprint (out/look_demo/iter1)
         _always_loaded(host)
         gen = unreal.new_object(bgen_cls, outer=outer) if outer is not None else unreal.new_object(bgen_cls)
-        for k, v in (("CurrentActor", host), ("BatchSize", 100), ("BuildingLevelFloorFactor", 3.0),
-                     ("StreetMapActor", sma), ("MapName", name)):
-            try:
-                gen.set_editor_property(k, v)
-            except Exception as exc:
-                if bi == 0:
-                    warn("BP_BuildingGen.%s: %s" % (k, str(exc).splitlines()[0][:100]))
+        _init_bgen(gen, host, sma, name, warn_on_err=(bi == 0))
         kw = {"building_points": [unreal.Vector2D(p.x, p.y) for p in pts],
               "max_number_of_doors": 2, "height": hs, "building_levels": n,
               "slope_height": 100.0, "plane": meshes["quad"],
@@ -1026,7 +1057,7 @@ def place_buildings(world, manifest, name, mats, roof_material=None):
                      % str(exc).splitlines()[0][:120])
                 outer = world
                 gen = unreal.new_object(bgen_cls, outer=outer)
-                gen.set_editor_property("CurrentActor", host)
+                _init_bgen(gen, host, sma, name)
                 gen.call_method("ProcessPoints", (), kw)
             else:
                 warn("building %s ProcessPoints: %s" % (b.get("id"), str(exc).splitlines()[0][:150]))
@@ -1037,7 +1068,7 @@ def place_buildings(world, manifest, name, mats, roof_material=None):
             warn("transient generator placed nothing; using world outer")
             outer = world
             gen = unreal.new_object(bgen_cls, outer=outer)
-            gen.set_editor_property("CurrentActor", host)
+            _init_bgen(gen, host, sma, name)
             gen.call_method("ProcessPoints", (), kw)
             n_inst = _instance_count(host)
         # lift the building onto the twin's terrain
@@ -1076,7 +1107,7 @@ def place_buildings(world, manifest, name, mats, roof_material=None):
             except Exception:
                 pass
             ra = spawn(world, unreal.StaticMeshActor, unreal.Vector(pts[0].x, pts[0].y, dz),
-                       unreal.Rotator(0, 0, 0), "Roof_%s" % b.get("id", bi), "Twin/Buildings")
+                       unreal.Rotator(0, 0, 0), "Roof_%s" % suffix, "Twin/Buildings")
             if ra is not None:
                 _always_loaded(ra)
                 rc = ra.get_editor_property("static_mesh_component")
@@ -1183,11 +1214,15 @@ def cook_tm_cache(xodr_path, name, map_root=MAP_ROOT, python_bin=None):
 
     try:
         import carla  # when the editor's own interpreter has a matching wheel
-        carla.Map(name, open(xodr_path, encoding="utf-8").read()).cook_in_memory_map(dst)
+        with open(xodr_path, encoding="utf-8") as xf:
+            xodr_text = xf.read()
+        carla.Map(name, xodr_text).cook_in_memory_map(dst)
     except ImportError:
         # The editor ships its own Python, so the client wheel is usually built
         # for another version: cook in whichever interpreter does have it.
-        exe = python_bin or os.environ.get("CARLA_PYTHON") or "python3"
+        exe = (python_bin or os.environ.get("CARLA_PYTHON")
+               or shutil.which("python3") or shutil.which("python")
+               or ("python" if os.name == "nt" else "python3"))
         proc = subprocess.run([exe, "-c", TM_COOK_SNIPPET, name, xodr_path, dst],
                               capture_output=True, text=True)
         if proc.returncode != 0:
@@ -1270,6 +1305,39 @@ def setup_navigation(manifest, name, map_root=MAP_ROOT):
     return info
 
 
+def _editor_cmd_binary():
+    eng = unreal.Paths.engine_dir()
+    if os.name == "nt":
+        cands = (
+            os.path.join(eng, "Binaries", "Win64", "UnrealEditor-Cmd.exe"),
+            os.path.join(eng, "Binaries", "Win64", "UnrealEditor.exe"),
+        )
+    else:
+        cands = (
+            os.path.join(eng, "Binaries", "Linux", "UnrealEditor-Cmd"),
+            os.path.join(eng, "Binaries", "Linux", "UnrealEditor"),
+        )
+    for cand in cands:
+        if os.path.isfile(cand):
+            return cand
+    return cands[0]
+
+
+def _nav_builder_result(returncode, stdout, stderr):
+    combined = "\n".join(part for part in (stdout, stderr) if part)
+    lines = [ln.strip() for ln in combined.splitlines() if ln.strip()]
+    has_failure = "Failure -" in combined
+    ok = ("Success - 0 error(s)" in combined and not has_failure) or (
+        returncode == 0 and not has_failure
+    )
+    if ok:
+        return True, ""
+    for ln in reversed(lines):
+        if "Failure -" in ln or "Error:" in ln or "Fatal error:" in ln:
+            return False, ln
+    return False, (lines[-1] if lines else "no output")
+
+
 def build_navigation_data(name, map_root=MAP_ROOT):
     """Run the crosswalk and navigation-data World Partition builders over the saved level.
 
@@ -1277,17 +1345,21 @@ def build_navigation_data(name, map_root=MAP_ROOT):
     external actors, which the commandlet running this script still has open.
     """
     level = "%s/%s/%s" % (map_root.rstrip("/"), name, name)
-    editor = os.path.join(unreal.Paths.engine_dir(), "Binaries", "Linux", "UnrealEditor")
+    editor = _editor_cmd_binary()
     uproject = unreal.Paths.convert_relative_path_to_full(unreal.Paths.get_project_file_path())
     done = {}
     for builder in NAV_BUILDERS:
         cmd = [editor, uproject, level, "-run=WorldPartitionBuilderCommandlet",
-               "-Builder=%s" % builder, "-SCCProvider=None", "-nullrhi", "-unattended"]
+               "-Builder=%s" % builder, "-SCCProvider=None",
+               "-nullrhi", "-unattended", "-nosplash", "-nopause",
+               "-stdout", "-FullStdOutLogOutput"]
         proc = subprocess.run(cmd, capture_output=True, text=True)
-        done[builder] = proc.returncode == 0
-        if proc.returncode != 0:
-            tail = (proc.stdout or proc.stderr or "").strip().splitlines()
-            warn("%s failed (%s)" % (builder, tail[-1] if tail else "no output"))
+        ok, detail = _nav_builder_result(proc.returncode, proc.stdout, proc.stderr)
+        done[builder] = ok
+        if not ok:
+            warn("%s failed (%s)" % (builder, detail))
+        elif proc.returncode != 0:
+            log("%s ok (Success - 0 error(s); ignored post-commandlet exit %d)" % (builder, proc.returncode))
         else:
             log("%s ok" % builder)
     return done
@@ -1328,7 +1400,7 @@ def main(argv):
     args = ap.parse_args(argv)
 
     t_start = time.time()
-    with open(args.manifest) as f:
+    with open(args.manifest, encoding="utf-8") as f:
         manifest = json.load(f)
     manifest["_path"] = os.path.abspath(args.manifest)
     # scratch files go beside the report, not into the fingerprinted export dir
@@ -1356,6 +1428,9 @@ def main(argv):
         a = by_asset[asset_name]
         mesh = load_asset(path)
         variants = mats.get(asset_key(a)) or mats.get("road")
+        if not variants:
+            warn("no material variants available for %s (%s); skipping material finish" % (asset_name, asset_key(a)))
+            continue
         mic, vi = pick_variant(name, a, variants)
         variant_of[asset_name] = vi
         info = finish_mesh(mesh, mic, a["kind"], nanite=not args.no_nanite)
@@ -1373,7 +1448,7 @@ def main(argv):
     report["spawn_points_placed"] = n_sp
     if args.buildings == "procedural":
         roof_mat = load_asset(args.roof_material) if args.roof_material else None
-        report["procedural_buildings"] = place_buildings(world, manifest, name, mats, roof_mat)
+        report["procedural_buildings"] = place_buildings(world, manifest, name, mats, roof_mat, args.map_root)
     xodr = copy_xodr(manifest, name, args.map_root)
     report["xodr"] = xodr
     report["tm_cache"] = (None if args.no_tm_cache
@@ -1393,12 +1468,14 @@ def main(argv):
 
     sizes = {}
     map_dir = content_dir_for(args.map_root)
-    mount = args.map_root.strip("/").split("/")[0]
-    external = os.path.dirname(map_dir)
+    mount_parts = [p for p in args.map_root.strip("/").split("/") if p]
+    mount = mount_parts[0] if mount_parts else "Game"
+    rel_parts = mount_parts[1:] + [name, name]
+    mount_content_root = content_dir_for("/" + mount)
     for label, p in (
-            (args.map_root + "/" + name, os.path.join(map_dir, name)),
-            ("__ExternalActors__", os.path.join(external, "__ExternalActors__")),
-            ("__ExternalObjects__", os.path.join(external, "__ExternalObjects__"))):
+            (args.map_root.rstrip("/") + "/" + name, os.path.join(map_dir, name)),
+            ("__ExternalActors__", os.path.join(mount_content_root, "__ExternalActors__", *rel_parts)),
+            ("__ExternalObjects__", os.path.join(mount_content_root, "__ExternalObjects__", *rel_parts))):
         if os.path.isdir(p):
             sizes[label] = dir_size(p)
     for sem in sorted({a["semantic"] for a in manifest["assets"]}):
@@ -1410,7 +1487,7 @@ def main(argv):
     report["content_total_mb"] = round(sum(sizes.values()) / 1e6, 1)
     report["seconds"] = round(time.time() - t_start, 1)
     rep = args.report or os.path.join(os.path.dirname(manifest["_path"]), "bake_report.json")
-    with open(rep, "w") as f:
+    with open(rep, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=1)
     log("report -> %s (%.1f MB of content, %.0f s)" % (rep, report["content_total_mb"], report["seconds"]))
     return 0
@@ -1424,3 +1501,5 @@ if __name__ == "__main__":
         unreal.log_error("[bake_level] FAILED\n" + traceback.format_exc())
         rc = 1
     print("[bake_level] exit %d" % rc, flush=True)
+    if rc:
+        sys.exit(rc)

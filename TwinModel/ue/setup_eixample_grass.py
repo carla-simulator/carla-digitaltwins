@@ -41,9 +41,11 @@ def main():
         mi.set_editor_property(array, values + [entry])
 
     master = copy(GENERIC + '000_Masters/M_VertexPaintCB', 'M_TwinUrbanLawn')
-    layer = next(e for e in unreal.ObjectIterator(unreal.MaterialExpressionNamedRerouteDeclaration)
-                 if e.get_outer() == master and
-                 str(e.get_editor_property('name')).lower().replace(' ', '') == 'midlowerlayer')
+    layer = next((e for e in unreal.ObjectIterator(unreal.MaterialExpressionNamedRerouteDeclaration)
+                  if e.get_outer() == master and
+                  str(e.get_editor_property('name')).lower().replace(' ', '') == 'midlowerlayer'), None)
+    if layer is None:
+        raise RuntimeError('MidLowerLayer named reroute missing in ' + master.get_path_name())
     assert edit.connect_material_property(layer, '', unreal.MaterialProperty.MP_MATERIAL_ATTRIBUTES)
     edit.recompile_material(master)
     assert lib.save_loaded_asset(master, False)

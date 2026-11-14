@@ -24,21 +24,26 @@ def gores(m: TwinModel) -> list[tuple[str, str, tuple[float, float], str]]:
         if r.tags.get("gore_model") != "taper":
             continue
         gid = r.tags.get("gore")
-        if gid in seen:
+        if not gid or gid in seen:
+            continue
+        main = roads.get(r.tags.get("gore_mainline"))
+        if main is None:
             continue
         seen.add(gid)
-        kind = r.tags["gore_kind"]
-        main = roads[r.tags["gore_mainline"]]
+        kind = r.tags.get("gore_kind", "merge")
         c = r.reference_line.coords[-1] if kind == "merge" else r.reference_line.coords[0]
-        aux = [l for l in main.lanes if l.tags.get("aux")]
+        aux = [ln for ln in main.lanes if ln.tags.get("aux")]
         desc = (f"{kind}: ramp {r.id} -> {main.id}" if kind == "merge" else f"{kind}: {main.id} -> ramp {r.id}")
         if aux:
-            desc += "; aux " + ", ".join(f"{l.tags['aux']} s=[{float(l.tags['aux_s0']):.0f},{float(l.tags['aux_s1']):.0f}]"
-                                        + (f" taper [{float(l.tags['taper_s0']):.0f},{float(l.tags['taper_s1']):.0f}]"
-                                           if l.tags.get("taper_s0") is not None else "") for l in aux)
+            desc += "; aux " + ", ".join(
+                f"{ln.tags['aux']} s=[{float(ln.tags['aux_s0']):.0f},{float(ln.tags['aux_s1']):.0f}]"
+                + (f" taper [{float(ln.tags['taper_s0']):.0f},{float(ln.tags['taper_s1']):.0f}]"
+                   if ln.tags.get("taper_s0") is not None else "")
+                for ln in aux
+            )
         out.append((gid, kind, (float(c[0]), float(c[1])), desc))
     for j in m.junctions:
-        if j.tags.get("kind") == "gore" and j.id not in seen:
+        if j.tags.get("kind") == "gore" and j.id not in seen and "centre" in j.tags:
             seen.add(j.id)
             cx, cy = j.tags["centre"]
             out.append((j.id, "junction", (float(cx), float(cy)),
@@ -53,13 +58,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     build_dir, name, profile = Path(argv[0]), argv[1], argv[2]
     half = float(argv[3]) if len(argv) > 3 else 90.0
-    profiles.activate(profile)
-    m = TwinModel.load(build_dir / f"{name}.twin")
-    for gid, kind, (cx, cy), desc in gores(m):
-        png = build_dir / f"{name}_gore_{gid}_{kind}.png"
-        export_preview_png(m, png, window=(cx - half, cx + half, cy - half, cy + half),
-                           title=f"{name} {gid} {desc}")
-        print(f"{gid:>5} {kind:<9} ({cx:8.1f}, {cy:8.1f})  {desc}  -> {png}")
+    with profiles.use(profile):
+        m = TwinModel.load(build_dir / f"{name}.twin")
+        for gid, kind, (cx, cy), desc in gores(m):
+            png = build_dir / f"{name}_gore_{gid}_{kind}.png"
+            export_preview_png(m, png, window=(cx - half, cx + half, cy - half, cy + half),
+                               title=f"{name} {gid} {desc}")
+            print(f"{gid:>5} {kind:<9} ({cx:8.1f}, {cy:8.1f})  {desc}  -> {png}")
     return 0
 
 

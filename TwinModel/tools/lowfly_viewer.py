@@ -511,7 +511,7 @@ function updateHud(){
   $("#ro-zoom").textContent = S.k.toFixed(2) + " px/m";
   pushHash();
 }
-function fmtCm(cm){ return cm >= 100 ? (cm/100).toFixed(cm % 100 ? 1 : 0) + " m" : cm.toFixed(cm < 10 ? 0 : 0) + " cm"; }
+function fmtCm(cm){ return cm >= 100 ? (cm/100).toFixed(cm % 100 ? 1 : 0) + " m" : cm.toFixed(cm < 1 ? 1 : 0) + " cm"; }
 
 /* ----------------------------------------------------------------------------- interaction */
 let dragging = false, dragMoved = 0, lastX = 0, lastY = 0;
@@ -983,7 +983,7 @@ FAVICON = ('<link rel="icon" href="data:image/svg+xml,'
 def _json_block(el_id: str, payload: Any) -> str:
     # `</script>` cannot appear inside a script element, whatever the type
     body = json.dumps(payload, separators=(",", ":")).replace("</", "<\\/")
-    return '<script type="application/json" id="%s">%s</script>' % (el_id, body)
+    return '<script type="application/json" id="%s">%s</script>' % (_esc(el_id), body)
 
 
 def build_page(name: str, manifest: dict, twin: dict | None = None, *,
@@ -1063,13 +1063,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(name)s %(message)s")
 
     pyr = Path(args.pyramid)
-    man = json.loads((pyr / "manifest.json").read_text())
+    man = json.loads((pyr / "manifest.json").read_text(encoding="utf-8"))
     name = man.get("map") or pyr.name
     tdir = Path(args.twin) if args.twin else Path(man.get("twin_dir") or "")
     twin = extract_twin(tdir, name, name) if tdir and tdir.exists() else None
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(build_page(name, man, twin))
+    out.write_text(build_page(name, man, twin), encoding="utf-8")
     log.info("wrote %s (%.2f MB)", out, out.stat().st_size / 1e6)
     return 0
 

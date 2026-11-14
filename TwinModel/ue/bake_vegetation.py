@@ -33,9 +33,11 @@ def main():
     world=unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
     # Commandlets initially load only always-loaded actors. Ground meshes are
     # spatial actors; explicitly load the plan region before collision projection.
-    with open(args.plan) as f:
+    with open(args.plan, encoding='utf-8') as f:
         plan=json.load(f)
         points=plan['points']
+    if (plan.get('region') or args.region)!=args.region:
+        raise ValueError('Plan belongs to another region')
     if points:
         lo=[min(p[k]*100 for p in points)-1000 for k in ('x','y','z')]
         hi=[max(p[k]*100 for p in points)+1000 for k in ('x','y','z')]
@@ -70,13 +72,13 @@ def main():
         pose=poses.get(point['id'])
         if pose is None:raise RuntimeError('Missing validated plant: '+point['id'])
         point.update(x=pose.x/100,y=pose.y/100,z=pose.z/100)
-    Path(args.report).with_name('validated-plan.json').write_text(json.dumps(validated,indent=2)+'\n')
+    Path(args.report).with_name('validated-plan.json').write_text(json.dumps(validated,indent=2)+'\n',encoding='utf-8')
     if not save_all():
         raise RuntimeError('Level save failed')
     report={'map':args.name,'region':args.region,'actor':label,'instances':actor.baked_instance_count,
             'plan_points':len(actor.points),'vegetation_points':len(points),
             'footings':len(actor.points)-len(points),'seconds':time.monotonic()-started,'status':actor.status,'saved':True}
-    with open(args.report,'w') as f:json.dump(report,f,indent=2)
+    with open(args.report,'w',encoding='utf-8') as f:json.dump(report,f,indent=2)
     print('VEGETATION_BAKED',json.dumps(report),flush=True)
 
 if __name__=='__main__':main()

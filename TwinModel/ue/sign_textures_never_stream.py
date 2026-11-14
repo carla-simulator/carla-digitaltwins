@@ -48,3 +48,4 @@ if __name__ == "__main__":
     rc = main(sys.argv[1:])
     if rc:
         unreal.log_error("[never_stream] exit %d" % rc)
+        sys.exit(rc)

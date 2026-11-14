@@ -173,7 +173,7 @@ def main(argv):
         report["materials"][path] = m
 
     out_json = os.path.join(args.out, "look.json")
-    with open(out_json, "w") as f:
+    with open(out_json, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=1, default=str)
     log("look -> %s" % out_json)
     return 0
@@ -187,3 +187,5 @@ if __name__ == "__main__":
         unreal.log_error("[dump_look] FAILED\n" + traceback.format_exc())
         rc = 1
     print("[dump_look] exit %d" % rc, flush=True)
+    if rc:
+        sys.exit(rc)

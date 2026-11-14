@@ -16,9 +16,14 @@ def export_occupancy(output,world=None):
         world=unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
     rows=[]
     for actor in unreal.GameplayStatics.get_all_actors_of_class(world,unreal.Actor):
-        if actor.get_class().get_name() not in ('DigitalTwinsTrafficLight','GeoTrafficSign'):
+        cls=actor.get_class().get_name()
+        label=actor.get_actor_label()
+        tags=[str(t) for t in actor.tags]
+        if not (cls in ('DigitalTwinsTrafficLight','GeoTrafficSign')
+                or label.startswith(('TL_','SIGN_'))
+                or any(t.startswith('TL_') for t in tags)):
             continue
         p=actor.get_actor_location()
-        rows.append(dict(x=p.x/100,y=p.y/100,z=p.z/100,layer=0,name=actor.get_name()))
-    Path(output).write_text(json.dumps(rows,indent=2)+'\n')
+        rows.append(dict(x=p.x/100,y=p.y/100,z=p.z/100,layer=0,name=label or actor.get_name()))
+    Path(output).write_text(json.dumps(rows,indent=2)+'\n',encoding='utf-8')
     return len(rows)

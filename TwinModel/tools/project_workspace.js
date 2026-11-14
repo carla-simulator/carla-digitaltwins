@@ -38,6 +38,7 @@
       try {
         const response = await originalFetch('/api/project');
         const value = await response.json();
+        if (!value.job.running && !value.dirty && value.token) token = value.token;
         state.textContent = `${value.project} → ${value.target_level?.split('/').pop() || value.target} · ${value.job.running ? 'Running' : value.dirty ? 'Unsaved layout edits' : 'Saved authoring inputs'}`;
         panel.querySelector('a').download = value.project + '.twinproject';
         const labels = {'model':'Map model','export':'Geometry exports','validate.model':'Model checks','unreal.geometry':'Unreal map geometry','unreal.traffic':'Traffic controls','occupancy.export':'Physical obstacles','vegetation.plan':'Plant placement','vegetation.bake':'Save vegetation','furniture.plan':'Furniture placement','furniture.bake':'Save furniture','validate.target':'Saved map checks'};

@@ -170,9 +170,15 @@ def mask_polygon(mask: np.ndarray, aff, simplify_m: float = 0.08):
 
 def boundary_offsets(sam_geom, twin_geom, step_m: float = 1.0) -> dict[str, float]:
     """Distances from points along the SAM boundary to the twin boundary."""
+    import shapely  # noqa: PLC0415
+
     b = sam_geom.boundary
+    tb = twin_geom.boundary
+    if b.is_empty or tb.is_empty:
+        return {"off_med": 0.0, "off_p90": 0.0, "off_max": 0.0}
     n = max(4, int(b.length / step_m))
-    d = np.array([b.interpolate(i / n, normalized=True).distance(twin_geom.boundary) for i in range(n)])
+    pts = shapely.line_interpolate_point(b, np.arange(n, dtype=float) / n, normalized=True)
+    d = shapely.distance(pts, tb)
     return {"off_med": round(float(np.median(d)), 2), "off_p90": round(float(np.percentile(d, 90)), 2),
             "off_max": round(float(d.max()), 2)}
 
@@ -182,14 +188,16 @@ def boundary_offsets(sam_geom, twin_geom, step_m: float = 1.0) -> dict[str, floa
 def run(build_dir: Path, name: str, *, layer: str, res: float, kinds: Sequence[str], n_pos: int, n_neg: int,
         window: Sequence[float] | None, preview: bool, out_dir: Path | None, data_dir: Path, sam_id: str,
         device: str | None, seed: int) -> Path:
-    from PIL import Image
-    from rasterio.transform import Affine
-    from shapely.geometry import box as shp_box, mapping, shape
-    from shapely.ops import unary_union
+    import shapely  # noqa: PLC0415
+    from PIL import Image  # noqa: PLC0415
+    from rasterio.transform import Affine  # noqa: PLC0415
+    from shapely.geometry import box as shp_box, mapping, shape  # noqa: PLC0415
+    from shapely.ops import unary_union  # noqa: PLC0415
+    from shapely.strtree import STRtree  # noqa: PLC0415
 
     rng = np.random.default_rng(seed)
     twin_dir = build_dir / f"{name}.twin"
-    model = json.loads((twin_dir / "model.json").read_text())
+    model = json.loads((twin_dir / "model.json").read_text(encoding="utf-8"))
     frame = LocalFrame(model["origin_lat"], model["origin_lon"])
     bbox = tuple(float(v) for v in model["bbox_wgs84"])
     out_dir = out_dir or (build_dir / "detect")
@@ -203,35 +211,45 @@ def run(build_dir: Path, name: str, *, layer: str, res: float, kinds: Sequence[s
     dx = img.dx
     log.info("ortho %dx%d @ %.2f m  %s", img.width, img.height, dx, img.label())
 
+    surf_feats = json.loads((twin_dir / "surfaces.geojson").read_text(encoding="utf-8"))["features"]
+    kind_set = set(kinds)
     surfaces = [(f["properties"]["kind"], f["properties"]["id"], shape(f["geometry"]))
-                for f in json.loads((twin_dir / "surfaces.geojson").read_text())["features"]
-                if f["properties"]["kind"] in kinds]
-    curbs = [(f["properties"], shape(f["geometry"])) for f in json.loads((twin_dir / "curbs.geojson").read_text())["features"]]
+                for f in surf_feats if f["properties"]["kind"] in kind_set]
+    curbs = [(f["properties"], shape(f["geometry"]))
+             for f in json.loads((twin_dir / "curbs.geojson").read_text(encoding="utf-8"))["features"]]
     # extra negative sources: what is never the surface we ask for
     negatives = [("building", f["properties"].get("id", ""), shape(f["geometry"]))
-                 for f in json.loads((twin_dir / "buildings.geojson").read_text())["features"]] if (twin_dir / "buildings.geojson").exists() else []
+                 for f in json.loads((twin_dir / "buildings.geojson").read_text(encoding="utf-8"))["features"]] if (twin_dir / "buildings.geojson").exists() else []
     negatives += [(f["properties"]["kind"], f["properties"]["id"], shape(f["geometry"]))
-                  for f in json.loads((twin_dir / "surfaces.geojson").read_text())["features"]
-                  if f["properties"]["kind"] not in kinds]
+                  for f in surf_feats if f["properties"]["kind"] not in kind_set]
     log.info("twin: %d surfaces of kinds %s, %d kerb lines", len(surfaces), sorted({k for k, _, _ in surfaces}), len(curbs))
 
     region = shp_box(xmin, ymin, xmax, ymax)
     if window:
-        region = shp_box(*window).intersection(region)
+        wx0, wy0, wx1, wy1 = window
+        region = shp_box(min(wx0, wx1), min(wy0, wy1), max(wx0, wx1), max(wy0, wy1)).intersection(region)
+    if region.is_empty:
+        raise SystemExit("requested --window does not overlap orthophoto bounds")
     rx0, ry0, rx1, ry1 = region.bounds
+
+    surf_tree = STRtree([g for _, _, g in surfaces])
+    neg_tree = STRtree([g for _, _, g in negatives])
 
     sam = Sam(sam_id, device)
     per_surface: dict[str, list] = {}
     pieces_done = 0
     t0 = time.time()
     core_margin = OVERLAP // 2
-    px_x0, px_x1 = int((rx0 - xmin) / dx), int(np.ceil((rx1 - xmin) / dx))
-    px_y0, px_y1 = int((ymax - ry1) / dx), int(np.ceil((ymax - ry0) / dx))
+    px_x0 = min(img.width, max(0, int((rx0 - xmin) / dx)))
+    px_x1 = min(img.width, max(px_x0, int(np.ceil((rx1 - xmin) / dx))))
+    px_y0 = min(img.height, max(0, int((ymax - ry1) / dx)))
+    px_y1 = min(img.height, max(px_y0, int(np.ceil((ymax - ry0) / dx))))
     step = CROP - OVERLAP
     ys = list(range(px_y0, max(px_y0 + 1, px_y1 - OVERLAP), step))
     xs = list(range(px_x0, max(px_x0 + 1, px_x1 - OVERLAP), step))
     n_crops = len(xs) * len(ys)
     ci = 0
+    hole_px = int(2.0 / (dx * dx))
     for cy in ys:
         for cx in xs:
             ci += 1
@@ -240,6 +258,7 @@ def run(build_dir: Path, name: str, *, layer: str, res: float, kinds: Sequence[s
             tile = north_up[cy0:cy1, cx0:cx1]
             if tile.size == 0:
                 continue
+            H, W = tile.shape[:2]
             aff = Affine(dx, 0.0, xmin + cx0 * dx, 0.0, -dx, ymax - cy0 * dx)
             crop_geom = shp_box(xmin + cx0 * dx, ymax - cy1 * dx, xmin + cx1 * dx, ymax - cy0 * dx)
             # core: where this crop is authoritative (interior crops shrink by the half-overlap)
@@ -250,9 +269,8 @@ def run(build_dir: Path, name: str, *, layer: str, res: float, kinds: Sequence[s
             if core.is_empty:
                 continue
             pieces = []
-            for kind, sid, g in surfaces:
-                if not g.intersects(core):
-                    continue
+            for s_idx in surf_tree.query(core, predicate="intersects"):
+                kind, sid, g = surfaces[int(s_idx)]
                 piece = g.intersection(crop_geom)
                 if piece.is_empty:
                     continue
@@ -266,13 +284,22 @@ def run(build_dir: Path, name: str, *, layer: str, res: float, kinds: Sequence[s
             emb, base_inputs = sam.embed(pil)
             # build prompts
             prompts, labels, boxes, meta = [], [], [], []
-            neg_local = [(k, i, g.intersection(crop_geom)) for k, i, g in negatives if g.intersects(crop_geom)]
-            neg_local = [(k, i, g) for k, i, g in neg_local if not g.is_empty and g.geom_type in ("Polygon", "MultiPolygon")]
+            neg_local = []
+            for n_idx in neg_tree.query(crop_geom, predicate="intersects"):
+                nk, ni, ng = negatives[int(n_idx)]
+                ng_clip = ng.intersection(crop_geom)
+                if not ng_clip.is_empty and ng_clip.geom_type in ("Polygon", "MultiPolygon"):
+                    neg_local.append((nk, ni, ng_clip))
+            cand_neighbors = pieces + neg_local
+            cand_tree = STRtree([g for _, _, g in cand_neighbors])
             for kind, sid, pg in pieces:
                 shrink = 0.9 if kind in ("sidewalk", "drivable") else 0.4
                 pos = sample_inside(pg, n_pos, rng, shrink)
                 negs: list[tuple[float, float]] = []
-                nbs = neighbours_of(pg, kind, pieces, 6.0) + neighbours_of(pg, kind, neg_local, 6.0)
+                reach_ring = pg.buffer(6.0)
+                nbs = [cand_neighbors[int(idx)][2]
+                       for idx in cand_tree.query(reach_ring, predicate="intersects")
+                       if cand_neighbors[int(idx)][0] != kind]
                 nbs.sort(key=lambda g: g.distance(pg))
                 for nb in nbs:
                     nbp = nb if nb.geom_type == "Polygon" else max(nb.geoms, key=lambda g: g.area)
@@ -290,30 +317,43 @@ def run(build_dir: Path, name: str, *, layer: str, res: float, kinds: Sequence[s
                 bx0, by0, bx1, by1 = pg.buffer(CORRIDOR_M * 0.5).bounds        # box prompt: the claim, slightly grown
                 boxes.append([float((bx0 - aff.c) / aff.a), float((by1 - aff.f) / aff.e),
                               float((bx1 - aff.c) / aff.a), float((by0 - aff.f) / aff.e)])
-                prompts.append(pxs); labels.append(lbl); meta.append((kind, sid, pg, pos))
+                prompts.append(pxs)
+                labels.append(lbl)
+                meta.append((kind, sid, pg, pos))
             # equalise prompt lengths (processor wants a rectangular batch)
             L = max(len(p) for p in prompts)
-            for p, l in zip(prompts, labels):
+            for p, lbl_list in zip(prompts, labels):
                 while len(p) < L:
-                    p.append(p[0]); l.append(l[0])
+                    p.append(p[0])
+                    lbl_list.append(lbl_list[0])
             B = 24
             for i in range(0, len(prompts), B):
-                masks, ious = sam.masks(pil, emb, base_inputs, prompts[i:i + B], labels[i:i + B], boxes[i:i + B])
+                masks, _ious = sam.masks(pil, emb, base_inputs, prompts[i:i + B], labels[i:i + B], boxes[i:i + B])
                 for k in range(masks.shape[0]):
                     kind, sid, pg, pos = meta[i + k]
                     corridor = pg.buffer(CORRIDOR_M)
-                    corr_mask = rasterize_geom(corridor, aff, tile.shape[:2])
-                    claim_mask = rasterize_geom(pg, aff, tile.shape[:2])
+                    cbx0, cby0, cbx1, cby1 = corridor.bounds
+                    sc0 = max(0, int(np.floor((cbx0 - aff.c) / aff.a)) - 1)
+                    sc1 = min(W, int(np.ceil((cbx1 - aff.c) / aff.a)) + 2)
+                    sr0 = max(0, int(np.floor((cby1 - aff.f) / aff.e)) - 1)
+                    sr1 = min(H, int(np.ceil((cby0 - aff.f) / aff.e)) + 2)
+                    if sc1 <= sc0 or sr1 <= sr0:
+                        continue
+                    sub_aff = Affine(aff.a, 0.0, aff.c + sc0 * aff.a, 0.0, aff.e, aff.f + sr0 * aff.e)
+                    sub_shape = (sr1 - sr0, sc1 - sc0)
+                    corr_mask = rasterize_geom(corridor, sub_aff, sub_shape)
+                    claim_mask = rasterize_geom(pg, sub_aff, sub_shape)
                     best, best_score = None, -1.0
                     for j in range(masks.shape[1]):
-                        m = masks[k, j] & corr_mask
-                        inter = np.count_nonzero(m & claim_mask); union = np.count_nonzero(m | claim_mask)
+                        m = masks[k, j, sr0:sr1, sc0:sc1] & corr_mask
+                        inter = np.count_nonzero(m & claim_mask)
+                        union = np.count_nonzero(m | claim_mask)
                         score = inter / union if union else 0.0
                         if score > best_score:
                             best, best_score = m, score
-                    seeds = [(int((x - aff.c) / aff.a), int((y - aff.f) / aff.e)) for x, y in pos]
-                    chosen = clean_mask(best, seeds, hole_px=int(2.0 / (dx * dx)))
-                    poly = mask_polygon(chosen, aff)
+                    seeds = [(int((x - aff.c) / aff.a) - sc0, int((y - aff.f) / aff.e) - sr0) for x, y in pos]
+                    chosen = clean_mask(best, seeds, hole_px=hole_px)
+                    poly = mask_polygon(chosen, sub_aff)
                     if poly is None:
                         continue
                     poly = poly.intersection(core)
@@ -347,7 +387,7 @@ def run(build_dir: Path, name: str, *, layer: str, res: float, kinds: Sequence[s
         "type": "FeatureCollection", "features": feats,
         "ortho": {"source": img.source, "detail": img.detail, "res_m": dx},
         "params": {"sam": sam_id, "pos": n_pos, "neg": n_neg, "crop": CROP, "overlap": OVERLAP, "kinds": list(kinds)}},
-        separators=(",", ":")))
+        separators=(",", ":")), encoding="utf-8")
 
     # ---- kerb offsets: twin kerb vs real sidewalk edge
     curb_feats = []
@@ -355,16 +395,18 @@ def run(build_dir: Path, name: str, *, layer: str, res: float, kinds: Sequence[s
     curb_rows = []
     if sidewalks_sam is not None and not sidewalks_sam.is_empty:
         sw_boundary = sidewalks_sam.boundary
+        shapely.prepare(sidewalks_sam)
+        shapely.prepare(region)
         for props, line in curbs:
             if not line.intersects(region):
                 continue
             n = max(2, int(line.length))
-            samples = [line.interpolate(i / n, normalized=True) for i in range(n + 1)]
-            samples = [p for p in samples if region.contains(p)]
+            samples = shapely.line_interpolate_point(line, np.arange(n + 1, dtype=float) / n, normalized=True)
+            samples = samples[shapely.contains(region, samples)]
             if len(samples) < 2:
                 continue
-            d = np.array([p.distance(sw_boundary) for p in samples])
-            inside = np.array([sidewalks_sam.contains(p) for p in samples])
+            d = shapely.distance(samples, sw_boundary)
+            inside = shapely.contains(sidewalks_sam, samples)
             signed = np.where(inside, d, -d)               # + : twin kerb lies inside the real sidewalk
             row = {**{k: v for k, v in props.items() if k in ("id", "height", "low_side_kind", "high_side_kind")},
                    "n": int(len(samples)), "offset_med": round(float(np.median(signed)), 2),
@@ -372,7 +414,10 @@ def run(build_dir: Path, name: str, *, layer: str, res: float, kinds: Sequence[s
                    "frac_inside": round(float(inside.mean()), 2)}
             curb_rows.append(row)
             curb_feats.append({"type": "Feature", "properties": row, "geometry": mapping(line)})
-    (out_dir / "curb_offsets.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": curb_feats}, separators=(",", ":")))
+    (out_dir / "curb_offsets.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": curb_feats}, separators=(",", ":")),
+        encoding="utf-8",
+    )
 
     # ---- summary
     def dist(vals):
@@ -393,7 +438,7 @@ def run(build_dir: Path, name: str, *, layer: str, res: float, kinds: Sequence[s
                             "frac_inside": dist([r["frac_inside"] for r in curb_rows]),
                             "worst": sorted(curb_rows, key=lambda r: -r["offset_abs_med"])[:8]}
     summary.update({"ortho": {"detail": img.detail, "res_m": dx}, "params": {"sam": sam_id, "pos": n_pos, "neg": n_neg}})
-    (out_dir / "surfaces_summary.json").write_text(json.dumps(summary, indent=1))
+    (out_dir / "surfaces_summary.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     log.info("summary: %s", json.dumps({k: {kk: vv for kk, vv in v.items() if kk != "worst_iou"} for k, v in summary["per_kind"].items()}))
     if curb_rows:
         log.info("kerbs: %s", json.dumps({k: v for k, v in summary["curbs"].items() if k != "worst"}))
@@ -407,19 +452,27 @@ def _preview(north_up, dx, xmin, ymax, region, feats, surfaces, path: Path) -> N
     from PIL import Image, ImageDraw
     from shapely.geometry import shape
     rx0, ry0, rx1, ry1 = region.bounds
-    c0, r0 = int((rx0 - xmin) / dx), int((ymax - ry1) / dx)
-    c1, r1 = int(np.ceil((rx1 - xmin) / dx)), int(np.ceil((ry0 * -1 + ymax) / dx))
+    h_img, w_img = north_up.shape[:2]
+    c0 = min(w_img, max(0, int((rx0 - xmin) / dx)))
+    r0 = min(h_img, max(0, int((ymax - ry1) / dx)))
+    c1 = min(w_img, max(c0, int(np.ceil((rx1 - xmin) / dx))))
+    r1 = min(h_img, max(r0, int(np.ceil((ymax - ry0) / dx))))
     sub = north_up[r0:r1, c0:c1]
+    if sub.size == 0:
+        return
+    sub_rx0 = xmin + c0 * dx
+    sub_ry1 = ymax - r0 * dx
     scale = min(1.0, 3000 / max(sub.shape[:2]))
     im = Image.fromarray(sub).convert("RGBA")
     if scale < 1:
-        im = im.resize((int(im.width * scale), int(im.height * scale)), Image.Resampling.BILINEAR)
-    ov = Image.new("RGBA", im.size, (0, 0, 0, 0)); d = ImageDraw.Draw(ov)
+        im = im.resize((max(1, int(im.width * scale)), max(1, int(im.height * scale))), Image.Resampling.BILINEAR)
+    ov = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(ov)
     KC = {"sidewalk": (60, 200, 255), "crossing": (255, 255, 255), "drivable": (255, 80, 80), "median": (120, 255, 120),
           "island": (120, 255, 120), "parking": (255, 200, 60), "verge": (60, 255, 60)}
 
     def px(x, y):
-        return ((x - rx0) / dx * scale, (ry1 - y) / dx * scale)
+        return ((x - sub_rx0) / dx * scale, (sub_ry1 - y) / dx * scale)
 
     def draw(geom, fill, outline, w):
         polys = [geom] if geom.geom_type == "Polygon" else [g for g in getattr(geom, "geoms", []) if g.geom_type == "Polygon"]

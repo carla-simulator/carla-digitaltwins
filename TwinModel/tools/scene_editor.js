@@ -49,7 +49,7 @@ function sceneActive(edge){
   if(!SEL){$('scene-active').innerHTML='<small>Selected object</small><strong>Nothing selected</strong><span>Click a space to inspect it</span>';return;}
   let name,type;
   if(SEL.kind==='space'){name=SEL.space.name||'Unnamed space';type=SPACE_TYPES[SEL.space.kind];}
-  else if(SEL.kind==='control'){name=SEL.control.label||CONTROL_TYPES[SEL.control.kind][SEL.control.type];type=SCENE_LABELS[SEL.control.kind];}
+  else if(SEL.kind==='control'){name=SEL.control.label||CONTROL_TYPES[SEL.control.kind]?.[SEL.control.type]||SEL.control.type||SEL.control.kind;type=SCENE_LABELS[SEL.control.kind]||SEL.control.kind;}
   else{name=SEL.f?.properties.name||SEL.f?.properties.id||'Unnamed object';type=SEL.kind==='junction'?'Junction':'Crosswalk';}
   $('scene-active').innerHTML=`<small>Selected object</small><strong>${esc(name)}</strong><span><i style="background:${sceneColour(sceneSelectionCategory())}"></i>${EDIT_MODE&&SEL.kind==='space'?`<select id="active-space-type" aria-label="Space type">${Object.entries(SPACE_TYPES).map(([k,v])=>`<option value="${k}" ${k===SEL.space.kind?'selected':''}>${v}</option>`).join('')}</select>`:esc(type)}${EDIT_MODE&&SEL.activeEdge?' · '+esc(SEL.activeEdge)+' boundary':''}</span>`;
   if($('active-space-type'))$('active-space-type').onchange=async ev=>{const select=ev.target;select.disabled=true;try{await saveSpace({...SEL.space,kind:select.value});}finally{select.disabled=false;}};
@@ -76,13 +76,15 @@ function initScenePanel(){
   L.DomEvent.disableClickPropagation($('tools'));L.DomEvent.disableScrollPropagation($('tools'));
   sceneActive();renderLayerStack();
 }
+let twinFeatureIndex=new WeakMap(),twinIndexedRef=null;
+function featureIndex(f){if(twinIndexedRef!==TWIN){twinFeatureIndex=new WeakMap();(TWIN?.features||[]).forEach((x,i)=>twinFeatureIndex.set(x,i));twinIndexedRef=TWIN;}return twinFeatureIndex.get(f)??-1;}
 function visibleSpaces(){const corrected=OPS.filter(o=>o.op==='space.set'&&!o.disabled),replaced=new Set(corrected.map(o=>o.replaces));return [...spaceCandidates.filter(s=>!replaced.has(s.key)),...corrected.filter(o=>!o.deleted)];}
-function crossingKey(f){return 'crossing:'+(f.properties.id||TWIN.features.indexOf(f));}
+function crossingKey(f){return 'crossing:'+(f.properties.id||featureIndex(f));}
 function crossingReplaced(f){return OPS.some(o=>o.op==='control.set'&&!o.disabled&&o.replaces===crossingKey(f));}
 function allSceneComponents(){
   if(!TWIN)return [];
   return [...visibleSpaces().map(s=>({category:s.kind,key:s.id||s.key,name:s.name||'Unnamed section',geometry:{type:'Polygon',coordinates:[spaceRing(s)]},select:()=>selectSpace(s)})),
-    ...allControls().map(c=>({category:c.kind,key:c.id||c.key,name:c.label||CONTROL_TYPES[c.kind][c.type],geometry:c.geometry,select:()=>selectControl(c)})),
+    ...allControls().map(c=>({category:c.kind,key:c.id||c.key,name:c.label||CONTROL_TYPES[c.kind]?.[c.type]||c.type||c.kind,geometry:c.geometry,select:()=>selectControl(c)})),
     ...TWIN.features.filter(f=>f.properties.layer==='signals'&&f.properties.kind==='crosswalk'||f.properties.layer==='surfaces'&&f.properties.kind==='crossing').filter(f=>!crossingReplaced(f)).map((f,i)=>({category:'crosswalk',key:crossingKey(f),name:'Generated crosswalk',geometry:f.geometry,select:()=>inspectSceneFeature(f)})),
     ...TWIN.features.filter(f=>f.properties.layer==='junctions').map(f=>({category:'intersections',key:f.properties.id,name:f.properties.name||f.properties.id,geometry:f.geometry,select:()=>selectJunction(f)}))];
 }
@@ -143,7 +145,7 @@ function renderControls(){
   for(const c of allControls()){
     if(EDIT_MODE&&SEL&&SEL.kind==='control'&&(SEL.control===c||c.id&&SEL.control.id===c.id))continue;
     const footprint=controlFootprint(c);if(footprint)controlLayer.addLayer(footprint);
-    const l=makeControlLayer(c);l.on('click',ev=>{if(TOOL)return;L.DomEvent.stop(ev);if(canSelect())selectControl(c);});l.bindTooltip(`${SCENE_LABELS[c.kind]} · ${CONTROL_TYPES[c.kind][c.type]}`);controlLayer.addLayer(l);
+    const l=makeControlLayer(c);l.on('click',ev=>{if(TOOL)return;L.DomEvent.stop(ev);if(canSelect())selectControl(c);});l.bindTooltip(esc(`${SCENE_LABELS[c.kind]||c.kind} · ${CONTROL_TYPES[c.kind]?.[c.type]||c.type||c.kind}`));controlLayer.addLayer(l);
   }
   applySpaceFocus();
 }
@@ -154,7 +156,7 @@ function renderSceneContext(){
     if(!category||EDIT_MODE&&SEL?.f===f||category==='crosswalk'&&(crossingReplaced(f)||EDIT_MODE&&SEL?.control?.key===crossingKey(f)))continue;
     const nodes=parseJ(p.osm_node_ids)||[],correction=category==='intersections'?OPS.find(o=>o.op==='junction.polygon'&&!o.disabled&&(o.nodes||[]).some(n=>nodes.includes(n))):null;
     const feature=correction?{...f,geometry:{type:'Polygon',coordinates:[correction.polygon]}}:f;
-    const opts=objectOptions(category,p.id||'crossing:'+TWIN.features.indexOf(f));
+    const opts=objectOptions(category,p.id||'crossing:'+featureIndex(f));
     const layer=L.geoJSON(feature,{...opts,style:()=>({...opts,color:sceneColour(category),fillColor:sceneColour(category),weight:1,fillOpacity:1,opacity:1,pmIgnore:true})});
     layer.on('click',ev=>{L.DomEvent.stop(ev);if(canSelect()){category==='intersections'?selectJunction(f):inspectSceneFeature(f);sceneActive();}});sceneContext.addLayer(layer);
   }

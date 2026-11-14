@@ -36,6 +36,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from twinmodel import corrections as corr_mod                       # noqa: E402
 from twinmodel.ingest.osm import fetch_overpass                     # noqa: E402
+from twinmodel.project_io import RevisionConflict                   # noqa: E402
 import geo_overlay as go                                            # noqa: E402
 
 log = logging.getLogger("twin_editor")
@@ -82,17 +83,18 @@ class EditorStore(go.Store):
 
     # -- OSM: the extract the build consumed (fixture or Overpass cache), raw and corrected
     def osm_original(self) -> dict[str, Any]:
-        if self._raw_original is None:
-            fx = self.build_args.get("fixture")
-            fp = (ROOT / fx) if fx and not Path(fx).is_absolute() else (Path(fx) if fx else None)
-            if fp is not None and fp.exists():
-                self._raw_original = json.loads(fp.read_text())
-                log.info("osm extract: fixture %s", fp)
-            else:
-                s_, w_, n_, e_ = self.bbox
-                self._raw_original = fetch_overpass((s_, w_, n_, e_), cache_dir=self.data_dir)
-                log.info("osm extract: overpass cache for bbox")
-        return self._raw_original
+        with self.lock:
+            if self._raw_original is None:
+                fx = self.build_args.get("fixture")
+                fp = (ROOT / fx) if fx and not Path(fx).is_absolute() else (Path(fx) if fx else None)
+                if fp is not None and fp.exists():
+                    self._raw_original = json.loads(fp.read_text(encoding="utf-8"))
+                    log.info("osm extract: fixture %s", fp)
+                else:
+                    s_, w_, n_, e_ = self.bbox
+                    self._raw_original = fetch_overpass((s_, w_, n_, e_), cache_dir=self.data_dir)
+                    log.info("osm extract: overpass cache for bbox")
+            return self._raw_original
 
     def osm_bytes(self) -> bytes:
         with self.lock:
@@ -116,10 +118,11 @@ class EditorStore(go.Store):
 
     # -- corrections
     def corrections_json(self) -> dict[str, Any]:
-        return {"schema": corr_mod.SCHEMA, "name": self.name, "path": str(self.corr_path), "ops": self.corr.ops,
-                "dirty": self.dirty, "exists": self.corr_path.exists(),
-                "next_osm_id": min(corr_mod.min_new_osm_id(self.corr.ops), corr_mod.min_new_osm_id(self.osm_original())) - 1,
-                "last_rebuild": self.last_rebuild, "build_args": self.build_args}
+        with self.lock:
+            return {"schema": corr_mod.SCHEMA, "name": self.name, "path": str(self.corr_path), "ops": self.corr.ops,
+                    "dirty": self.dirty, "exists": self.corr_path.exists(),
+                    "next_osm_id": min(corr_mod.min_new_osm_id(self.corr.ops), corr_mod.min_new_osm_id(self.osm_original())) - 1,
+                    "last_rebuild": self.last_rebuild, "build_args": self.build_args}
 
     def set_ops(self, ops: list[dict[str, Any]], save: bool) -> dict[str, Any]:
         problems = corr_mod.validate(ops)
@@ -129,11 +132,12 @@ class EditorStore(go.Store):
             self.corr.ops = ops
             self._osm = None
             self.dirty = True
-        if save:
-            self.corr.save(self.corr_path)
-            self.dirty = False
-            log.info("saved %d ops -> %s", len(ops), self.corr_path)
-        return {"ok": True, "n": len(ops), "saved": save, "dirty": self.dirty}
+            if save:
+                self.corr.save(self.corr_path)
+                self.dirty = False
+                log.info("saved %d ops -> %s", len(ops), self.corr_path)
+            dirty = self.dirty
+        return {"ok": True, "n": len(ops), "saved": save, "dirty": dirty}
 
     # -- rebuild
     def rebuild_cmd(self) -> list[str]:
@@ -162,21 +166,22 @@ class EditorStore(go.Store):
         if not self.rebuild_lock.acquire(blocking=False):
             return {"ok": False, "error": "a rebuild is already running"}
         try:
-            self.corr.save(self.corr_path)
-            self.dirty = False
+            with self.lock:
+                self.corr.save(self.corr_path)
+                self.dirty = False
             cmd = self.rebuild_cmd()
             log.info("rebuild: %s", " ".join(cmd))
             t0 = time.time()
-            res = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, timeout=900)
+            res = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900)
             secs = time.time() - t0
             out = (res.stdout or "") + (res.stderr or "")
-            (self.build_dir / "editor_rebuild.log").write_text(out)
+            (self.build_dir / "editor_rebuild.log").write_text(out, encoding="utf-8")
             lines = [ln for ln in (res.stdout or "").splitlines() if ln.strip()]
             summary = [ln for ln in lines if any(k in ln for k in ("PASS", "FAIL", "corrections:", "BUILD FAILED", "timings"))]
             with self.lock:
                 self._twin = None
                 try:
-                    self.model = json.loads((self.twin_dir / "model.json").read_text())
+                    self.model = json.loads((self.twin_dir / "model.json").read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError):
                     pass
             corr_meta = (self.model.get("metadata") or {}).get("corrections") or {}
@@ -239,8 +244,10 @@ class EditorHandler(go.Handler):
                 self._json((workspace or self.store).rebuild())
                 return
             self._error(404, "unknown path")
-        except BrokenPipeError:
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
+        except (RevisionConflict, BlockingIOError) as exc:
+            self._json({'ok': False, 'error': str(exc) or 'Project is busy'}, 409)
         except (ValueError, KeyError, TypeError) as exc:
             self._json({'ok': False, 'error': str(exc)}, 400)
         except Exception as exc:                               # noqa: BLE001
@@ -370,12 +377,12 @@ function setDirty(d) { DIRTY = d; $("b-save").textContent = d ? "Save •" : "Sa
 function setStale(s) { STALE = s; }
 function selectionKey() {
   if (!SEL) return null;
-  return { kind: SEL.kind, id: SEL.id, feature: SEL.f, layer: SEL.l, opId: SEL.op && SEL.op.id, space: SEL.space };
+  return { kind: SEL.kind, id: SEL.id, feature: SEL.f, layer: SEL.l, opId: SEL.op && SEL.op.id, space: SEL.space, control: SEL.control };
 }
 function restoreSelection(key) {
   if (!key) return;
-  if (key.kind === "space") { const replacement=key.space.replaces||key.space.key;const active=OPS.filter(o=>o.op==="space.set"&&replacement&&o.replaces===replacement&&!o.disabled);const s=OPS.find(o=>o.id===key.opId&&!o.disabled&&!o.deleted)||active.find(o=>!o.deleted)||(!active.length&&spaceCandidates.find(s=>s.key===replacement));if(s)selectSpace(s); }
-  else if (key.kind === "control") {const c=OPS.find(o=>o.id===key.opId&&!o.disabled&&!o.deleted);if(c)selectControl(c);}
+  if (key.kind === "space") { const replacement=key.space?.replaces||key.space?.key;const active=OPS.filter(o=>o.op==="space.set"&&replacement&&o.replaces===replacement&&!o.disabled);const s=(key.opId&&OPS.find(o=>o.id===key.opId&&!o.disabled&&!o.deleted))||active.find(o=>!o.deleted)||(!active.length&&spaceCandidates.find(s=>s.key===replacement));if(s)selectSpace(s); }
+  else if (key.kind === "control") { const replacement=key.control?.replaces||key.control?.key;const active=OPS.filter(o=>o.op==="control.set"&&replacement&&o.replaces===replacement&&!o.disabled);const c=(key.opId&&OPS.find(o=>o.id===key.opId&&!o.disabled&&!o.deleted))||active.find(o=>!o.deleted)||(!active.length&&controlCandidates.find(x=>x.key===replacement));if(c)selectControl(c); }
   else if (key.kind === "junction") selectJunction(key.feature);
   else if (key.kind === "feature") inspectSceneFeature(key.feature);
 }
@@ -561,11 +568,18 @@ bootEditor().catch(e => { hint("failed: " + e, "err"); console.error(e); });
 GEOMAN_HEAD = r"""<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@geoman-io/leaflet-geoman-free@2.18.3/dist/leaflet-geoman.css">
 <script src="https://cdn.jsdelivr.net/npm/@geoman-io/leaflet-geoman-free@2.18.3/dist/leaflet-geoman.min.js"></script>"""
 
+_JS_CORE_CUT = go.JS_CORE.find("const ro =")
+if _JS_CORE_CUT < 0:
+    raise RuntimeError("geo_overlay.JS_CORE is missing expected 'const ro =' marker")
+
 EDITOR_PAGE = ("<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n"
                "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Twin editor</title>\n"
                + go.LEAFLET_HEAD + "\n" + GEOMAN_HEAD + "\n<style>" + go.CSS + EDITOR_CSS + "</style></head>\n<body>\n<div id=\"map\"></div>\n"
                + EDITOR_PANEL_HTML + TOOLS_HTML
-               + "<script>" + go.JS_CORE[:go.JS_CORE.index("const ro =")] + EDITOR_JS + (ROOT / "tools" / "spaces_editor.js").read_text() + (ROOT / "tools" / "scene_editor.js").read_text() + (ROOT / "tools" / "geometry_parts.js").read_text() + (ROOT / "tools" / "create_objects.js").read_text() + (ROOT / "tools" / "map_workspace.js").read_text() + "</script>\n</body></html>\n")
+               + "<script>" + go.JS_CORE[:_JS_CORE_CUT] + EDITOR_JS
+               + "".join((ROOT / "tools" / name).read_text(encoding="utf-8")
+                         for name in ("spaces_editor.js", "scene_editor.js", "geometry_parts.js", "create_objects.js", "map_workspace.js"))
+               + "</script>\n</body></html>\n")
 
 
 # ------------------------------------------------------------------------------------ main

@@ -54,7 +54,7 @@ def load_mesh_aspects(probe2: Path | None) -> dict[str, float]:
     """mesh name -> width/height from the editor probe's bounds (x extent / z extent)."""
     if probe2 is None or not probe2.exists():
         return {}
-    with open(probe2) as f:
+    with open(probe2, encoding="utf-8") as f:
         shapes = json.load(f)["shapes"]
     out = {}
     for path, info in shapes.items():
@@ -153,7 +153,8 @@ def stage_sheets(png_root: Path, out: Path, grid: int = GRID, probe2: Path | Non
         meta = atlas_meta(png, png_root)
         if meta is None:
             continue
-        im = Image.open(png).convert("RGBA")
+        with Image.open(png) as raw_im:
+            im = raw_im.convert("RGBA")
         arr = np.asarray(im)
         n = arr.shape[0] // grid
         cells = []
@@ -193,14 +194,14 @@ def stage_sheets(png_root: Path, out: Path, grid: int = GRID, probe2: Path | Non
         n_blank = sum(1 for r in cells if r.get("blank"))
         print("%-32s %-6s %-12s cells %2d  blank %2d" % (meta["atlas"], meta["style"], meta["category"], grid * grid - n_blank, n_blank))
     doc = {"version": 1, "grid": {"cols": grid, "rows": grid}, "index_base": 1, "origin": "top-left", "atlases": atlases}
-    with open(out / "sign_atlas_cells.autofill.yaml", "w") as f:
+    with open(out / "sign_atlas_cells.autofill.yaml", "w", encoding="utf-8") as f:
         yaml.safe_dump(doc, f, sort_keys=False, allow_unicode=True)
     return doc
 
 
 # ----------------------------------------------------------------------------- validation
 def load_map(path: Path) -> dict:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -274,7 +275,8 @@ def stage_sheets_detect_only(png_root: Path, grid: int = GRID):
         meta = atlas_meta(png, png_root)
         if meta is None:
             continue
-        arr = np.asarray(Image.open(png).convert("RGBA"))
+        with Image.open(png) as raw_im:
+            arr = np.asarray(raw_im.convert("RGBA"))
         n = arr.shape[0] // grid
         cells = []
         for y in range(grid):
@@ -332,13 +334,13 @@ def stage_merge(curated: Path, autofill: Path, out: Path) -> dict:
                 "shape": m, "description": d, "unique": True} for n, t, m, d in UNIQUES]
     doc = {"version": 1, "grid": base["grid"], "index_base": 1, "origin": "top-left", "atlases": atlases, "uniques": uniques}
     out.parent.mkdir(parents=True, exist_ok=True)
-    with open(out, "w") as f:
+    with open(out, "w", encoding="utf-8") as f:
         f.write("# Curated traffic-sign catalog: one entry per atlas cell / one-off texture.\n"
                 "# Built by tools/sign_catalog.py merge from out/signs/curated/*.yaml; hand-edit here afterwards.\n"
                 "# Cells are 1-based (x = column, y = row, (1,1) top-left); see tools/sign_catalog.py.\n")
         yaml.safe_dump(doc, f, sort_keys=False, allow_unicode=True, width=160)
     # the editor's embedded Python has no PyYAML: ship the same map as JSON for ue/gen_sign_dataassets.py
-    with open(out.with_suffix(".json"), "w") as f:
+    with open(out.with_suffix(".json"), "w", encoding="utf-8") as f:
         json.dump(doc, f, indent=1, ensure_ascii=False)
     n = sum(1 for a in atlases for c in a["cells"] if not c.get("blank"))
     print("merged %d atlases, %d signs + %d uniques -> %s" % (len(atlases), n, len(uniques), out))
@@ -346,12 +348,12 @@ def stage_merge(curated: Path, autofill: Path, out: Path) -> dict:
 
 
 def write_map(doc: dict, out: Path) -> None:
-    with open(out, "w") as f:
+    with open(out, "w", encoding="utf-8") as f:
         f.write("# Curated traffic-sign catalog: one entry per atlas cell / one-off texture.\n"
                 "# Built by tools/sign_catalog.py merge from out/signs/curated/*.yaml; hand-edit here afterwards.\n"
                 "# Cells are 1-based (x = column, y = row, (1,1) top-left); see tools/sign_catalog.py.\n")
         yaml.safe_dump(doc, f, sort_keys=False, allow_unicode=True, width=160)
-    with open(out.with_suffix(".json"), "w") as f:
+    with open(out.with_suffix(".json"), "w", encoding="utf-8") as f:
         json.dump(doc, f, indent=1, ensure_ascii=False)
 
 
@@ -367,7 +369,7 @@ def stage_apply_review(map_path: Path, review_dir: Path, out: Path | None = None
     files = sorted(review_dir.rglob("*.json"))
     stats = {"docs": 0, "renamed": 0, "blanked": 0, "coded": 0, "xodr": 0, "unmatched": 0, "unanswered": 0}
     for f in files:
-        with open(f) as fh:
+        with open(f, encoding="utf-8") as fh:
             r = json.load(fh)
         if not isinstance(r, dict) or "atlas" not in r:
             continue
@@ -447,7 +449,7 @@ def main(argv=None):
     doc = load_map(Path(args.map))
     shapes = None
     if args.shapes:
-        with open(args.shapes) as f:
+        with open(args.shapes, encoding="utf-8") as f:
             shapes = {k.split("/")[-1] for k in json.load(f)["shapes"]}
     errs = check_map(doc, shapes, Path(args.png) if args.png else None)
     for e in errs:

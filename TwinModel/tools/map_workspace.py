@@ -27,7 +27,7 @@ class MapWorkspace:
         self.tools = {}
         self.errors = {}
         self.manifest_path = getattr(store, 'planning_manifest_path', store.build_dir/'editor-planning-inputs.json')
-        self.manifest = json.loads(self.manifest_path.read_text()) if self.manifest_path.exists() else {}
+        self.manifest = json.loads(self.manifest_path.read_text(encoding='utf-8')) if self.manifest_path.exists() else {}
         self.model_stamp = self.model_signature()
         self.layout_stamp = self.manifest.get('layout', digest(store.corr.ops))
         self.inputs = self.manifest.get('inputs', {})
@@ -59,14 +59,16 @@ class MapWorkspace:
         h = hashlib.sha256()
         for path in sorted(self.store.twin_dir.rglob('*')):
             if path.is_file():
-                h.update(str(path.relative_to(self.store.twin_dir)).encode())
-                h.update(path.read_bytes())
+                h.update(path.relative_to(self.store.twin_dir).as_posix().encode('utf-8'))
+                with path.open('rb') as fh:
+                    while chunk := fh.read(65536):
+                        h.update(chunk)
         return h.hexdigest()
 
     def signature(self, name):
         value = {'model': self.model_stamp}
         tool = self.tools[name]
-        if tool.args.poles:
+        if tool.args.poles and Path(tool.args.poles).exists():
             value['poles'] = hashlib.sha256(Path(tool.args.poles).read_bytes()).hexdigest()
         if name == 'furniture' and 'vegetation' in self.tools:
             value['vegetation'] = digest(self.tools['vegetation'].result)
@@ -123,11 +125,11 @@ class MapWorkspace:
             if name == 'furniture':
                 veg = self.tools.get('vegetation')
                 if veg:
-                    if self.inputs['vegetation'] != self.signature('vegetation'):
+                    if self.inputs.get('vegetation') != self.signature('vegetation'):
                         raise ValueError('Regenerate vegetation against the current model first.')
                     w.vegetation = veg.result
             if w.args.poles:
-                raw = json.loads(Path(w.args.poles).read_text())
+                raw = json.loads(Path(w.args.poles).read_text(encoding='utf-8'))
                 poles = [s.get('placement', s) for s in raw]
                 if any(p.get('status', 'ok') != 'ok' for p in poles):
                     raise ValueError('Unresolved pole input')

@@ -104,13 +104,13 @@ const HINT = __HINT__;
 let db = null;
 const answers = {};
 const $ = (s, r=document) => r.querySelector(s);
-function opt(sel, cur){return XODR.map(([v,l]) => `<option value="${v}" ${v===cur?'selected':''}>${l}</option>`).join('')}
+function opt(sel, cur){return XODR.map(([v,l]) => `<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(l)}</option>`).join('')}
 function card(c){
   const el = document.createElement('div'); el.className='card'; el.id='c_'+c.id;
   const xodrType = (c.xodr||'').split('-')[0], xodrSub = (c.xodr||'').split('-')[1]||'';
   const known = XODR.some(([v]) => v===xodrType);
   el.innerHTML = `
-    <div><img src="${c.img}" alt=""><div class="cell">${c.atlas.replace('T_','').replace('SignAtlas','')} · ${c.x},${c.y} · ${c.shape.replace('SM_','')}</div></div>
+    <div><img src="${esc(c.img)}" alt=""><div class="cell">${esc(c.atlas.replace('T_','').replace('SignAtlas',''))} · ${esc(c.x)},${esc(c.y)} · ${esc(c.shape.replace('SM_',''))}</div></div>
     <div class="f">
       <div class="name">${esc(c.name)}</div>
       <div class="desc">${esc(c.description||'')}${c.osm?' · <span style="font-family:IBM Plex Mono,monospace">'+esc(c.osm)+'</span>':''}</div>
@@ -173,8 +173,8 @@ function apply(c, el, a){
   const main = $('main'), nav = $('nav');
   for (const [atlas, cells] of Object.entries(groups)) {
     const id = atlas.replace(/[^A-Za-z0-9_]/g,'');
-    nav.insertAdjacentHTML('beforeend', `<a href="#${id}">${atlas.replace('T_','').replace('SignAtlas','')}</a>`);
-    main.insertAdjacentHTML('beforeend', `<h2 id="${id}">${atlas.replace('T_','').replace('SignAtlas',' ')}<small>${cells[0].style} · ${cells[0].category} · ${cells.length} cells</small></h2>`);
+    nav.insertAdjacentHTML('beforeend', `<a href="#${id}">${esc(atlas.replace('T_','').replace('SignAtlas',''))}</a>`);
+    main.insertAdjacentHTML('beforeend', `<h2 id="${id}">${esc(atlas.replace('T_','').replace('SignAtlas',' '))}<small>${esc(cells[0].style)} · ${esc(cells[0].category)} · ${cells.length} cells</small></h2>`);
     const g = document.createElement('div'); g.className='grid'; main.appendChild(g);
     for (const c of cells) { const el = card(c); g.appendChild(el); c._el = el; }
   }
@@ -195,7 +195,8 @@ function apply(c, el, a){
 
 
 def data_uri(path: Path, size: int) -> str:
-    im = Image.open(path).convert("RGB")
+    with Image.open(path) as raw_im:
+        im = raw_im.convert("RGB")
     im = im.resize((size, size))
     buf = io.BytesIO()
     im.save(buf, "JPEG", quality=84)
@@ -209,7 +210,8 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--all", action="store_true", help="include every non-blank cell, not only the gaps")
     args = ap.parse_args()
-    doc = yaml.safe_load(open(args.map))
+    with open(args.map, encoding="utf-8") as f:
+        doc = yaml.safe_load(f)
     cells = []
     for a in doc["atlases"]:
         atlas = a["texture"].split("/")[-1]
@@ -237,9 +239,9 @@ def main():
         '<div class=bar><span><b id=done>0</b> / <b id=total>0</b> answered</span>'
         '<label><input type=checkbox id=hide> hide answered</label><span id=status>connecting…</span></div></header>',
         "<nav></nav><main></main>",
-        "<script>%s</script>" % JS.replace("__CELLS__", json.dumps(cells)).replace("__XODR__", json.dumps(XODR)).replace("__HINT__", json.dumps(CODE_HINT)),
+        "<script>%s</script>" % JS.replace("__CELLS__", json.dumps(cells).replace("</", "<\\/")).replace("__XODR__", json.dumps(XODR).replace("</", "<\\/")).replace("__HINT__", json.dumps(CODE_HINT).replace("</", "<\\/")),
     ]
-    Path(args.out).write_text("\n".join(page))
+    Path(args.out).write_text("\n".join(page), encoding="utf-8")
     print("wrote %s: %d cells, %.1f MB" % (args.out, len(cells), Path(args.out).stat().st_size / 1e6))
 
 

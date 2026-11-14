@@ -36,11 +36,11 @@ def main():
     world=unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
     # Commandlets initially load only always-loaded actors. Ground meshes are
     # spatial actors; explicitly load the plan region before collision projection.
-    with open(args.plan) as f:
+    with open(args.plan, encoding='utf-8') as f:
         plan=json.load(f)
         points=plan['points']
     if plan.get('schema')!='twin-furniture-plan/1': raise ValueError('Unsupported furniture plan')
-    if plan.get('region',args.region)!=args.region: raise ValueError('Plan belongs to another region')
+    if (plan.get('region') or args.region)!=args.region: raise ValueError('Plan belongs to another region')
     if points:
         lo=[min(p[k]*100 for p in points)-1000 for k in ('x','y','z')]
         hi=[max(p[k]*100 for p in points)+1000 for k in ('x','y','z')]
@@ -62,15 +62,17 @@ def main():
     groups=defaultdict(list)
     for point in points: groups[point['group_id']].append(point)
     rejected={};accepted=[]
+    probe_base={k:v for k,v in plan.items() if k not in ('points','review')}
+    probe_base['review']=[]
+    expected_kinds={'rest':{'bench','bin'},'bus_shelter':{'bus_shelter','bus_glass'},
+                    'bus_stop':{'bus_pole','bus_panel'},'banner':{'banner_pole','banner'}}
     with tempfile.TemporaryDirectory(prefix='twin-furniture-') as temp:
         probe=Path(temp)/'probe.json'
         for group,members in groups.items():
-            expected={'rest':{'bench','bin'},'bus_shelter':{'bus_shelter','bus_glass'},
-                      'bus_stop':{'bus_pole','bus_panel'},'banner':{'banner_pole','banner'}}
             kind=members[0].get('group_kind','rest')
-            if len(members)!=2 or {m['kind'] for m in members}!=expected.get(kind) or any(m.get('group_kind','rest')!=kind for m in members):
+            if len(members)!=2 or {m['kind'] for m in members}!=expected_kinds.get(kind) or any(m.get('group_kind','rest')!=kind for m in members):
                 raise ValueError('Incomplete furniture group: '+group)
-            probe.write_text(json.dumps({**plan,'points':members}))
+            probe.write_text(json.dumps({**probe_base,'points':members}),encoding='utf-8')
             actor.set_editor_property('plan_file',unreal.FilePath(str(probe)))
             if actor.import_plan(): accepted.extend(members)
             elif actor.status.startswith(('Uneven furniture support:', 'Unsupported furniture footprint:')):
@@ -79,15 +81,16 @@ def main():
     if points and not accepted: raise RuntimeError('No groups passed ground validation; previous region retained')
     validated={**plan,'points':accepted,'ground_rejections':rejected,
                'source_plan_sha256':hashlib.sha256(Path(args.plan).read_bytes()).hexdigest()}
-    validated['summary']={**plan['summary'],'groups':len(accepted)//2,'accepted':len(accepted),
-                          'rejected':plan['summary']['rejected']+len(rejected),
-                          'reasons':{**plan['summary']['reasons'],'unreal_ground_support':len(rejected)}}
     for group in validated['review']:
         if group['id'] in rejected:
             group.update(status='rejected',reason='unreal_ground_support',ground_error=rejected[group['id']])
-    validated['summary']['groups_by_kind']=dict(Counter(g.get('kind','rest') for g in validated['review'] if g['status']=='accepted'))
+    reasons_counter=Counter(g['reason'] for g in validated['review'] if g.get('reason'))
+    validated['summary']={**plan['summary'],'groups':len(accepted)//2,'accepted':len(accepted),
+                          'rejected':sum(1 for g in validated['review'] if g.get('status')=='rejected'),
+                          'reasons':dict(reasons_counter),
+                          'groups_by_kind':dict(Counter(g.get('kind','rest') for g in validated['review'] if g['status']=='accepted'))}
     validated_path=Path(args.report).with_name('validated-plan.json')
-    validated_path.write_text(json.dumps(validated,indent=2)+'\n')
+    validated_path.write_text(json.dumps(validated,indent=2)+'\n',encoding='utf-8')
     actor.set_editor_property('plan_file',unreal.FilePath(str(validated_path.resolve())))
     if not actor.import_plan():
         raise RuntimeError(actor.status)
@@ -108,7 +111,7 @@ def main():
             'plan_points':len(actor.points),'requested_points':len(points),'ground_rejections':rejected,
             'groups_by_kind':validated['summary']['groups_by_kind'],
             'seconds':time.monotonic()-started,'status':actor.status,'saved':True}
-    with open(args.report,'w') as f:json.dump(report,f,indent=2)
+    with open(args.report,'w',encoding='utf-8') as f:json.dump(report,f,indent=2)
     print('FURNITURE_BAKED',json.dumps(report),flush=True)
 
 if __name__=='__main__':main()

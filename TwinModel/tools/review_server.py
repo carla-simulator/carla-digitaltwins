@@ -35,6 +35,7 @@ import re
 import secrets
 import sys
 import threading
+import uuid
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -45,9 +46,9 @@ log = logging.getLogger("review_server")
 
 MAX_BODY = 4 << 20            # a region is a few kB; anything past this is a mistake
 TILE_MAX_AGE = 3600
-NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
 TILE_RE = re.compile(r"^z(\d{1,2})/(\d{1,6})_(\d{1,6})\.webp$")
-ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+ID_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
 
 
 def _load_viewer():
@@ -76,9 +77,9 @@ class MapStore:
         self.name = name
         self.dir = d
         self.l0_root = l0_root
-        self.manifest: dict[str, Any] = json.loads((d / "manifest.json").read_text())
+        self.manifest: dict[str, Any] = json.loads((d / "manifest.json").read_text(encoding="utf-8"))
         self.manifest_mtime = (d / "manifest.json").stat().st_mtime
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.twin: dict[str, Any] | None = None
         self._page: str | None = None
 
@@ -109,16 +110,17 @@ class MapStore:
         if not (meta.exists() and jpg.exists()):
             return None
         try:
-            raw = json.loads(meta.read_text())
+            raw = json.loads(meta.read_text(encoding="utf-8"))
             return {"url": "/l0/%s.jpg" % self.name, "bounds": [float(v) for v in raw["bounds"]]}
         except Exception as exc:                                   # noqa: BLE001
             log.warning("%s: unusable l0 mosaic: %s", self.name, exc)
             return None
 
     def page(self) -> str:
-        if self._page is None:
-            self._page = viewer.build_page(self.name, self.manifest, self.twin, l0=self.l0())
-        return self._page
+        with self.lock:
+            if self._page is None:
+                self._page = viewer.build_page(self.name, self.manifest, self.twin, l0=self.l0())
+            return self._page
 
     # ---- regions ----------------------------------------------------------------------
     @property
@@ -130,7 +132,7 @@ class MapStore:
         if not p.exists():
             return []
         try:
-            data = json.loads(p.read_text())
+            data = json.loads(p.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
             log.error("%s: regions.json is not JSON (%s); serving empty", self.name, exc)
             return []
@@ -139,9 +141,13 @@ class MapStore:
     def _write(self, rows: list[dict]) -> None:
         p = self.regions_path
         p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_suffix(".json.tmp%d" % os.getpid())
-        tmp.write_text(json.dumps(rows, indent=2))
-        os.replace(tmp, p)
+        tmp = p.with_name(".%s.%s.tmp" % (p.name, uuid.uuid4().hex))
+        try:
+            tmp.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+            os.replace(tmp, p)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
 
     def create(self, doc: dict) -> dict:
         with self.lock:
@@ -187,7 +193,7 @@ def discover(root: Path, l0_root: Path | None) -> dict[str, MapStore]:
     """Every immediate subdirectory of ``root`` that holds a ``manifest.json``."""
     stores: dict[str, MapStore] = {}
     for d in sorted(p for p in root.iterdir() if p.is_dir()) if root.exists() else []:
-        if not (d / "manifest.json").exists() or not NAME_RE.match(d.name):
+        if not (d / "manifest.json").exists() or not NAME_RE.match(d.name) or ".." in d.name:
             continue
         try:
             stores[d.name] = MapStore(d.name, d, l0_root)
@@ -202,6 +208,7 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "TwinReview/1.0"
     protocol_version = "HTTP/1.1"
     stores: dict[str, MapStore] = {}
+    stores_lock: threading.RLock = threading.RLock()
 
     # ---- plumbing ---------------------------------------------------------------------
     def log_message(self, fmt: str, *args: Any) -> None:      # noqa: A003 - stdlib hook
@@ -245,28 +252,36 @@ class Handler(BaseHTTPRequestHandler):
         root = getattr(self, "root", None)
         if root is None:
             return
-        for name, store in discover(root, getattr(self, "l0_root", None)).items():
-            if name not in self.stores:
-                store.load_twin()
-                self.stores[name] = store
-                log.info("%s: discovered %s", name, store.dir)
+        with self.stores_lock:
+            for name, store in discover(root, getattr(self, "l0_root", None)).items():
+                if name not in self.stores:
+                    store.load_twin()
+                    self.stores[name] = store
+                    log.info("%s: discovered %s", name, store.dir)
 
     def _store(self, name: str) -> MapStore | None:
-        if not NAME_RE.match(name or ""):
+        if not NAME_RE.match(name or "") or ".." in (name or ""):
             return None
-        if name not in self.stores:
-            self._refresh()
-        store = self.stores.get(name)
+        with self.stores_lock:
+            if name not in self.stores:
+                self._refresh()
+            store = self.stores.get(name)
         if store is not None:
-            try:  # a re-flight rewrites manifest.json: pick up the new grid/size and rebuild the page
-                mtime = (store.dir / "manifest.json").stat().st_mtime
-            except OSError:
-                mtime = store.manifest_mtime
-            if mtime != store.manifest_mtime:
-                fresh = MapStore(name, store.dir, store.l0_root)
-                fresh.twin = store.twin
-                self.stores[name] = store = fresh
-                log.info("%s: manifest changed, reloaded", name)
+            with store.lock:
+                try:  # a re-flight rewrites manifest.json: pick up the new grid/size and rebuild the page
+                    mtime = (store.dir / "manifest.json").stat().st_mtime
+                except OSError:
+                    mtime = store.manifest_mtime
+                if mtime != store.manifest_mtime:
+                    try:
+                        store.manifest = json.loads((store.dir / "manifest.json").read_text(encoding="utf-8"))
+                        store.manifest_mtime = mtime
+                        store._page = None
+                        if store.twin is None:
+                            store.load_twin()
+                        log.info("%s: manifest changed, reloaded", name)
+                    except (OSError, json.JSONDecodeError) as exc:
+                        log.warning("%s: could not reload manifest: %s", name, exc)
         return store
 
     @staticmethod
@@ -277,11 +292,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:            # noqa: N802 - stdlib hook
         try:
             self._route_get()
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass          # the viewer cancels tile requests it has scrolled away from
         except Exception as exc:         # noqa: BLE001 - one bad request must not kill the thread
             log.exception("GET %s failed", self.path)
-            self._error(500, str(exc))
+            try:
+                self._error(500, str(exc))
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                pass
 
     do_HEAD = do_GET
 
@@ -401,6 +419,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def _mutate(self, verb: str) -> None:
         try:
+            origin = self.headers.get("Origin")
+            port = self.server.server_address[1]
+            if origin and origin not in (f"http://localhost:{port}", f"http://127.0.0.1:{port}", f"http://[::1]:{port}"):
+                self._error(403, "origin not allowed")
+                return
             parts = self._parts(self.path)
             if len(parts) < 3 or parts[0] != "api" or parts[2] != "regions":
                 self._error(404, "regions live at /api/<Map>/regions")
@@ -410,7 +433,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._error(404, "no such map: %s" % parts[1])
                 return
             rid = parts[3] if len(parts) > 3 else None
-            if rid is not None and not ID_RE.match(rid):
+            if rid is not None and (not ID_RE.match(rid) or ".." in rid):
                 self._error(400, "bad region id")
                 return
             if verb == "POST":
@@ -440,11 +463,14 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"deleted": rid})
         except (ValueError, json.JSONDecodeError) as exc:
             self._error(400, str(exc))
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
         except Exception as exc:         # noqa: BLE001
             log.exception("%s %s failed", verb, self.path)
-            self._error(500, str(exc))
+            try:
+                self._error(500, str(exc))
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                pass
 
 
 def make_server(root: Path, host: str, port: int, l0_root: Path | None = None) -> ThreadingHTTPServer:
@@ -452,7 +478,7 @@ def make_server(root: Path, host: str, port: int, l0_root: Path | None = None) -
     stores = discover(root, l0_root)
     for s in stores.values():
         s.load_twin()
-    handler = type("BoundHandler", (Handler,), {"stores": stores, "root": root, "l0_root": l0_root})
+    handler = type("BoundHandler", (Handler,), {"stores": stores, "stores_lock": threading.RLock(), "root": root, "l0_root": l0_root})
     httpd = ThreadingHTTPServer((host, port), handler)
     httpd.daemon_threads = True
     httpd.stores = stores            # type: ignore[attr-defined]
@@ -462,7 +488,7 @@ def make_server(root: Path, host: str, port: int, l0_root: Path | None = None) -
 def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--root", default="out/lowfly", help="directory of <Map>/manifest.json pyramids")
-    ap.add_argument("--host", default="0.0.0.0")
+    ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--l0-root", default=None,
                     help="carla_topview.py output (out/review); its 20 cm/px mosaic is drawn "

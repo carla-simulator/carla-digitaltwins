@@ -135,7 +135,7 @@ def place_one(world, pole, pole_h, mesh, mat, loc, yaw, plate_yaw, plate_z, labe
     if signal is not None:
         actor.set_editor_property("signal_id", str(signal["id"]))
         # type / subtype + the runtime state; speed limits keep their km/h value whatever the plate prints
-        actor.configure_for_signal(signal["type"], signal.get("subtype") or "")
+        actor.configure_for_signal(str(signal["type"]), str(signal.get("subtype") or ""))
     actor.set_actor_label(label)
     try:
         actor.set_editor_property("is_spatially_loaded", False)  # the runtime looks them up with GetAllActorsOfClass
@@ -159,13 +159,18 @@ def place_catalog_rows(world, manifest, pole, pole_h, args):
         zs = []
         for i, (da_path, info) in enumerate(chunk):
             da = EAL.load_asset(da_path)
+            if da is None:
+                continue
             mesh = da.get_editor_property("sign_mesh")
             mat = da.get_editor_property("material")
+            if mesh is None:
+                continue
             y_ue = (y0 + i * args.sign_pitch) * 100.0  # the client frame is the engine frame (m vs cm)
             z = ground_z(world, x_ue, y_ue, args.catalog_z * 100.0)
             zs.append(z)
             a = place_one(world, pole, pole_h, mesh, mat, unreal.Vector(x_ue, y_ue, z), args.catalog_yaw, args.plate_yaw,
-                          args.plate_height_m * 100.0, "SIGNCAT_%03d_%s_%s" % (r0 + i, info["style"], info["name"]), info["name"], info["style"])
+                          args.plate_height_m * 100.0, "SIGNCAT_%03d_%s_%s" % (r0 + i, info["style"], info["name"]), info["name"], info["style"],
+                          offset=tuple(args.plate_offset))
             if a is not None:
                 names.append(info["name"])
         n = len(chunk)
@@ -176,7 +181,7 @@ def place_catalog_rows(world, manifest, pole, pole_h, args):
                      "camera": {"x": x0 + ri * args.row_pitch - args.camera_dist, "y": y0 + span * 0.5,
                                 "z": (sum(zs) / len(zs)) / 100.0 + args.plate_height_m, "yaw": 0.0, "pitch": 0.0}})
     out = os.path.join(os.path.dirname(os.path.abspath(args.signals)), "catalog_rows.json")
-    with open(out, "w") as f:
+    with open(out, "w", encoding="utf-8") as f:
         json.dump({"rows": rows, "sign_pitch": args.sign_pitch, "plate_height_m": args.plate_height_m}, f, indent=1)
     log("catalog rows: %d rows of %d at x=%.0f.. y=%.0f.. (CARLA m) -> %s" % (len(rows), args.rows_of, x0, y0, out))
     return len(rows)
@@ -211,14 +216,25 @@ def main(argv):
     args = ap.parse_args(argv)
 
     t0 = time.time()
-    with open(args.signals) as f:
-        signals = [s for s in json.load(f) if s.get("type") in args.types]
-    with open(args.manifest) as f:
+    allowed_types = {str(t) for t in args.types}
+    with open(args.signals, encoding="utf-8") as f:
+        signals = [s for s in json.load(f) if str(s.get("type") or "") in allowed_types]
+    with open(args.manifest, encoding="utf-8") as f:
         manifest = json.load(f)["assets"]
     unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous(["/CarlaDigitalTwinsTool"], True)
     pole = EAL.load_asset(args.pole)
     if pole is None:
-        raise RuntimeError("pole mesh missing: " + args.pole)
+        hint = ""
+        if args.pole.startswith("/CarlaDigitalTwinsTool/"):
+            rel = args.pole[len("/CarlaDigitalTwinsTool/"):] + ".uasset"
+            disk_pole = os.path.join(unreal.Paths.project_plugins_dir(), "CarlaDigitalTwinsTool", "Content", *rel.split("/"))
+            if not os.path.isfile(disk_pole):
+                hint = " (Plugins/CarlaDigitalTwinsTool/Content is missing; link or install the digital-twins content pack)"
+            else:
+                with open(disk_pole, "rb") as lf:
+                    if lf.read(64).startswith(b"version https://git-lfs.github.com/spec/v1"):
+                        hint = " (asset is an unpulled Git LFS pointer; run 'git lfs pull')"
+        raise RuntimeError("pole mesh missing: " + args.pole + hint)
     pole_h = (pole.get_bounds().origin.z + pole.get_bounds().box_extent.z)
 
     for signal in signals:
@@ -240,7 +256,7 @@ def main(argv):
             a.destroy_actor()
         ok = save_all()
         log("removed %d museum signs, saved=%s" % (len(stale), ok))
-        return 0
+        return 0 if ok else 1
     stale = [a for a in sub.get_all_level_actors() if a.get_actor_label().startswith("SIGN_") or a.get_actor_label().startswith("SIGNCAT_")]
     for a in stale:
         a.destroy_actor()
@@ -251,14 +267,19 @@ def main(argv):
     if args.catalog_at:
         report["catalog_rows"] = place_catalog_rows(world, manifest, pole, pole_h, args)
     for s in signals:
-        key = "%s-%s" % (s["type"], s.get("subtype") or "")
+        stype = str(s["type"])
+        subtype = str(s.get("subtype") or "")
+        key = "%s-%s" % (stype, subtype)
         style = style_for(s, args.style)
-        hit = pick(manifest, style, s["type"], s.get("subtype") or "")
+        hit = pick(manifest, style, stype, subtype)
         if hit is None:
             report["unmatched"][key] = report["unmatched"].get(key, 0) + 1
             continue
         da_path, info = hit
         da = EAL.load_asset(da_path)
+        if da is None:
+            report["failed"].append(s["id"])
+            continue
         mesh = da.get_editor_property("sign_mesh")
         mat = da.get_editor_property("material")
         if mesh is None:
@@ -275,7 +296,7 @@ def main(argv):
             p = s["placement"]
             loc = unreal.Vector(p["x"] * 100.0, p["y"] * 100.0, p["z"] * 100.0)
         actor = place_one(world, pole, pole_h, mesh, mat, loc, yaw, args.plate_yaw, args.plate_height_m * 100.0,
-                          "SIGN_%s" % s["id"], info["name"], style, signal=s)
+                          "SIGN_%s" % s["id"], info["name"], style, signal=s, offset=tuple(args.plate_offset))
         if actor is None:
             report["failed"].append(s["id"])
             continue
@@ -292,9 +313,9 @@ def main(argv):
     log("placed %d / %d signs (%s), unmatched %s, failed %d, saved=%s, %.0f s" % (
         report["placed"], len(signals), report["by_sign"], report["unmatched"], len(report["failed"]), ok, report["seconds"]))
     rep = args.report or os.path.join(os.path.dirname(os.path.abspath(args.signals)), "traffic_signs_report.json")
-    with open(rep, "w") as f:
+    with open(rep, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=1)
-    return 0 if report["placed"] else 1
+    return 0 if ok and not report["failed"] else 1
 
 
 if __name__ == "__main__":
@@ -305,3 +326,5 @@ if __name__ == "__main__":
         unreal.log_error("[place_traffic_signs] FAILED\n" + traceback.format_exc())
         rc = 1
     print("[place_traffic_signs] exit %d" % rc, flush=True)
+    if rc:
+        sys.exit(rc)

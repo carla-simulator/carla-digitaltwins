@@ -53,7 +53,7 @@ CATEGORY_ENUM = {"Priority": unreal.SignCategory.PRIORITY, "Mandatory": unreal.S
 def load_map(path):
     """The curated map; YAML when PyYAML is importable, else the JSON twin merge writes next to it."""
     if path.endswith(".json"):
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     try:
         import yaml  # the editor's embedded Python usually lacks it
@@ -61,9 +61,9 @@ def load_map(path):
         alt = os.path.splitext(path)[0] + ".json"
         if not os.path.exists(alt):
             raise RuntimeError("no PyYAML in this Python and no %s next to the map" % alt)
-        with open(alt) as f:
+        with open(alt, encoding="utf-8") as f:
             return json.load(f)
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -330,7 +330,7 @@ def main(argv):
             warn(pr)
         log("verify: %d assets, %d problems" % (len(plans), len(problems)))
         if args.report:
-            with open(args.report, "w") as f:
+            with open(args.report, "w", encoding="utf-8") as f:
                 json.dump({"assets": len(plans), "problems": problems}, f, indent=1)
         return 1 if problems else 0
 
@@ -371,14 +371,14 @@ def main(argv):
         log("dry run, nothing written")
         return 0
     manifest_path = args.manifest or os.path.join(os.path.dirname(os.path.abspath(args.map)), "sign_catalog_manifest.json")
-    with open(manifest_path, "w") as f:
+    with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump({"root": args.root, "assets": manifest}, f, indent=1, sort_keys=True)
     problems = verify(plans)
     for pr in problems:
         warn(pr)
     log("done in %.0f s: %s; verify %d problems; manifest %s" % (time.time() - t0, counts, len(problems), manifest_path))
     if args.report:
-        with open(args.report, "w") as f:
+        with open(args.report, "w", encoding="utf-8") as f:
             json.dump({"counts": counts, "problems": problems, "manifest": manifest_path, "seconds": time.time() - t0}, f, indent=1)
     return 1 if problems or counts.get("failed") else 0
 
@@ -392,3 +392,4 @@ if __name__ == "__main__":
         rc = 2
     if rc:
         unreal.log_error("[gen_signs] exit %d" % rc)
+        sys.exit(rc)

@@ -19,12 +19,17 @@ def main(argv: list[str] | None = None) -> int:
         print(__doc__)
         return 2
     mode, rest = argv[0], argv[1:]
-    if mode == "off":
-        for name, p in list(profiles.PROFILES.items()):
-            profiles.PROFILES[name] = p.with_(junction=replace(
-                p.junction, dual_carriageway_max_gap_m=0.0, median_max_width_m=0.0, sliver_m=0.0))
-    from twinmodel.cli import main as cli_main
-    return cli_main(rest)
+    saved = dict(profiles.PROFILES)
+    try:
+        if mode == "off":
+            for name, p in list(profiles.PROFILES.items()):
+                profiles.PROFILES[name] = p.with_(junction=replace(
+                    p.junction, dual_carriageway_max_gap_m=0.0, median_max_width_m=0.0, sliver_m=0.0))
+        from twinmodel.cli import main as cli_main  # noqa: PLC0415
+        return cli_main(rest)
+    finally:
+        profiles.PROFILES.clear()
+        profiles.PROFILES.update(saved)
 
 
 if __name__ == "__main__":

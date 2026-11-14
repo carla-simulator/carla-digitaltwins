@@ -273,22 +273,26 @@ class Rig:
         kinds = [("sensor.camera.rgb", self.cams, self.sinks)]
         if depth:
             kinds.append(("sensor.camera.depth", self.dcams, self.dsinks))
-        for _ in range(n):
-            for bp_id, cams, sinks in kinds:
-                bp = lib.find(bp_id)
-                bp.set_attribute("image_size_x", str(res))
-                bp.set_attribute("image_size_y", str(res))
-                bp.set_attribute("fov", str(fov))
-                for attr, val in (("enable_dlss", "false"), ("motion_blur_intensity", "0.0")):
-                    if bp.has_attribute(attr):
-                        bp.set_attribute(attr, val)
-                q: queue.Queue = queue.Queue()
-                cam = world.spawn_actor(bp, carla.Transform(
-                    carla.Location(0, 0, 500.0), carla.Rotation(pitch=-90.0, yaw=yaw, roll=0.0)))
-                cam.listen(q.put)
-                cams.append(cam)
-                sinks.append(q)
-        self.spectator = world.get_spectator()
+        try:
+            for _ in range(n):
+                for bp_id, cams, sinks in kinds:
+                    bp = lib.find(bp_id)
+                    bp.set_attribute("image_size_x", str(res))
+                    bp.set_attribute("image_size_y", str(res))
+                    bp.set_attribute("fov", str(fov))
+                    for attr, val in (("enable_dlss", "false"), ("motion_blur_intensity", "0.0")):
+                        if bp.has_attribute(attr):
+                            bp.set_attribute(attr, val)
+                    q: queue.Queue = queue.Queue()
+                    cam = world.spawn_actor(bp, carla.Transform(
+                        carla.Location(0, 0, 500.0), carla.Rotation(pitch=-90.0, yaw=yaw, roll=0.0)))
+                    cams.append(cam)
+                    cam.listen(q.put)
+                    sinks.append(q)
+            self.spectator = world.get_spectator()
+        except Exception:
+            self.close()
+            raise
 
     def park(self, ux: float, uy: float, gz: float, ticks: int) -> None:
         self.spectator.set_transform(self.carla.Transform(
@@ -329,8 +333,11 @@ class Rig:
 
     def close(self) -> None:
         for cam in self.cams + self.dcams:
-            cam.stop()
-            cam.destroy()
+            try:
+                cam.stop()
+                cam.destroy()
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------------- flat field
@@ -344,8 +351,8 @@ class FlatField:
         self.sum = np.zeros((CROP_PX, CROP_PX), dtype=np.float64)
         self.n = 0
         if path.exists():
-            d = np.load(path)
-            self.sum, self.n = d["sum"], int(d["n"])
+            with np.load(path) as d:
+                self.sum, self.n = np.array(d["sum"], dtype=np.float64), int(d["n"])
 
     def add(self, crop: np.ndarray) -> None:
         lum = crop.mean(axis=2)
@@ -440,8 +447,9 @@ def build_levels(out: Path, nx_leaf: int, ny_leaf: int, quality: int) -> int:
                     if p is None:
                         continue
                     # child dj=1 is the *northern* one -> top half of the parent image
-                    big.paste(Image.open(p).convert("RGB"), (di * LEAF_PX, (1 - dj) * LEAF_PX))
-                big.resize((LEAF_PX, LEAF_PX), Image.BOX).save(
+                    with Image.open(p) as child_im:
+                        big.paste(child_im.convert("RGB"), (di * LEAF_PX, (1 - dj) * LEAF_PX))
+                big.resize((LEAF_PX, LEAF_PX), getattr(Image, "Resampling", Image).BOX).save(
                     dst / f"{pi}_{pj}.webp", format="WEBP", quality=quality, method=4)
                 made += 1
         log.info("level z%d: %d tiles", z, made)
@@ -473,16 +481,19 @@ def fly_map(client, carla, tv, *, name: str, twin_dir: Path, bounds: Sequence[fl
     cell_content = None
     want = {(i, j) for j in range(ny) for i in range(nx)}
     if l0_json.exists():
-        meta0 = json.loads(l0_json.read_text())
+        meta0 = json.loads(l0_json.read_text(encoding="utf-8"))
         frac = tv.content_fractions(l0_dir / f"topview_{name}.png", meta0)
         want = {k for k, v in frac.items() if v > min_content}
-        lum = np.asarray(Image.open(l0_dir / f"topview_{name}.png").convert("L"))
+        with Image.open(l0_dir / f"topview_{name}.png") as l0_im:
+            lum = np.asarray(l0_im.convert("L"))
         ppm = meta0["px_per_m"]
         bx0, by0, _, by1 = meta0["bounds"]
 
         def cell_content(cx: float, cy: float) -> float:
-            px0 = int((cx - STEP / 2 - bx0) * ppm); px1 = int((cx + STEP / 2 - bx0) * ppm)
-            py0 = int((by1 - (cy + STEP / 2)) * ppm); py1 = int((by1 - (cy - STEP / 2)) * ppm)
+            px0 = int((cx - STEP / 2 - bx0) * ppm)
+            px1 = int((cx + STEP / 2 - bx0) * ppm)
+            py0 = int((by1 - (cy + STEP / 2)) * ppm)
+            py1 = int((by1 - (cy - STEP / 2)) * ppm)
             cell = lum[max(py0, 0):max(py1, 0), max(px0, 0):max(px1, 0)]
             return float((cell > VOID).mean()) if cell.size else 0.0
         log.info("%s: %d of %d tiles hold >%.0f%% map", name, len(want), nx * ny, 100 * min_content)
@@ -490,7 +501,7 @@ def fly_map(client, carla, tv, *, name: str, twin_dir: Path, bounds: Sequence[fl
         want &= only
 
     done_file = out / "tiles_done.json"
-    state = json.loads(done_file.read_text()) if done_file.exists() else {"tiles": [], "gains": {}, "bands": {}}
+    state = json.loads(done_file.read_text(encoding="utf-8")) if done_file.exists() else {"tiles": [], "gains": {}, "bands": {}}
     done_tiles = {tuple(t) for t in state["tiles"]}
     fixed: dict[tuple[int, int], float] = {tuple(map(int, k.split(","))): v for k, v in state["gains"].items()}
     fixed_bands: dict[tuple[int, int], dict[str, float]] = {
@@ -502,6 +513,7 @@ def fly_map(client, carla, tv, *, name: str, twin_dir: Path, bounds: Sequence[fl
     rig = Rig(world, carla, n=cams, alt=alt, fov=fov, res=res, yaw=yaw, settle=settle, depth=depth)
     flat = FlatField(out / "flat.npz")
     scratch = out / ".tile.mm"
+    mm = None
     frames_total = 0
     try:
         for (ti, tj) in sorted(want, key=lambda t: (t[1], t[0])):
@@ -555,14 +567,16 @@ def fly_map(client, carla, tv, *, name: str, twin_dir: Path, bounds: Sequence[fl
                 garr[gr - tj * FRAMES, gc - ti * FRAMES] = g
             flat.save()
             n_leaves = cut_leaves(mm, garr, present, out, ti, tj, quality, flat.correction())
-            del mm
+            if getattr(mm, "_mmap", None) is not None:
+                mm._mmap.close()
+            mm = None
             fixed.update(gains)
             fixed_bands.update(bands)
             done_tiles.add((ti, tj))
             state = {"tiles": sorted(done_tiles),
                      "gains": {f"{k[0]},{k[1]}": v for k, v in fixed.items()},
                      "bands": {f"{k[0]},{k[1]}": v for k, v in fixed_bands.items()}}
-            done_file.write_text(json.dumps(state))
+            done_file.write_text(json.dumps(state), encoding="utf-8")
             frames_total += n_frames
             gv = list(gains.values())
             log.info("%s tile %d,%d: %d frames -> %d leaves, gains %.3f..%.3f, %.0f s (%.2f s/frame)",
@@ -570,8 +584,13 @@ def fly_map(client, carla, tv, *, name: str, twin_dir: Path, bounds: Sequence[fl
                      time.time() - t_tile, (time.time() - t_tile) / max(n_frames, 1))
     finally:
         rig.close()
-        if scratch.exists():
-            scratch.unlink()
+        if mm is not None and getattr(mm, "_mmap", None) is not None:
+            try:
+                mm._mmap.close()
+            except Exception:
+                pass
+        mm = None
+        scratch.unlink(missing_ok=True)
 
     levels = build_levels(out, nx * LEAVES, ny * LEAVES, quality)
     n_leaf = sum(1 for _ in (out / "z0").glob("*.webp"))
@@ -593,7 +612,7 @@ def fly_map(client, carla, tv, *, name: str, twin_dir: Path, bounds: Sequence[fl
         "frames": frames_total, "seconds": round(time.time() - t_start, 1),
         "tile_url": "z{z}/{i}_{j}.webp",
     }
-    (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     log.info("%s: %d leaves, %d levels, %.0f MB, %d frames in %.0f s", name, n_leaf, levels + 1,
              size / 1e6, frames_total, manifest["seconds"])
     return manifest
@@ -651,11 +670,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.levels_only:
         for nm, rel in specs:
             out = out_root / nm
-            man = json.loads((out / "manifest.json").read_text())
+            man = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
             levels = build_levels(out, *man["leaves"], args.webp_quality)
             man["levels"] = levels + 1
             man["bytes"] = sum(p.stat().st_size for z in out.glob("z*") for p in z.glob("*.webp"))
-            (out / "manifest.json").write_text(json.dumps(man, indent=2))
+            (out / "manifest.json").write_text(json.dumps(man, indent=2), encoding="utf-8")
         return 0
 
     import carla  # noqa: PLC0415
@@ -670,10 +689,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         _fly_all(args, specs, only, out_root, l0_dir, client, carla, tv, rr)
     finally:
         if args.exposure == "manual":
-            console_command(args.host, args.port, "r.EyeAdaptation.MethodOverride -1")
+            try:
+                console_command(args.host, args.port, "r.EyeAdaptation.MethodOverride -1")
+            except Exception as exc:
+                log.warning("failed to restore r.EyeAdaptation.MethodOverride: %s", exc)
         if args.lens_attenuation > 0:
-            console_command(args.host, args.port,
-                            "r.EyeAdaptation.LensAttenuation %g" % LENS_ATTENUATION_DEFAULT)
+            try:
+                console_command(args.host, args.port,
+                                "r.EyeAdaptation.LensAttenuation %g" % LENS_ATTENUATION_DEFAULT)
+            except Exception as exc:
+                log.warning("failed to restore r.EyeAdaptation.LensAttenuation: %s", exc)
     return 0
 
 
