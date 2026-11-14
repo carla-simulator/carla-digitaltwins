@@ -3,10 +3,7 @@
 using UnrealBuildTool;
 using System.IO;
 using System;
-using System.Diagnostics;
-using System.Collections;
-using System.Runtime.InteropServices;
-using System.ComponentModel;
+using System.Collections.Generic;
 
 public class CarlaDigitalTwinsTool : ModuleRules
 {
@@ -37,19 +34,33 @@ public class CarlaDigitalTwinsTool : ModuleRules
     private void BuildBoost()
     {
         var verbose = false;
-        var CurrentProcess = Process.GetCurrentProcess();
         var BuildPath = Path.Combine(PluginDirectory, "Build");
+        var PathComparer = IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
+        string[] TrackAndReadLines(string FileName)
+        {
+            var FilePath = Path.Combine(BuildPath, FileName);
+            if (!File.Exists(FilePath))
+            {
+                throw new FileNotFoundException(
+                    string.Format("Required CMake output '{0}' was not found. Run Setup.bat (Windows) or ./Setup.sh (Linux) first.", FilePath),
+                    FilePath);
+            }
+            var ResolvedInfo = new FileInfo(FilePath).ResolveLinkTarget(true);
+            ExternalDependencies.Add(ResolvedInfo != null ? ResolvedInfo.FullName : FilePath);
+            return File.ReadAllLines(FilePath);
+        }
 
         Console.WriteLine("Updating PublicAdditionalLibraries and RuntimeDependencies.");
-        var Last = "";
-        foreach (var Line in File.ReadAllLines(Path.Combine(BuildPath, "LinkLibraries.txt")))
+        var SeenLibraries = new HashSet<string>(PathComparer);
+        foreach (var Line in TrackAndReadLines("LinkLibraries.txt"))
         {
             var Trimmed = Line.Trim();
-            if (Trimmed.Length == 0 || Trimmed == Last)
+            if (Trimmed.Length == 0 || !SeenLibraries.Add(Trimmed))
                 continue;
             if (!File.Exists(Trimmed))
                 throw new FileNotFoundException(Trimmed);
-            if (Trimmed.EndsWith(".dll"))
+            if (Trimmed.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
             {
                 RuntimeDependencies.Add(Trimmed);
                 if (verbose)
@@ -58,36 +69,39 @@ public class CarlaDigitalTwinsTool : ModuleRules
             else
             {
                 PublicAdditionalLibraries.Add(Trimmed);
+                if (Trimmed.EndsWith(".so", StringComparison.Ordinal) || Trimmed.Contains(".so."))
+                {
+                    RuntimeDependencies.Add(Trimmed);
+                }
                 if (verbose)
                     Console.WriteLine("Adding " + Trimmed + " to PublicAdditionalLibraries");
             }
-            Last = Trimmed;
         }
 
         Console.WriteLine("Updating PublicIncludePaths.");
-        foreach (var Line in File.ReadAllLines(Path.Combine(BuildPath, "IncludeDirectories.txt")))
+        var SeenIncludes = new HashSet<string>(PathComparer);
+        foreach (var Line in TrackAndReadLines("IncludeDirectories.txt"))
         {
             var Trimmed = Line.Trim();
-            if (Trimmed.Length == 0 || Trimmed == Last)
+            if (Trimmed.Length == 0 || !SeenIncludes.Add(Trimmed))
                 continue;
             if (!Directory.Exists(Trimmed))
-                throw new FileNotFoundException(Trimmed);
+                throw new DirectoryNotFoundException(Trimmed);
             if (verbose)
                 Console.WriteLine("Adding " + Trimmed + " to PublicIncludePaths");
             PublicIncludePaths.Add(Trimmed);
-            Last = Trimmed;
         }
 
         Console.WriteLine("Updating PublicDefinitions.");
-        foreach (var Line in File.ReadAllLines(Path.Combine(BuildPath, "PublicDefinitions.txt")))
+        var SeenDefinitions = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var Line in TrackAndReadLines("PublicDefinitions.txt"))
         {
             var Trimmed = Line.Trim();
-            if (Trimmed.Length == 0 || Trimmed == Last)
+            if (Trimmed.Length == 0 || !SeenDefinitions.Add(Trimmed))
                 continue;
             if (verbose)
                 Console.WriteLine("Adding " + Trimmed + " to PublicDefinitions");
             PublicDefinitions.Add(Trimmed);
-            Last = Trimmed;
         }
     }
 
@@ -95,10 +109,10 @@ public class CarlaDigitalTwinsTool : ModuleRules
     {
         PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
         bUseUnity = false;
+        bEnableExceptions = true;
 
         if (IsWindows())
         {
-            bEnableExceptions = true;
             PublicDefinitions.Add("DISABLE_WARNING_C4800=1");
         }
 
@@ -156,11 +170,14 @@ public class CarlaDigitalTwinsTool : ModuleRules
             "InputCore",
             "AppFramework",
             "EngineSettings",
-            "AssetTools",
             "CarlaMeshGeneration",
             "StreetMapImporting",
             "StreetMapRuntime",
-            "DesktopPlatform"
+            "DesktopPlatform",
+            "AssetRegistry",
+            "ImageWrapper",
+            "LevelEditor",
+            "EditorSubsystem"
         }
         );
 

@@ -53,23 +53,34 @@ void ALargeMapManager::BeginPlay()
   FWorldDelegates::LevelAddedToWorld.AddUObject(this, &ALargeMapManager::OnLevelAddedToWorld);
   FWorldDelegates::LevelRemovedFromWorld.AddUObject(this, &ALargeMapManager::OnLevelRemovedFromWorld);
 
-
   // Setup Origin rebase settings
-  UWorldComposition* WorldComposition = World->WorldComposition;
-  WorldComposition->bRebaseOriginIn3DSpace = true;
-  WorldComposition->RebaseOriginDistance = RebaseOriginDistance;
+  UWorldComposition* WorldComposition = World ? World->WorldComposition : nullptr;
+  if (WorldComposition)
+  {
+    WorldComposition->bRebaseOriginIn3DSpace = true;
+    WorldComposition->RebaseOriginDistance = RebaseOriginDistance;
+  }
 
   LayerStreamingDistanceSquared = LayerStreamingDistance * LayerStreamingDistance;
   ActorStreamingDistanceSquared = ActorStreamingDistance * ActorStreamingDistance;
   RebaseOriginDistanceSquared = RebaseOriginDistance * RebaseOriginDistance;
 
   // Get spectator
-  APlayerController* PlayerController = UGameplayStatics::GetPlayerController(GetWorld(), 0);
-  if(PlayerController)
+  APlayerController* PlayerController = UGameplayStatics::GetPlayerController(World, 0);
+  if (PlayerController)
   {
     Spectator = PlayerController->GetPawnOrSpectator();
   }
   ConsiderSpectatorAsEgo(true);
+}
+
+void ALargeMapManager::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+  FCoreDelegates::PreWorldOriginOffset.RemoveAll(this);
+  FCoreDelegates::PostWorldOriginOffset.RemoveAll(this);
+  FWorldDelegates::LevelRemovedFromWorld.RemoveAll(this);
+  FWorldDelegates::LevelAddedToWorld.RemoveAll(this);
+  Super::EndPlay(EndPlayReason);
 }
 
 void ALargeMapManager::PreWorldOriginOffset(UWorld* InWorld, FIntVector InSrcOrigin, FIntVector InDstOrigin)
@@ -80,24 +91,33 @@ void ALargeMapManager::PreWorldOriginOffset(UWorld* InWorld, FIntVector InSrcOri
 void ALargeMapManager::PostWorldOriginOffset(UWorld* InWorld, FIntVector InSrcOrigin, FIntVector InDstOrigin)
 {
   TRACE_CPUPROFILER_EVENT_SCOPE(ALargeMapManager::PostWorldOriginOffset);
+  UWorld* World = GetWorld();
+  if (InWorld != World)
+  {
+    return;
+  }
+
   CurrentOriginInt = InDstOrigin;
   CurrentOriginD = FDVector(InDstOrigin);
 
-  UWorld* World = GetWorld();
 #if WITH_EDITOR
-  GEngine->AddOnScreenDebugMessage(66, MsgTime, FColor::Yellow,
-    FString::Printf(TEXT("Src: %s  ->  Dst: %s"), *InSrcOrigin.ToString(), *InDstOrigin.ToString()));
+  if (GEngine)
+  {
+    GEngine->AddOnScreenDebugMessage(66, MsgTime, FColor::Yellow,
+      FString::Printf(TEXT("Src: %s  ->  Dst: %s"), *InSrcOrigin.ToString(), *InDstOrigin.ToString()));
+  }
 
   // This is just to update the color of the msg with the same as the closest map
-  const TArray<ULevelStreaming*>& StreamingLevels = World->GetStreamingLevels();
-  FColor LevelColor = FColor::White;
-  float MinDistance = 10000000.0f;
+  float MinDistance = MAX_FLT;
   for (const auto& TilePair : MapTiles)
   {
     const FCarlaMapTile& Tile = TilePair.Value;
     const ULevelStreaming* Level = Tile.StreamingLevel;
-    FVector LevelLocation = Tile.Location;
-    float Distance = FVector::Dist(LevelLocation, FVector(InDstOrigin));
+    if (!Level)
+    {
+      continue;
+    }
+    const float Distance = FVector::Dist(Tile.Location, FVector(InDstOrigin));
     if (Distance < MinDistance)
     {
       MinDistance = Distance;
@@ -109,17 +129,19 @@ void ALargeMapManager::PostWorldOriginOffset(UWorld* InWorld, FIntVector InSrcOr
 
 void ALargeMapManager::OnLevelAddedToWorld(ULevel* InLevel, UWorld* InWorld)
 {
-
-
   //FDebug::DumpStackTraceToLog(ELogVerbosity::Log);
 }
 
 void ALargeMapManager::OnLevelRemovedFromWorld(ULevel* InLevel, UWorld* InWorld)
 {
-
-  //FDebug::DumpStackTraceToLog(ELogVerbosity::Log);
-  FCarlaMapTile& Tile = GetCarlaMapTile(InLevel);
-  Tile.TilesSpawned = false;
+  if (InWorld != GetWorld() || !InLevel)
+  {
+    return;
+  }
+  if (FCarlaMapTile* Tile = FindCarlaMapTile(InLevel))
+  {
+    Tile->TilesSpawned = false;
+  }
 }
 
 void ALargeMapManager::RegisterInitialObjects()
@@ -205,9 +227,6 @@ FVector ALargeMapManager::LocalToGlobalLocation(const FVector& InLocation) const
   return CurrentOriginD.ToFVector() + InLocation;
 }
 
-float tick_execution_time = 0;
-uint64_t num_ticks = 0;
-
 void ALargeMapManager::Tick(float DeltaTime)
 {
   Super::Tick(DeltaTime);
@@ -234,59 +253,60 @@ void ALargeMapManager::GenerateMap(FString InAssetsPath)
 
   ClearWorldAndTiles();
 
-
-  // Check if it ends with '/'
   if (InAssetsPath.EndsWith(TEXT("/")))
   {
-    // Remove the last character
     InAssetsPath.LeftChopInline(1, false);
   }
 
   AssetsPath = InAssetsPath;
 
-  /// Retrive all the assets in the path
   TArray<FAssetData> AssetsData;
   UObjectLibrary* ObjectLibrary = UObjectLibrary::CreateLibrary(UWorld::StaticClass(), true, true);
   ObjectLibrary->LoadAssetDataFromPath(InAssetsPath);
   ObjectLibrary->GetAssetDataList(AssetsData);
 
-  /// Generate tiles based on mesh positions
-  UWorld* World = GetWorld();
   MapTiles.Reset();
   for (const FAssetData& AssetData : AssetsData)
   {
-    FString TileName = AssetData.AssetName.ToString();
-    if (!TileName.Contains("_Tile_"))
+    const FString TileName = AssetData.AssetName.ToString();
+    if (!TileName.Contains(TEXT("_Tile_")) && !TileName.StartsWith(TEXT("Tile_")))
     {
       continue;
     }
-    FString TileName_X = "";
-    FString TileName_Y = "";
-    size_t i = TileName.Len()-1;
-    for (; i > 0; i--) {
-      TCHAR character = TileName[i];
-      if (character == '_') {
-        break;
-      }
-      TileName_Y = FString::Chr(character) + TileName_Y;
+
+    int32 LastUnderscore = INDEX_NONE;
+    if (!TileName.FindLastChar(TEXT('_'), LastUnderscore) || LastUnderscore <= 0 || LastUnderscore + 1 >= TileName.Len())
+    {
+      continue;
     }
-    i--;
-    for (; i > 0; i--) {
-      TCHAR character = TileName[i];
-      if (character == '_') {
-        break;
-      }
-      TileName_X = FString::Chr(character) + TileName_X;
+    const FString TileName_Y = TileName.Mid(LastUnderscore + 1);
+    const FString PrefixBeforeY = TileName.Left(LastUnderscore);
+    int32 PrevUnderscore = INDEX_NONE;
+    if (!PrefixBeforeY.FindLastChar(TEXT('_'), PrevUnderscore) || PrevUnderscore + 1 >= PrefixBeforeY.Len())
+    {
+      continue;
     }
-    FIntVector TileVectorID = FIntVector(FCString::Atoi(*TileName_X), FCString::Atoi(*TileName_Y), 0);
-    TileID TileId = GetTileID(TileVectorID);
-    LoadCarlaMapTile(InAssetsPath + "/" + AssetData.AssetName.ToString(), TileId);
+    const FString TileName_X = PrefixBeforeY.Mid(PrevUnderscore + 1);
+
+    int32 ParsedX = 0;
+    int32 ParsedY = 0;
+    if (!LexTryParseString(ParsedX, *TileName_X) || !LexTryParseString(ParsedY, *TileName_Y))
+    {
+      continue;
+    }
+
+    const FIntVector TileVectorID(ParsedX, ParsedY, 0);
+    const TileID TileId = GetTileID(TileVectorID);
+    LoadCarlaMapTile(InAssetsPath + TEXT("/") + TileName, TileId);
   }
   ObjectLibrary->ConditionalBeginDestroy();
-  GEngine->ForceGarbageCollection(true);
+  if (GEngine)
+  {
+    GEngine->ForceGarbageCollection(true);
+  }
 
   ActorsToConsider.Reset();
-  if (SpectatorAsEgo && Spectator)
+  if (SpectatorAsEgo && IsValid(Spectator))
   {
     ActorsToConsider.Add(Spectator);
   }
@@ -313,11 +333,16 @@ void ALargeMapManager::GenerateMap(TArray<TPair<FString, FIntVector>> MapPathsId
 void ALargeMapManager::ClearWorldAndTiles()
 {
   MapTiles.Empty();
+  CurrentTilesLoaded.Empty();
 }
 
 void ALargeMapManager::RegisterTilesInWorldComposition()
 {
   UWorld* World = GetWorld();
+  if (!World)
+  {
+    return;
+  }
   UWorldComposition* WorldComposition = World->WorldComposition;
   World->ClearStreamingLevels();
   if (WorldComposition)
@@ -328,8 +353,11 @@ void ALargeMapManager::RegisterTilesInWorldComposition()
     for (auto& It : MapTiles)
     {
       ULevelStreamingDynamic* StreamingLevel = It.Value.StreamingLevel;
-      World->AddStreamingLevel(StreamingLevel);
-      WorldComposition->TilesStreaming.Add(StreamingLevel);
+      if (StreamingLevel)
+      {
+        World->AddStreamingLevel(StreamingLevel);
+        WorldComposition->TilesStreaming.Add(StreamingLevel);
+      }
     }
   }
 }
@@ -337,18 +365,21 @@ void ALargeMapManager::RegisterTilesInWorldComposition()
 
 FIntVector ALargeMapManager::GetNumTilesInXY() const
 {
-  int32 MinX = 0;
-  int32 MaxX = 0;
-  int32 MinY = 0;
-  int32 MaxY = 0;
-  for (auto& It : MapTiles)
+  if (MapTiles.IsEmpty())
   {
-    FIntVector TileID = GetTileVectorID(It.Key);
-    MinX = (TileID.X < MinX) ? TileID.X : MinX;
-    MaxX = (TileID.X > MaxX) ? TileID.X : MaxX;
-
-    MinY = (TileID.Y < MinY) ? TileID.Y : MinY;
-    MaxY = (TileID.Y > MaxY) ? TileID.Y : MaxY;
+    return FIntVector::ZeroValue;
+  }
+  int32 MinX = MAX_int32;
+  int32 MaxX = MIN_int32;
+  int32 MinY = MAX_int32;
+  int32 MaxY = MIN_int32;
+  for (const auto& It : MapTiles)
+  {
+    const FIntVector TileID = GetTileVectorID(It.Key);
+    MinX = FMath::Min(MinX, TileID.X);
+    MaxX = FMath::Max(MaxX, TileID.X);
+    MinY = FMath::Min(MinY, TileID.Y);
+    MaxY = FMath::Max(MaxY, TileID.Y);
   }
   return { MaxX - MinX + 1, MaxY - MinY + 1, 0 };
 }
@@ -360,10 +391,6 @@ bool ALargeMapManager::IsLevelOfTileLoaded(FIntVector InTileID) const
   const FCarlaMapTile* Tile = MapTiles.Find(TileID);
   if (!Tile)
   {
-    if (bPrintErrors)
-    {
-   
-    }
     return false;
   }
 
@@ -374,29 +401,29 @@ bool ALargeMapManager::IsLevelOfTileLoaded(FIntVector InTileID) const
 
 FIntVector ALargeMapManager::GetTileVectorID(FVector TileLocation) const
 {
-  FIntVector VectorId = FIntVector(
-      (TileLocation -
-      (Tile0Offset - FVector(0.5f*TileSide,-0.5f*TileSide, 0) + LocalTileOffset))
-      / TileSide);
-  VectorId.Y *= -1;
-  return VectorId;
+  return GetTileVectorID(FDVector(TileLocation));
 }
 
 FIntVector ALargeMapManager::GetTileVectorID(FDVector TileLocation) const
 {
-  FIntVector VectorId = (
-      (TileLocation -
-      (Tile0Offset - FVector(0.5f*TileSide,-0.5f*TileSide, 0) + LocalTileOffset))
-      / TileSide).ToFIntVector();
-  VectorId.Y *= -1;
-  return VectorId;
+  if (FMath::Abs(TileSide) <= KINDA_SMALL_NUMBER)
+  {
+    return FIntVector::ZeroValue;
+  }
+  const double Side = static_cast<double>(TileSide);
+  const double HalfSide = 0.5 * Side;
+  const double OriginX = static_cast<double>(Tile0Offset.X) + static_cast<double>(LocalTileOffset.X);
+  const double OriginY = static_cast<double>(Tile0Offset.Y) + static_cast<double>(LocalTileOffset.Y);
+  const int32 TileX = FMath::FloorToInt32(((TileLocation.X - OriginX) + HalfSide) / Side);
+  const int32 TileY = FMath::FloorToInt32(((OriginY - TileLocation.Y) + HalfSide) / Side);
+  return FIntVector(TileX, TileY, 0);
 }
 
 FIntVector ALargeMapManager::GetTileVectorID(TileID TileID) const
 {
   return FIntVector{
-    (int32)(TileID >> 32),
-    (int32)(TileID & (int32)(~0)),
+    static_cast<int32>(TileID >> 32),
+    static_cast<int32>(TileID & 0xFFFFFFFFULL),
     0
   };
 }
@@ -427,8 +454,8 @@ FDVector ALargeMapManager::GetTileLocationD(FIntVector TileVectorID) const
 
 ALargeMapManager::TileID ALargeMapManager::GetTileID(FIntVector TileVectorID) const
 {
-  int64 X = ((int64)(TileVectorID.X) << 32);
-  int64 Y = (int64)(TileVectorID.Y) & 0x00000000FFFFFFFF;
+  const uint64 X = static_cast<uint64>(static_cast<uint32>(TileVectorID.X)) << 32;
+  const uint64 Y = static_cast<uint64>(static_cast<uint32>(TileVectorID.Y));
   return (X | Y);
 }
 
@@ -450,55 +477,68 @@ FCarlaMapTile* ALargeMapManager::GetCarlaMapTile(FVector Location)
   return GetCarlaMapTile(TileID);
 }
 
-FCarlaMapTile& ALargeMapManager::GetCarlaMapTile(ULevel* InLevel)
+FCarlaMapTile* ALargeMapManager::FindCarlaMapTile(ULevel* InLevel)
 {
-  FCarlaMapTile* Tile = nullptr;
+  if (!InLevel)
+  {
+    return nullptr;
+  }
   for (auto& It : MapTiles)
   {
     ULevelStreamingDynamic* StreamingLevel = It.Value.StreamingLevel;
-    ULevel* Level = StreamingLevel->GetLoadedLevel();
-    if (Level == InLevel)
+    if (StreamingLevel && StreamingLevel->GetLoadedLevel() == InLevel)
     {
-      Tile = &(It.Value);
-      break;
+      return &(It.Value);
     }
   }
-  check(Tile);
-  return *Tile;
+  return nullptr;
+}
+
+FCarlaMapTile& ALargeMapManager::GetCarlaMapTile(ULevel* InLevel)
+{
+  if (FCarlaMapTile* Tile = FindCarlaMapTile(InLevel))
+  {
+    return *Tile;
+  }
+  ensureMsgf(false, TEXT("GetCarlaMapTile: Level does not match any registered CarlaMapTile."));
+  static FCarlaMapTile InvalidTile;
+  InvalidTile = FCarlaMapTile();
+  return InvalidTile;
 }
 
 FCarlaMapTile& ALargeMapManager::GetCarlaMapTile(FIntVector TileVectorID)
 {
-  TileID TileID = GetTileID(TileVectorID);
-  FCarlaMapTile* Tile = MapTiles.Find(TileID);
-  return *Tile;
+  const TileID TileID = GetTileID(TileVectorID);
+  if (FCarlaMapTile* Tile = MapTiles.Find(TileID))
+  {
+    return *Tile;
+  }
+  ensureMsgf(false, TEXT("GetCarlaMapTile: Missing tile (%d, %d)"), TileVectorID.X, TileVectorID.Y);
+  static FCarlaMapTile InvalidTile;
+  InvalidTile = FCarlaMapTile();
+  return InvalidTile;
 }
 
 FCarlaMapTile* ALargeMapManager::GetCarlaMapTile(TileID TileID)
 {
-  FCarlaMapTile* Tile = MapTiles.Find(TileID);
-  return Tile;
+  return MapTiles.Find(TileID);
 }
 
 FCarlaMapTile& ALargeMapManager::LoadCarlaMapTile(FString TileMapPath, TileID TileId) {
   TRACE_CPUPROFILER_EVENT_SCOPE(ALargeMapManager::LoadCarlaMapTile);
-  // Need to generate a new Tile
   FCarlaMapTile NewTile;
-  // 1 - Calculate the Tile position
-  FIntVector VTileID = GetTileVectorID(TileId);
   NewTile.Location = GetTileLocation(TileId);
   NewTile.Name = TileMapPath;
 
-  // 3 - Generate the StreamLevel
-  FVector TileLocation = NewTile.Location;
-  FString TileName = NewTile.Name;
+  const FVector TileLocation = NewTile.Location;
+  const FString TileName = NewTile.Name;
   UWorld* World = GetWorld();
-  UWorldComposition* WorldComposition = World->WorldComposition;
+  check(World);
 
-  FString FullName = TileMapPath;
+  const FString FullName = TileMapPath;
   FString PackageFileName = FullName;
-  FString LongLevelPackageName = FPackageName::FilenameToLongPackageName(PackageFileName);
-  FString UniqueLevelPackageName = LongLevelPackageName;
+  const FString LongLevelPackageName = FPackageName::FilenameToLongPackageName(PackageFileName);
+  const FString UniqueLevelPackageName = LongLevelPackageName;
 
   ULevelStreamingDynamic* StreamingLevel = NewObject<ULevelStreamingDynamic>(World, *TileName);
   check(StreamingLevel);
@@ -506,10 +546,12 @@ FCarlaMapTile& ALargeMapManager::LoadCarlaMapTile(FString TileMapPath, TileID Ti
   StreamingLevel->SetWorldAssetByPackageName(*UniqueLevelPackageName);
 
 #if WITH_EDITOR
-  if (World->IsPlayInEditor())
+  if (World->IsPlayInEditor() && GEngine)
   {
-    FWorldContext WorldContext = GEngine->GetWorldContextFromWorldChecked(World);
-    StreamingLevel->RenameForPIE(WorldContext.PIEInstance);
+    if (const FWorldContext* WorldContext = GEngine->GetWorldContextFromWorld(World))
+    {
+      StreamingLevel->RenameForPIE(WorldContext->PIEInstance);
+    }
   }
   StreamingLevel->SetShouldBeVisibleInEditor(true);
   StreamingLevel->LevelColor = FColor::MakeRandomColor();
@@ -521,24 +563,10 @@ FCarlaMapTile& ALargeMapManager::LoadCarlaMapTile(FString TileMapPath, TileID Ti
   StreamingLevel->bInitiallyLoaded = false;
   StreamingLevel->bInitiallyVisible = false;
   StreamingLevel->LevelTransform = FTransform(TileLocation);
-  StreamingLevel->PackageNameToLoad = *FullName;
-
-  if (!FPackageName::DoesPackageExist(FullName, NULL, &PackageFileName))
-  {
-    
-  }
-
-  if (!FPackageName::DoesPackageExist(LongLevelPackageName, NULL, &PackageFileName))
-  {
-
-  }
-
-  //Actual map package to load
   StreamingLevel->PackageNameToLoad = *LongLevelPackageName;
 
   NewTile.StreamingLevel = StreamingLevel;
 
-  // 4 - Add it to the map
   return MapTiles.Add(TileId, NewTile);
 }
 
@@ -547,14 +575,10 @@ void ALargeMapManager::UpdateTilesState()
   TRACE_CPUPROFILER_EVENT_SCOPE(ALargeMapManager::UpdateTilesState);
   TSet<TileID> TilesToConsider;
 
-  // Loop over ActorsToConsider to update the state of the map tiles
-  // if the actor is not valid will be removed
+  ActorsToConsider.RemoveAll([](const AActor* Actor) { return !IsValid(Actor); });
   for (AActor* Actor : ActorsToConsider)
   {
-    if (IsValid(Actor))
-    {
-      GetTilesToConsider(Actor, TilesToConsider);
-    }
+    GetTilesToConsider(Actor, TilesToConsider);
   }
 
   TSet<TileID> TilesToBeVisible;
@@ -572,20 +596,17 @@ void ALargeMapManager::UpdateTilesState()
 void ALargeMapManager::CheckIfRebaseIsNeeded()
 {
   TRACE_CPUPROFILER_EVENT_SCOPE(ALargeMapManager::CheckIfRebaseIsNeeded);
-  if(ActorsToConsider.Num() > 0)
+  UWorld* World = GetWorld();
+  if (World && ActorsToConsider.Num() > 0)
   {
-    UWorld* World = GetWorld();
-    UWorldComposition* WorldComposition = World->WorldComposition;
-    // TODO: consider multiple hero vehicles for rebasing
     AActor* ActorToConsider = ActorsToConsider[0];
-    if( IsValid(ActorToConsider) )
+    if (IsValid(ActorToConsider))
     {
-      FVector ActorLocation = ActorToConsider->GetActorLocation();
-      FIntVector ILocation = FIntVector(ActorLocation.X, ActorLocation.Y, ActorLocation.Z);
-      if (ActorLocation.SizeSquared() > FMath::Square(RebaseOriginDistance) )
+      const FVector ActorLocation = ActorToConsider->GetActorLocation();
+      if (ActorLocation.SizeSquared() > FMath::Square(RebaseOriginDistance))
       {
-        TileID TileId = GetTileID(CurrentOriginD + ActorLocation);
-        FVector NewOrigin = GetTileLocation(TileId);
+        const TileID TileId = GetTileID(CurrentOriginD + ActorLocation);
+        const FVector NewOrigin = GetTileLocation(TileId);
         World->SetNewWorldOrigin(FIntVector(NewOrigin));
       }
     }
@@ -596,35 +617,30 @@ void ALargeMapManager::GetTilesToConsider(const AActor* ActorToConsider,
                                           TSet<TileID>& OutTilesToConsider)
 {
   TRACE_CPUPROFILER_EVENT_SCOPE(ALargeMapManager::GetTilesToConsider);
-  check(ActorToConsider);
-  // World location
-  FDVector ActorLocation = CurrentOriginD + ActorToConsider->GetActorLocation();
-
-  // Calculate Current Tile
-  FIntVector CurrentTile = GetTileVectorID(ActorLocation);
-
-  // Calculate tile bounds
-  FDVector UpperPos = ActorLocation + FDVector(LayerStreamingDistance,LayerStreamingDistance,0);
-  FDVector LowerPos = ActorLocation + FDVector(-LayerStreamingDistance,-LayerStreamingDistance,0);
-  FIntVector UpperTileId = GetTileVectorID(UpperPos);
-  FIntVector LowerTileId = GetTileVectorID(LowerPos);
-  for (int Y = UpperTileId.Y; Y <= LowerTileId.Y; Y++)
+  if (!IsValid(ActorToConsider))
   {
-    for (int X = LowerTileId.X; X <= UpperTileId.X; X++)
+    return;
+  }
+  const FDVector ActorLocation = CurrentOriginD + ActorToConsider->GetActorLocation();
+
+  const FDVector UpperPos = ActorLocation + FDVector(LayerStreamingDistance, LayerStreamingDistance, 0);
+  const FDVector LowerPos = ActorLocation + FDVector(-LayerStreamingDistance, -LayerStreamingDistance, 0);
+  const FIntVector UpperTileId = GetTileVectorID(UpperPos);
+  const FIntVector LowerTileId = GetTileVectorID(LowerPos);
+  const int32 MinTileX = FMath::Min(LowerTileId.X, UpperTileId.X);
+  const int32 MaxTileX = FMath::Max(LowerTileId.X, UpperTileId.X);
+  const int32 MinTileY = FMath::Min(LowerTileId.Y, UpperTileId.Y);
+  const int32 MaxTileY = FMath::Max(LowerTileId.Y, UpperTileId.Y);
+
+  for (int32 Y = MinTileY; Y <= MaxTileY; ++Y)
+  {
+    for (int32 X = MinTileX; X <= MaxTileX; ++X)
     {
-      // I don't check the bounds of the Tile map, if the Tile does not exist
-      // I just simply discard it
-      FIntVector TileToCheck = FIntVector(X, Y, 0);
-
-      TileID TileID = GetTileID(TileToCheck);
-      FCarlaMapTile* Tile = MapTiles.Find(TileID);
-      if (!Tile)
+      const TileID TileID = GetTileID(FIntVector(X, Y, 0));
+      if (MapTiles.Contains(TileID))
       {
-    
-        continue; // Tile does not exist, discard
-      }
-
         OutTilesToConsider.Add(TileID);
+      }
     }
   }
 }
@@ -646,18 +662,22 @@ void ALargeMapManager::UpdateTileState(
   bool InShouldBeVisible)
 {
   TRACE_CPUPROFILER_EVENT_SCOPE(ALargeMapManager::UpdateTileState);
-  UWorld* World = GetWorld();
-  UWorldComposition* WorldComposition = World->WorldComposition;
 
-  // Gather all the locations of the levels to load
   for (const TileID TileID : InTilesToUpdate)
   {
-      FCarlaMapTile* CarlaTile = MapTiles.Find(TileID);
-      check(CarlaTile); // If an invalid ID reach here, we did something very wrong
-      ULevelStreamingDynamic* StreamingLevel = CarlaTile->StreamingLevel;
-      StreamingLevel->bShouldBlockOnLoad = InShouldBlockOnLoad;
-      StreamingLevel->SetShouldBeLoaded(InShouldBeLoaded);
-      StreamingLevel->SetShouldBeVisible(InShouldBeVisible);
+    FCarlaMapTile* CarlaTile = MapTiles.Find(TileID);
+    if (!ensure(CarlaTile != nullptr))
+    {
+      continue;
+    }
+    ULevelStreamingDynamic* StreamingLevel = CarlaTile->StreamingLevel;
+    if (!StreamingLevel)
+    {
+      continue;
+    }
+    StreamingLevel->bShouldBlockOnLoad = InShouldBlockOnLoad;
+    StreamingLevel->SetShouldBeLoaded(InShouldBeLoaded);
+    StreamingLevel->SetShouldBeVisible(InShouldBeVisible);
   }
 }
 
@@ -693,27 +713,29 @@ FString ALargeMapManager::TileIDToString(TileID TileID)
 
 void ALargeMapManager::DumpTilesTable() const
 {
-  FString FileContent = "";
-  FileContent += FString::Printf(TEXT("LargeMapManager state\n"));
-
-  FileContent += FString::Printf(TEXT("Tile:\n"));
-  FileContent += FString::Printf(TEXT("ID\tName\tLocation\n"));
-  for (auto& It : MapTiles)
+  FString FileContent;
+  FileContent += TEXT("LargeMapManager state\n");
+  FileContent += TEXT("Tile:\n");
+  FileContent += TEXT("ID\tName\tLocation\n");
+  for (const auto& It : MapTiles)
   {
     const FCarlaMapTile& Tile = It.Value;
-    FileContent += FString::Printf(TEXT("  %ld\t%s\t%s\n"), It.Key, *Tile.Name, *Tile.Location.ToString());
+    FileContent += FString::Printf(TEXT("  %llu\t%s\t%s\n"),
+      static_cast<unsigned long long>(It.Key), *Tile.Name, *Tile.Location.ToString());
   }
   FileContent += FString::Printf(TEXT("\nNum generated tiles: %d\n"), MapTiles.Num());
 
-  // Generate the map name with the assets folder name
   TArray<FString> StringArray;
-  AssetsPath.ParseIntoArray(StringArray, TEXT("/"), false);
+  AssetsPath.ParseIntoArray(StringArray, TEXT("/"), true);
+  const FString TableName = StringArray.Num() > 0
+      ? StringArray.Last()
+      : (LargeMapName.IsEmpty() ? TEXT("LargeMap") : LargeMapName);
 
-  FString FilePath = FPaths::ProjectSavedDir() + StringArray[StringArray.Num() - 1] + ".txt";
+  const FString FilePath = FPaths::Combine(FPaths::ProjectSavedDir(), TableName + TEXT(".txt"));
   FFileHelper::SaveStringToFile(
     FileContent,
     *FilePath,
-    FFileHelper::EEncodingOptions::AutoDetect,
+    FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM,
     &IFileManager::Get(),
     EFileWrite::FILEWRITE_Silent);
 }
@@ -721,53 +743,55 @@ void ALargeMapManager::DumpTilesTable() const
 void ALargeMapManager::PrintMapInfo()
 {
   UWorld* World = GetWorld();
+  if (!World || !GEngine)
+  {
+    return;
+  }
 
   FDVector CurrentActorPosition;
-  if (ActorsToConsider.Num() > 0)
+  if (ActorsToConsider.Num() > 0 && IsValid(ActorsToConsider[0]))
+  {
     CurrentActorPosition = CurrentOriginD + ActorsToConsider[0]->GetActorLocation();
+  }
 
-  const TArray<FLevelCollection>& WorldLevelCollections = World->GetLevelCollections();
-  const FLevelCollection* LevelCollection = World->GetActiveLevelCollection();
   const TArray<ULevel*>& Levels = World->GetLevels();
-  const TArray<ULevelStreaming*>& StreamingLevels = World->GetStreamingLevels();
-  ULevel* CurrentLevel = World->GetCurrentLevel();
 
-  FString Output = "";
+  FString Output;
   Output += FString::Printf(TEXT("Num levels in world composition: %d\n"), World->WorldComposition != nullptr ? World->WorldComposition->TilesStreaming.Num() : -1);
-  Output += FString::Printf(TEXT("Num levels loaded: %d\n"), Levels.Num() );
-  Output += FString::Printf(TEXT("Num tiles loaded: %d\n"), CurrentTilesLoaded.Num() );
-  Output += FString::Printf(TEXT("Tiles loaded: [ "));
-  for(TileID& TileId : CurrentTilesLoaded)
+  Output += FString::Printf(TEXT("Num levels loaded: %d\n"), Levels.Num());
+  Output += FString::Printf(TEXT("Num tiles loaded: %d\n"), CurrentTilesLoaded.Num());
+  Output += TEXT("Tiles loaded: [ ");
+  for (const TileID TileId : CurrentTilesLoaded)
   {
     Output += FString::Printf(TEXT("%s, "), *TileIDToString(TileId));
   }
-  Output += FString::Printf(TEXT("]\n"));
+  Output += TEXT("]\n");
   GEngine->AddOnScreenDebugMessage(0, MsgTime, FColor::Cyan, Output);
 
   int LastMsgIndex = TilesDistMsgIndex;
   GEngine->AddOnScreenDebugMessage(LastMsgIndex++, MsgTime, FColor::White,
-    FString::Printf(TEXT("\nActor Global Position: %s km"), *(FDVector(CurrentActorPosition) / (1000.0 * 100.0)).ToString()) );
+    FString::Printf(TEXT("\nActor Global Position: %s km"), *(FDVector(CurrentActorPosition) / (1000.0 * 100.0)).ToString()));
 
-  FIntVector CurrentTile = GetTileVectorID(CurrentActorPosition);
+  const FIntVector CurrentTile = GetTileVectorID(CurrentActorPosition);
   GEngine->AddOnScreenDebugMessage(LastMsgIndex++, MsgTime, FColor::White,
-    FString::Printf(TEXT("\nActor Current Tile: %d_%d"), CurrentTile.X, CurrentTile.Y ));
+    FString::Printf(TEXT("\nActor Current Tile: %d_%d"), CurrentTile.X, CurrentTile.Y));
 
   LastMsgIndex = ClientLocMsgIndex;
   GEngine->AddOnScreenDebugMessage(LastMsgIndex++, MsgTime, FColor::White,
-    FString::Printf(TEXT("\nOrigin: %s km"), *(FDVector(CurrentOriginInt) / (1000.0 * 100.0)).ToString()) );
+    FString::Printf(TEXT("\nOrigin: %s km"), *(FDVector(CurrentOriginInt) / (1000.0 * 100.0)).ToString()));
 
   for (const AActor* Actor : ActorsToConsider)
   {
     if (IsValid(Actor))
     {
-      Output = "";
-      float ToKm = 1000.0f * 100.0f;
-      FVector TileActorLocation = Actor->GetActorLocation();
-      FDVector ClientActorLocation = CurrentOriginD + FDVector(TileActorLocation);
+      Output.Reset();
+      const float ToKm = 1000.0f * 100.0f;
+      const FVector TileActorLocation = Actor->GetActorLocation();
+      const FDVector ClientActorLocation = CurrentOriginD + FDVector(TileActorLocation);
 
-      Output += FString::Printf(TEXT("Local Loc: %s meters\n"), *(TileActorLocation / ToKm).ToString());
+      Output += FString::Printf(TEXT("Local Loc: %s km\n"), *(TileActorLocation / ToKm).ToString());
       Output += FString::Printf(TEXT("Client Loc: %s km\n"), *(ClientActorLocation / ToKm).ToString());
-      Output += "---------------";
+      Output += TEXT("---------------");
       GEngine->AddOnScreenDebugMessage(LastMsgIndex++, MsgTime, PositonMsgColor, Output);
 
       if (LastMsgIndex > MaxClientLocMsgIndex) break;

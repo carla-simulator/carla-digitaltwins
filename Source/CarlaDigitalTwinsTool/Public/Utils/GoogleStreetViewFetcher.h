@@ -28,21 +28,24 @@ public:
     UFUNCTION(BlueprintCallable, Category = "GoogleStreetView")
     void ApplyCameraTexture();
 
-    UPROPERTY(EditAnywhere, Category = "GoogleStreetView")
-    ACameraActor* CameraActor;
+    virtual void BeginDestroy() override;
 
     UPROPERTY(EditAnywhere, Category = "GoogleStreetView")
-    UTexture2D* StreetViewTexture;
+    TObjectPtr<ACameraActor> CameraActor = nullptr;
 
     UPROPERTY(EditAnywhere, Category = "GoogleStreetView")
-    UStaticMeshComponent* TargetMeshComponent = nullptr;
+    TObjectPtr<UTexture2D> StreetViewTexture = nullptr;
+
+    UPROPERTY(EditAnywhere, Category = "GoogleStreetView")
+    TObjectPtr<UStaticMeshComponent> TargetMeshComponent = nullptr;
 
     UPROPERTY()
-    UMaterialInstanceDynamic* StreetViewPostProcessMaterial;
+    TObjectPtr<UMaterialInstanceDynamic> StreetViewPostProcessMaterial = nullptr;
 
 private:
     void OnStreetViewResponseReceived(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);
 
-    FVector2D OriginGeoCoordinates;
+    TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> ActiveRequest;
+    FVector2D OriginGeoCoordinates = FVector2D::ZeroVector;
     FString GoogleAPIKey;
 };

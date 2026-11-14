@@ -28,14 +28,14 @@ public:
   UGenerateTileCommandlet();
   UGenerateTileCommandlet(const FObjectInitializer &);
 
-#if WITH_EDITORONLY_DATA
+#if WITH_EDITOR
 
   virtual int32 Main(const FString &Params) override;
 
-#endif // WITH_EDITORONLY_DATA
+#endif // WITH_EDITOR
   UPROPERTY()
-  UOpenDriveToMap* OpenDriveMap;
+  TObjectPtr<UOpenDriveToMap> OpenDriveMap = nullptr;
   UPROPERTY()
-  UClass* OpenDriveClass;
-  
+  TObjectPtr<UClass> OpenDriveClass = nullptr;
+
 };

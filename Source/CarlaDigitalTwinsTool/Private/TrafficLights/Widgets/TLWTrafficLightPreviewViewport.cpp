@@ -14,6 +14,7 @@
 #include "Logging/LogMacros.h"
 #include "Math/MathFwd.h"
 #include "PreviewScene.h"
+#include "Runtime/Launch/Resources/Version.h"
 #include "SEditorViewport.h"
 #include "TrafficLights/TrafficLightActor.h"
 #include "UObject/Object.h"
@@ -30,7 +31,7 @@ void STrafficLightPreviewViewport::Construct(const FArguments& InArgs)
 	float WorldSkyIntensity{1.0f};
 	FLinearColor WorldSkyColor{FLinearColor::White};
 
-	UWorld* EditorWorld{GEditor->GetEditorWorldContext().World()};
+	UWorld* EditorWorld{GEditor ? GEditor->GetEditorWorldContext().World() : nullptr};
 	if (IsValid(EditorWorld))
 	{
 		APostProcessVolume* GlobalPPV{nullptr};
@@ -59,9 +60,12 @@ void STrafficLightPreviewViewport::Construct(const FArguments& InArgs)
 
 			APostProcessVolume* PreviewPPV{PreviewScene->GetWorld()->SpawnActor<APostProcessVolume>(
 				APostProcessVolume::StaticClass(), FTransform::Identity, SpawnParams)};
-			PreviewPPV->bUnbound = true;
-			PreviewPPV->BlendWeight = GlobalPPV->BlendWeight;
-			PreviewPPV->Settings = GlobalPPV->Settings;
+			if (IsValid(PreviewPPV))
+			{
+				PreviewPPV->bUnbound = true;
+				PreviewPPV->BlendWeight = GlobalPPV->BlendWeight;
+				PreviewPPV->Settings = GlobalPPV->Settings;
+			}
 		}
 
 		for (TObjectIterator<UDirectionalLightComponent> It; It; ++It)
@@ -132,20 +136,25 @@ void STrafficLightPreviewViewport::Construct(const FArguments& InArgs)
 
 	SAssignNew(ViewportWidget, SViewport).EnableGammaCorrection(false).EnableBlending(true);
 
+#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 8)
+	SceneViewport = FSceneViewport::Create(ViewportClient, ViewportWidget);
+	ViewportClient->Viewport = SceneViewport.Get();
+#else
 	SceneViewport = MakeShareable(new FSceneViewport(ViewportClient.Get(), ViewportWidget));
 	ViewportClient->Viewport = SceneViewport.Get();
 	ViewportWidget->SetViewportInterface(SceneViewport.ToSharedRef());
+#endif
 
 	ChildSlot[ViewportWidget.ToSharedRef()];
 }
 
 STrafficLightPreviewViewport::~STrafficLightPreviewViewport()
 {
-	if (PreviewTrafficLight)
+	if (IsValid(PreviewTrafficLight))
 	{
 		PreviewTrafficLight->Destroy();
-		PreviewTrafficLight = nullptr;
 	}
+	PreviewTrafficLight = nullptr;
 	if (ViewportClient.IsValid())
 	{
 		ViewportClient->Viewport = nullptr;
@@ -168,18 +177,48 @@ void STrafficLightPreviewViewport::Reload()
 
 void STrafficLightPreviewViewport::ResetFrame()
 {
-	check(IsValid(PreviewTrafficLight));
-	check(ViewportClient.IsValid());
+	if (!IsValid(PreviewTrafficLight) || !ViewportClient.IsValid())
+	{
+		return;
+	}
 
 	const FBox Bounds{PreviewTrafficLight->GetComponentsBoundingBox(true)};
+	LastFramedBounds = Bounds;
+	if (!Bounds.IsValid)
+	{
+		ViewportClient->SetViewLocation(FVector(-300, 0, 150));
+		ViewportClient->SetViewRotation(FRotator(0, 0, 0));
+		return;
+	}
+
 	const FVector Center{Bounds.GetCenter()};
-	const double Radius{Bounds.GetExtent().GetMax()};
-	const double Distance{Radius * -10.0};
-	const FVector Forward{FVector::ForwardVector.Rotation().RotateVector(FVector(0, 1, 0))};
-	const FVector Up{FVector::UpVector};
-	const FVector CamPos{Center - Forward * Distance + Up * (Radius * 0.5)};
-	const FRotator CamRot(0.0, -90.0, 0.0);
+	const FVector Extent{Bounds.GetExtent()};
+	const double ViewYaw{FMath::DegreesToRadians(12.0)};
+	const FVector ToCamera{-FMath::Sin(ViewYaw), FMath::Cos(ViewYaw), 0.0};
+	const double HalfWidth{FMath::Abs(Extent.X * ToCamera.Y) + FMath::Abs(Extent.Y * ToCamera.X)};
+	const double HalfDepth{FMath::Abs(Extent.X * ToCamera.X) + FMath::Abs(Extent.Y * ToCamera.Y)};
+	const double HalfFOV{FMath::DegreesToRadians(ViewportClient->ViewFOV * 0.5)};
+	const double TanHalfFOV{FMath::Max<double>(FMath::Tan(HalfFOV), 0.1)};
+	const double HalfSize{FMath::Max(HalfWidth, Extent.Z)};
+	const double Distance{HalfSize / TanHalfFOV * 1.15 + HalfDepth};
+	const FVector CamPos{Center + ToCamera * Distance};
+	const FRotator CamRot{(-ToCamera).Rotation()};
 
 	ViewportClient->SetViewLocation(CamPos);
 	ViewportClient->SetViewRotation(CamRot);
+}
+
+void STrafficLightPreviewViewport::ResetFrameIfBoundsChanged()
+{
+	if (!IsValid(PreviewTrafficLight) || !ViewportClient.IsValid())
+	{
+		return;
+	}
+	const FBox Bounds{PreviewTrafficLight->GetComponentsBoundingBox(true)};
+	if (Bounds.IsValid != LastFramedBounds.IsValid ||
+		(Bounds.IsValid && !Bounds.GetCenter().Equals(LastFramedBounds.GetCenter(), 1.0)) ||
+		(Bounds.IsValid && !Bounds.GetExtent().Equals(LastFramedBounds.GetExtent(), 1.0)))
+	{
+		ResetFrame();
+	}
 }

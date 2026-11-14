@@ -13,61 +13,73 @@
 #include "TrafficLights/TLPoleType.h"
 #include "UObject/NameTypes.h"
 
-UDataTable* FTLMeshFactory::s_ModuleMeshTable{nullptr};
-UDataTable* FTLMeshFactory::s_PoleMeshTable{nullptr};
-UDataTable* FTLMeshFactory::s_LightTypeMeshTable{nullptr};
-UDataTable* FTLMeshFactory::s_BackplateMeshTable{nullptr};
+TWeakObjectPtr<UDataTable> FTLMeshFactory::s_ModuleMeshTable{};
+TWeakObjectPtr<UDataTable> FTLMeshFactory::s_PoleMeshTable{};
+TWeakObjectPtr<UDataTable> FTLMeshFactory::s_LightTypeMeshTable{};
+TWeakObjectPtr<UDataTable> FTLMeshFactory::s_BackplateMeshTable{};
 
 UDataTable* FTLMeshFactory::GetLightTypeMeshTable()
 {
-	if (!s_LightTypeMeshTable)
+	if (!s_LightTypeMeshTable.IsValid())
 	{
 		constexpr TCHAR const* Path{
 			TEXT("/CarlaDigitalTwinsTool/Carla/Static/TrafficLight/TrafficLights2025/DataTables/LightTypes.LightTypes")};
-		UObject* Loaded = StaticLoadObject(UDataTable::StaticClass(), nullptr, Path);
-		s_LightTypeMeshTable = Cast<UDataTable>(Loaded);
+		s_LightTypeMeshTable = LoadObject<UDataTable>(nullptr, Path);
+		if (!s_LightTypeMeshTable.IsValid())
+		{
+			UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("FTLMeshFactory: Failed to load LightTypes DataTable at '%s'"), Path);
+			return nullptr;
+		}
 	}
-	check(s_LightTypeMeshTable);
-	return s_LightTypeMeshTable;
+	return s_LightTypeMeshTable.Get();
 }
 
 UDataTable* FTLMeshFactory::GetModuleMeshTable()
 {
-	if (!s_ModuleMeshTable)
+	if (!s_ModuleMeshTable.IsValid())
 	{
 		constexpr TCHAR const* Path{
 			TEXT("/CarlaDigitalTwinsTool/Carla/Static/TrafficLight/TrafficLights2025/DataTables/Modules.Modules")};
-		UObject* Loaded = StaticLoadObject(UDataTable::StaticClass(), nullptr, Path);
-		s_ModuleMeshTable = Cast<UDataTable>(Loaded);
+		s_ModuleMeshTable = LoadObject<UDataTable>(nullptr, Path);
+		if (!s_ModuleMeshTable.IsValid())
+		{
+			UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("FTLMeshFactory: Failed to load Modules DataTable at '%s'"), Path);
+			return nullptr;
+		}
 	}
-	check(s_ModuleMeshTable);
-	return s_ModuleMeshTable;
+	return s_ModuleMeshTable.Get();
 }
 
 UDataTable* FTLMeshFactory::GetPoleMeshTable()
 {
-	if (!s_PoleMeshTable)
+	if (!s_PoleMeshTable.IsValid())
 	{
 		constexpr TCHAR const* Path{
 			TEXT("/CarlaDigitalTwinsTool/Carla/Static/TrafficLight/TrafficLights2025/DataTables/Poles.Poles")};
-		UObject* Loaded = StaticLoadObject(UDataTable::StaticClass(), nullptr, Path);
-		s_PoleMeshTable = Cast<UDataTable>(Loaded);
+		s_PoleMeshTable = LoadObject<UDataTable>(nullptr, Path);
+		if (!s_PoleMeshTable.IsValid())
+		{
+			UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("FTLMeshFactory: Failed to load Poles DataTable at '%s'"), Path);
+			return nullptr;
+		}
 	}
-	check(s_PoleMeshTable);
-	return s_PoleMeshTable;
+	return s_PoleMeshTable.Get();
 }
 
 UDataTable* FTLMeshFactory::GetBackplateMeshTable()
 {
-	if (!s_BackplateMeshTable)
+	if (!s_BackplateMeshTable.IsValid())
 	{
 		constexpr TCHAR const* Path{
 			TEXT("/CarlaDigitalTwinsTool/Carla/Static/TrafficLight/TrafficLights2025/DataTables/Backplates.Backplates")};
-		UObject* Loaded = StaticLoadObject(UDataTable::StaticClass(), nullptr, Path);
-		s_BackplateMeshTable = Cast<UDataTable>(Loaded);
+		s_BackplateMeshTable = LoadObject<UDataTable>(nullptr, Path);
+		if (!s_BackplateMeshTable.IsValid())
+		{
+			UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("FTLMeshFactory: Failed to load Backplates DataTable at '%s'"), Path);
+			return nullptr;
+		}
 	}
-	check(s_BackplateMeshTable);
-	return s_BackplateMeshTable;
+	return s_BackplateMeshTable.Get();
 }
 
 UStaticMesh* FTLMeshFactory::GetBaseMeshByName(const FString& Name)
@@ -312,22 +324,26 @@ FTLBackplateRow* FTLMeshFactory::GetBackplateRow(ETLStyle Style)
 
 UStaticMesh* FTLMeshFactory::GetBackplateCornerMesh(const FTLHead& Head)
 {
-	return GetBackplateRow(Head.Style) ? GetBackplateRow(Head.Style)->CornerMesh : nullptr;
+	const FTLBackplateRow* Row = GetBackplateRow(Head.Style);
+	return Row ? Row->CornerMesh : nullptr;
 }
 
 UStaticMesh* FTLMeshFactory::GetBackplateHorizontalMesh(const FTLHead& Head)
 {
-	return GetBackplateRow(Head.Style) ? GetBackplateRow(Head.Style)->HorizontalMesh : nullptr;
+	const FTLBackplateRow* Row = GetBackplateRow(Head.Style);
+	return Row ? Row->HorizontalMesh : nullptr;
 }
 
 UStaticMesh* FTLMeshFactory::GetBackplateVerticalMesh(const FTLHead& Head)
 {
-	return GetBackplateRow(Head.Style) ? GetBackplateRow(Head.Style)->VerticalMesh : nullptr;
+	const FTLBackplateRow* Row = GetBackplateRow(Head.Style);
+	return Row ? Row->VerticalMesh : nullptr;
 }
 
 UStaticMesh* FTLMeshFactory::GetBackplateMiddleMesh(const FTLHead& Head)
 {
-	return GetBackplateRow(Head.Style) ? GetBackplateRow(Head.Style)->MiddleMesh : nullptr;
+	const FTLBackplateRow* Row = GetBackplateRow(Head.Style);
+	return Row ? Row->MiddleMesh : nullptr;
 }
 
 int32 FTLMeshFactory::CountLedMaterials(UStaticMesh* Mesh)
@@ -352,14 +368,11 @@ int32 FTLMeshFactory::CountLedMaterials(UStaticMesh* Mesh)
 
 FIntPoint FTLMeshFactory::GetAtlasCoordsForLightType(ETLLightType LightType)
 {
-	if (s_LightTypeMeshTable == nullptr)
+	UDataTable* LightTable = GetLightTypeMeshTable();
+	if (!IsValid(LightTable))
 	{
-		GetLightTypeMeshTable();
-		if (s_LightTypeMeshTable == nullptr)
-		{
-			UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("LightTypesTable is not set"));
-			return FIntPoint::ZeroValue;
-		}
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("LightTypesTable is not set"));
+		return FIntPoint::ZeroValue;
 	}
 	const UEnum* EnumPtr{StaticEnum<ETLLightType>()};
 	if (!EnumPtr)
@@ -369,7 +382,7 @@ FIntPoint FTLMeshFactory::GetAtlasCoordsForLightType(ETLLightType LightType)
 
 	const FString EnumName{EnumPtr->GetNameStringByValue(static_cast<int64>(LightType))};
 	const FName RowName(*EnumName);
-	if (const FTLLightTypeRow* Row = s_LightTypeMeshTable->FindRow<FTLLightTypeRow>(RowName, TEXT("GetAtlasCoordsForLightType")))
+	if (const FTLLightTypeRow* Row = LightTable->FindRow<FTLLightTypeRow>(RowName, TEXT("GetAtlasCoordsForLightType")))
 	{
 		return Row->AtlasCoords;
 	}

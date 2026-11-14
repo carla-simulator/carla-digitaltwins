@@ -51,6 +51,7 @@ public:
 protected:
   // Called when the game starts or when spawned
   virtual void BeginPlay() override;
+  virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
   void PreWorldOriginOffset(UWorld* InWorld, FIntVector InSrcOrigin, FIntVector InDstOrigin);
   void PostWorldOriginOffset(UWorld* InWorld, FIntVector InSrcOrigin, FIntVector InDstOrigin);
@@ -164,6 +165,8 @@ public:
   TileID GetTileID(FIntVector TileVectorID) const;
 public:
   FCarlaMapTile* GetCarlaMapTile(FVector Location);
+
+  FCarlaMapTile* FindCarlaMapTile(ULevel* InLevel);
 
   FCarlaMapTile& GetCarlaMapTile(ULevel* InLevel);
 

@@ -15,7 +15,7 @@ class CARLADIGITALTWINSTOOL_API UGeometryImporter : public UBlueprintFunctionLib
 public:
 
     UFUNCTION(BlueprintCallable, Category = "GeometryImporter")
-    TArray<FVector2D> ReadCSVCoordinates(FString Path, FVector2D OriginGeoCoordinates);
+    static TArray<FVector2D> ReadCSVCoordinates(FString Path, FVector2D OriginGeoCoordinates);
 
     UFUNCTION(BlueprintCallable, Category = "GeometryImporter")
     static USplineComponent* CreateSpline(UWorld* World, const TArray<FVector>& Points, const FString SplineName);

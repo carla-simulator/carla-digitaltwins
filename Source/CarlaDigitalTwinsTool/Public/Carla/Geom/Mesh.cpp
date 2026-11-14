@@ -46,12 +46,12 @@ namespace geom {
   // #---#---#---#
   // 2   4   6   8
   void Mesh::AddTriangleStrip(const std::vector<Mesh::vertex_type> &vertices) {
-    if (vertices.size() == 0) {
+    if (vertices.size() < 3) {
       return;
     }
-    DEBUG_ASSERT(vertices.size() >= 3);
     size_t i = GetVerticesNum() + 2;
     AddVertices(vertices);
+    _indexes.reserve(_indexes.size() + (vertices.size() - 2) * 3);
     bool index_clockwise = true;
     while (i < GetVerticesNum()) {
       index_clockwise = !index_clockwise;
@@ -75,10 +75,13 @@ namespace geom {
   // #---#---#
   // 3   4   5
   void Mesh::AddTriangleFan(const std::vector<Mesh::vertex_type> &vertices) {
-    DEBUG_ASSERT(vertices.size() >= 3);
+    if (vertices.size() < 3) {
+      return;
+    }
     const size_t initial_index = GetVerticesNum() + 1;
     size_t i = GetVerticesNum() + 2;
     AddVertices(vertices);
+    _indexes.reserve(_indexes.size() + (vertices.size() - 2) * 3);
     while (i < GetVerticesNum()) {
       AddIndex(initial_index);
       AddIndex(i);
@@ -92,7 +95,7 @@ namespace geom {
   }
 
   void Mesh::AddVertices(const std::vector<Mesh::vertex_type> &vertices) {
-    std::copy(vertices.begin(), vertices.end(), std::back_inserter(_vertices));
+    _vertices.insert(_vertices.end(), vertices.begin(), vertices.end());
   }
 
   void Mesh::AddNormal(normal_type normal) {
@@ -108,7 +111,7 @@ namespace geom {
   }
 
   void Mesh::AddUVs(const std::vector<uv_type> & uv) {
-    std::copy(uv.begin(), uv.end(), std::back_inserter(_uvs));
+    _uvs.insert(_uvs.end(), uv.begin(), uv.end());
   }
 
   void Mesh::AddMaterial(const std::string &material_name) {
@@ -175,7 +178,7 @@ namespace geom {
       auto it_m = _materials.begin();
       auto it = _indexes.begin();
       size_t index_counter = 0u;
-      while (it != _indexes.end()) {
+      while (std::distance(it, _indexes.end()) >= 3) {
         // While exist materials
         if (it_m != _materials.end()) {
           // If the current material ends at this index
@@ -183,7 +186,7 @@ namespace geom {
             ++it_m;
           }
           // If the current material start at this index
-          if (it_m->index_start == index_counter) {
+          if (it_m != _materials.end() && it_m->index_start == index_counter) {
             out << "\nusemtl " << it_m->name << std::endl;
           }
         }
@@ -218,7 +221,7 @@ namespace geom {
       auto it_m = _materials.begin();
       auto it = _indexes.begin();
       size_t index_counter = 0u;
-      while (it != _indexes.end()) {
+      while (std::distance(it, _indexes.end()) >= 3) {
         // While exist materials
         if (it_m != _materials.end()) {
           // If the current material ends at this index
@@ -226,7 +229,7 @@ namespace geom {
             ++it_m;
           }
           // If the current material start at this index
-          if (it_m->index_start == index_counter) {
+          if (it_m != _materials.end() && it_m->index_start == index_counter) {
             out << "\nusemtl " << it_m->name << std::endl;
           }
         }
@@ -294,24 +297,29 @@ namespace geom {
 
   Mesh& Mesh::ConcatMesh(const Mesh& rhs, int num_vertices_to_link) {
 
-    if (!rhs.IsValid()){
+    const size_t link_count = num_vertices_to_link > 0 ? static_cast<size_t>(num_vertices_to_link) : 0u;
+    if (!rhs.IsValid() || link_count == 0u ||
+        GetVerticesNum() < link_count || rhs.GetVerticesNum() < link_count) {
       return *this += rhs;
     }
     const size_t v_num = GetVerticesNum();
     const size_t i_num = GetIndexesNum();
 
+    _vertices.reserve(_vertices.size() + rhs.GetVertices().size());
     _vertices.insert(
       _vertices.end(),
       rhs.GetVertices().begin(),
       rhs.GetVertices().end());
 
+    _normals.reserve(_normals.size() + rhs.GetNormals().size());
     _normals.insert(
       _normals.end(),
       rhs.GetNormals().begin(),
       rhs.GetNormals().end());
 
-    const size_t vertex_to_start_concating = v_num - num_vertices_to_link;
-    for( size_t i = 1; i < num_vertices_to_link; ++i ) {
+    _indexes.reserve(_indexes.size() + (link_count - 1u) * 6u + rhs.GetIndexes().size());
+    const size_t vertex_to_start_concating = v_num - link_count;
+    for (size_t i = 1; i < link_count; ++i) {
       _indexes.push_back( vertex_to_start_concating + i );
       _indexes.push_back( vertex_to_start_concating + i  + 1 );
       _indexes.push_back( v_num + i );
@@ -327,11 +335,13 @@ namespace geom {
       std::back_inserter(_indexes),
       [=](size_t index) {return index + v_num; });
 
+    _uvs.reserve(_uvs.size() + rhs.GetUVs().size());
     _uvs.insert(
       _uvs.end(),
       rhs.GetUVs().begin(),
       rhs.GetUVs().end());
 
+    _materials.reserve(_materials.size() + rhs.GetMaterials().size());
     std::transform(
       rhs.GetMaterials().begin(),
       rhs.GetMaterials().end(),
@@ -349,27 +359,32 @@ namespace geom {
     const size_t v_num = GetVerticesNum();
     const size_t i_num = GetIndexesNum();
 
+    _vertices.reserve(_vertices.size() + rhs.GetVertices().size());
     _vertices.insert(
         _vertices.end(),
         rhs.GetVertices().begin(),
         rhs.GetVertices().end());
 
+    _normals.reserve(_normals.size() + rhs.GetNormals().size());
     _normals.insert(
         _normals.end(),
         rhs.GetNormals().begin(),
         rhs.GetNormals().end());
 
+    _indexes.reserve(_indexes.size() + rhs.GetIndexes().size());
     std::transform(
         rhs.GetIndexes().begin(),
         rhs.GetIndexes().end(),
         std::back_inserter(_indexes),
         [=](size_t index) {return index + v_num;});
 
+    _uvs.reserve(_uvs.size() + rhs.GetUVs().size());
     _uvs.insert(
         _uvs.end(),
         rhs.GetUVs().begin(),
         rhs.GetUVs().end());
 
+    _materials.reserve(_materials.size() + rhs.GetMaterials().size());
     std::transform(
         rhs.GetMaterials().begin(),
         rhs.GetMaterials().end(),

@@ -11,6 +11,8 @@ class CARLADIGITALTWINSTOOL_API AGoogleStreetViewManager : public AActor
     GENERATED_BODY()
 
 public:
+    AGoogleStreetViewManager();
+
     virtual void BeginPlay() override;
 
     virtual void Tick(float DeltaTime) override;
@@ -19,22 +21,22 @@ public:
     void Initialize(UWorld* World, FTransform CameraTransform, FVector2D InOriginGeoCoordinates, const FString& InGoogleAPIKey);
 
     UPROPERTY(EditAnywhere, Category = "GoogleStreetView")
-    ACameraActor* CameraActor;
+    TObjectPtr<ACameraActor> CameraActor = nullptr;
 
     UPROPERTY(EditAnywhere, Category = "GoogleStreetView")
-    FVector2D OriginGeoCoordinates;
+    FVector2D OriginGeoCoordinates = FVector2D::ZeroVector;
 
     UPROPERTY(EditAnywhere, Category = "GoogleStreetView")
     FString GoogleAPIKey;
 
     UPROPERTY(EditAnywhere, Category = "GoogleStreetView")
-    UGoogleStreetViewFetcher* Fetcher;
+    TObjectPtr<UGoogleStreetViewFetcher> Fetcher = nullptr;
 
-    FVector LastCameraLocation;
+    FVector LastCameraLocation = FVector::ZeroVector;
 
-    FRotator LastCameraRotation;
+    FRotator LastCameraRotation = FRotator::ZeroRotator;
 
-    float MovementThreshold;
+    float MovementThreshold = 50.0f;
 
-    float RotationThreshold;
+    float RotationThreshold = 5.0f;
 };

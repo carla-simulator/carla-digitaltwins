@@ -2,17 +2,24 @@
 
 #include "CarlaDigitalTwinsTool.h"
 #include "UObject/Object.h"
+#include "UObject/WeakObjectPtr.h"
 
 UMaterialInterface* FMaterialFactory::GetBaseLightMaterial()
 {
-	static UMaterialInterface* BaseMat{Cast<UMaterialInterface>(StaticLoadObject(UMaterialInterface::StaticClass(), nullptr,
+	constexpr TCHAR const* BaseMatPath =
 		TEXT("/CarlaDigitalTwinsTool/Carla/Static/TrafficLight/TrafficLights2025/TrafficLights/"
-			 "M_TrafficLights_Inst.M_TrafficLights_Inst")))};
+			 "M_TrafficLights_Inst.M_TrafficLights_Inst");
+
+	static TWeakObjectPtr<UMaterialInterface> CachedBaseMat;
+	if (!CachedBaseMat.IsValid())
+	{
+		CachedBaseMat = LoadObject<UMaterialInterface>(nullptr, BaseMatPath);
+	}
+
+	UMaterialInterface* BaseMat = CachedBaseMat.Get();
 	if (!IsValid(BaseMat))
 	{
-		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("MaterialFactory: failed to load base material at '%s'"),
-			TEXT("/CarlaDigitalTwinsTool/Carla/Static/TrafficLight/TrafficLights2025/TrafficLights/"
-				 "M_TrafficLights_Inst.M_TrafficLights_Inst"));
+		UE_LOG(LogCarlaDigitalTwinsTool, Error, TEXT("MaterialFactory: failed to load base material at '%s'"), BaseMatPath);
 		return nullptr;
 	}
 

@@ -160,32 +160,43 @@ namespace geom {
     operator FProceduralCustomMesh() const {
       FProceduralCustomMesh Mesh;
 
-      // Build the mesh
-      for (const auto Vertex : GetVertices())
+      const auto &Verts = GetVertices();
+      Mesh.Vertices.Reserve(static_cast<int32>(Verts.size()));
+      for (const auto &Vertex : Verts)
       {
         // From meters to centimeters
         Mesh.Vertices.Add(FVector{1e2f * Vertex.x, 1e2f * Vertex.y, 1e2f * Vertex.z});
       }
 
-      const auto Indexes = GetIndexes();
+      const auto &Indexes = GetIndexes();
+      const size_t NumTris = Indexes.size() / 3;
+      Mesh.Triangles.Reserve(static_cast<int32>(NumTris * 3));
       TArray<FTriIndices> TriIndices;
-      for (auto i = 0u; i < Indexes.size(); i += 3)
+      TriIndices.Reserve(static_cast<int32>(NumTris));
+      for (size_t i = 0u; i + 2u < Indexes.size(); i += 3u)
       {
+        const size_t Idx0 = Indexes[i];
+        // Since Unreal's coords are left handed, invert the last 2 indices.
+        const size_t Idx1 = Indexes[i + 2u];
+        const size_t Idx2 = Indexes[i + 1u];
+        if (Idx0 == 0u || Idx1 == 0u || Idx2 == 0u ||
+            Idx0 > Verts.size() || Idx1 > Verts.size() || Idx2 > Verts.size())
+        {
+          continue;
+        }
+
         FTriIndices Triangle;
         // "-1" since mesh indexes in Unreal starts from index 0.
-        Mesh.Triangles.Add(Indexes[i]     - 1);
-        // Since Unreal's coords are left handed, invert the last 2 indices.
-        Mesh.Triangles.Add(Indexes[i + 2] - 1);
-        Mesh.Triangles.Add(Indexes[i + 1] - 1);
-
-        Triangle.v0 = Indexes[i]     - 1;
-        Triangle.v1 = Indexes[i + 2] - 1;
-        Triangle.v2 = Indexes[i + 1] - 1;
+        Triangle.v0 = static_cast<int32>(Idx0 - 1u);
+        Triangle.v1 = static_cast<int32>(Idx1 - 1u);
+        Triangle.v2 = static_cast<int32>(Idx2 - 1u);
+        Mesh.Triangles.Add(Triangle.v0);
+        Mesh.Triangles.Add(Triangle.v1);
+        Mesh.Triangles.Add(Triangle.v2);
         TriIndices.Add(Triangle);
       }
 
       // Compute the normals
-      TArray<FVector> Normals;
       Mesh.Normals.Init(FVector::UpVector, Mesh.Vertices.Num());
 
       for (const auto &Triangle : TriIndices) {
@@ -211,9 +222,10 @@ namespace geom {
         }
       }
 
-      for (const auto uv : GetUVs())
+      const auto &UVs = GetUVs();
+      Mesh.UV0.Reserve(static_cast<int32>(UVs.size()));
+      for (const auto &uv : UVs)
       {
-        // From meters to centimeters
         Mesh.UV0.Add(FVector2D{uv.x, uv.y});
       }
 

@@ -6,87 +6,113 @@
 
 #include "Commandlet/GenerateTileCommandlet.h"
 
-#include <iostream>
 #include <fstream>
 #include "Generation/OpenDriveToMap.h"
+#include "Misc/Paths.h"
 
 #if WITH_EDITOR
 #include "FileHelpers.h"
 #endif
-#include "UObject/ConstructorHelpers.h"
+#include "UObject/GCObjectScopeGuard.h"
+#include "UObject/SoftObjectPath.h"
 
 DEFINE_LOG_CATEGORY(LogCarlaToolsMapGenerateTileCommandlet);
 
 
 UGenerateTileCommandlet::UGenerateTileCommandlet()
 {
-#if WITH_EDITOR
-  ConstructorHelpers::FClassFinder<UOpenDriveToMap> OpenDrivelassFinder(TEXT("/CarlaDigitalTwinsTool/digitalTwins/BP_OpenDriveToMap"));
-  OpenDriveClass = OpenDrivelassFinder.Class;
-#endif
 }
 
 UGenerateTileCommandlet::UGenerateTileCommandlet(const FObjectInitializer& Initializer)
   : Super(Initializer)
 {
-#if WITH_EDITOR
-  ConstructorHelpers::FClassFinder<UOpenDriveToMap> OpenDrivelassFinder(TEXT("/CarlaDigitalTwinsTool/digitalTwins/BP_OpenDriveToMap"));
-  OpenDriveClass = OpenDrivelassFinder.Class;
-#endif
 }
 
-#if WITH_EDITORONLY_DATA
+#if WITH_EDITOR
 
 int32 UGenerateTileCommandlet::Main(const FString &Params)
 {
   UE_LOG(LogCarlaToolsMapGenerateTileCommandlet, Log, TEXT("UGenerateTileCommandlet::Main Arguments %s"), *Params);
   TArray<FString> Tokens;
   TArray<FString> Switches;
-  TMap<FString,FString> ParamsMap;
+  TMap<FString, FString> ParamsMap;
 
-  ParseCommandLine(*Params, Tokens, Switches, ParamsMap );
+  ParseCommandLine(*Params, Tokens, Switches, ParamsMap);
 
-  std::string logstr = std::string(TCHAR_TO_UTF8(*Params));
-  std::ofstream file("CommandletParameters.txt", std::ios::app);
-  file << logstr << std::endl;
-
-  for( auto fstr : Tokens )
+  const FString LogFilePath = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Logs"), TEXT("CommandletParameters.txt"));
+  std::ofstream file(TCHAR_TO_UTF8(*LogFilePath), std::ios::app);
+  if (file.is_open())
   {
-    logstr = std::string(TCHAR_TO_UTF8(*fstr));
-    file << " Tokens " << logstr << std::endl;
+    file << TCHAR_TO_UTF8(*Params) << '\n';
+    for (const FString& Token : Tokens)
+    {
+      file << " Tokens " << TCHAR_TO_UTF8(*Token) << '\n';
+    }
+    for (const FString& Switch : Switches)
+    {
+      file << " SWITCHES " << TCHAR_TO_UTF8(*Switch) << '\n';
+    }
+    for (const TPair<FString, FString>& PairMap : ParamsMap)
+    {
+      file << "Key: " << TCHAR_TO_UTF8(*PairMap.Key) << " Value: " << TCHAR_TO_UTF8(*PairMap.Value) << '\n';
+    }
   }
 
-  for( auto fstr : Switches )
+  const TCHAR* RequiredKeys[] = {
+    TEXT("FilePath"),
+    TEXT("BaseLevelName"),
+    TEXT("GeoCoordsX"),
+    TEXT("GeoCoordsY"),
+    TEXT("CTileX"),
+    TEXT("CTileY")
+  };
+  for (const TCHAR* Key : RequiredKeys)
   {
-    logstr = std::string(TCHAR_TO_UTF8(*fstr));
-    file << " SWITCHES " << logstr << std::endl;
+    if (!ParamsMap.Contains(Key))
+    {
+      UE_LOG(LogCarlaToolsMapGenerateTileCommandlet, Error, TEXT("Missing required commandlet parameter: -%s=..."), Key);
+      return -1;
+    }
   }
 
-  for( auto PairMap : ParamsMap )
+  // Resolve lazily rather than in the CDO constructor so Editor/commandlet startup
+  // does not log CDO load errors when the optional content repository is absent.
+  if (OpenDriveClass == nullptr)
   {
-    std::string key = std::string(TCHAR_TO_UTF8(*PairMap.Key));
-    std::string value = std::string(TCHAR_TO_UTF8(*PairMap.Value));
-
-    file << "Key: " << key << " Value: " << value << std::endl;
-  }
-
-
-  if(OpenDriveClass == nullptr )
-  {
-    UE_LOG(LogCarlaToolsMapGenerateTileCommandlet, Error, TEXT("OpenDrive class is not properly set"));
-    return -1;
+    static const TCHAR* CandidateClassPaths[] = {
+      TEXT("/CarlaDigitalTwinsTool/digitalTwins/BP_OpenDriveToMap.BP_OpenDriveToMap_C"),
+      TEXT("/CarlaDigitalTwinsTool/BP_OpenDriveToMap.BP_OpenDriveToMap_C"),
+    };
+    for (const TCHAR* ClassPath : CandidateClassPaths)
+    {
+      OpenDriveClass = FSoftClassPath(ClassPath).TryLoadClass<UOpenDriveToMap>();
+      if (OpenDriveClass != nullptr)
+      {
+        break;
+      }
+    }
+    if (OpenDriveClass == nullptr)
+    {
+      OpenDriveClass = UOpenDriveToMap::StaticClass();
+    }
   }
   OpenDriveMap = NewObject<UOpenDriveToMap>(this, OpenDriveClass);
-  if(OpenDriveMap == nullptr )
+  if (OpenDriveMap == nullptr)
   {
     UE_LOG(LogCarlaToolsMapGenerateTileCommandlet, Error, TEXT("OpenDrive object is not properly spawned"));
     return -1;
   }
-  OpenDriveMap->FilePath = ParamsMap["FilePath"];
-  OpenDriveMap->BaseLevelName = ParamsMap["BaseLevelName"];
-  OpenDriveMap->OriginGeoCoordinates = FVector2D(FCString::Atof(*ParamsMap["GeoCoordsX"]),FCString::Atof(*ParamsMap["GeoCoordsY"]));
-  OpenDriveMap->CurrentTilesInXY = FIntVector(FCString::Atof(*ParamsMap["CTileX"]),FCString::Atof(*ParamsMap["CTileY"]), 0);
-  // Parse Params
+
+  FGCObjectScopeGuard OpenDriveGuard(OpenDriveMap);
+  OpenDriveMap->FilePath = ParamsMap[TEXT("FilePath")];
+  OpenDriveMap->BaseLevelName = ParamsMap[TEXT("BaseLevelName")];
+  OpenDriveMap->OriginGeoCoordinates = FVector2D(
+      FCString::Atod(*ParamsMap[TEXT("GeoCoordsX")]),
+      FCString::Atod(*ParamsMap[TEXT("GeoCoordsY")]));
+  OpenDriveMap->CurrentTilesInXY = FIntVector(
+      FCString::Atoi(*ParamsMap[TEXT("CTileX")]),
+      FCString::Atoi(*ParamsMap[TEXT("CTileY")]),
+      0);
   OpenDriveMap->GenerateTile();
 
   return 0;

@@ -2,7 +2,11 @@
 
 #pragma once
 
+#include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
+
+class FExtender;
+class FMenuBuilder;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogCarlaDigitalTwinsTool, Log, All);
 
@@ -15,6 +19,9 @@ public:
 	virtual void ShutdownModule() override;
 
 private:
-	void AddMenuEntry(class FMenuBuilder& Builder);
+	void AddMenuEntry(FMenuBuilder& Builder);
 	void OpenTrafficLightToolTab();
+
+	TSharedPtr<FExtender> MenuExtender;
+	bool bTabSpawnerRegistered = false;
 };
