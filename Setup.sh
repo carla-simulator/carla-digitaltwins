@@ -1,4 +1,5 @@
-#! /bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
 SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
 SOURCE_DIR="$(dirname "${SCRIPT_PATH}")"
@@ -13,4 +14,7 @@ cmake \
     -DBUILD_SHARED_LIBS=OFF \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 
-python3 -m pip install -r Content/Python/requirements.txt
+if [ -f "${SOURCE_DIR}/Content/Python/requirements.txt" ]; then
+    python3 -m pip install -r "${SOURCE_DIR}/Content/Python/requirements.txt"
+fi
+

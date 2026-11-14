@@ -26,34 +26,39 @@ macro (create_filepath_variable_checked NAME VALUE)
 	set (${NAME} ${VALUE} CACHE FILEPATH "")
 endmacro ()
 
-set (UE_ROOT $ENV{${CARLA_UE_ENV_VAR_NAME}})
+set (UE_ROOT "$ENV{${CARLA_UE_ENV_VAR_NAME}}")
 
-if (NOT EXISTS ${UE_ROOT})
-	message (FATAL_ERROR "The specified Carla Unreal Engine path does not exist (\"${UE_ROOT}\").")
+if ("${UE_ROOT}" STREQUAL "" OR NOT EXISTS "${UE_ROOT}")
+	message (FATAL_ERROR "The specified Carla Unreal Engine path (${CARLA_UE_ENV_VAR_NAME}) does not exist (\"${UE_ROOT}\").")
 endif ()
 
-set (ARCH ${CMAKE_HOST_SYSTEM_PROCESSOR})
+set (ARCH "${CMAKE_HOST_SYSTEM_PROCESSOR}")
 
-if	(${ARCH} STREQUAL "x86_64")
-	set	(CMAKE_SYSTEM_PROCESSOR x86_64 CACHE STRING "")
-	set	(TARGET_TRIPLE "x86_64-unknown-linux-gnu" CACHE STRING "")
-elseif (${ARCH} STREQUAL "aarch64")
+if ("${ARCH}" STREQUAL "x86_64")
+	set (CMAKE_SYSTEM_PROCESSOR x86_64 CACHE STRING "")
+	set (TARGET_TRIPLE "x86_64-unknown-linux-gnu" CACHE STRING "")
+	set (UE_HOST_ARCH_DIR "Linux_x64")
+elseif ("${ARCH}" STREQUAL "aarch64")
 	set (CMAKE_SYSTEM_PROCESSOR aarch64 CACHE STRING "")
 	set (TARGET_TRIPLE "aarch64-unknown-linux-gnueabi" CACHE STRING "")
-endif()
+	set (UE_HOST_ARCH_DIR "Linux_Arm64")
+else ()
+	message (FATAL_ERROR "Unsupported Linux host architecture: \"${ARCH}\".")
+endif ()
 
 file (
 	GLOB
 	UE_SYSROOT_CANDIDATES
-	${UE_ROOT}/Engine/Extras/ThirdPartyNotUE/SDKs/HostLinux/Linux_x64/v*_clang-*.*.*-*/${TARGET_TRIPLE}
+	"${UE_ROOT}/Engine/Extras/ThirdPartyNotUE/SDKs/HostLinux/${UE_HOST_ARCH_DIR}/v*_clang-*.*.*-*/${TARGET_TRIPLE}"
+	"${UE_ROOT}/Engine/Extras/ThirdPartyNotUE/SDKs/HostLinux/Linux_x64/v*_clang-*.*.*-*/${TARGET_TRIPLE}"
 	LIST_DIRECTORIES TRUE
 	FOLLOW_SYMLINKS
 )
 
 set (UE_SYSROOT_CANDIDATE)
 foreach (CANDIDATE ${UE_SYSROOT_CANDIDATES})
-	if (IS_DIRECTORY ${CANDIDATE})
-		set (UE_SYSROOT_CANDIDATE ${CANDIDATE})
+	if (IS_DIRECTORY "${CANDIDATE}")
+		set (UE_SYSROOT_CANDIDATE "${CANDIDATE}")
 		break ()
 	endif ()
 endforeach ()
@@ -64,48 +69,61 @@ endif ()
 
 set (
 	UE_SYSROOT
-	${UE_SYSROOT_CANDIDATE}
+	"${UE_SYSROOT_CANDIDATE}"
 	CACHE PATH ""
 )
 
-set (UE_THIRD_PARTY ${UE_ROOT}/Engine/Source/ThirdParty CACHE PATH "")
+set (UE_THIRD_PARTY "${UE_ROOT}/Engine/Source/ThirdParty" CACHE PATH "")
 
-if (IS_DIRECTORY ${UE_THIRD_PARTY}/Unix/LibCxx/include)
-	set (UE_INCLUDE ${UE_THIRD_PARTY}/Unix/LibCxx/include CACHE PATH "")
+if (IS_DIRECTORY "${UE_THIRD_PARTY}/Unix/LibCxx/include")
+	set (UE_INCLUDE "${UE_THIRD_PARTY}/Unix/LibCxx/include" CACHE PATH "")
 else ()
-	set (UE_INCLUDE ${UE_THIRD_PARTY}/Linux/LibCxx/include CACHE PATH "")
+	set (UE_INCLUDE "${UE_THIRD_PARTY}/Linux/LibCxx/include" CACHE PATH "")
 endif ()
 
-if (IS_DIRECTORY ${UE_THIRD_PARTY}/Unix/LibCxx/lib/Unix/${TARGET_TRIPLE})
-	set (UE_LIBS ${UE_THIRD_PARTY}/Unix/LibCxx/lib/Unix/${TARGET_TRIPLE} CACHE PATH "")
+if (IS_DIRECTORY "${UE_THIRD_PARTY}/Unix/LibCxx/lib/Unix/${TARGET_TRIPLE}")
+	set (UE_LIBS "${UE_THIRD_PARTY}/Unix/LibCxx/lib/Unix/${TARGET_TRIPLE}" CACHE PATH "")
 else ()
-	set (UE_LIBS ${UE_THIRD_PARTY}/Linux/LibCxx/lib/Linux/${TARGET_TRIPLE} CACHE PATH "")
+	set (UE_LIBS "${UE_THIRD_PARTY}/Linux/LibCxx/lib/Linux/${TARGET_TRIPLE}" CACHE PATH "")
 endif ()
 
-if (IS_DIRECTORY ${UE_THIRD_PARTY}/OpenSSL/1.1.1t/include/Unix)
-	set (UE_OPENSSL_INCLUDE ${UE_THIRD_PARTY}/OpenSSL/1.1.1t/include/Unix CACHE PATH "")
-else ()
-	set (UE_OPENSSL_INCLUDE ${UE_THIRD_PARTY}/OpenSSL/1.1.1c/include/Linux CACHE PATH "")
-endif ()
+file (
+	GLOB
+	UE_OPENSSL_VERSION_DIRS
+	LIST_DIRECTORIES TRUE
+	"${UE_THIRD_PARTY}/OpenSSL/*"
+)
+list (SORT UE_OPENSSL_VERSION_DIRS ORDER DESCENDING)
 
-if (IS_DIRECTORY ${UE_THIRD_PARTY}/OpenSSL/1.1.1t/lib/Unix/x86_64-unknown-linux-gnu)
-	set (UE_OPENSSL_LIBS ${UE_THIRD_PARTY}/OpenSSL/1.1.1t/lib/Unix/x86_64-unknown-linux-gnu CACHE PATH "")
-else ()
-	set (UE_OPENSSL_LIBS ${UE_THIRD_PARTY}/OpenSSL/1.1.1c/lib/Linux/x86_64-unknown-linux-gnu CACHE PATH "")
-endif ()
+set (UE_OPENSSL_INCLUDE_FOUND "")
+set (UE_OPENSSL_LIBS_FOUND "")
+foreach (OPENSSL_DIR ${UE_OPENSSL_VERSION_DIRS})
+	if (IS_DIRECTORY "${OPENSSL_DIR}/include/Unix" AND IS_DIRECTORY "${OPENSSL_DIR}/lib/Unix/${TARGET_TRIPLE}")
+		set (UE_OPENSSL_INCLUDE_FOUND "${OPENSSL_DIR}/include/Unix")
+		set (UE_OPENSSL_LIBS_FOUND "${OPENSSL_DIR}/lib/Unix/${TARGET_TRIPLE}")
+		break ()
+	elseif (IS_DIRECTORY "${OPENSSL_DIR}/include/Linux" AND IS_DIRECTORY "${OPENSSL_DIR}/lib/Linux/${TARGET_TRIPLE}")
+		set (UE_OPENSSL_INCLUDE_FOUND "${OPENSSL_DIR}/include/Linux")
+		set (UE_OPENSSL_LIBS_FOUND "${OPENSSL_DIR}/lib/Linux/${TARGET_TRIPLE}")
+		break ()
+	endif ()
+endforeach ()
+
+set (UE_OPENSSL_INCLUDE "${UE_OPENSSL_INCLUDE_FOUND}" CACHE PATH "")
+set (UE_OPENSSL_LIBS "${UE_OPENSSL_LIBS_FOUND}" CACHE PATH "")
 
 set (
 	CHECK_PATHS
-	${UE_THIRD_PARTY}
-	${UE_INCLUDE}
-	${UE_LIBS}
-	${UE_OPENSSL_INCLUDE}
-	${UE_OPENSSL_LIBS}
+	"${UE_THIRD_PARTY}"
+	"${UE_INCLUDE}"
+	"${UE_LIBS}"
+	"${UE_OPENSSL_INCLUDE}"
+	"${UE_OPENSSL_LIBS}"
 )
 
 foreach (CHECK_PATH ${CHECK_PATHS})
-	if (NOT IS_DIRECTORY "${CHECK_PATH}")
-		message (FATAL_ERROR "${CHECK_PATH} is not a valid directory.")
+	if ("${CHECK_PATH}" STREQUAL "" OR NOT IS_DIRECTORY "${CHECK_PATH}")
+		message (FATAL_ERROR "\"${CHECK_PATH}\" is not a valid directory.")
 	endif ()
 endforeach ()
 
@@ -116,7 +134,7 @@ add_compile_options (
 	$<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>
 )
 
-add_link_options (-stdlib=libc++ -L${UE_LIBS} )
+add_link_options (-stdlib=libc++ "-L${UE_LIBS}")
 
 create_filepath_variable_checked (
 	CMAKE_AR

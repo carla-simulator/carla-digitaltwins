@@ -4,6 +4,21 @@ if (NOT TARGET XercesC::XercesC)
 find_package (Threads REQUIRED)
 
 set (XERCESC_VERSION 3.3.0)
+cmake_path (GET CMAKE_CURRENT_LIST_DIR PARENT_PATH WORKSPACE_PATH)
+set (THIRD_PARTY_ROOT_DIR "${WORKSPACE_PATH}/ThirdParty")
+set (THIRD_PARTY_BUILD_DIR "${THIRD_PARTY_ROOT_DIR}/Build")
+set (THIRD_PARTY_INSTALL_DIR "${THIRD_PARTY_ROOT_DIR}/Install")
+file (MAKE_DIRECTORY "${THIRD_PARTY_ROOT_DIR}")
+
+set (DEPENDENCY_NAME XercesC)
+set (XERCESC_SOURCE_DIR "${THIRD_PARTY_ROOT_DIR}/${DEPENDENCY_NAME}")
+set (XERCESC_BUILD_DIR "${THIRD_PARTY_BUILD_DIR}/${DEPENDENCY_NAME}")
+set (XERCESC_INSTALL_DIR "${THIRD_PARTY_INSTALL_DIR}/${DEPENDENCY_NAME}")
+
+if (IS_DIRECTORY "${XERCESC_INSTALL_DIR}")
+  list (APPEND CMAKE_PREFIX_PATH "${XERCESC_INSTALL_DIR}")
+endif ()
+
 find_package (
   XercesC ${XERCESC_VERSION}
   EXACT
@@ -11,24 +26,14 @@ find_package (
   NO_MODULE
 )
 
-cmake_path (GET CMAKE_CURRENT_LIST_DIR PARENT_PATH WORKSPACE_PATH)
-set (THIRD_PARTY_ROOT_DIR ${WORKSPACE_PATH}/ThirdParty)
-set (THIRD_PARTY_BUILD_DIR ${THIRD_PARTY_ROOT_DIR}/Build)
-set (THIRD_PARTY_INSTALL_DIR ${THIRD_PARTY_ROOT_DIR}/Install)
-file (MAKE_DIRECTORY ${THIRD_PARTY_ROOT_DIR})
-
-set (DEPENDENCY_NAME XercesC)
-set (XERCESC_SOURCE_DIR ${THIRD_PARTY_ROOT_DIR}/${DEPENDENCY_NAME})
-set (XERCESC_BUILD_DIR ${THIRD_PARTY_BUILD_DIR}/${DEPENDENCY_NAME})
-set (XERCESC_INSTALL_DIR ${THIRD_PARTY_INSTALL_DIR}/${DEPENDENCY_NAME})
-
-if (NOT ${XercesC_FOUND})
+if (NOT XercesC_FOUND)
 
   message (STATUS "Could not find xerces-c, bootstrapping...")
 
   set (XERCESC_TAG xerces-c-${XERCESC_VERSION})
+  set (XERCESC_ARCHIVE "${THIRD_PARTY_ROOT_DIR}/${XERCESC_TAG}.zip")
 
-  if (NOT EXISTS ${THIRD_PARTY_ROOT_DIR}/xerces-c.zip)
+  if (NOT EXISTS "${XERCESC_ARCHIVE}")
     set (
       XERCESC_DOWNLOAD_URL
       https://archive.apache.org/dist/xerces/c/3/sources/xerces-c-${XERCESC_VERSION}.zip
@@ -36,52 +41,42 @@ if (NOT ${XercesC_FOUND})
     message (STATUS "Downloading xerces-c from ${XERCESC_DOWNLOAD_URL}")
     file (
       DOWNLOAD
-      ${XERCESC_DOWNLOAD_URL}
-      ${THIRD_PARTY_ROOT_DIR}/xerces-c.zip
+      "${XERCESC_DOWNLOAD_URL}"
+      "${XERCESC_ARCHIVE}"
+      STATUS XERCESC_DL_STATUS
+      TLS_VERIFY ON
     )
+    list (GET XERCESC_DL_STATUS 0 XERCESC_DL_CODE)
+    if (NOT XERCESC_DL_CODE EQUAL 0)
+      file (REMOVE "${XERCESC_ARCHIVE}")
+      message (FATAL_ERROR "Failed to download xerces-c from ${XERCESC_DOWNLOAD_URL}: ${XERCESC_DL_STATUS}")
+    endif ()
   endif ()
 
-  if (NOT IS_DIRECTORY ${XERCESC_SOURCE_DIR})
+  if (NOT IS_DIRECTORY "${XERCESC_SOURCE_DIR}")
     message (STATUS "Extracting downloaded xerces-c archive.")
     file (
       ARCHIVE_EXTRACT
-      INPUT ${THIRD_PARTY_ROOT_DIR}/xerces-c.zip
-      DESTINATION ${THIRD_PARTY_ROOT_DIR}
+      INPUT "${XERCESC_ARCHIVE}"
+      DESTINATION "${THIRD_PARTY_ROOT_DIR}"
     )
   endif ()
 
-  if (NOT IS_DIRECTORY ${XERCESC_SOURCE_DIR})
+  if (NOT IS_DIRECTORY "${XERCESC_SOURCE_DIR}")
     message (STATUS "Renaming extracted xerces-c directories.")
     file (
       RENAME
-        ${THIRD_PARTY_ROOT_DIR}/${XERCESC_TAG}
-        ${XERCESC_SOURCE_DIR}
+        "${THIRD_PARTY_ROOT_DIR}/${XERCESC_TAG}"
+        "${XERCESC_SOURCE_DIR}"
     )
   endif ()
 
   message (STATUS "Configuring xerces-c.")
 
-  set (
-    XERCESC_CONFIGURE_COMMAND
-    ${CMAKE_COMMAND}
-      -S ${XERCESC_SOURCE_DIR}
-      -B ${XERCESC_BUILD_DIR}
-      -G ${CMAKE_GENERATOR}
-      -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-      -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
-      -DCMAKE_POSITION_INDEPENDENT_CODE=ON
-      -DCMAKE_INSTALL_MESSAGE=${CMAKE_INSTALL_MESSAGE}
-        -DCMAKE_POLICY_VERSION_MINIMUM=${CMAKE_POLICY_VERSION_MINIMUM}
-      -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}
-      -DCMAKE_MODULE_PATH=${CMAKE_MODULE_PATH}
-      -DBUILD_SHARED_LIBS=OFF
-      -DCMAKE_IGNORE_PATH=${CMAKE_IGNORE_PATH}
-  )
-
+  set (XERCESC_EXTRA_ARGS)
   if (NOT WIN32)
-    set (
-      XERCESC_CONFIGURE_COMMAND
-      ${XERCESC_CONFIGURE_COMMAND} 
+    list (
+      APPEND XERCESC_EXTRA_ARGS
       -Dtranscoder=gnuiconv
       -Dnetwork=OFF
     )
@@ -89,40 +84,54 @@ if (NOT ${XercesC_FOUND})
 
   execute_process (
     COMMAND
-      ${XERCESC_CONFIGURE_COMMAND}
-    RESULTS_VARIABLE
+      "${CMAKE_COMMAND}"
+        -S "${XERCESC_SOURCE_DIR}"
+        -B "${XERCESC_BUILD_DIR}"
+        -G "${CMAKE_GENERATOR}"
+        "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+        "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}"
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+        "-DCMAKE_INSTALL_PREFIX=${XERCESC_INSTALL_DIR}"
+        "-DCMAKE_INSTALL_MESSAGE=${CMAKE_INSTALL_MESSAGE}"
+        "-DCMAKE_POLICY_VERSION_MINIMUM=${CMAKE_POLICY_VERSION_MINIMUM}"
+        "-DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}"
+        "-DCMAKE_MODULE_PATH=${CMAKE_MODULE_PATH}"
+        -DBUILD_SHARED_LIBS=OFF
+        "-DCMAKE_IGNORE_PATH=${CMAKE_IGNORE_PATH}"
+        ${XERCESC_EXTRA_ARGS}
+    RESULT_VARIABLE
       XERCESC_CONFIGURE_RESULT
   )
-  
+
   if (XERCESC_CONFIGURE_RESULT)
-    message (FATAL_ERROR "Could not bootstrap XercesC, configure step failed.")
+    message (FATAL_ERROR "Could not bootstrap XercesC, configure step failed (exit code ${XERCESC_CONFIGURE_RESULT}).")
   endif ()
 
   message (STATUS "Building xerces-c.")
   execute_process (
     COMMAND
-      ${CMAKE_COMMAND}
-        --build ${XERCESC_BUILD_DIR}
-    RESULTS_VARIABLE
+      "${CMAKE_COMMAND}"
+        --build "${XERCESC_BUILD_DIR}"
+    RESULT_VARIABLE
       XERCESC_BUILD_RESULT
   )
-  
+
   if (XERCESC_BUILD_RESULT)
-    message (FATAL_ERROR "Could not bootstrap XercesC, build step failed.")
+    message (FATAL_ERROR "Could not bootstrap XercesC, build step failed (exit code ${XERCESC_BUILD_RESULT}).")
   endif ()
 
   message (STATUS "Installing xerces-c.")
   execute_process (
     COMMAND
-      ${CMAKE_COMMAND}
-        --install ${XERCESC_BUILD_DIR}
-        --prefix ${XERCESC_INSTALL_DIR}
-    RESULTS_VARIABLE
+      "${CMAKE_COMMAND}"
+        --install "${XERCESC_BUILD_DIR}"
+        --prefix "${XERCESC_INSTALL_DIR}"
+    RESULT_VARIABLE
       XERCESC_INSTALL_RESULT
   )
 
   if (XERCESC_INSTALL_RESULT)
-    message (FATAL_ERROR "Could not bootstrap XercesC, install step failed.")
+    message (FATAL_ERROR "Could not bootstrap XercesC, install step failed (exit code ${XERCESC_INSTALL_RESULT}).")
   endif ()
 
   file (
@@ -130,7 +139,7 @@ if (NOT ${XercesC_FOUND})
     XERCESC_CONFIG_PATH_CANDIDATES
     FOLLOW_SYMLINKS
     LIST_DIRECTORIES FALSE
-    ${XERCESC_INSTALL_DIR}/**/XercesCConfig.cmake
+    "${XERCESC_INSTALL_DIR}/XercesCConfig.cmake"
   )
 
   if (NOT XERCESC_CONFIG_PATH_CANDIDATES)
@@ -146,8 +155,8 @@ if (NOT ${XercesC_FOUND})
     XERCESC_CONFIG_DIR
   )
 
-  list (APPEND CMAKE_PREFIX_PATH ${XERCESC_CONFIG_DIR})
-  list (APPEND CMAKE_MODULE_PATH ${XERCESC_CONFIG_DIR})
+  list (APPEND CMAKE_PREFIX_PATH "${XERCESC_CONFIG_DIR}")
+  list (APPEND CMAKE_MODULE_PATH "${XERCESC_CONFIG_DIR}")
 
   find_package (
     XercesC ${XERCESC_VERSION}
