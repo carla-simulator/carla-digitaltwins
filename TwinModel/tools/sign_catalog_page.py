@@ -20,7 +20,8 @@ from PIL import Image
 
 
 def data_uri(path: Path, max_w: int | None = None, quality: int = 80) -> str:
-    im = Image.open(path).convert("RGB")
+    with Image.open(path) as raw_im:
+        im = raw_im.convert("RGB")
     if max_w and im.width > max_w:
         im = im.resize((max_w, int(im.height * max_w / im.width)))
     buf = io.BytesIO()
@@ -68,7 +69,7 @@ def main():
     ap.add_argument("--preview", default=None)
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
-    with open(args.map) as f:
+    with open(args.map, encoding="utf-8") as f:
         doc = yaml.safe_load(f)
     cells_root = Path(args.cells)
     out = []
@@ -83,15 +84,15 @@ def main():
                '<div class=stats><div><b>%d</b><span>signs</span></div><div><b>%d</b><span>atlases</span></div><div><b>%d</b><span>uniques</span></div>'
                '<div><b>%d</b><span>with OpenDRIVE code</span></div><div><b>%d</b><span>with OSM tag</span></div></div></header>'
                % (n_signs, len(doc["atlases"]), len(doc.get("uniques", [])), n_xodr, n_osm))
-    out.append("<nav>" + " ".join('<a href="#%s">%s</a>' % (a["texture"].split("/")[-1], a["texture"].split("/")[-1].replace("SignAtlas", "")) for a in doc["atlases"]) + "</nav><main>")
+    out.append("<nav>" + " ".join('<a href="#%s">%s</a>' % (html.escape(a["texture"].split("/")[-1], quote=True), html.escape(a["texture"].split("/")[-1].replace("SignAtlas", ""))) for a in doc["atlases"]) + "</nav><main>")
 
     preview_index = None
     if args.preview:
         if os.path.exists(os.path.join(args.preview, "report.json")):
-            with open(os.path.join(args.preview, "report.json")) as f:
+            with open(os.path.join(args.preview, "report.json"), encoding="utf-8") as f:
                 preview_index = json.load(f).get("museum", [])
         elif os.path.exists(os.path.join(args.preview, "index.json")):
-            with open(os.path.join(args.preview, "index.json")) as f:
+            with open(os.path.join(args.preview, "index.json"), encoding="utf-8") as f:
                 preview_index = json.load(f)
     if preview_index:
         out.append("<h2 id=preview>In-game render</h2><p class=sub>Every generated DataAsset on a pole, laid out in rows on the EixampleDemo apron and photographed with a CARLA camera. Names left to right; a row can span two categories.</p>")
@@ -100,21 +101,21 @@ def main():
             if not p.exists():
                 continue
             out.append('<div class=row><h3>%s / %s</h3><img src="%s" alt="%s"><div class=names>%s</div></div>' % (
-                row["style"], row["category"], data_uri(p, 1600, 78), html.escape(row["image"]), html.escape("  ·  ".join(row["names"]))))
+                html.escape(str(row["style"])), html.escape(str(row["category"])), data_uri(p, 1600, 78), html.escape(row["image"], quote=True), html.escape("  ·  ".join(row["names"]))))
         shots = sorted(Path(args.preview).glob("street*_driver.png"))
         if shots:
             out.append("<h2>On the street</h2><p class=sub>Speed-limit signs placed at the OpenDRIVE signals of EixampleDemo (Vienna Convention style), seen from the lane 15 m before the sign.</p><div class=uniq>")
             for p in shots:
-                out.append('<div class=row><img src="%s" alt="%s"><div class=names>%s</div></div>' % (data_uri(p, 800, 78), html.escape(p.name), html.escape(p.stem)))
+                out.append('<div class=row><img src="%s" alt="%s"><div class=names>%s</div></div>' % (data_uri(p, 800, 78), html.escape(p.name, quote=True), html.escape(p.stem)))
             out.append("</div>")
 
     for style in styles:
-        out.append("<h2>%s</h2>" % {"VC": "Vienna Convention (Europe)", "MUTCD": "MUTCD (United States)", "GB": "GB 5768 (China)", "Miscellaneous": "Miscellaneous"}.get(style, style))
+        out.append("<h2>%s</h2>" % html.escape({"VC": "Vienna Convention (Europe)", "MUTCD": "MUTCD (United States)", "GB": "GB 5768 (China)", "Miscellaneous": "Miscellaneous"}.get(style, style)))
         for a in doc["atlases"]:
             if a["style"] != style:
                 continue
             name = a["texture"].split("/")[-1]
-            out.append('<h3 id="%s">%s <span class=m style="color:var(--muted);font-weight:400">· %s</span></h3><div class=grid>' % (name, name, a["category"]))
+            out.append('<h3 id="%s">%s <span class=m style="color:var(--muted);font-weight:400">· %s</span></h3><div class=grid>' % (html.escape(name, quote=True), html.escape(name), html.escape(str(a["category"]))))
             for c in sorted(a["cells"], key=lambda c: (c["y"], c["x"])):
                 if c.get("blank"):
                     out.append('<div class="cell blank">%d,%d</div>' % (c["x"], c["y"]))
@@ -135,7 +136,7 @@ def main():
                 html.escape(u["name"]), html.escape(u["texture"].split("/")[-1]), html.escape(u["shape"].replace("SM_", "")), html.escape(u.get("description", ""))))
         out.append("</div>")
     out.append("</main>")
-    Path(args.out).write_text("\n".join(out))
+    Path(args.out).write_text("\n".join(out), encoding="utf-8")
     print("wrote %s (%.1f MB)" % (args.out, os.path.getsize(args.out) / 1e6))
 
 

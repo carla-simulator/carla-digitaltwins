@@ -55,12 +55,13 @@ def luminance(rgb: np.ndarray) -> np.ndarray:
 def run(build_dir: Path, name: str, *, layer: str, res: float, step: float, reach: float, edge: float, prior: float,
         min_contrast: float, outlier: float, window: Sequence[float] | None, preview: bool, out_dir: Path | None,
         data_dir: Path) -> Path:
-    from scipy import ndimage
-    from shapely.geometry import LineString, Point, box as shp_box, mapping, shape
-    from shapely.strtree import STRtree
+    import shapely  # noqa: PLC0415
+    from scipy import ndimage  # noqa: PLC0415
+    from shapely.geometry import LineString, Point, box as shp_box, mapping, shape  # noqa: PLC0415
+    from shapely.strtree import STRtree  # noqa: PLC0415
 
     twin_dir = build_dir / f"{name}.twin"
-    model = json.loads((twin_dir / "model.json").read_text())
+    model = json.loads((twin_dir / "model.json").read_text(encoding="utf-8"))
     frame = LocalFrame(model["origin_lat"], model["origin_lon"])
     s_, w_, n_, e_ = (float(v) for v in model["bbox_wgs84"])
     bbox = (s_, w_, n_, e_)
@@ -82,12 +83,18 @@ def run(build_dir: Path, name: str, *, layer: str, res: float, step: float, reac
     region = shp_box(xmin, ymin, xmax, ymax)
     if window:
         wx0, wy0, wx1, wy1 = window
-        region = shp_box(wx0, wy0, wx1, wy1).intersection(region)
+        region = shp_box(min(wx0, wx1), min(wy0, wy1), max(wx0, wx1), max(wy0, wy1)).intersection(region)
+    if region.is_empty:
+        raise SystemExit("requested --window does not overlap orthophoto bounds")
+    shapely.prepare(region)
 
-    surfaces = json.loads((twin_dir / "surfaces.geojson").read_text())["features"]
+    surfaces = json.loads((twin_dir / "surfaces.geojson").read_text(encoding="utf-8"))["features"]
     sidewalks = [shape(f["geometry"]) for f in surfaces if f["properties"]["kind"] == "sidewalk"]
+    for sw in sidewalks:
+        shapely.prepare(sw)
     sw_tree = STRtree(sidewalks)
-    curbs = [(f["properties"], shape(f["geometry"])) for f in json.loads((twin_dir / "curbs.geojson").read_text())["features"]]
+    curbs = [(f["properties"], shape(f["geometry"]))
+             for f in json.loads((twin_dir / "curbs.geojson").read_text(encoding="utf-8"))["features"]]
 
     n_prof = int(round(2 * reach / dx)) + 1
     offs = np.linspace(-reach, reach, n_prof)                 # metres along the normal, + towards sidewalk
@@ -105,58 +112,78 @@ def run(build_dir: Path, name: str, *, layer: str, res: float, step: float, reac
         L = line.length
         n = max(2, int(L / step))
         ss = np.linspace(0, L, n + 1)
-        pts = [line.interpolate(s) for s in ss]
+        pts_geom = shapely.line_interpolate_point(line, ss)
+        in_reg = shapely.contains(region, pts_geom)
+        pt_xy = shapely.get_coordinates(pts_geom, include_z=False)
+        pa_xy = shapely.get_coordinates(shapely.line_interpolate_point(line, np.maximum(0.0, ss - 0.5)), include_z=False)
+        pb_xy = shapely.get_coordinates(shapely.line_interpolate_point(line, np.minimum(L, ss + 0.5)), include_z=False)
         offsets, confs, normals = [], [], []
-        for i, s in enumerate(ss):
-            p = pts[i]
-            if not region.contains(p):
-                normals.append(None); offsets.append(np.nan); confs.append(0.0); continue
-            a = line.interpolate(max(0.0, s - 0.5)); b = line.interpolate(min(L, s + 0.5))
-            tx, ty = b.x - a.x, b.y - a.y
+        for i in range(len(ss)):
+            if not in_reg[i]:
+                normals.append(None)
+                offsets.append(np.nan)
+                confs.append(0.0)
+                continue
+            px_i, py_i = float(pt_xy[i, 0]), float(pt_xy[i, 1])
+            tx, ty = float(pb_xy[i, 0] - pa_xy[i, 0]), float(pb_xy[i, 1] - pa_xy[i, 1])
             nrm = np.hypot(tx, ty)
             if nrm < 1e-6:
-                normals.append(None); offsets.append(np.nan); confs.append(0.0); continue
+                normals.append(None)
+                offsets.append(np.nan)
+                confs.append(0.0)
+                continue
             nx, ny = -ty / nrm, tx / nrm
             # which side is the sidewalk? probe 0.6 m either way
             side = 0
             for sgn in (1, -1):
-                q = Point(p.x + sgn * 0.6 * nx, p.y + sgn * 0.6 * ny)
+                q = Point(px_i + sgn * 0.6 * nx, py_i + sgn * 0.6 * ny)
                 hits = sw_tree.query(q)
-                if any(sidewalks[h].contains(q) for h in hits):
-                    side = sgn; break
+                if any(sidewalks[int(h)].contains(q) for h in hits):
+                    side = sgn
+                    break
             if side == 0:
-                normals.append(None); offsets.append(np.nan); confs.append(0.0); continue
+                normals.append(None)
+                offsets.append(np.nan)
+                confs.append(0.0)
+                continue
             nx, ny = side * nx, side * ny
-            xs = p.x + offs * nx; ys = p.y + offs * ny
+            xs = px_i + offs * nx
+            ys = py_i + offs * ny
             rows, cols = to_px(xs, ys)
             if rows.min() < 0 or cols.min() < 0 or rows.max() >= lum.shape[0] - 1 or cols.max() >= lum.shape[1] - 1:
-                normals.append(None); offsets.append(np.nan); confs.append(0.0); continue
+                normals.append(None)
+                offsets.append(np.nan)
+                confs.append(0.0)
+                continue
             prof = ndimage.map_coordinates(lum, [rows, cols], order=1, mode="nearest")
             prof = ndimage.gaussian_filter1d(prof, sigma_px)
             resp = np.convolve(prof, kernel[::-1], mode="same")          # + where luminance steps up towards sidewalk
-            resp[:half] = 0; resp[-half:] = 0
+            resp[:half] = 0
+            resp[-half:] = 0
             score = resp * prior_w
             j = int(np.argmax(score))
             std = float(prof.std()) + 1e-3
             contrast = float(resp[j]) / std
-            normals.append((nx, ny)); offsets.append(float(offs[j])); confs.append(contrast)
-        offsets = np.array(offsets); confs = np.array(confs)
+            normals.append((nx, ny))
+            offsets.append(float(offs[j]))
+            confs.append(contrast)
+        offsets = np.array(offsets)
+        confs = np.array(confs)
         valid = np.isfinite(offsets) & (confs >= min_contrast)
         if valid.sum() >= 3:
             # running median along the line, reject outliers
-            med_line = np.full_like(offsets, np.nan)
             idx = np.where(valid)[0]
             vals = offsets[idx]
             k = 7 if len(vals) >= 7 else (len(vals) | 1)
             run_med = ndimage.median_filter(vals, size=k, mode="nearest")
             keep = np.abs(vals - run_med) <= outlier
             acc = idx[keep]
-            med_line[acc] = offsets[acc]
         else:
             acc = np.array([], dtype=int)
+        acc_set = set(acc.tolist())
         for i in range(len(ss)):
-            if np.isfinite(offsets[i]) and i not in set(acc.tolist()):
-                rejected_pts.append((pts[i].x, pts[i].y))
+            if np.isfinite(offsets[i]) and i not in acc_set:
+                rejected_pts.append((float(pt_xy[i, 0]), float(pt_xy[i, 1])))
         if len(acc) >= 3:
             o = offsets[acc]
             row = {**{k: v for k, v in props.items() if k in ("id", "height", "low_side_kind", "high_side_kind")},
@@ -165,23 +192,33 @@ def run(build_dir: Path, name: str, *, layer: str, res: float, step: float, reac
                    "offset_p90": round(float(np.percentile(o, 90)), 2), "offset_abs_med": round(float(np.median(np.abs(o))), 2),
                    "length_m": round(L, 1)}
             per_line.append(row)
-            refined = [(pts[i].x + offsets[i] * normals[i][0], pts[i].y + offsets[i] * normals[i][1]) for i in acc]
+            refined = [(float(pt_xy[i, 0]) + offsets[i] * normals[i][0],
+                        float(pt_xy[i, 1]) + offsets[i] * normals[i][1]) for i in acc]
             geom = LineString(refined) if len(refined) >= 2 else Point(refined[0])
             lines_out.append({"type": "Feature", "properties": row, "geometry": mapping(geom)})
             for i in acc:
-                samples_out.append({"type": "Feature",
-                                    "properties": {"curb": props.get("id"), "offset": round(float(offsets[i]), 2),
-                                                   "contrast": round(float(confs[i]), 2)},
-                                    "geometry": {"type": "Point", "coordinates": [round(pts[i].x + offsets[i] * normals[i][0], 2),
-                                                                                   round(pts[i].y + offsets[i] * normals[i][1], 2)]}})
+                samples_out.append({
+                    "type": "Feature",
+                    "properties": {"curb": props.get("id"), "offset": round(float(offsets[i]), 2),
+                                   "contrast": round(float(confs[i]), 2)},
+                    "geometry": {"type": "Point",
+                                 "coordinates": [round(float(pt_xy[i, 0]) + offsets[i] * normals[i][0], 2),
+                                                 round(float(pt_xy[i, 1]) + offsets[i] * normals[i][1], 2)]},
+                })
         else:
             per_line.append({**{k: v for k, v in props.items() if k in ("id",)}, "n": int(len(ss)), "n_valid": int(len(acc)),
                              "frac_valid": round(float(len(acc) / max(1, len(ss))), 2), "length_m": round(L, 1), "offset_med": None})
 
     meta = {"ortho": {"detail": img.detail, "res_m": dx},
             "params": {"step": step, "reach": reach, "edge": edge, "prior": prior, "min_contrast": min_contrast, "outlier": outlier}}
-    (out_dir / "kerb_edges.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": lines_out, **meta}, separators=(",", ":")))
-    (out_dir / "kerb_edge_samples.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": samples_out}, separators=(",", ":")))
+    (out_dir / "kerb_edges.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": lines_out, **meta}, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    (out_dir / "kerb_edge_samples.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": samples_out}, separators=(",", ":")),
+        encoding="utf-8",
+    )
 
     good = [r for r in per_line if r.get("offset_med") is not None]
 
@@ -198,7 +235,7 @@ def run(build_dir: Path, name: str, *, layer: str, res: float, step: float, reac
         "line_frac_valid": dist([r["frac_valid"] for r in per_line]),
         "length_weighted_abs_offset_m": round(float(sum(r["offset_abs_med"] * r["length_m"] for r in good) / max(1e-6, sum(r["length_m"] for r in good))), 2) if good else None,
         "worst": sorted(good, key=lambda r: -r["offset_abs_med"])[:10], **meta}
-    (out_dir / "kerb_summary.json").write_text(json.dumps(summary, indent=1))
+    (out_dir / "kerb_summary.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     log.info("kerb lines %d, with result %d, samples %d; sample offset signed med %.2f m, abs med %.2f m, abs p90 %.2f m; "
              "length-weighted abs %.2f m",
              len(per_line), len(good), all_off.size,
@@ -213,17 +250,24 @@ def run(build_dir: Path, name: str, *, layer: str, res: float, step: float, reac
 def _preview(north_up, dx, xmin, ymax, region, curbs, lines_out, rejected, path: Path) -> None:
     from PIL import Image, ImageDraw
     rx0, ry0, rx1, ry1 = region.bounds
-    c0, r0 = int((rx0 - xmin) / dx), int((ymax - ry1) / dx)
-    c1, r1 = int(np.ceil((rx1 - xmin) / dx)), int(np.ceil((ymax - ry0) / dx))
+    h_img, w_img = north_up.shape[:2]
+    c0 = min(w_img, max(0, int((rx0 - xmin) / dx)))
+    r0 = min(h_img, max(0, int((ymax - ry1) / dx)))
+    c1 = min(w_img, max(c0, int(np.ceil((rx1 - xmin) / dx))))
+    r1 = min(h_img, max(r0, int(np.ceil((ymax - ry0) / dx))))
     sub = north_up[r0:r1, c0:c1]
+    if sub.size == 0:
+        return
+    sub_rx0 = xmin + c0 * dx
+    sub_ry1 = ymax - r0 * dx
     scale = min(1.0, 3000 / max(sub.shape[:2]))
     im = Image.fromarray(sub).convert("RGB")
     if scale < 1:
-        im = im.resize((int(im.width * scale), int(im.height * scale)), Image.Resampling.BILINEAR)
+        im = im.resize((max(1, int(im.width * scale)), max(1, int(im.height * scale))), Image.Resampling.BILINEAR)
     d = ImageDraw.Draw(im)
 
     def px(x, y):
-        return ((x - rx0) / dx * scale, (ry1 - y) / dx * scale)
+        return ((x - sub_rx0) / dx * scale, (sub_ry1 - y) / dx * scale)
     for _props, line in curbs:
         if line.intersects(region):
             d.line([px(x, y) for x, y, *_ in line.coords], fill=(255, 230, 0), width=2)

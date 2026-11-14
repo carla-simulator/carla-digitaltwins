@@ -95,7 +95,7 @@ def _crossings_by_road(xodr_path):
 
 
 def main(xodr_path: str, out_path: str, kinds=(TL_TYPE, PED_TYPE), crossing_m: float = 25.0, twin_path=None) -> int:
-    with open(xodr_path) as f:
+    with open(xodr_path, encoding="utf-8") as f:
         text = f.read()
     xml_root = etree.fromstring(text.encode())
     rig_anchors = {s.get('id'):u.get('value') for s in xml_root.iter('signal')
@@ -137,9 +137,9 @@ def main(xodr_path: str, out_path: str, kinds=(TL_TYPE, PED_TYPE), crossing_m: f
         lanes = sorted({l for a, b in rec["validities"]
                         for l in range(min(a, b), max(a, b) + 1) if l != 0})
         rec["lanes"] = lanes
+        rec["lane_centers"] = []
         if lm.type == TL_TYPE:
             rec["n_driving_lanes"] = len(lanes)
-            rec["lane_centers"] = []
             for lane in lanes:
                 wp = cmap.get_waypoint_xodr(lm.road_id, lane, lm.s)
                 if wp is not None and wp.lane_type == carla.LaneType.Driving:
@@ -152,20 +152,23 @@ def main(xodr_path: str, out_path: str, kinds=(TL_TYPE, PED_TYPE), crossing_m: f
                                       for s in crossings.get(str(lm.road_id), []))
         rec["rig_anchor"] = rig_anchors.get(lm.id, lm.id)
         rec["placement"] = placements[rec["rig_anchor"]]
-        for lane in rec.get("lane_centers", []):
+        for lane in rec["lane_centers"]:
             lane["signal_id"] = lm.id
         out.append(rec)
     grouped = {r['id']:r for r in out if r['rig_anchor'] == r['id']}
     for rec in out:
         if rec['rig_anchor'] == rec['id']:continue
-        anchor = grouped[rec['rig_anchor']]
-        if (anchor['road_id'],anchor['yaw'],anchor['s']) != (rec['road_id'],rec['yaw'],rec['s']):
+        anchor = grouped.get(rec['rig_anchor'])
+        if anchor is None:
+            raise ValueError(f"Signal {rec['id']} references missing rig_anchor {rec['rig_anchor']!r}")
+        yaw_diff = abs(_wrap(math.radians(anchor['yaw'] - rec['yaw'])))
+        if str(anchor['road_id']) != str(rec['road_id']) or abs(anchor['s'] - rec['s']) > 1e-3 or yaw_diff > math.radians(2.0):
             raise ValueError('Shared rig signals disagree on their approach')
         anchor['lane_centers'].extend(rec['lane_centers'])
         anchor['lanes'].extend(rec['lanes'])
         anchor['n_driving_lanes'] = len(anchor['lane_centers'])
     out = list(grouped.values())
-    with open(out_path, "w") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         json.dump(out, f, indent=1)
     print(f"{len(out)} signals -> {out_path}")
     return 0

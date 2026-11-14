@@ -86,18 +86,25 @@ def _lane_types_at(road_el, s: float) -> dict[int, str]:
         if el is None:
             continue
         for ln in el.findall("lane"):
-            out[int(ln.get("id"))] = ln.get("type", "none")
+            lid = ln.get("id")
+            if lid is not None:
+                out[int(lid)] = ln.get("type", "none")
     return out
 
 
 def _validities(sig_el) -> list[tuple[int, int]]:
-    return [(int(v.get("fromLane")), int(v.get("toLane"))) for v in sig_el.findall("validity")]
+    return [(int(v.get("fromLane", 0)), int(v.get("toLane", 0))) for v in sig_el.findall("validity")]
+
+
+def _id_sort_key(item: tuple[str, object]) -> tuple[int, int | str]:
+    key = str(item[0])
+    return (0, int(key)) if key.lstrip("-").isdigit() else (1, key)
 
 
 def check(xodr_path: str | Path) -> dict:
     root = etree.parse(str(xodr_path)).getroot()
 
-    roads = {r.get("id"): r for r in root.iter("road")}
+    roads = {r.get("id") or "": r for r in root.iter("road")}
     # traffic-light signals, keyed by signal id (ids are unique across the file by construction)
     signals: dict[str, dict] = {}
     for rid, r in roads.items():
@@ -108,8 +115,9 @@ def check(xodr_path: str | Path) -> dict:
             stype = s.get("type", "")
             if stype != TL_TYPE and stype not in TL_TYPES_EXTRA and stype not in REG_TYPES:
                 continue
-            signals[s.get("id")] = {
-                "id": s.get("id"), "type": stype, "road_id": rid, "s": float(s.get("s", 0.0)),
+            sid = s.get("id") or ""
+            signals[sid] = {
+                "id": sid, "type": stype, "road_id": rid, "s": float(s.get("s", 0.0)),
                 "t": float(s.get("t", 0.0)), "orientation": s.get("orientation", "+"),
                 "name": s.get("name", ""), "validities": _validities(s),
                 "kind": _signal_class(stype, s.get("name", "")),
@@ -119,15 +127,15 @@ def check(xodr_path: str | Path) -> dict:
     controllers: dict[str, dict] = {}
     ctl_order: list[str] = []
     for c in root.findall("controller"):
-        cid = c.get("id")
+        cid = c.get("id") or ""
         controllers[cid] = {"id": cid, "sequence": c.get("sequence"),
-                            "signal_ids": [x.get("signalId") for x in c.findall("control")]}
+                            "signal_ids": [x.get("signalId") or "" for x in c.findall("control")]}
         ctl_order.append(cid)
 
     # junction -> controller refs, in emission order (== the runtime's stage order)
     junc_ctl: dict[str, list[str]] = {}
     for j in root.iter("junction"):
-        junc_ctl[j.get("id")] = [c.get("id") for c in j.findall("controller")]
+        junc_ctl[j.get("id") or ""] = [c.get("id") or "" for c in j.findall("controller")]
     ctl_junction: dict[str, str] = {}
     for jid, cids in junc_ctl.items():
         for cid in cids:
@@ -271,7 +279,7 @@ def check(xodr_path: str | Path) -> dict:
 
     # ---- summary
     per_junction = {}
-    for jid, cids in sorted(junc_ctl.items(), key=lambda kv: int(kv[0])):
+    for jid, cids in sorted(junc_ctl.items(), key=_id_sort_key):
         sig_ids = [s for c in cids for s in controllers.get(c, {}).get("signal_ids", [])]
         if not sig_ids and not cids:
             continue
@@ -315,7 +323,7 @@ def main(argv=None) -> int:
 
     rep = check(a.xodr)
     if a.json:
-        Path(a.json).write_text(json.dumps(rep, indent=1))
+        Path(a.json).write_text(json.dumps(rep, indent=1), encoding="utf-8")
     if not a.quiet:
         print(f"{rep['xodr']}")
         print(f"  traffic-light signals : {rep['n_traffic_light_signals']} "

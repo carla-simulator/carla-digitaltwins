@@ -73,128 +73,145 @@ def main() -> int:
     settings = world.get_settings()
     settings.synchronous_mode = True
     settings.fixed_delta_seconds = FIXED_DT
-    world.apply_settings(settings)
-    tm = client.get_trafficmanager(args.tm_port)
-    tm.set_synchronous_mode(True)
-    tm.set_random_device_seed(args.seed)
-    world.tick()
-
-    rng = random.Random(args.seed)
-    spawns = cmap.get_spawn_points()
-    rng.shuffle(spawns)
-    bps = [b for b in world.get_blueprint_library().filter("vehicle.*")
-           if int(b.get_attribute("number_of_wheels")) == 4]
-    bps.sort(key=lambda b: b.id)
-    batch = []
-    for i, sp in enumerate(spawns[:args.vehicles]):
-        bp = bps[i % len(bps)]
-        batch.append(carla.command.SpawnActor(bp, sp)
-                     .then(carla.command.SetAutopilot(carla.command.FutureActor, True, args.tm_port)))
-    ids = [r.actor_id for r in client.apply_batch_sync(batch, True) if not r.error]
-    world.tick()
-    vehicles = [a for a in world.get_actors(ids)]
-    log(f"{len(vehicles)} vehicles on autopilot (seed {args.seed})")
-
-    # regulatory signs of the unsignalised junctions, and the landmarks they must sit on
-    stops = list(world.get_actors().filter("traffic.stop"))
-    yields = list(world.get_actors().filter("traffic.yield"))
-    # measure against the sign's *trigger volume* (the stop line on the carriageway), not the
-    # pole: ATrafficSignBase spawns at the OpenDRIVE signal, which stands 3-5 m off the lane
-    # centre outside the kerb, and no vehicle ever passes within a car length of it.
-    def _stop_line(a):
-        loc = a.get_location()
-        try:
-            tv = a.trigger_volume.location
-            f = a.get_transform()
-            return f.transform(carla.Location(tv.x, tv.y, tv.z))
-        except Exception:
-            return loc
-    stop_pos = [(s.id, _stop_line(s)) for s in stops + yields]
-    lm_pos = {}
-    for lm in cmap.get_all_landmarks():
-        if lm.type in ("205", "206"):
-            lm_pos[str(lm.id)] = (lm.type, lm.transform.location)
-    matched, unmatched = [], []
-    for a in stops + yields:
-        loc = a.get_location()
-        best, bd = None, 1e9
-        for sid, (ty, l) in lm_pos.items():
-            d = ((loc.x - l.x) ** 2 + (loc.y - l.y) ** 2) ** 0.5
-            if d < bd:
-                best, bd = (sid, ty), d
-        (matched if bd <= args.landmark_m else unmatched).append(
-            {"actor": a.id, "type_id": a.type_id, "landmark": best[0] if best else None,
-             "landmark_type": best[1] if best else None, "distance_m": round(bd, 3)})
-    log(f"{len(stops)} traffic.stop + {len(yields)} traffic.yield actors; "
-        f"{len(lm_pos)} 205/206 landmarks; {len(matched)} within {args.landmark_m} m")
-
-    in_junction = {v.id: False for v in vehicles}
-    # the light state each vehicle saw --grace-ticks ago: a car already past the stop line when
-    # the light turns amber -> red is *inside* the junction on red without having run anything,
-    # so a violation is an entry whose light was red a second earlier as well
-    hist: dict[int, list] = {v.id: [] for v in vehicles}
-    entries = []                      # {"vehicle", "frame", "state", "junction"}
-    stop_min_speed: dict[tuple, float] = {}
-    stop_seen: dict[tuple, int] = defaultdict(int)
-    t0 = time.time()
-    for f in range(1, args.frames + 1):
+    tm = None
+    vehicles = []
+    try:
+        world.apply_settings(settings)
+        tm = client.get_trafficmanager(args.tm_port)
+        tm.set_synchronous_mode(True)
+        tm.set_random_device_seed(args.seed)
         world.tick()
-        for v in vehicles:
-            if not v.is_alive:
-                continue
-            loc = v.get_location()
-            vel = v.get_velocity()
-            speed = (vel.x ** 2 + vel.y ** 2 + vel.z ** 2) ** 0.5
-            wp = cmap.get_waypoint(loc, project_to_road=True)
-            now_junction = bool(wp and wp.is_junction)
-            st = STATE_NAME.get(v.get_traffic_light_state(), "Unknown")
-            h = hist[v.id]
-            h.append(st)
-            if len(h) > args.grace_ticks + 1:
-                del h[0]
-            if now_junction and not in_junction[v.id]:
-                entries.append({"vehicle": v.id, "frame": f, "state": st, "state_before": h[0],
-                                "junction": wp.get_junction().id if wp.get_junction() else -1})
-            in_junction[v.id] = now_junction
-            for sid, sloc in stop_pos:
-                if loc.distance(sloc) <= args.stop_radius:
-                    key = (v.id, sid)
-                    stop_seen[key] += 1
-                    stop_min_speed[key] = min(stop_min_speed.get(key, 1e9), speed)
-    log(f"done in {time.time() - t0:.0f} s wall")
 
-    by_state = defaultdict(int)
-    for e in entries:
-        by_state[e["state"]] += 1
-    stopped = {k: v for k, v in stop_min_speed.items() if v < args.stop_speed}
-    ran_red = [e for e in entries if e["state"] == "Red" and e["state_before"] == "Red"]
-    report = {
-        "map": cmap.name, "frames": args.frames, "seed": args.seed,
-        "n_vehicles": len(vehicles),
-        "n_junction_entries": len(entries),
-        "junction_entries_by_light_state": dict(by_state),
-        "n_red_entries": by_state.get("Red", 0),
-        "n_ran_a_red": len(ran_red),
-        "red_entries": [e for e in entries if e["state"] == "Red"][:50],
-        "n_traffic_stop_actors": len(stops),
-        "n_traffic_yield_actors": len(yields),
-        "n_regulatory_landmarks": len(lm_pos),
-        "n_regulatory_actors_on_a_landmark": len(matched),
-        "regulatory_actors": matched + unmatched,
-        "n_stop_encounters": len(stop_min_speed),
-        "n_stop_encounters_with_a_full_stop": len(stopped),
-        "stop_encounters": [{"vehicle": k[0], "stop": k[1], "min_speed": round(v, 3),
-                             "ticks_within_radius": stop_seen[k]}
-                            for k, v in sorted(stop_min_speed.items())][:80],
-    }
+        rng = random.Random(args.seed)
+        spawns = cmap.get_spawn_points()
+        rng.shuffle(spawns)
+        bps = [b for b in world.get_blueprint_library().filter("vehicle.*")
+               if b.has_attribute("number_of_wheels") and int(b.get_attribute("number_of_wheels")) == 4]
+        if not bps:
+            bps = list(world.get_blueprint_library().filter("vehicle.*"))
+        bps.sort(key=lambda b: b.id)
+        batch = []
+        if bps:
+            for i, sp in enumerate(spawns[:args.vehicles]):
+                bp = bps[i % len(bps)]
+                batch.append(carla.command.SpawnActor(bp, sp)
+                             .then(carla.command.SetAutopilot(carla.command.FutureActor, True, args.tm_port)))
+        ids = [r.actor_id for r in client.apply_batch_sync(batch, True) if not r.error] if batch else []
+        world.tick()
+        vehicles = [a for a in world.get_actors(ids)] if ids else []
+        log(f"{len(vehicles)} vehicles on autopilot (seed {args.seed})")
 
-    client.apply_batch_sync([carla.command.DestroyActor(v) for v in vehicles], True)
-    world.tick()
-    tm.set_synchronous_mode(False)
-    world.apply_settings(prev)
+        # regulatory signs of the unsignalised junctions, and the landmarks they must sit on
+        stops = list(world.get_actors().filter("traffic.stop"))
+        yields = list(world.get_actors().filter("traffic.yield"))
+        # measure against the sign's *trigger volume* (the stop line on the carriageway), not the
+        # pole: ATrafficSignBase spawns at the OpenDRIVE signal, which stands 3-5 m off the lane
+        # centre outside the kerb, and no vehicle ever passes within a car length of it.
+        def _stop_line(a):
+            loc = a.get_location()
+            try:
+                tv = a.trigger_volume.location
+                f = a.get_transform()
+                return f.transform(carla.Location(tv.x, tv.y, tv.z))
+            except Exception:
+                return loc
+        stop_pos = [(s.id, _stop_line(s)) for s in stops + yields]
+        lm_pos = {}
+        for lm in cmap.get_all_landmarks():
+            if lm.type in ("205", "206"):
+                lm_pos[str(lm.id)] = (lm.type, lm.transform.location)
+        matched, unmatched = [], []
+        for a in stops + yields:
+            loc = a.get_location()
+            best, bd = None, 1e9
+            for sid, (ty, lm_loc) in lm_pos.items():
+                d = ((loc.x - lm_loc.x) ** 2 + (loc.y - lm_loc.y) ** 2) ** 0.5
+                if d < bd:
+                    best, bd = (sid, ty), d
+            (matched if bd <= args.landmark_m else unmatched).append(
+                {"actor": a.id, "type_id": a.type_id, "landmark": best[0] if best else None,
+                 "landmark_type": best[1] if best else None, "distance_m": round(bd, 3)})
+        log(f"{len(stops)} traffic.stop + {len(yields)} traffic.yield actors; "
+            f"{len(lm_pos)} 205/206 landmarks; {len(matched)} within {args.landmark_m} m")
+
+        in_junction = {v.id: False for v in vehicles}
+        # the light state each vehicle saw --grace-ticks ago: a car already past the stop line when
+        # the light turns amber -> red is *inside* the junction on red without having run anything,
+        # so a violation is an entry whose light was red a second earlier as well
+        hist: dict[int, list] = {v.id: [] for v in vehicles}
+        entries = []                      # {"vehicle", "frame", "state", "junction"}
+        stop_min_speed: dict[tuple, float] = {}
+        stop_seen: dict[tuple, int] = defaultdict(int)
+        t0 = time.time()
+        for f in range(1, args.frames + 1):
+            world.tick()
+            for v in vehicles:
+                if not v.is_alive:
+                    continue
+                loc = v.get_location()
+                vel = v.get_velocity()
+                speed = (vel.x ** 2 + vel.y ** 2 + vel.z ** 2) ** 0.5
+                wp = cmap.get_waypoint(loc, project_to_road=True)
+                now_junction = bool(wp and wp.is_junction)
+                st = STATE_NAME.get(v.get_traffic_light_state(), "Unknown")
+                h = hist[v.id]
+                h.append(st)
+                if len(h) > args.grace_ticks + 1:
+                    del h[0]
+                if now_junction and not in_junction[v.id]:
+                    entries.append({"vehicle": v.id, "frame": f, "state": st, "state_before": h[0],
+                                    "junction": wp.get_junction().id if wp.get_junction() else -1})
+                in_junction[v.id] = now_junction
+                for sid, sloc in stop_pos:
+                    if loc.distance(sloc) <= args.stop_radius:
+                        key = (v.id, sid)
+                        stop_seen[key] += 1
+                        stop_min_speed[key] = min(stop_min_speed.get(key, 1e9), speed)
+        log(f"done in {time.time() - t0:.0f} s wall")
+
+        by_state = defaultdict(int)
+        for e in entries:
+            by_state[e["state"]] += 1
+        stopped = {k: v for k, v in stop_min_speed.items() if v < args.stop_speed}
+        ran_red = [e for e in entries if e["state"] == "Red" and e["state_before"] == "Red"]
+        report = {
+            "map": cmap.name, "frames": args.frames, "seed": args.seed,
+            "n_vehicles": len(vehicles),
+            "n_junction_entries": len(entries),
+            "junction_entries_by_light_state": dict(by_state),
+            "n_red_entries": by_state.get("Red", 0),
+            "n_ran_a_red": len(ran_red),
+            "red_entries": [e for e in entries if e["state"] == "Red"][:50],
+            "n_traffic_stop_actors": len(stops),
+            "n_traffic_yield_actors": len(yields),
+            "n_regulatory_landmarks": len(lm_pos),
+            "n_regulatory_actors_on_a_landmark": len(matched),
+            "regulatory_actors": matched + unmatched,
+            "n_stop_encounters": len(stop_min_speed),
+            "n_stop_encounters_with_a_full_stop": len(stopped),
+            "stop_encounters": [{"vehicle": k[0], "stop": k[1], "min_speed": round(v, 3),
+                                 "ticks_within_radius": stop_seen[k]}
+                                for k, v in sorted(stop_min_speed.items())][:80],
+        }
+    finally:
+        if vehicles:
+            try:
+                client.apply_batch_sync([carla.command.DestroyActor(v) for v in vehicles], True)
+                world.tick()
+            except Exception:
+                pass
+        if tm is not None:
+            try:
+                tm.set_synchronous_mode(False)
+            except Exception:
+                pass
+        try:
+            world.apply_settings(prev)
+        except Exception:
+            pass
 
     if args.out:
-        Path(args.out).write_text(json.dumps(report, indent=1))
+        Path(args.out).write_text(json.dumps(report, indent=1), encoding="utf-8")
         log(f"wrote {args.out}")
     print(f"  vehicles                     : {report['n_vehicles']}")
     print(f"  junction entries             : {report['n_junction_entries']} "

@@ -13,7 +13,8 @@ from xml.sax.saxutils import quoteattr
 
 
 def convert(src, dst):
-    doc = json.load(open(src))
+    with open(src, encoding="utf-8") as src_f:
+        doc = json.load(src_f)
     elements = doc.get("elements", doc if isinstance(doc, list) else [])
     # Overpass lists an element once per result set that contains it (the tagged hit of a
     # node[...] filter and again, bare, from the `>` recursion): merge by id, tags united,
@@ -21,7 +22,7 @@ def convert(src, dst):
     merged = {"node": {}, "way": {}}
     for e in elements:
         kind = e.get("type")
-        if kind not in merged:
+        if kind not in merged or "id" not in e:
             continue
         cur = merged[kind].get(e["id"])
         if cur is None:
@@ -31,11 +32,11 @@ def convert(src, dst):
             for k in ("lat", "lon", "nodes"):
                 if k in e and k not in cur:
                     cur[k] = e[k]
-    nodes = list(merged["node"].values())
+    nodes = [n for n in merged["node"].values() if "lat" in n and "lon" in n]
     ways = list(merged["way"].values())
     lats = [n["lat"] for n in nodes]
     lons = [n["lon"] for n in nodes]
-    with open(dst, "w") as f:
+    with open(dst, "w", encoding="utf-8") as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n<osm version="0.6" generator="twinmodel overpass_to_osm">\n')
         if nodes:
             f.write(' <bounds minlat="%.7f" minlon="%.7f" maxlat="%.7f" maxlon="%.7f"/>\n' % (min(lats), min(lons), max(lats), max(lons)))
@@ -63,6 +64,14 @@ def convert(src, dst):
     return len(nodes), len(ways), len(tagged), len(sign_like)
 
 
+def main(argv=None) -> int:
+    args = sys.argv[1:] if argv is None else list(argv)
+    if len(args) < 2:
+        raise SystemExit("usage: overpass_to_osm.py <overpass.json> <out.osm>")
+    n, w, t, s = convert(args[0], args[1])
+    print("%s: %d nodes (%d tagged, %d sign-like), %d ways" % (args[1], n, t, s, w))
+    return 0
+
+
 if __name__ == "__main__":
-    n, w, t, s = convert(sys.argv[1], sys.argv[2])
-    print("%s: %d nodes (%d tagged, %d sign-like), %d ways" % (sys.argv[2], n, t, s, w))
+    raise SystemExit(main())

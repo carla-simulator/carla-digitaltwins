@@ -11,12 +11,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
-from pathlib import Path
+from pathlib import Path, PurePath
 import subprocess
 import sys
 import threading
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
@@ -26,9 +26,22 @@ from twinmodel.furniture import configuration, plan
 
 
 def atomic_json(path, value):
-    temp=path.with_suffix(path.suffix+'.tmp')
-    temp.write_text(json.dumps(value,indent=2,allow_nan=False)+'\n')
-    temp.replace(path)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f'.{path.name}.{uuid.uuid4().hex}.tmp')
+    try:
+        temp.write_text(json.dumps(value, indent=2, allow_nan=False) + '\n', encoding='utf-8')
+        temp.replace(path)
+    except BaseException:
+        temp.unlink(missing_ok=True)
+        raise
+
+
+def _quote_ue_arg(value) -> str:
+    text = value.as_posix() if isinstance(value, PurePath) else str(value)
+    if not text or any(ch.isspace() or ch == '"' for ch in text):
+        return '"' + text.replace('\\', '\\\\').replace('"', '\\"') + '"'
+    return text
 
 
 class Workspace:
@@ -38,28 +51,28 @@ class Workspace:
         self.output=Path(args.output).resolve();self.output.mkdir(parents=True,exist_ok=True)
         self.config_path=self.output/'config.json'
         cfg=Path(args.config) if args.config else self.config_path
-        self.config=configuration(json.loads(cfg.read_text()) if cfg.exists() else {})
+        self.config=configuration(json.loads(cfg.read_text(encoding='utf-8')) if cfg.exists() else {})
         if getattr(args,'anchors',None):
-            imported=json.loads(Path(args.anchors).read_text())
+            imported=json.loads(Path(args.anchors).read_text(encoding='utf-8'))
             self.config['anchors']=imported['anchors']
             self.config=configuration(self.config)
         self.poles=[]
         if self.model.signals and not args.poles:
             raise ValueError('This map has traffic controls. Supply --poles with their validated physical placements.')
         if args.poles:
-            raw=json.loads(Path(args.poles).read_text())
+            raw=json.loads(Path(args.poles).read_text(encoding='utf-8'))
             for s in raw:
                 p=s.get('placement',s)
                 if p.get('status','ok')!='ok':raise ValueError('Unresolved pole input')
                 self.poles.append(p)
-        self.vegetation=json.loads(Path(args.vegetation).read_text()) if args.vegetation else None
+        self.vegetation=json.loads(Path(args.vegetation).read_text(encoding='utf-8')) if args.vegetation else None
         if self.model.objects and not args.vegetation:
             raise ValueError('Supply --vegetation with the baked vegetation plan to reserve existing plants and tree bases.')
-        self.other_plans=[json.loads(Path(p).read_text()) for p in args.occupied_plan]
+        self.other_plans=[json.loads(Path(p).read_text(encoding='utf-8')) for p in args.occupied_plan]
         self.lock=threading.RLock();self.process=None;self.log_file=None
         saved_plan = self.output/'plan.json'
         if restore and saved_plan.exists():
-            self.result = json.loads(saved_plan.read_text())
+            self.result = json.loads(saved_plan.read_text(encoding='utf-8'))
             self.config = configuration(self.result['config'])
             self.seconds = 0.0
         else:
@@ -84,22 +97,26 @@ class Workspace:
             bake={'enabled':bool(self.args.engine and self.args.project and self.args.level),'running':False}
             if self.process:
                 code=self.process.poll();bake.update(running=code is None,exit_code=code)
+                if code is not None and self.log_file:
+                    self.log_file.close()
+                    self.log_file=None
                 report=self.output/'bake-report.json'
-                if code==0 and report.exists():bake['report']=json.loads(report.read_text())
+                if code==0 and report.exists():bake['report']=json.loads(report.read_text(encoding='utf-8'))
                 log=self.output/'bake.log'
                 if log.exists():
-                    log_text=log.read_text(errors='replace')
+                    log_text=log.read_text(encoding='utf-8',errors='replace')
                     bake['log_tail']=log_text[-4000:]
                     errors=[line.split('RuntimeError:',1)[1].strip() for line in log_text.splitlines() if 'RuntimeError:' in line]
                     if errors:bake['error']=errors[-1]
             display=self.result
             validated=self.output/'validated-plan.json'
-            if validated.exists():
-                saved=json.loads(validated.read_text())
-                if saved.get('source_plan_sha256')==hashlib.sha256((self.output/'plan.json').read_bytes()).hexdigest():
+            plan_file=self.output/'plan.json'
+            if validated.exists() and plan_file.exists():
+                saved=json.loads(validated.read_text(encoding='utf-8'))
+                if saved.get('source_plan_sha256')==hashlib.sha256(plan_file.read_bytes()).hexdigest():
                     display=saved
                     report=self.output/'bake-report.json'
-                    if report.exists():bake['report']=json.loads(report.read_text())
+                    if report.exists():bake['report']=json.loads(report.read_text(encoding='utf-8'))
             return {'config':self.config,'plan':display,'seconds':self.seconds,'bake':bake}
 
     def bake(self):
@@ -108,13 +125,13 @@ class Workspace:
                 raise ValueError('Start with --engine, --project and --level to enable baking')
             if self.process and self.process.poll() is None:raise ValueError('Bake already running')
             script=Path(__file__).resolve().parents[1]/'ue/bake_furniture.py'
-            import shlex
-            script_args=shlex.join([str(script),'--name',self.args.level,'--plan',str(self.output/'plan.json'),
-                                   '--region',self.args.region,'--report',str(self.output/'bake-report.json')])
+            script_args=' '.join(_quote_ue_arg(x) for x in [
+                script,'--name',self.args.level,'--plan',self.output/'plan.json',
+                '--region',self.args.region,'--report',self.output/'bake-report.json'])
             command=[str(Path(self.args.engine).resolve()),str(Path(self.args.project).resolve()),
                      '-run=pythonscript','-script='+script_args,'-nullrhi','-unattended','-nosound']
             if self.log_file:self.log_file.close()
-            self.log_file=open(self.output/'bake.log','w')
+            self.log_file=open(self.output/'bake.log','w',encoding='utf-8')
             report=self.output/'bake-report.json'
             if report.exists():report.unlink()
             self.process=subprocess.Popen(command,stdout=self.log_file,stderr=subprocess.STDOUT)
@@ -126,13 +143,20 @@ def serve(workspace,port):
         def log_message(self,*args):pass
         def reply(self,value,status=200):
             body=json.dumps(value,allow_nan=False).encode()
-            self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+            try:
+                self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+            except (BrokenPipeError,ConnectionResetError,ConnectionAbortedError):
+                pass
         def do_GET(self):
             if self.path=='/state':return self.reply(workspace.state())
             if self.path=='/geometry':return self.reply(workspace.geometry)
             if self.path=='/':
                 body=Path(__file__).with_name('furniture_tool.html').read_bytes()
-                self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body);return
+                try:
+                    self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+                except (BrokenPipeError,ConnectionResetError,ConnectionAbortedError):
+                    pass
+                return
             self.reply({'error':'Not found'},404)
         def do_POST(self):
             try:

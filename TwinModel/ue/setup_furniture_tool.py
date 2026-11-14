@@ -29,7 +29,7 @@ if not unreal.EditorAssetLibrary.save_loaded_asset(panel):
 catalog_path = Path(__file__).resolve().parents[1] / 'twinmodel/data/furniture/catalog.json'
 usage = unreal.MaterialUsage.MATUSAGE_INSTANCED_STATIC_MESHES
 seen = set()
-for spec in json.loads(catalog_path.read_text()).values():
+for spec in json.loads(catalog_path.read_text(encoding='utf-8')).values():
     mesh = unreal.load_asset(spec['path'])
     if not mesh:
         raise RuntimeError('Missing furniture mesh: '+spec['path'])

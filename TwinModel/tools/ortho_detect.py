@@ -185,6 +185,8 @@ class Detector:
 # ------------------------------------------------------------------------------------ geometry
 
 def crops_for(width: int, height: int, crop: int, overlap: int):
+    if width <= 0 or height <= 0:
+        return
     step = max(1, crop - overlap)
     xs = list(range(0, max(1, width - overlap), step))
     ys = list(range(0, max(1, height - overlap), step))
@@ -223,7 +225,7 @@ def run(build_dir: Path, name: str, *, layer: str, res: float, prompts: str, cro
     from shapely.geometry import box as shp_box, mapping
 
     twin_dir = build_dir / f"{name}.twin"
-    model = json.loads((twin_dir / "model.json").read_text())
+    model = json.loads((twin_dir / "model.json").read_text(encoding="utf-8"))
     frame = LocalFrame(model["origin_lat"], model["origin_lon"])
     bbox = tuple(float(v) for v in model["bbox_wgs84"])
     out_dir = out_dir or (build_dir / "detect")
@@ -242,9 +244,17 @@ def run(build_dir: Path, name: str, *, layer: str, res: float, prompts: str, cro
     px0, py0, px1, py1 = 0, 0, img.width, img.height
     if window:
         wx0, wy0, wx1, wy1 = window
-        px0 = int(max(0, (wx0 - xmin) / img.dx)); px1 = int(min(img.width, np.ceil((wx1 - xmin) / img.dx)))
-        py0 = int(max(0, (ymax - wy1) / img.dy)); py1 = int(min(img.height, np.ceil((ymax - wy0) / img.dy)))
+        if wx0 > wx1:
+            wx0, wx1 = wx1, wx0
+        if wy0 > wy1:
+            wy0, wy1 = wy1, wy0
+        px0 = min(img.width, max(0, int((wx0 - xmin) / img.dx)))
+        px1 = min(img.width, max(px0, int(np.ceil((wx1 - xmin) / img.dx))))
+        py0 = min(img.height, max(0, int((ymax - wy1) / img.dy)))
+        py1 = min(img.height, max(py0, int(np.ceil((ymax - wy0) / img.dy))))
     sub = north_up[py0:py1, px0:px1]
+    if sub.size == 0:
+        raise SystemExit("requested --window does not overlap orthophoto bounds")
     sub_xmin, sub_ymax = xmin + px0 * img.dx, ymax - py0 * img.dy
 
     det = Detector(gdino_id, sam_id if use_sam else None, device, box_threshold, text_threshold)
@@ -267,7 +277,8 @@ def run(build_dir: Path, name: str, *, layer: str, res: float, prompts: str, cro
             bx0, by0, bx1, by1 = f["box_px"]
             X0, Y1 = aff * (bx0, by0)
             X1, Y0 = aff * (bx1, by1)
-            d = Det(f["label"], f["score"], (X0, Y0, X1, Y1), cid)
+            box_m = (min(X0, X1), min(Y0, Y1), max(X0, X1), max(Y0, Y1))
+            d = Det(f["label"], f["score"], box_m, cid)
             if masks:
                 m = masks[k]
                 d.mask_px = int(m.sum())
@@ -296,17 +307,20 @@ def run(build_dir: Path, name: str, *, layer: str, res: float, prompts: str, cro
           "params": {"prompts": prompts, "crop": crop, "overlap": overlap, "sam": use_sam,
                      "box_threshold": box_threshold, "text_threshold": text_threshold,
                      "gdino": gdino_id, "sam_model": sam_id if use_sam else None}}
-    (out_dir / "detections.geojson").write_text(json.dumps(fc, separators=(",", ":")))
+    (out_dir / "detections.geojson").write_text(json.dumps(fc, separators=(",", ":")), encoding="utf-8")
 
     summary: dict[str, Any] = {"n": len(kept), "crops": n_crops, "seconds": round(time.time() - t0, 1),
                                "per_label": {}}
     for d in kept:
         s = summary["per_label"].setdefault(d.label, {"n": 0, "scores": []})
-        s["n"] += 1; s["scores"].append(d.score)
+        s["n"] += 1
+        s["scores"].append(d.score)
     for s in summary["per_label"].values():
-        sc = np.array(s.pop("scores")); s["score_mean"] = round(float(sc.mean()), 3); s["score_min"] = round(float(sc.min()), 3)
+        sc = np.array(s.pop("scores"))
+        s["score_mean"] = round(float(sc.mean()), 3)
+        s["score_min"] = round(float(sc.min()), 3)
     summary.update({"ortho": fc["ortho"], "params": fc["params"]})
-    (out_dir / "summary.json").write_text(json.dumps(summary, indent=1))
+    (out_dir / "summary.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     log.info("per label: %s", {k: v["n"] for k, v in summary["per_label"].items()})
 
     if preview:
@@ -316,10 +330,12 @@ def run(build_dir: Path, name: str, *, layer: str, res: float, prompts: str, cro
 
 def _preview(sub: np.ndarray, dets: list[Det], dx: float, xmin: float, ymax: float, path: Path) -> None:
     from PIL import Image, ImageDraw
+    if sub.size == 0:
+        return
     scale = min(1.0, 4000 / max(sub.shape[:2]))
     im = Image.fromarray(sub).convert("RGBA")
     if scale < 1.0:
-        im = im.resize((int(im.width * scale), int(im.height * scale)), Image.Resampling.BILINEAR)
+        im = im.resize((max(1, int(im.width * scale)), max(1, int(im.height * scale))), Image.Resampling.BILINEAR)
     overlay = Image.new("RGBA", im.size, (0, 0, 0, 0))
     dr = ImageDraw.Draw(overlay)
     palette = {}

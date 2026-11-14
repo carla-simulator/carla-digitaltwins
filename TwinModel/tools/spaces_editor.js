@@ -42,9 +42,11 @@ function buildSpaceCandidates() {
     for(let i=0;i<n;i++)spaceCandidates.push({...s,key:`${s.source}:${i}`,left:lineSlice(s.left,i/n,(i+1)/n),right:lineSlice(s.right,i/n,(i+1)/n),estimated:true});
   };
   const edges=TWIN.features.filter(f=>f.properties.layer==='lane_boundaries');
+  const outerByLane=new Map();
+  for(const f of edges){if(f.properties.boundary==='outer')outerByLane.set(`${f.properties.road_id}:${Number(f.properties.lane_id)}`,f);}
   for(const a of edges.filter(f=>f.properties.boundary==='inner')){
     const p=a.properties;if(p.junction_id||!SPACE_TYPES[p.type])continue;
-    const b=edges.find(f=>f.properties.boundary==='outer'&&f.properties.road_id===p.road_id&&Number(f.properties.lane_id)===Number(p.lane_id));if(!b)continue;
+    const b=outerByLane.get(`${p.road_id}:${Number(p.lane_id)}`);if(!b)continue;
     const positive=Number(p.lane_id)>0;
     append({source:`lane:${p.road_id}:${p.lane_id}`,name:p.name||'Unnamed street',kind:p.type,
       left:(positive?b:a).geometry.coordinates,right:(positive?a:b).geometry.coordinates,

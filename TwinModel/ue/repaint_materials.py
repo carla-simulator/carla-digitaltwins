@@ -151,7 +151,7 @@ def main(argv):
 
     by_asset = {}
     if args.manifest:
-        with open(args.manifest) as f:
+        with open(args.manifest, encoding="utf-8") as f:
             manifest = json.load(f)
         by_asset = {a["asset"]: a for a in manifest["assets"]}
         log("manifest %s: %d assets" % (args.manifest, len(by_asset)))
@@ -252,7 +252,7 @@ def main(argv):
     rep = args.report or (os.path.join(os.path.dirname(os.path.abspath(args.manifest)),
                                        "repaint_report.json") if args.manifest else None)
     if rep:
-        with open(rep, "w") as f:
+        with open(rep, "w", encoding="utf-8") as f:
             json.dump(report, f, indent=1)
         log("report -> %s" % rep)
     return 0
@@ -266,3 +266,5 @@ if __name__ == "__main__":
         unreal.log_error("[repaint_materials] FAILED\n" + traceback.format_exc())
         rc = 1
     print("[repaint_materials] exit %d" % rc, flush=True)
+    if rc:
+        sys.exit(rc)

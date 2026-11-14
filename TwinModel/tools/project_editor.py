@@ -1,10 +1,9 @@
 """Canonical web editor bound to durable DigitalTwin project inputs."""
-import json
 from pathlib import Path
 import shutil
 import subprocess
 import sys
-from twinmodel.filelock import lock_exclusive, unlock
+from twinmodel.filelock import is_locked
 import threading
 from types import SimpleNamespace
 import webbrowser
@@ -28,30 +27,34 @@ class ProjectStore(EditorStore):
         # Never fetch OSM just because a snapshot was opened in the editor.
         source = project.path('sources/osm.json')
         self._raw_original = read(source) if source.exists() else {'elements': []}
+        self._source_signature = checksum(source)
         imagery = project.path('sources/imagery.tif')
         if imagery.exists():
             self.ortho = OrthoTiler(imagery)
 
     def osm_original(self):
-        source = self.project.path('sources/osm.json')
-        signature = checksum(source)
-        if signature != getattr(self, '_source_signature', None):
-            self._raw_original = read(source) if source.exists() else {'elements': []}
-            self._source_signature = signature
-            self._osm = self._osm_raw_bytes = None
-        return self._raw_original
+        with self.lock:
+            source = self.project.path('sources/osm.json')
+            signature = checksum(source)
+            if signature != getattr(self, '_source_signature', None):
+                self._raw_original = read(source) if source.exists() else {'elements': []}
+                self._source_signature = signature
+                self._osm = self._osm_raw_bytes = None
+            return self._raw_original
 
     def corrections_json(self):
-        if not self.dirty:
-            self.corr = corr_mod.load_or_empty(self.corr_path, self.name)
-        return super().corrections_json()
+        with self.lock:
+            if not self.dirty:
+                self.corr = corr_mod.load_or_empty(self.corr_path, self.name)
+            return super().corrections_json()
 
     def rebuild(self):
         result = self.project.build('model')
-        self.model = read(self.twin_dir/'model.json')
-        self._twin = self._osm = None
-        self.last_rebuild = {'ok': True, 'stages': result['stages']}
-        return self.last_rebuild
+        with self.lock:
+            self.model = read(self.twin_dir/'model.json')
+            self._twin = self._osm = None
+            self.last_rebuild = {'ok': True, 'stages': result['stages']}
+            return self.last_rebuild
 
 
 class ProjectWorkspace(MapWorkspace):
@@ -83,61 +86,82 @@ class ProjectWorkspace(MapWorkspace):
                 tool.config = read(tool.config_path)
 
     def busy(self):
-        if bool(self.job and self.job.poll() is None) or super().busy():
+        job_running = False
+        if self.job is not None:
+            if self.job.poll() is None:
+                job_running = True
+            elif self.job_log is not None:
+                self.job_log.close()
+                self.job_log = None
+        if job_running or super().busy():
             return True
         path = self.project.path('state/project.lock')
-        if path.exists() and not getattr(self.writing, 'active', False):
-            with path.open('r') as file:
-                try:
-                    lock_exclusive(file)
-                except BlockingIOError:
-                    return True
-                unlock(file)
+        if not getattr(self.writing, 'active', False) and is_locked(path):
+            return True
         return False
 
     def token(self):
-        if not self.store.dirty:
-            current = corr_mod.load_or_empty(self.store.corr_path, self.store.name)
-            if current.ops != self.store.corr.ops:
-                self.store.corr = current
-                self.store._osm = None
-        return digest({'revision': revision(self.project), 'ops': self.store.corr.ops})
+        with self.store.lock:
+            if not self.store.dirty:
+                current = corr_mod.load_or_empty(self.store.corr_path, self.store.name)
+                if current.ops != self.store.corr.ops:
+                    self.store.corr = current
+                    self.store._osm = None
+            return digest({'revision': revision(self.project), 'ops': self.store.corr.ops})
 
     def state(self):
-        self.ensure_tools()
-        for name, tool in self.tools.items():
-            if tool.config_path.exists():
-                tool.config = read(tool.config_path)
-        value = super().state()
-        pipe = Pipeline(Project(self.project.root), self.target_name)
-        stages = {s['stage']:s['state'] for s in pipe.status()['stages']}
-        changed = False
-        for name, entry in value['tools'].items():
-            entry['stale'] |= entry['config'] != entry['plan']['config']
-            entry['bake']['enabled'] = pipe.target is not None
-            entry['bake']['running'] = self.busy()
-            if stages.get(name+'.bake') == 'current':
-                candidate = read(pipe.output(name+'.plan')/'plan.json')
-                validated = read(pipe.output(name+'.bake')/'validated-plan.json')
-                self.tools[name].result = candidate
-                signature = self.signature(name)
-                if self.inputs.get(name) != signature:
-                    self.inputs[name] = signature
-                    changed = True
-                entry['plan'] = validated
-                entry['stale'] = False
-                entry['bake']['report'] = read(pipe.output(name+'.bake')/'report.json')
-            if self.job and self.job.poll() not in (None, 0):
-                entry['bake']['error'] = 'Project run failed. Open the project panel for diagnostics.'
-        if changed:self.persist()
-        return value
+        with self.lock:
+            self.ensure_tools()
+            for name, tool in self.tools.items():
+                if tool.config_path.exists():
+                    tool.config = read(tool.config_path)
+            value = super().state()
+            pipe = Pipeline(Project(self.project.root), self.target_name)
+            stages = {s['stage']:s['state'] for s in pipe.status()['stages']}
+            changed = False
+            for name, entry in value['tools'].items():
+                entry['stale'] |= entry['config'] != entry['plan']['config']
+                entry['bake']['enabled'] = pipe.target is not None
+                entry['bake']['running'] = self.busy()
+                if stages.get(name+'.bake') == 'current':
+                    candidate = read(pipe.output(name+'.plan')/'plan.json')
+                    validated = read(pipe.output(name+'.bake')/'validated-plan.json')
+                    self.tools[name].result = candidate
+                    signature = self.signature(name)
+                    if self.inputs.get(name) != signature:
+                        self.inputs[name] = signature
+                        changed = True
+                    entry['plan'] = validated
+                    entry['stale'] = False
+                    entry['bake']['report'] = read(pipe.output(name+'.bake')/'report.json')
+                if self.job and self.job.poll() not in (None, 0):
+                    entry['bake']['error'] = 'Project run failed. Open the project panel for diagnostics.'
+            if changed:self.persist()
+            return value
 
     def ensure_tools(self):
         """Bring placement tabs online after the first apply exports occupancy."""
-        if not self.errors or self.busy():
+        if self.busy():
             return
         poles = self.project.path('build/targets/'+self.target_name+'/occupancy.export/poles.json')
         if not poles.exists():
+            return
+        veg_needs_poles = 'vegetation' in self.tools and not self.tools['vegetation'].args.poles
+        if not self.errors and not veg_needs_poles:
+            return
+        if veg_needs_poles:
+            veg = self.tools['vegetation']
+            try:
+                raw = read(poles)
+                parsed = [s.get('placement', s) for s in raw]
+                if any(p.get('status', 'ok') != 'ok' for p in parsed):
+                    raise ValueError('Unresolved pole input')
+                veg.args.poles = str(poles)
+                veg.poles = parsed
+                veg.geometry['poles'] = [[p['x'], -p['y']] for p in parsed]
+            except (ValueError, OSError, KeyError) as exc:
+                self.errors['vegetation'] = str(exc)
+        if not self.errors:
             return
         from vegetation_tool import Workspace as VegetationWorkspace
         from furniture_tool import Workspace as FurnitureWorkspace
@@ -163,11 +187,12 @@ class ProjectWorkspace(MapWorkspace):
         before = self.model_stamp
         super().reload_model()
         if before != self.model_stamp:
-            self.store.model = read(self.store.twin_dir/'model.json')
-            self.store._twin = self.store._osm = None
-            if self.project.status()['stages'][0]['state'] == 'current':
-                self.layout_stamp = digest(self.store.corr.ops)
-                self.persist()
+            with self.store.lock:
+                self.store.model = read(self.store.twin_dir/'model.json')
+                self.store._twin = self.store._osm = None
+                if self.project.status()['stages'][0]['state'] == 'current':
+                    self.layout_stamp = digest(self.store.corr.ops)
+                    self.persist()
 
     def set_ops(self, ops, save):
         with locked(self.project.root):
@@ -188,7 +213,7 @@ class ProjectWorkspace(MapWorkspace):
                 self.writing.active = False
 
     def check_expected(self):
-        expected = getattr(self, 'expected_token', None)
+        expected = getattr(self.writing, 'expected_token', None)
         if expected is not None and expected != self.token():
             raise RevisionConflict('Project changed while acquiring its write lock; reload before saving')
 
@@ -212,7 +237,7 @@ class ProjectWorkspace(MapWorkspace):
             command += ['--target', self.target_name]
         path = self.project.path('state/editor-job.log')
         if self.job_log:self.job_log.close()
-        self.job_log = path.open('w')
+        self.job_log = path.open('w', encoding='utf-8')
         self.job = subprocess.Popen(command, cwd=ROOT, stdout=self.job_log, stderr=subprocess.STDOUT)
         return self.project_state()
 
@@ -221,23 +246,26 @@ class ProjectWorkspace(MapWorkspace):
         return self.state()
 
     def project_state(self):
-        pipe = Pipeline(Project(self.project.root), self.target_name)
-        value = pipe.status()
-        value['target_level'] = pipe.target.get('level') if pipe.target else None
-        value['token'] = self.token()
-        value['dirty'] = self.store.dirty
-        value['job'] = {'running': self.busy(), 'exit_code': self.job.poll() if self.job else None}
-        log = self.project.path('state/editor-job.log')
-        if log.exists():value['job']['log'] = log.read_text(errors='replace')[-5000:]
-        diagnostics = sorted(self.project.path('runs').glob('*/model/*.reviewed-map.json'),
-                             key=lambda p: p.stat().st_mtime)
-        value['diagnostics'] = read(diagnostics[-1]).get('diagnostics', []) if diagnostics else []
-        return value
+        with self.lock:
+            pipe = Pipeline(Project(self.project.root), self.target_name)
+            value = pipe.status()
+            value['target_level'] = pipe.target.get('level') if pipe.target else None
+            value['token'] = self.token()
+            value['dirty'] = self.store.dirty
+            value['job'] = {'running': self.busy(), 'exit_code': self.job.poll() if self.job else None}
+            log = self.project.path('state/editor-job.log')
+            if log.exists():value['job']['log'] = log.read_text(encoding='utf-8', errors='replace')[-5000:]
+            diagnostics = sorted(self.project.path('runs').glob('*/model/*.reviewed-map.json'),
+                                 key=lambda p: p.stat().st_mtime)
+            value['diagnostics'] = read(diagnostics[-1]).get('diagnostics', []) if diagnostics else []
+            return value
 
 
 class ProjectHandler(EditorHandler):
     def end_headers(self):
-        self.send_header('X-Project-Revision', self.store.workspace.token())
+        if getattr(self, 'path', '').startswith('/api/'):
+            with self.store.workspace.lock:
+                self.send_header('X-Project-Revision', self.store.workspace.token())
         super().end_headers()
 
     def do_POST(self):
@@ -250,19 +278,22 @@ class ProjectHandler(EditorHandler):
             if self.headers.get('If-Match') != workspace.token():
                 self._json({'error': 'Project changed; reload the page before saving'}, 409)
                 return
-            workspace.expected_token = self.headers.get('If-Match')
-            if self.path.split('?')[0] == '/api/project/run':
-                try:
-                    if int(self.headers.get('Content-Length') or 0) > 2000000:
-                        raise ValueError('Request too large')
-                    body = self._body()
-                    if body.get('action', 'apply') not in ('apply', 'build', 'runtime'):
-                        raise ValueError('Unknown project action')
-                    self._json(workspace.start(body.get('action', 'apply'), body.get('only')))
-                except ValueError as exc:
-                    self._json({'error': str(exc)}, 400)
-                return
-            return super().do_POST()
+            workspace.writing.expected_token = self.headers.get('If-Match')
+            try:
+                if self.path.split('?')[0] == '/api/project/run':
+                    try:
+                        if int(self.headers.get('Content-Length') or 0) > 2000000:
+                            raise ValueError('Request too large')
+                        body = self._body()
+                        if body.get('action', 'apply') not in ('apply', 'build', 'runtime'):
+                            raise ValueError('Unknown project action')
+                        self._json(workspace.start(body.get('action', 'apply'), body.get('only')))
+                    except ValueError as exc:
+                        self._json({'error': str(exc)}, 400)
+                    return
+                return super().do_POST()
+            finally:
+                workspace.writing.expected_token = None
 
     do_PUT = do_POST
 
@@ -273,13 +304,17 @@ class ProjectHandler(EditorHandler):
         if self.path.split('?')[0] == '/api/project/export':
             # Archive generation is explicit and serialized with project writers.
             import tempfile
-            with tempfile.TemporaryDirectory() as folder:
-                archive = Path(folder)/'map.twinproject'
-                export_project(self.store.project, archive)
-                self._send(200, archive.read_bytes(), 'application/zip')
+            try:
+                with tempfile.TemporaryDirectory() as folder:
+                    archive = Path(folder)/'map.twinproject'
+                    with self.store.workspace.lock, locked(self.store.project.root):
+                        export_project(self.store.project, archive)
+                    self._send(200, archive.read_bytes(), 'application/zip')
+            except BlockingIOError:
+                self._json({'error': 'Project is busy; wait for the active run to finish before exporting'}, 409)
             return
         if self.path == '/':
-            script = (ROOT/'tools/project_workspace.js').read_text()
+            script = (ROOT/'tools/project_workspace.js').read_text(encoding='utf-8')
             # Revision-aware transport must install before the canonical scripts.
             page = EDITOR_PAGE.replace('<script>', '<script>'+script+'</script><script>', 1)
             self._send(200, page.encode(), 'text/html; charset=utf-8')

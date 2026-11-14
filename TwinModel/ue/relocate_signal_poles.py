@@ -8,6 +8,7 @@ import json
 import math
 import os
 import sys
+import traceback
 
 import unreal
 
@@ -20,17 +21,20 @@ def main(argv):
     ap.add_argument('--name', required=True)
     ap.add_argument('--signals', required=True)
     ap.add_argument('--report', required=True)
+    ap.add_argument('--map-root', default=MAP_ROOT)
     args = ap.parse_args(argv)
-    records = json.load(open(args.signals))
+    with open(args.signals, encoding='utf-8') as f:
+        records = json.load(f)
     targets = {}
     for s in records:
+        sid = str(s['id'])
         p = s.get('placement', {})
         if p.get('status') != 'ok' or not all(math.isfinite(p[k]) for k in ('x', 'y', 'z')):
-            raise ValueError('Missing/unsafe placement for ' + s['id'])
-        prefix = 'TL_' if s['type'] in ('1000001', '1000002') else 'SIGN_'
-        targets[prefix + s['id']] = p
+            raise ValueError('Missing/unsafe placement for ' + sid)
+        prefix = 'TL_' if str(s.get('type', '')) in ('1000001', '1000002') else 'SIGN_'
+        targets[prefix + sid] = p
     les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
-    if not les.load_level(f'{MAP_ROOT}/{args.name}/{args.name}'):
+    if not les.load_level(f'{args.map_root}/{args.name}/{args.name}'):
         raise RuntimeError('Cannot load level ' + args.name)
     actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors()
     jobs = []
@@ -55,7 +59,7 @@ def main(argv):
         report['moved'].append({'label': label, 'before': [before.x/100, before.y/100, before.z/100],
                                 'after': [after.x/100, after.y/100, after.z/100]})
     report['saved'] = bool(save_all())
-    with open(args.report, 'w') as f:
+    with open(args.report, 'w', encoding='utf-8') as f:
         json.dump(report, f, indent=2)
     if not report['saved']:
         raise RuntimeError('Level save failed')
@@ -63,4 +67,9 @@ def main(argv):
 
 
 if __name__ == '__main__':
-    main(sys.argv[1:])
+    try:
+        main(sys.argv[1:])
+    except Exception:
+        traceback.print_exc()
+        unreal.log_error('[relocate_signal_poles] FAILED\n' + traceback.format_exc())
+        sys.exit(1)

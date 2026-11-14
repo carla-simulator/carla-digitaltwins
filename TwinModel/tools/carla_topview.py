@@ -64,6 +64,7 @@ def _load_region_review():
     """Import the sibling page generator (shared bounds + model->CARLA flip)."""
     here = Path(__file__).resolve().parent
     spec = importlib.util.spec_from_file_location("region_review_page", here / "region_review_page.py")
+    assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
@@ -95,7 +96,8 @@ def content_fractions(mosaic: Path, meta: dict) -> dict[tuple[int, int], float]:
     """
     nx, ny = meta["tiles"]
     tp = int(meta["tile_px"])
-    lum = np.asarray(Image.open(mosaic).convert("L"))
+    with Image.open(mosaic) as im:
+        lum = np.asarray(im.convert("L"))
     out = {}
     for j in range(ny):
         for i in range(nx):
@@ -108,10 +110,10 @@ class Elevation:
     """``elevation.npz`` sampler: bilinear ground z in model metres, NaN-safe."""
 
     def __init__(self, path: Path):
-        d = np.load(path)
-        self.z = np.asarray(d["z"], dtype=float)
-        self.x0, self.y0 = float(d["x0"]), float(d["y0"])
-        self.dx, self.dy = float(d["dx"]), float(d["dy"])
+        with np.load(path) as d:
+            self.z = np.asarray(d["z"], dtype=float)
+            self.x0, self.y0 = float(d["x0"]), float(d["y0"])
+            self.dx, self.dy = float(d["dx"]), float(d["dy"])
         finite = self.z[np.isfinite(self.z)]
         self.median = float(np.median(finite)) if finite.size else 0.0
 
@@ -200,8 +202,12 @@ class Shooter:
         self.sink: queue.Queue = queue.Queue()
         self.cam = world.spawn_actor(bp, carla.Transform(
             carla.Location(0, 0, alt), carla.Rotation(pitch=-90.0, yaw=yaw, roll=0.0)))
-        self.cam.listen(self.sink.put)
-        self.spectator = world.get_spectator()
+        try:
+            self.cam.listen(self.sink.put)
+            self.spectator = world.get_spectator()
+        except Exception:
+            self.close()
+            raise
 
     def _settle(self) -> np.ndarray | None:
         prev = last = None
@@ -240,11 +246,16 @@ class Shooter:
         half = width_m * self.px_per_m / 2.0
         c = self.res / 2.0
         box = (int(round(c - half)), int(round(c - half)), int(round(c + half)), int(round(c + half)))
-        return Image.fromarray(frame).crop(box).resize((out_px, out_px), Image.LANCZOS)
+        return Image.fromarray(frame).crop(box).resize(
+            (out_px, out_px), getattr(Image, "Resampling", Image).LANCZOS
+        )
 
     def close(self) -> None:
-        self.cam.stop()
-        self.cam.destroy()
+        try:
+            self.cam.stop()
+            self.cam.destroy()
+        except Exception:
+            pass
 
 
 def _prepare_world(client, carla, name: str) -> Any:
@@ -273,10 +284,13 @@ def _prepare_world(client, carla, name: str) -> Any:
 
 def _release_world(world) -> None:
     """Hand the server back the way we found it: nothing ticks it once this process exits."""
-    settings = world.get_settings()
-    settings.synchronous_mode = False
-    settings.fixed_delta_seconds = None
-    world.apply_settings(settings)
+    try:
+        settings = world.get_settings()
+        settings.synchronous_mode = False
+        settings.fixed_delta_seconds = None
+        world.apply_settings(settings)
+    except Exception:
+        pass
 
 
 def _ground(elev: Elevation, world, carla, cx: float, cy: float) -> float:
@@ -360,7 +374,7 @@ def capture_level0(client, carla, *, name: str, twin_dir: Path, bounds: Sequence
         "jpeg_bytes": jpg.stat().st_size, "png_bytes": png.stat().st_size,
         "seconds": round(time.time() - t_start, 1),
     }
-    (out_dir / f"topview_{name}.json").write_text(json.dumps(meta, indent=2))
+    (out_dir / f"topview_{name}.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     log.info("%s L0: %s  %dx%d px  jpeg %.2f MB  in %.0f s", name, jpg, mosaic.width, mosaic.height,
              meta["jpeg_bytes"] / 1e6, meta["seconds"])
     return meta
@@ -397,7 +411,7 @@ def capture_detail(client, carla, *, name: str, twin_dir: Path, bounds: Sequence
     if want is None:
         l0 = out_dir / f"topview_{name}.json"
         if l0.exists():
-            frac = content_fractions(out_dir / f"topview_{name}.png", json.loads(l0.read_text()))
+            frac = content_fractions(out_dir / f"topview_{name}.png", json.loads(l0.read_text(encoding="utf-8")))
             want = {k for k, v in frac.items() if v > min_content}
             log.info("%s L1: %d of %d tiles hold >%.0f%% map, skipping the rest",
                      name, len(want), nx * ny, 100 * min_content)
@@ -409,67 +423,70 @@ def capture_detail(client, carla, *, name: str, twin_dir: Path, bounds: Sequence
     if scratch.exists():
         shutil.rmtree(scratch)
     scratch.mkdir(parents=True)
-    shooter = Shooter(world, carla, alt=alt, fov=fov, res=res, yaw=yaw, settle_cap=settle_cap,
-                      settle_tol=settle_tol, warm_ticks=warm_ticks, spectator_ticks=spectator_ticks)
-    stats: dict[tuple[int, int, int, int], tuple[float, float]] = {}
-    total = len(want) * sub * sub
-    done = 0
+    entries = []
     try:
+        shooter = Shooter(world, carla, alt=alt, fov=fov, res=res, yaw=yaw, settle_cap=settle_cap,
+                          settle_tol=settle_tol, warm_ticks=warm_ticks, spectator_ticks=spectator_ticks)
+        stats: dict[tuple[int, int, int, int], tuple[float, float]] = {}
+        total = len(want) * sub * sub
+        done = 0
+        try:
+            for (i, j) in sorted(want, key=lambda t: (t[1], t[0])):
+                for sj in range(sub):
+                    for si in range(sub):
+                        cx = x0 + i * TILE + (si + 0.5) * sub_m
+                        cy = y0 + j * TILE + (sj + 0.5) * sub_m
+                        gz = _ground(elev, world, carla, cx, cy)
+                        frame = shooter.frame(cx, -cy, gz)
+                        if frame is None:
+                            log.warning("%s L1 %d,%d/%d,%d: no frame", name, i, j, si, sj)
+                            continue
+                        crop = shooter.crop(frame, sub_m, sub_px)
+                        arr = np.asarray(crop, dtype=np.uint8)
+                        stats[(i, j, si, sj)] = measure(arr)
+                        crop.save(scratch / f"{i}_{j}_{si}_{sj}.png", compress_level=1)
+                        done += 1
+                log.info("%s L1 tile %d,%d done (%d/%d frames, %.0f s)",
+                         name, i, j, done, total, time.time() - t_start)
+        finally:
+            shooter.close()
+
+        gains = exposure_gains(stats) if match_exposure else {k: 1.0 for k in stats}
+        log.info("%s L1: exposure gains %.3f..%.3f over %d frames", name,
+                 min(gains.values(), default=1.0), max(gains.values(), default=1.0), len(gains))
+
+        tdir = out_dir / f"detail_{name}"
+        tdir.mkdir(parents=True, exist_ok=True)
         for (i, j) in sorted(want, key=lambda t: (t[1], t[0])):
+            tile = Image.new("RGB", (tile_px, tile_px), (0, 0, 0))
+            n = 0
             for sj in range(sub):
                 for si in range(sub):
-                    cx = x0 + i * TILE + (si + 0.5) * sub_m
-                    cy = y0 + j * TILE + (sj + 0.5) * sub_m
-                    gz = _ground(elev, world, carla, cx, cy)
-                    frame = shooter.frame(cx, -cy, gz)
-                    if frame is None:
-                        log.warning("%s L1 %d,%d/%d,%d: no frame", name, i, j, si, sj)
+                    p = scratch / f"{i}_{j}_{si}_{sj}.png"
+                    if not p.exists():
                         continue
-                    crop = shooter.crop(frame, sub_m, sub_px)
-                    arr = np.asarray(crop, dtype=np.uint8)
-                    stats[(i, j, si, sj)] = measure(arr)
-                    crop.save(scratch / f"{i}_{j}_{si}_{sj}.png", compress_level=1)
-                    done += 1
-            log.info("%s L1 tile %d,%d done (%d/%d frames, %.0f s)",
-                     name, i, j, done, total, time.time() - t_start)
+                    with Image.open(p) as sub_im:
+                        arr = np.asarray(sub_im, dtype=np.uint8)
+                    gain = gains.get((i, j, si, sj), 1.0)
+                    if abs(gain - 1.0) > 1e-3:
+                        arr = np.clip(arr.astype(np.float32) * gain, 0, 255).astype(np.uint8)
+                    tile.paste(Image.fromarray(arr), (si * sub_px, (sub - 1 - sj) * sub_px))
+                    n += 1
+            if not n:
+                continue
+            webp = tdir / f"tile_{i}_{j}.webp"
+            tile.save(webp, format="WEBP", quality=webp_quality, method=4)
+            if keep_png:
+                tile.save(tdir / f"tile_{i}_{j}.png", compress_level=1)
+            entries.append({
+                "i": i, "j": j,
+                "bounds": [x0 + i * TILE, y0 + j * TILE, x0 + (i + 1) * TILE, y0 + (j + 1) * TILE],
+                "file": f"detail_{name}/{webp.name}", "bytes": webp.stat().st_size,
+            })
+            log.info("%s L1 tile %d,%d -> %s %.2f MB", name, i, j, webp.name,
+                     webp.stat().st_size / 1e6)
     finally:
-        shooter.close()
-
-    gains = exposure_gains(stats) if match_exposure else {k: 1.0 for k in stats}
-    log.info("%s L1: exposure gains %.3f..%.3f over %d frames", name,
-             min(gains.values(), default=1.0), max(gains.values(), default=1.0), len(gains))
-
-    tdir = out_dir / f"detail_{name}"
-    tdir.mkdir(parents=True, exist_ok=True)
-    entries = []
-    for (i, j) in sorted(want, key=lambda t: (t[1], t[0])):
-        tile = Image.new("RGB", (tile_px, tile_px), (0, 0, 0))
-        n = 0
-        for sj in range(sub):
-            for si in range(sub):
-                p = scratch / f"{i}_{j}_{si}_{sj}.png"
-                if not p.exists():
-                    continue
-                arr = np.asarray(Image.open(p), dtype=np.uint8)
-                gain = gains.get((i, j, si, sj), 1.0)
-                if abs(gain - 1.0) > 1e-3:
-                    arr = np.clip(arr.astype(np.float32) * gain, 0, 255).astype(np.uint8)
-                tile.paste(Image.fromarray(arr), (si * sub_px, (sub - 1 - sj) * sub_px))
-                n += 1
-        if not n:
-            continue
-        webp = tdir / f"tile_{i}_{j}.webp"
-        tile.save(webp, format="WEBP", quality=webp_quality, method=4)
-        if keep_png:
-            tile.save(tdir / f"tile_{i}_{j}.png", compress_level=1)
-        entries.append({
-            "i": i, "j": j,
-            "bounds": [x0 + i * TILE, y0 + j * TILE, x0 + (i + 1) * TILE, y0 + (j + 1) * TILE],
-            "file": f"detail_{name}/{webp.name}", "bytes": webp.stat().st_size,
-        })
-        log.info("%s L1 tile %d,%d -> %s %.2f MB", name, i, j, webp.name,
-                 webp.stat().st_size / 1e6)
-    shutil.rmtree(scratch, ignore_errors=True)
+        shutil.rmtree(scratch, ignore_errors=True)
 
     meta = {
         "map": name, "level": 1, "twin_dir": str(twin_dir),
@@ -484,7 +501,7 @@ def capture_detail(client, carla, *, name: str, twin_dir: Path, bounds: Sequence
         "webp_bytes": sum(e["bytes"] for e in entries),
         "seconds": round(time.time() - t_start, 1),
     }
-    (out_dir / f"topview_{name}_detail.json").write_text(json.dumps(meta, indent=2))
+    (out_dir / f"topview_{name}_detail.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     log.info("%s L1: %d tiles, %.2f MB webp total, %.1f cm/px, in %.0f s", name, len(entries),
              meta["webp_bytes"] / 1e6, meta["cm_per_px"], meta["seconds"])
     return meta

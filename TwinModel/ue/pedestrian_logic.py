@@ -8,7 +8,9 @@ def connect_logic(logic, signals, controller_of, junction_of):
     by_controller = {}
     for signal in pedestrians:
         sid = str(signal['id'])
-        cid = controller_of[sid]
+        cid = controller_of.get(sid)
+        if not cid:
+            raise ValueError('Pedestrian signal has no controller in OpenDRIVE: ' + sid)
         if not cid.startswith('ped_') or any(
                 other not in ped_ids and controller == cid
                 for other, controller in controller_of.items()):
@@ -33,8 +35,11 @@ def connect_logic(logic, signals, controller_of, junction_of):
         if sid not in ped_ids:
             continue
         cid = controller_of[sid]
+        jid = junction_of.get(cid)
+        if jid is None:
+            raise ValueError('Pedestrian controller has no junction in OpenDRIVE: ' + cid)
         entry['TrafficLightGroupID'] = cid
-        entry['JunctionID'] = int(junction_of[cid])
+        entry['JunctionID'] = int(jid)
         entry['Timing'].update(GreenDuration=10.0, AmberDuration=0.0,
                                RedDuration=clearance[cid])
         seen.add(sid)

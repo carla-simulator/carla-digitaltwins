@@ -32,6 +32,7 @@ Pure Python (no ``unreal``): usable from bake_level.py inside the editor and tes
 outside it.
 """
 import math
+from xml.sax.saxutils import quoteattr
 
 # UStreetMapFactory::GetTransversemercProjection constants (StreetMapFactory.cpp)
 _R = 6373000.0  # spherical earth radius used by the plugin, metres
@@ -75,10 +76,11 @@ def buildings_osm_xml(manifest, use_raw=False):
                 refs.append(nid)
                 nid += 1
             refs.append(refs[0])  # close the way
-            tags = ['<tag k="building" v="%s"/>' % (b.get("category") or "yes"),
-                    '<tag k="height" v="%.1f"/>' % b["height_m"]]
+            cat_attr = quoteattr(str(b.get("category") or "yes"))
+            tags = ['<tag k="building" v=%s/>' % cat_attr,
+                    '<tag k="height" v="%.1f"/>' % float(b["height_m"])]
             if b.get("levels"):
-                tags.append('<tag k="building:levels" v="%d"/>' % b["levels"])
+                tags.append('<tag k="building:levels" v="%d"/>' % int(b["levels"]))
             ways.append('<way id="%d" version="1">%s%s</way>'
                         % (nid, "".join('<nd ref="%d"/>' % r for r in refs), "".join(tags)))
             nid += 1
@@ -90,6 +92,6 @@ def buildings_osm_xml(manifest, use_raw=False):
 def write_buildings_osm(manifest, path, use_raw=False):
     """Write ``buildings_osm_xml`` to ``path``; returns the number of ways written."""
     xml = buildings_osm_xml(manifest, use_raw=use_raw)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(xml)
     return xml.count("<way ")

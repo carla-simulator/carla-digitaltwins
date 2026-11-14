@@ -42,10 +42,12 @@ is cached or written to disk.  Everything else is served from this process: the 
 from __future__ import annotations
 
 import argparse
+from collections import OrderedDict
 import io
 import json
 import logging
 import math
+import re
 import sys
 import threading
 import webbrowser
@@ -154,12 +156,12 @@ def twin_geojson(twin_dir: Path, frame: LocalFrame) -> dict[str, Any]:
     for layer in TWIN_LAYERS + ("lanes",):
         if layer == "lanes":
             rp = twin_dir / "roads.geojson"
-            fc = {"features": lane_band_features(json.loads(rp.read_text()), include_boundaries=True)} if rp.exists() else {"features": []}
+            fc = {"features": lane_band_features(json.loads(rp.read_text(encoding="utf-8")), include_boundaries=True)} if rp.exists() else {"features": []}
         else:
             p = twin_dir / f"{layer}.geojson"
             if not p.exists():
                 continue
-            fc = json.loads(p.read_text())
+            fc = json.loads(p.read_text(encoding="utf-8"))
         n = 0
         for f in fc.get("features", []):
             geom = f.get("geometry")
@@ -286,6 +288,7 @@ class OrthoTiler:
     """Web-mercator XYZ tiles cut from one GeoTIFF (any CRS) with a per-tile ``warp.reproject``."""
     TILE = 256
     R = 6378137.0
+    MAX_CACHE = 256
 
     def __init__(self, path: Path):
         import numpy as np
@@ -298,6 +301,14 @@ class OrthoTiler:
         self.bounds = transform_bounds(self.src.crs, "EPSG:3857", *self.src.bounds)   # xmin ymin xmax ymax
         self.detail = self.src.tags().get("detail") or self.src.tags().get("source") or path.name
         self.res_m = float(self.src.res[0])
+        self._src_transform = self.src.transform
+        self._src_crs = self.src.crs
+        self._cache: OrderedDict[tuple[int, int, int], bytes | None] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def close(self) -> None:
+        if self.src is not None and not self.src.closed:
+            self.src.close()
 
     @classmethod
     def tile_bounds(cls, z: int, x: int, y: int) -> tuple[float, float, float, float]:
@@ -308,6 +319,11 @@ class OrthoTiler:
         return xmin, ymax - size, xmin + size, ymax
 
     def tile_png(self, z: int, x: int, y: int) -> bytes | None:
+        key = (z, x, y)
+        with self._lock:
+            if key in self._cache:
+                self._cache.move_to_end(key)
+                return self._cache[key]
         import numpy as np
         from PIL import Image
         from rasterio.enums import Resampling
@@ -320,13 +336,19 @@ class OrthoTiler:
         dst_tf = from_bounds(xmin, ymin, xmax, ymax, self.TILE, self.TILE)
         rgb = np.zeros((3, self.TILE, self.TILE), dtype="uint8")
         alpha = np.zeros((self.TILE, self.TILE), dtype="uint8")
-        common = dict(src_transform=self.src.transform, src_crs=self.src.crs, dst_transform=dst_tf, dst_crs="EPSG:3857")
+        common = dict(src_transform=self._src_transform, src_crs=self._src_crs, dst_transform=dst_tf, dst_crs="EPSG:3857")
         reproject(self.rgb, rgb, resampling=Resampling.bilinear, **common)
         reproject(self.alpha, alpha, resampling=Resampling.nearest, **common)
         rgba = np.concatenate([np.transpose(rgb, (1, 2, 0)), alpha[..., None]], axis=2)
         buf = io.BytesIO()
         Image.fromarray(rgba, "RGBA").save(buf, format="PNG", compress_level=3)
-        return buf.getvalue()
+        png = buf.getvalue()
+        with self._lock:
+            self._cache[key] = png
+            self._cache.move_to_end(key)
+            while len(self._cache) > self.MAX_CACHE:
+                self._cache.popitem(last=False)
+        return png
 
 
 def discover_lowfly(twin_dir: Path, lowfly_root: Path) -> Path | None:
@@ -339,7 +361,7 @@ def discover_lowfly(twin_dir: Path, lowfly_root: Path) -> Path | None:
         if not m.exists():
             continue
         try:
-            raw = json.loads(m.read_text()).get("twin_dir") or ""
+            raw = json.loads(m.read_text(encoding="utf-8")).get("twin_dir") or ""
         except (OSError, json.JSONDecodeError):
             continue
         td = Path(raw)
@@ -355,12 +377,12 @@ class Store:
         self.build_dir = build_dir
         self.name = name
         self.twin_dir = build_dir / f"{name}.twin"
-        self.model = json.loads((self.twin_dir / "model.json").read_text())
+        self.model = json.loads((self.twin_dir / "model.json").read_text(encoding="utf-8"))
         self.frame = LocalFrame(self.model["origin_lat"], self.model["origin_lon"])
         self.bbox = [float(v) for v in self.model["bbox_wgs84"]]        # S W N E
         self.lowfly = lowfly
         self.data_dir = data_dir
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self._twin: bytes | None = None
         self._osm: bytes | None = None
         self.twin_counts: dict[str, int] = {}
@@ -405,15 +427,18 @@ class Store:
     def detect_bytes(self, stem: str) -> bytes | None:
         """``<build_dir>/detect/<stem>.geojson`` (model metres, from tools/ortho_*.py / kerb_edges.py / tile2net_run.py)
         reprojected to WGS84; cached per mtime."""
-        p = self.build_dir / "detect" / f"{stem}.geojson"
-        if not p.exists() or "/" in stem or stem.startswith("."):
+        if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*", stem) or ".." in stem:
+            return None
+        det_dir = (self.build_dir / "detect").resolve()
+        p = (det_dir / f"{stem}.geojson").resolve()
+        if not p.is_relative_to(det_dir) or not p.is_file():
             return None
         mtime = p.stat().st_mtime
         with self.lock:
             cached = self._detect.get(stem)
             if cached and cached[0] == mtime:
                 return cached[1]
-            fc = json.loads(p.read_text())
+            fc = json.loads(p.read_text(encoding="utf-8"))
             tf = self.frame._to_wgs()
             feats = []
             for f in fc.get("features", []):
@@ -451,7 +476,7 @@ class Store:
         if not m.exists():
             return None
         try:
-            return json.loads(m.read_text())
+            return json.loads(m.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None
 
@@ -501,11 +526,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:                                  # noqa: N802
         try:
             self._route()
-        except BrokenPipeError:
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
         except Exception as exc:                               # noqa: BLE001
             log.exception("GET %s failed", self.path)
-            self._error(500, str(exc))
+            try:
+                self._error(500, str(exc))
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                pass
 
     def _route(self) -> None:
         raw = self.path.split("?")[0]
@@ -667,6 +695,7 @@ const BASEMAPS = [   // [label, layer, region-default key]
       { maxNativeZoom: 19, maxZoom: 24, attribution: "© OpenStreetMap contributors" }), null],
   ["none", L.layerGroup(), null],
 ];
+const escHtml = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 let base = null;
 function setBase(i) {
   if (base) map.removeLayer(base);
@@ -677,7 +706,7 @@ function setBase(i) {
 function buildBasemaps(meta) {
   if (meta.ortho) {   // the GeoTIFF the build consumed, tiled by the server; insert first
     BASEMAPS.unshift([`pipeline input ortho · ${meta.ortho.res_m.toFixed(2)} m/px (${meta.ortho.detail})`,
-      L.tileLayer("/ortho/{z}/{x}/{y}.png", { maxNativeZoom: 21, maxZoom: 24, attribution: meta.ortho.detail }), null]);
+      L.tileLayer("/ortho/{z}/{x}/{y}.png", { maxNativeZoom: 21, maxZoom: 24, attribution: escHtml(meta.ortho.detail) }), null]);
   }
   const host = document.getElementById("basemaps");
   host.innerHTML = "";
@@ -686,7 +715,7 @@ function buildBasemaps(meta) {
   if (Q.has("base")) pick = Math.max(0, Math.min(BASEMAPS.length - 1, +Q.get("base") || 0));
   BASEMAPS.forEach(([label], i) => {
     const row = document.createElement("div"); row.className = "row";
-    row.innerHTML = `<input type="radio" name="base" id="b${i}"><label for="b${i}" title="${label}">${label}</label>`;
+    row.innerHTML = `<input type="radio" name="base" id="b${i}"><label for="b${i}" title="${escHtml(label)}">${escHtml(label)}</label>`;
     row.querySelector("input").addEventListener("change", () => setBase(i));
     host.appendChild(row);
   });
@@ -702,8 +731,8 @@ function addOverlay(hostId, key, label, colour, layer, opacity, on) {
   if (Q_OFF.has(key)) on = false;
   const host = document.getElementById(hostId);
   const row = document.createElement("div"); row.className = "row";
-  row.innerHTML = `<input type="checkbox" id="c-${key}" ${on ? "checked" : ""}>
-    <label for="c-${key}"><span class="sw" style="background:${colour}"></span>${label}</label>
+  row.innerHTML = `<input type="checkbox" id="c-${escHtml(key)}" ${on ? "checked" : ""}>
+    <label for="c-${escHtml(key)}"><span class="sw" style="background:${escHtml(colour)}"></span>${escHtml(label)}</label>
     <input type="range" min="0" max="1" step="0.05" value="${opacity}" title="opacity">`;
   host.appendChild(row);
   const g = { layer, opacity, on, key, row };
@@ -740,8 +769,8 @@ function flicker(keys) {
 function popupTable(props) {
   const rows = Object.entries(props).filter(([k]) => k !== "layer")
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `<tr><td>${k}</td><td>${String(v).replace(/</g, "&lt;")}</td></tr>`).join("");
-  return `<b>${props.layer}</b><table>${rows}</table>`;
+    .map(([k, v]) => `<tr><td>${escHtml(k)}</td><td>${escHtml(v)}</td></tr>`).join("");
+  return `<b>${escHtml(props.layer)}</b><table>${rows}</table>`;
 }
 function geoLayer(fc, filter, style, pointToLayer, onEach) {
   const lyr = L.geoJSON(fc, {
@@ -1043,6 +1072,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         pass
     finally:
         srv.server_close()
+        if store.ortho is not None:
+            store.ortho.close()
     return 0
 
 

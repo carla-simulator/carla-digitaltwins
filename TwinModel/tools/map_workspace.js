@@ -34,6 +34,7 @@
   const panel = document.createElement('section');panel.id='planning-panel';panel.hidden=true;
   tools.querySelector('header').after(tabs);tabs.after(layers);layers.after(notice);notice.after(panel);
   let active='layout', data=null, selected=null, selectedArea=null, mode='inspect', draft=[], busy=false;
+  $('scene-collapse').onclick=()=>{const collapsed=tools.classList.toggle('scene-collapsed');$('scene-panel-body').hidden=collapsed||active!=='layout';panel.hidden=collapsed||active==='layout';const b=$('scene-collapse');b.textContent=collapsed?'›':'‹';b.setAttribute('aria-expanded',String(!collapsed));b.setAttribute('aria-label',collapsed?'Expand panel':'Collapse panel');};
   const histories={vegetation:[],furniture:[]}, visible={layout:true,vegetation:true,furniture:true};
   const groups={vegetation:L.layerGroup().addTo(map),furniture:L.layerGroup().addTo(map)}, sketches=L.layerGroup().addTo(map);
   const pane=map.createPane('planning');pane.style.zIndex='610';
@@ -59,9 +60,9 @@
   function setTab(name){
     if(busy||creation?.saving)return;
     cancelCreation();setInteractionMode(false);deselect(true);active=name;selected=null;selectedArea=null;setMode('inspect');
-    $('scene-collapse').onclick=()=>{const collapsed=tools.classList.toggle('scene-collapsed');$('scene-panel-body').hidden=collapsed||active!=='layout';panel.hidden=collapsed||active==='layout';const b=$('scene-collapse');b.textContent=collapsed?'›':'‹';b.setAttribute('aria-expanded',String(!collapsed));};
+    const collapsed=tools.classList.contains('scene-collapsed');
     TOOL=name==='layout'?null:'planning';map.getContainer().classList.toggle('planning-active',name!=='layout');
-    $('scene-panel-body').hidden=name!=='layout';panel.hidden=name==='layout';$('b-save').hidden=name!=='layout';
+    $('scene-panel-body').hidden=collapsed||name!=='layout';panel.hidden=collapsed||name==='layout';$('b-save').hidden=name!=='layout';
     tabs.querySelectorAll('button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===name)));
     renderPanel();draw();
   }
@@ -86,7 +87,7 @@
         const colour=g.id===selected&&isActive?'#ffffff':g.status!=='accepted'?'#f1a369':name==='vegetation'?'#61d69a':'#57cce3';
         if(name==='furniture'&&g.occupied){geometry(g.occupied,colour,group,g.id);for(const m of g.members||[])geometry(m.footprint,colour,group,g.id,null,.7);}
         const marker=L.circleMarker(ll(g.position),{...options,radius:g.id===selected&&isActive?7:name==='vegetation'?3.5:4,color:colour,weight:1,fillColor:colour,fillOpacity:g.status==='accepted'?.95:.15,interactive:isActive});
-        marker.bindTooltip(`${g.kind||g.preset||name} · ${g.status}`);marker.on('click',e=>onFeature(e,g.id));marker.addTo(group);
+        marker.bindTooltip(esc(`${g.kind||g.preset||name} · ${g.status}`));marker.on('click',e=>onFeature(e,g.id));marker.addTo(group);
       }
       if(isActive){
         for(const z of s.config.zones||[])geometry(z.geometry,'#91ccff',group,null,{kind:'zone',id:z.id},.04);
@@ -110,9 +111,9 @@
     const veg=active==='vegetation',c=s.config;
     panel.innerHTML=`<div id="planning-counts"></div>
       <p>${veg?'Trees, planting zones, and sidewalk surrounds.':'Rest groups, bus stops, shelters, and supported banners.'}</p>
-      <label>Variation seed<input id="planning-seed" type="number" value="${c.seed}"></label>
-      <label>${veg?'Row':'Group'} spacing (m)<input id="planning-spacing" type="number" step=".5" value="${veg?c.row_spacing_m:c.group_spacing_m}"></label>
-      ${veg?'<label>Street tree preset<select id="planning-tree-preset"></select></label>':'<label>Clear walk width (m)<input id="planning-width" type="number" step=".1" value="'+c.pedestrian_width_m+'"></label>'}
+      <label>Variation seed<input id="planning-seed" type="number" value="${esc(c.seed)}"></label>
+      <label>${veg?'Row':'Group'} spacing (m)<input id="planning-spacing" type="number" step=".5" value="${esc(veg?c.row_spacing_m:c.group_spacing_m)}"></label>
+      ${veg?'<label>Street tree preset<select id="planning-tree-preset"></select></label>':'<label>Clear walk width (m)<input id="planning-width" type="number" step=".1" value="'+esc(c.pedestrian_width_m)+'"></label>'}
       <label><input id="planning-infer" type="checkbox" ${(veg?c.street_rows:c.infer_rest_groups)?'checked':''}> ${veg?'Fill street-tree rows':'Infer rest groups'}</label>
       <button id="planning-generate" class="primary">Regenerate & save</button><button id="planning-undo">Undo</button>
       <hr>${veg?'<label>New plant / zone preset<select id="planning-preset"></select></label><label>Zone density<input id="planning-density" type="number" min="0" max="1" step=".1" value="1"></label>':'<label>Banner yaw (degrees)<input id="planning-yaw" type="number" value="0"></label>'}
@@ -132,9 +133,9 @@
     $('planning-undo').onclick=async()=>{const history=histories[active];if(history.length&&await submit(history.at(-1),false))history.pop();updateStatus();};
     $('planning-finish').onclick=()=>{if(draft.length<3||!['zone','exclude'].includes(mode))return;const geometry={type:'Polygon',coordinates:[[...draft,draft[0]]]};const zone=mode==='zone';edit(cfg=>{if(zone)cfg.zones.push({id:'zone-'+crypto.randomUUID(),preset:$('planning-preset').value,density:+$('planning-density').value,layer:+$('planning-layer').value,geometry});else cfg.exclusions.push(geometry);});};
     $('planning-disable').onclick=()=>edit(cfg=>{if(selected)cfg.overrides[selected]={...cfg.overrides[selected],disabled:true};});
-    $('planning-restore').onclick=()=>edit(cfg=>{if(!selected)return;if(veg&&selected.startsWith('manual:'))cfg.overrides[selected].disabled=false;else delete cfg.overrides[selected];});
+    $('planning-restore').onclick=()=>edit(cfg=>{if(!selected)return;if(veg&&selected.startsWith('manual:')){if(cfg.overrides[selected])cfg.overrides[selected].disabled=false;}else delete cfg.overrides[selected];});
     $('planning-delete-area').onclick=()=>{if(!selectedArea)return;edit(cfg=>{if(selectedArea.kind==='zone')cfg.zones=cfg.zones.filter(z=>z.id!==selectedArea.id);else cfg.exclusions.splice(selectedArea.index,1);});};
-    if(!veg){$('planning-remove-anchor').onclick=()=>{if(!selected?.startsWith('anchor:'))return;edit(cfg=>{cfg.anchors=cfg.anchors.filter(a=>'anchor:'+a.id!==selected);delete cfg.overrides[selected];});};$('planning-import').onchange=async e=>{try{const j=JSON.parse(await e.target.files[0].text());if(!Array.isArray(j.anchors))throw Error('Expected an anchors document');edit(cfg=>{cfg.anchors=j.anchors;});}catch(e){error(e);}};}
+    if(!veg){$('planning-remove-anchor').onclick=()=>{if(!selected?.startsWith('anchor:'))return;edit(cfg=>{cfg.anchors=cfg.anchors.filter(a=>'anchor:'+a.id!==selected);delete cfg.overrides[selected];});};$('planning-import').onchange=async e=>{if(!e.target.files[0])return;try{const j=JSON.parse(await e.target.files[0].text());if(!Array.isArray(j.anchors))throw Error('Expected an anchors document');edit(cfg=>{cfg.anchors=j.anchors;});}catch(e){error(e);}};}
     $('planning-rejected').onchange=()=>{draw();renderList();};$('planning-search').oninput=renderList;
     $('planning-apply').onclick=()=>{try{submit(JSON.parse($('planning-config').value));}catch(e){error(e);}};
     $('planning-export').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(current().config,null,2)],{type:'application/json'}));a.download=active+'-config.json';a.click();URL.revokeObjectURL(a.href);};

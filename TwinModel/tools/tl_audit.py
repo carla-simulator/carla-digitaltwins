@@ -85,170 +85,176 @@ def main() -> int:
     settings = world.get_settings()
     settings.synchronous_mode = True
     settings.fixed_delta_seconds = FIXED_DT
-    world.apply_settings(settings)
-    world.tick()
-
-    landmarks = {}
-    for lm in cmap.get_all_landmarks():
-        if lm.type == PED_TYPE:
-            kind = "ped"
-        elif lm.type != TL_TYPE:
-            kind = ""
-        else:
-            kind = "arrow" if str(lm.name).startswith(ARROW_NAME_PREFIX) else "through"
-        landmarks[str(lm.id)] = {
-            "type": lm.type, "name": lm.name, "kind": kind, "road_id": lm.road_id,
-            "s": lm.s, "t": lm.t, "orientation": str(lm.orientation),
-            "validities": [list(v) for v in lm.get_lane_validities()],
-        }
-    lm_kinds = Counter(v["kind"] for v in landmarks.values() if v["kind"])
-    log("landmarks: " + ", ".join(f"{n} {k}" for k, n in sorted(lm_kinds.items())))
-
-    tls = sorted(world.get_actors().filter("traffic.traffic_light"), key=lambda a: a.id)
-    log(f"{len(tls)} traffic.traffic_light actors")
-
-    lights = []
-    group_of: dict[int, int] = {}
-    for tl in tls:
-        try:
-            odid = str(tl.get_opendrive_id())
-        except Exception:
-            odid = ""
-        try:
-            boxes = tl.get_light_boxes()
-        except Exception:
-            boxes = []
-        try:
-            wps = tl.get_affected_lane_waypoints()
-        except Exception:
-            wps = []
-        try:
-            grp = sorted(a.id for a in tl.get_group_traffic_lights())
-        except Exception:
-            grp = [tl.id]
-        gkey = min(grp) if grp else tl.id
-        group_of[tl.id] = gkey
-        lanes = [{"road_id": w.road_id, "lane_id": w.lane_id, "s": round(w.s, 2),
-                  "junction": w.is_junction} for w in wps]
-        lights.append({
-            "actor_id": tl.id, "opendrive_id": odid, "type_id": tl.type_id,
-            "n_light_boxes": len(boxes), "n_affected_lane_waypoints": len(wps),
-            "affected_lanes": lanes,
-            "n_stop_waypoints": len(tl.get_stop_waypoints()),
-            "pole_index": tl.get_pole_index(),
-            "group": grp, "group_key": gkey,
-            "location": [round(tl.get_location().x, 2), round(tl.get_location().y, 2),
-                         round(tl.get_location().z, 2)],
-            "landmark": landmarks.get(odid),
-            "green_time": tl.get_green_time(), "yellow_time": tl.get_yellow_time(),
-            "red_time": tl.get_red_time(),
-        })
-
-    groups: dict[int, list[int]] = defaultdict(list)
-    for l in lights:
-        groups[l["group_key"]].append(l["actor_id"])
-    # junction of a group: the junction ids reached by its members' affected waypoints
-    group_junctions: dict[int, list[int]] = {}
-    for gk, members in groups.items():
-        js = set()
-        for l in lights:
-            if l["actor_id"] not in members:
-                continue
-            for w in l["affected_lanes"]:
-                wp = cmap.get_waypoint_xodr(w["road_id"], w["lane_id"], w["s"])
-                nxt = wp.next(12.0) if wp is not None else []
-                for n in nxt:
-                    if n.is_junction and n.get_junction() is not None:
-                        js.add(n.get_junction().id)
-        group_junctions[gk] = sorted(js)
-
-    # ---- state trace
-    log(f"ticking {args.frames} frames ({args.frames * FIXED_DT:.0f} s sim)")
-    by_id = {tl.id: tl for tl in tls}
-    last: dict[int, str] = {i: _state(tl) for i, tl in by_id.items()}
-    transitions: dict[int, list] = {i: [[0, last[i]]] for i in by_id}
-    n_trans = Counter()
-    green_sets: dict[int, Counter] = {gk: Counter() for gk in groups}
-    state_ticks: dict[int, Counter] = {i: Counter() for i in by_id}
-    t0 = time.time()
-    for f in range(1, args.frames + 1):
+    try:
+        world.apply_settings(settings)
         world.tick()
-        cur = {i: _state(tl) for i, tl in by_id.items()}
-        for i, s in cur.items():
-            state_ticks[i][s] += 1
-            if s != last[i]:
-                transitions[i].append([f, s])
-                n_trans[i] += 1
-                last[i] = s
+
+        landmarks = {}
+        for lm in cmap.get_all_landmarks():
+            if lm.type == PED_TYPE:
+                kind = "ped"
+            elif lm.type != TL_TYPE:
+                kind = ""
+            else:
+                kind = "arrow" if str(lm.name).startswith(ARROW_NAME_PREFIX) else "through"
+            landmarks[str(lm.id)] = {
+                "type": lm.type, "name": lm.name, "kind": kind, "road_id": lm.road_id,
+                "s": lm.s, "t": lm.t, "orientation": str(lm.orientation),
+                "validities": [list(v) for v in lm.get_lane_validities()],
+            }
+        lm_kinds = Counter(v["kind"] for v in landmarks.values() if v["kind"])
+        log("landmarks: " + ", ".join(f"{n} {k}" for k, n in sorted(lm_kinds.items())))
+
+        tls = sorted(world.get_actors().filter("traffic.traffic_light"), key=lambda a: a.id)
+        log(f"{len(tls)} traffic.traffic_light actors")
+
+        lights = []
+        group_of: dict[int, int] = {}
+        for tl in tls:
+            try:
+                odid = str(tl.get_opendrive_id())
+            except Exception:
+                odid = ""
+            try:
+                boxes = tl.get_light_boxes()
+            except Exception:
+                boxes = []
+            try:
+                wps = tl.get_affected_lane_waypoints()
+            except Exception:
+                wps = []
+            try:
+                grp = sorted(a.id for a in tl.get_group_traffic_lights())
+            except Exception:
+                grp = [tl.id]
+            gkey = min(grp) if grp else tl.id
+            group_of[tl.id] = gkey
+            lanes = [{"road_id": w.road_id, "lane_id": w.lane_id, "s": round(w.s, 2),
+                      "junction": w.is_junction} for w in wps]
+            loc = tl.get_location()
+            lights.append({
+                "actor_id": tl.id, "opendrive_id": odid, "type_id": tl.type_id,
+                "n_light_boxes": len(boxes), "n_affected_lane_waypoints": len(wps),
+                "affected_lanes": lanes,
+                "n_stop_waypoints": len(tl.get_stop_waypoints()),
+                "pole_index": tl.get_pole_index(),
+                "group": grp, "group_key": gkey,
+                "location": [round(loc.x, 2), round(loc.y, 2), round(loc.z, 2)],
+                "landmark": landmarks.get(odid),
+                "green_time": tl.get_green_time(), "yellow_time": tl.get_yellow_time(),
+                "red_time": tl.get_red_time(),
+            })
+
+        odid_of = {lt["actor_id"]: lt["opendrive_id"] for lt in lights}
+        groups: dict[int, list[int]] = defaultdict(list)
+        for lt in lights:
+            groups[lt["group_key"]].append(lt["actor_id"])
+        # junction of a group: the junction ids reached by its members' affected waypoints
+        group_junctions: dict[int, list[int]] = {}
         for gk, members in groups.items():
-            key = tuple(sorted(by_id[m].get_opendrive_id() for m in members if cur[m] == "Green"))
-            green_sets[gk][key] += 1
-    log(f"done in {time.time() - t0:.0f} s wall")
+            member_set = set(members)
+            js = set()
+            for lt in lights:
+                if lt["actor_id"] not in member_set:
+                    continue
+                for w in lt["affected_lanes"]:
+                    wp = cmap.get_waypoint_xodr(w["road_id"], w["lane_id"], w["s"])
+                    nxt = wp.next(12.0) if wp is not None else []
+                    for n in nxt:
+                        if n.is_junction and n.get_junction() is not None:
+                            js.add(n.get_junction().id)
+            group_junctions[gk] = sorted(js)
 
-    zero_box = [l["opendrive_id"] for l in lights if l["n_light_boxes"] == 0]
-    no_trigger = [l["opendrive_id"] for l in lights if l["n_stop_waypoints"] == 0]
-    oncoming = []
-    for l in lights:
-        o = (l.get("landmark") or {}).get("orientation", "")
-        if o not in ("Positive", "Negative"):
-            continue
-        want_negative = o == "Positive"
-        for w in l["affected_lanes"]:
-            if (w["lane_id"] < 0) != want_negative:
-                oncoming.append({"signal": l["opendrive_id"], "road_id": w["road_id"],
-                                 "lane_id": w["lane_id"], "orientation": o})
-    actor_odids = {l["opendrive_id"] for l in lights}
-    ped_as_actor = sorted(sid for sid, lm in landmarks.items()
-                          if lm["kind"] == "ped" and sid in actor_odids)
-    vehicle_no_actor = sorted(sid for sid, lm in landmarks.items()
-                              if lm["kind"] in ("through", "arrow") and sid not in actor_odids)
-    arrows = [l for l in lights if (l.get("landmark") or {}).get("kind") == "arrow"]
-    report = {
-        "map": cmap.name,
-        "port": args.port,
-        "frames": args.frames,
-        "n_lights": len(lights),
-        "n_landmarks_by_kind": dict(lm_kinds),
-        # a pedestrian head must never reach a client as a traffic.traffic_light actor
-        "n_ped_landmarks_as_actor": len(ped_as_actor),
-        "ped_landmarks_as_actor": ped_as_actor,
-        # ... and every vehicle head (through or protected turn) must have exactly one actor
-        "n_vehicle_landmarks_without_actor": len(vehicle_no_actor),
-        "vehicle_landmarks_without_actor": vehicle_no_actor,
-        "arrow_lights": [{"opendrive_id": l["opendrive_id"],
-                          "n_stop_waypoints": l["n_stop_waypoints"],
-                          "affected_lanes": l["affected_lanes"],
-                          "group": l["group"]} for l in arrows],
-        "n_lights_no_trigger_volume": len(no_trigger),
-        "lights_no_trigger_volume": sorted(no_trigger),
-        "n_affected_lane_waypoints": sum(l["n_affected_lane_waypoints"] for l in lights),
-        "n_lanes_on_oncoming_side": len(oncoming),
-        "lanes_on_oncoming_side": oncoming,
-        "n_lights_zero_boxes": len(zero_box),
-        "lights_zero_boxes": sorted(zero_box),
-        "n_duplicate_opendrive_ids": len(lights) - len({l["opendrive_id"] for l in lights}),
-        "duplicate_opendrive_ids": sorted(
-            k for k, v in Counter(l["opendrive_id"] for l in lights).items() if v > 1),
-        "n_groups": len(groups),
-        "groups": {str(gk): {"members": sorted(m),
-                             "opendrive_ids": sorted(by_id[a].get_opendrive_id() for a in m),
-                             "junctions": group_junctions.get(gk, []),
-                             "green_sets": [{"green": list(k), "ticks": n}
-                                            for k, n in green_sets[gk].most_common()],
-                             "n_distinct_green_sets": len(
-                                 [k for k in green_sets[gk] if k]),
-                             }
-                   for gk, m in sorted(groups.items())},
-        "lights": lights,
-        "transitions": {str(i): t for i, t in transitions.items()},
-        "state_ticks": {str(i): dict(c) for i, c in state_ticks.items()},
-    }
+        # ---- state trace
+        log(f"ticking {args.frames} frames ({args.frames * FIXED_DT:.0f} s sim)")
+        by_id = {tl.id: tl for tl in tls}
+        last: dict[int, str] = {i: _state(tl) for i, tl in by_id.items()}
+        transitions: dict[int, list] = {i: [[0, last[i]]] for i in by_id}
+        n_trans = Counter()
+        green_sets: dict[int, Counter] = {gk: Counter() for gk in groups}
+        state_ticks: dict[int, Counter] = {i: Counter() for i in by_id}
+        t0 = time.time()
+        for f in range(1, args.frames + 1):
+            world.tick()
+            cur = {i: _state(tl) for i, tl in by_id.items()}
+            for i, s in cur.items():
+                state_ticks[i][s] += 1
+                if s != last[i]:
+                    transitions[i].append([f, s])
+                    n_trans[i] += 1
+                    last[i] = s
+            for gk, members in groups.items():
+                key = tuple(sorted(odid_of[m] for m in members if cur[m] == "Green"))
+                green_sets[gk][key] += 1
+        log(f"done in {time.time() - t0:.0f} s wall")
 
-    if not args.keep_sync:
-        world.apply_settings(prev)
+        zero_box = [lt["opendrive_id"] for lt in lights if lt["n_light_boxes"] == 0]
+        no_trigger = [lt["opendrive_id"] for lt in lights if lt["n_stop_waypoints"] == 0]
+        oncoming = []
+        for lt in lights:
+            o = (lt.get("landmark") or {}).get("orientation", "")
+            if o not in ("Positive", "Negative"):
+                continue
+            want_negative = o == "Positive"
+            for w in lt["affected_lanes"]:
+                if (w["lane_id"] < 0) != want_negative:
+                    oncoming.append({"signal": lt["opendrive_id"], "road_id": w["road_id"],
+                                     "lane_id": w["lane_id"], "orientation": o})
+        actor_odids = {lt["opendrive_id"] for lt in lights}
+        ped_as_actor = sorted(sid for sid, lm in landmarks.items()
+                              if lm["kind"] == "ped" and sid in actor_odids)
+        vehicle_no_actor = sorted(sid for sid, lm in landmarks.items()
+                                  if lm["kind"] in ("through", "arrow") and sid not in actor_odids)
+        arrows = [lt for lt in lights if (lt.get("landmark") or {}).get("kind") == "arrow"]
+        report = {
+            "map": cmap.name,
+            "port": args.port,
+            "frames": args.frames,
+            "n_lights": len(lights),
+            "n_landmarks_by_kind": dict(lm_kinds),
+            # a pedestrian head must never reach a client as a traffic.traffic_light actor
+            "n_ped_landmarks_as_actor": len(ped_as_actor),
+            "ped_landmarks_as_actor": ped_as_actor,
+            # ... and every vehicle head (through or protected turn) must have exactly one actor
+            "n_vehicle_landmarks_without_actor": len(vehicle_no_actor),
+            "vehicle_landmarks_without_actor": vehicle_no_actor,
+            "arrow_lights": [{"opendrive_id": lt["opendrive_id"],
+                              "n_stop_waypoints": lt["n_stop_waypoints"],
+                              "affected_lanes": lt["affected_lanes"],
+                              "group": lt["group"]} for lt in arrows],
+            "n_lights_no_trigger_volume": len(no_trigger),
+            "lights_no_trigger_volume": sorted(no_trigger),
+            "n_affected_lane_waypoints": sum(lt["n_affected_lane_waypoints"] for lt in lights),
+            "n_lanes_on_oncoming_side": len(oncoming),
+            "lanes_on_oncoming_side": oncoming,
+            "n_lights_zero_boxes": len(zero_box),
+            "lights_zero_boxes": sorted(zero_box),
+            "n_duplicate_opendrive_ids": len(lights) - len({lt["opendrive_id"] for lt in lights}),
+            "duplicate_opendrive_ids": sorted(
+                k for k, v in Counter(lt["opendrive_id"] for lt in lights).items() if v > 1),
+            "n_groups": len(groups),
+            "groups": {str(gk): {"members": sorted(m),
+                                 "opendrive_ids": sorted(odid_of[a] for a in m),
+                                 "junctions": group_junctions.get(gk, []),
+                                 "green_sets": [{"green": list(k), "ticks": n}
+                                                for k, n in green_sets[gk].most_common()],
+                                 "n_distinct_green_sets": len(
+                                     [k for k in green_sets[gk] if k]),
+                                 }
+                       for gk, m in sorted(groups.items())},
+            "lights": lights,
+            "transitions": {str(i): t for i, t in transitions.items()},
+            "state_ticks": {str(i): dict(c) for i, c in state_ticks.items()},
+        }
+    finally:
+        if not args.keep_sync:
+            try:
+                world.apply_settings(prev)
+            except Exception:
+                pass
 
     if args.out:
-        Path(args.out).write_text(json.dumps(report, indent=1))
+        Path(args.out).write_text(json.dumps(report, indent=1), encoding="utf-8")
         log(f"wrote {args.out}")
 
     print(f"  lights                       : {report['n_lights']}")
@@ -266,10 +272,10 @@ def main() -> int:
           f"/ {report['n_affected_lane_waypoints']}")
     print(f"  duplicate opendrive ids      : {report['n_duplicate_opendrive_ids']}")
     print(f"  groups                       : {report['n_groups']}")
-    sw_hist = Counter(l["n_stop_waypoints"] for l in lights)
+    sw_hist = Counter(lt["n_stop_waypoints"] for lt in lights)
     print("  stop wps / light             : " +
           ", ".join(f"{n}x{k}" for k, n in sorted(sw_hist.items())))
-    wp_hist = Counter(l["n_affected_lane_waypoints"] for l in lights)
+    wp_hist = Counter(lt["n_affected_lane_waypoints"] for lt in lights)
     print("  affected lane wps / light    : " +
           ", ".join(f"{n}x{k}" for k, n in sorted(wp_hist.items())))
     stage_hist = Counter(g["n_distinct_green_sets"] for g in report["groups"].values())

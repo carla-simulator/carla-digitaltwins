@@ -97,6 +97,9 @@ def main(argv):
     ctrl.sign_generation_by_path(args.catalog, args.poles, getattr(unreal.SignStyle, args.style))
 
     generated = list(ctrl.get_editor_property("generated_signs"))
+    matched_count = ctrl.get_editor_property("last_matched_count")
+    spawned_count = ctrl.get_editor_property("last_spawned_count")
+    ctrl.destroy_actor()
     rows = []
     for a in generated:
         if a is None:
@@ -111,7 +114,7 @@ def main(argv):
                      "x": round(loc.x / 100.0, 2), "y": round(loc.y / 100.0, 2), "z": round(loc.z / 100.0, 2),
                      "yaw": round(a.get_actor_rotation().yaw, 1)})
     report = {"level": args.name, "osm": args.osm, "sign_nodes": len(signs), "sign_node_tags": tag_hist,
-              "matched": ctrl.get_editor_property("last_matched_count"), "spawned": ctrl.get_editor_property("last_spawned_count"),
+              "matched": matched_count, "spawned": spawned_count,
               "standing": len(rows), "with_plate": sum(1 for r in rows if r["plate_mesh"]),
               "with_material": sum(1 for r in rows if r["material"]),
               "by_sign": {}, "signs": rows, "lookup_found_streetmap": found is not None, "seconds": round(time.time() - t0, 1)}
@@ -119,12 +122,14 @@ def main(argv):
         report["by_sign"][r["sign"]] = report["by_sign"].get(r["sign"], 0) + 1
     log("sign nodes %d -> matched %d, standing %d (%d with plate, %d with material) %s" % (
         len(signs), report["matched"], len(rows), report["with_plate"], report["with_material"], report["by_sign"]))
+    ok = True
     if args.save:
-        report["level_saved"] = bool(save_all())
+        ok = bool(save_all())
+        report["level_saved"] = ok
     rep = args.report or os.path.join(os.path.dirname(os.path.abspath(args.osm)), "signs_osm_report.json")
-    with open(rep, "w") as f:
+    with open(rep, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=1)
-    return 0 if rows else 1
+    return 0 if ok and (rows or not signs) else 1
 
 
 if __name__ == "__main__":
@@ -135,3 +140,5 @@ if __name__ == "__main__":
         unreal.log_error("[generate_signs_osm] FAILED\n" + traceback.format_exc())
         rc = 1
     print("[generate_signs_osm] exit %d" % rc, flush=True)
+    if rc:
+        sys.exit(rc)

@@ -37,18 +37,23 @@ from twinmodel.frame import LocalFrame                       # noqa: E402
 from geo_overlay import OrthoTiler, find_input_ortho          # noqa: E402
 
 log = logging.getLogger("tile2net_run")
-DEFAULT_PY = ROOT.parent.parent / ".venv-tile2net" / "bin" / "python"
+_VENV_DIR = ROOT.parent.parent / ".venv-tile2net"
+DEFAULT_PY = (_VENV_DIR / "Scripts" / "python.exe") if sys.platform == "win32" else (_VENV_DIR / "bin" / "python")
 
 
 def lonlat_to_tile(lon: float, lat: float, z: int) -> tuple[int, int]:
     n = 2 ** z
     x = int((lon + 180.0) / 360.0 * n)
-    lat_r = math.radians(lat)
+    lat_clamped = min(max(lat, -85.05112878), 85.05112878)
+    lat_r = math.radians(lat_clamped)
     y = int((1.0 - math.log(math.tan(lat_r) + 1.0 / math.cos(lat_r)) / math.pi) / 2.0 * n)
     return x, y
 
 
 def cut_tiles(tiler: OrthoTiler, bbox_swne: Sequence[float], zoom: int, out: Path) -> int:
+    import io  # noqa: PLC0415
+    from PIL import Image  # noqa: PLC0415
+
     s_, w_, n_, e_ = bbox_swne
     x0, y0 = lonlat_to_tile(w_, n_, zoom)          # NW corner
     x1, y1 = lonlat_to_tile(e_, s_, zoom)          # SE corner
@@ -61,12 +66,11 @@ def cut_tiles(tiler: OrthoTiler, bbox_swne: Sequence[float], zoom: int, out: Pat
             p = out / str(zoom) / str(x) / f"{y}.png"
             p.parent.mkdir(parents=True, exist_ok=True)
             # tile2net wants opaque RGB tiles
-            from PIL import Image
-            import io
-            im = Image.open(io.BytesIO(png)).convert("RGBA")
-            bg = Image.new("RGB", im.size, (0, 0, 0))
-            bg.paste(im, mask=im.split()[3])
-            bg.save(p, format="PNG", compress_level=3)
+            with Image.open(io.BytesIO(png)) as raw_im:
+                im = raw_im.convert("RGBA")
+                bg = Image.new("RGB", im.size, (0, 0, 0))
+                bg.paste(im, mask=im.split()[3])
+                bg.save(p, format="PNG", compress_level=3)
             n += 1
     log.info("cut %d tiles at z%d into %s (x %d..%d, y %d..%d)", n, zoom, out, x0, x1, y0, y1)
     return n
@@ -74,7 +78,7 @@ def cut_tiles(tiler: OrthoTiler, bbox_swne: Sequence[float], zoom: int, out: Pat
 
 def run(build_dir: Path, name: str, *, zoom: int, python: Path, data_dir: Path, skip_inference: bool) -> Path:
     twin_dir = build_dir / f"{name}.twin"
-    model = json.loads((twin_dir / "model.json").read_text())
+    model = json.loads((twin_dir / "model.json").read_text(encoding="utf-8"))
     frame = LocalFrame(model["origin_lat"], model["origin_lon"])
     bbox = [float(v) for v in model["bbox_wgs84"]]
     work = build_dir / "tile2net"
@@ -85,9 +89,12 @@ def run(build_dir: Path, name: str, *, zoom: int, python: Path, data_dir: Path, 
     if ortho is None:
         raise SystemExit(f"no cached ortho for bbox in {data_dir}; run tools/ortho_detect.py once to fetch it")
     tiler = OrthoTiler(ortho)
-    log.info("ortho %s (%s, %.2f m/px)", ortho.name, tiler.detail, tiler.res_m)
-    t0 = time.time()
-    n = cut_tiles(tiler, bbox, zoom, tiles)
+    try:
+        log.info("ortho %s (%s, %.2f m/px)", ortho.name, tiler.detail, tiler.res_m)
+        t0 = time.time()
+        n = cut_tiles(tiler, bbox, zoom, tiles)
+    finally:
+        tiler.close()
     log.info("tiles ready in %.0fs", time.time() - t0)
     if n == 0:
         raise SystemExit("no tiles cut")
@@ -98,10 +105,10 @@ def run(build_dir: Path, name: str, *, zoom: int, python: Path, data_dir: Path, 
         raise SystemExit(f"tile2net python not found: {python}")
     loc = f"{bbox[0]},{bbox[1]},{bbox[2]},{bbox[3]}"
     gen = [str(python), "-m", "tile2net", "generate", "-l", loc, "-n", name, "-o", str(work),
-           "-i", str(tiles / "z" / "x" / "y.png"), "-z", str(zoom)]
+           "-i", (tiles / "z" / "x" / "y.png").as_posix(), "-z", str(zoom)]
     log.info("$ %s", " ".join(gen))
-    res = subprocess.run(gen, capture_output=True, text=True)
-    (work / "generate.log").write_text(res.stdout + "\n--- stderr ---\n" + res.stderr)
+    res = subprocess.run(gen, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    (work / "generate.log").write_text(res.stdout + "\n--- stderr ---\n" + res.stderr, encoding="utf-8")
     if res.returncode != 0:
         log.error("tile2net generate failed (rc %d); see %s\n%s", res.returncode, work / "generate.log", res.stderr[-2000:])
         raise SystemExit(2)
@@ -123,11 +130,13 @@ def run(build_dir: Path, name: str, *, zoom: int, python: Path, data_dir: Path, 
     log.info("$ %s", " ".join(inf))
     t1 = time.time()
     # stream to a log file with stdin closed: with captured pipes the inference process hung indefinitely
-    with (work / "inference.log").open("w") as lf:
-        rc = subprocess.run(inf, stdin=subprocess.DEVNULL, stdout=lf, stderr=subprocess.STDOUT, text=True).returncode
+    with (work / "inference.log").open("w", encoding="utf-8") as lf:
+        rc = subprocess.run(inf, stdin=subprocess.DEVNULL, stdout=lf, stderr=subprocess.STDOUT,
+                            text=True, encoding="utf-8", errors="replace").returncode
     log.info("inference rc %d in %.0fs; log %s", rc, time.time() - t1, work / "inference.log")
     if rc != 0:
-        log.error("tile2net inference failed; tail of log:\n%s", (work / "inference.log").read_text()[-3000:])
+        log.error("tile2net inference failed; tail of log:\n%s",
+                  (work / "inference.log").read_text(encoding="utf-8", errors="replace")[-3000:])
         raise SystemExit(3)
     convert_outputs(work, frame, build_dir / "detect")
     return work
@@ -135,8 +144,8 @@ def run(build_dir: Path, name: str, *, zoom: int, python: Path, data_dir: Path, 
 
 def convert_outputs(work: Path, frame: LocalFrame, detect_dir: Path) -> None:
     """Tile2Net writes polygons/ and network/ (shapefile or geojson, EPSG:4326) -> model-metre GeoJSON."""
-    import geopandas as gpd
-    from shapely.ops import transform as shp_transform
+    import geopandas as gpd  # noqa: PLC0415
+    from shapely.ops import transform as shp_transform  # noqa: PLC0415
     detect_dir.mkdir(parents=True, exist_ok=True)
     tf = frame._to_local()
 
@@ -165,7 +174,10 @@ def convert_outputs(work: Path, frame: LocalFrame, detect_dir: Path) -> None:
                 continue
             props = {"kind": str(row[kind_col]).lower() if kind_col else sub, "source": "tile2net"}
             feats.append({"type": "Feature", "properties": props, "geometry": to_model(row.geometry).__geo_interface__})
-        (detect_dir / out_name).write_text(json.dumps({"type": "FeatureCollection", "features": feats}, separators=(",", ":")))
+        (detect_dir / out_name).write_text(
+            json.dumps({"type": "FeatureCollection", "features": feats}, separators=(",", ":")),
+            encoding="utf-8",
+        )
         counts = {}
         for f in feats:
             counts[f["properties"]["kind"]] = counts.get(f["properties"]["kind"], 0) + 1
@@ -174,10 +186,12 @@ def convert_outputs(work: Path, frame: LocalFrame, detect_dir: Path) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
-    ap.add_argument("build_dir"); ap.add_argument("name")
+    ap.add_argument("build_dir")
+    ap.add_argument("name")
     ap.add_argument("--zoom", type=int, default=19, help="slippy zoom for the tiles Tile2Net sees (19 ~ 0.23 m/px at 41°N, 20 ~ 0.11)")
     ap.add_argument("--python", default=str(DEFAULT_PY), help="python of the Tile2Net env (needs Python <= 3.12)")
-    ap.add_argument("--data", default="data"); ap.add_argument("--tiles-only", action="store_true")
+    ap.add_argument("--data", default="data")
+    ap.add_argument("--tiles-only", action="store_true")
     ap.add_argument("--convert-only", action="store_true", help="only convert existing Tile2Net outputs")
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args(argv)
@@ -185,7 +199,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     logging.getLogger("rasterio").setLevel(logging.WARNING)
     build_dir = Path(a.build_dir)
     if a.convert_only:
-        model = json.loads((build_dir / f"{a.name}.twin" / "model.json").read_text())
+        model = json.loads((build_dir / f"{a.name}.twin" / "model.json").read_text(encoding="utf-8"))
         convert_outputs(build_dir / "tile2net", LocalFrame(model["origin_lat"], model["origin_lon"]), build_dir / "detect")
         return 0
     out = run(build_dir, a.name, zoom=a.zoom, python=Path(a.python), data_dir=Path(a.data), skip_inference=a.tiles_only)

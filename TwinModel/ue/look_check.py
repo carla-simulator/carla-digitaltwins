@@ -82,22 +82,25 @@ def main() -> int:
         log(f"map {args.map} already loaded")
 
     settings = world.get_settings()
-    settings.synchronous_mode = True
-    settings.fixed_delta_seconds = FIXED_DT
-    world.apply_settings(settings)
-    for _ in range(10):
-        world.tick()
-    bp_lib = world.get_blueprint_library()
-    sps = world.get_map().get_spawn_points()
-    log(f"{len(sps)} spawn points")
-    if not sps:
-        log("no spawn points; aborting")
-        return 2
-
-    n = len(sps)
-    picks = sorted({0, n // 3, (2 * n) // 3})
+    prev_sync = settings.synchronous_mode
+    prev_dt = settings.fixed_delta_seconds
     meta = {}
     try:
+        settings.synchronous_mode = True
+        settings.fixed_delta_seconds = FIXED_DT
+        world.apply_settings(settings)
+        for _ in range(10):
+            world.tick()
+        bp_lib = world.get_blueprint_library()
+        sps = world.get_map().get_spawn_points()
+        log(f"{len(sps)} spawn points")
+        if not sps:
+            log("no spawn points; aborting")
+            return 2
+
+        n = len(sps)
+        k_poses = max(args.poses, 1)
+        picks = sorted({(k * n) // k_poses for k in range(k_poses)})
         for i in picks:
             sp = sps[i]
             yaw = sp.rotation.yaw
@@ -115,10 +118,10 @@ def main() -> int:
                 meta[p.name] = {"spawn_index": i, "pose": tag,
                                 "xyz": [loc.x, loc.y, loc.z], "yaw": yaw}
     finally:
-        settings.synchronous_mode = False
-        settings.fixed_delta_seconds = None
+        settings.synchronous_mode = prev_sync
+        settings.fixed_delta_seconds = prev_dt
         world.apply_settings(settings)
-    (out / "captures.json").write_text(json.dumps(meta, indent=1))
+    (out / "captures.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
     log(f"done -> {out}")
     return 0
 
