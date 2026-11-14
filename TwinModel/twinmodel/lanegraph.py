@@ -27,6 +27,7 @@ Quick look::
 """
 from __future__ import annotations
 
+import copy
 import logging
 import math
 import re
@@ -36,7 +37,8 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional
 
 import numpy as np
-from shapely.geometry import LineString, MultiLineString, MultiPoint, Point, Polygon, MultiPolygon
+import shapely
+from shapely.geometry import LineString, MultiPoint, Point, Polygon, MultiPolygon
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union, polygonize, substring
 from shapely.strtree import STRtree
@@ -44,7 +46,7 @@ from shapely.strtree import STRtree
 from . import corrections as _corr
 from . import profiles, streetspace
 from .frame import LocalFrame
-from .ingest.osm import OsmData, OsmNode, OsmRelation, OsmWay
+from .ingest.osm import OsmData, OsmNode, OsmWay
 from .model import (Building, Connection, Controller, Junction, Lane, LaneLink, Marking,
                     PointObject, Road, RoadLink, Signal, TwinModel, lane_present_at)
 
@@ -587,7 +589,7 @@ def lanes_for_way(tags: dict[str, str], highway: str) -> LaneSpec:
 
     speed_f = parse_maxspeed(tags.get("maxspeed:forward") or tags.get("maxspeed"))
     speed_b = parse_maxspeed(tags.get("maxspeed:backward") or tags.get("maxspeed"))
-    turns_f = _turn_lanes(tags.get("turn:lanes:forward") or (tags.get("turn:lanes") if oneway or n_b == 0 else tags.get("turn:lanes")))
+    turns_f = _turn_lanes(tags.get("turn:lanes:forward") or (tags.get("turn:lanes") if oneway or n_b == 0 else None))
     turns_b = _turn_lanes(tags.get("turn:lanes:backward"))
 
     right: list[Lane] = []
@@ -703,12 +705,13 @@ def _lane_signature(lanes: list[Lane]) -> tuple:
 def _reversed_lanes(lanes: list[Lane]) -> list[Lane]:
     out = []
     for l in lanes:
-        tags = dict(l.tags)
+        tags = copy.deepcopy(l.tags)
         if "turn" in tags:
             tags["turn"] = _mirror_turns(tags["turn"])
         out.append(Lane(id=-l.id, type=l.type, width=l.width,
                         direction="backward" if l.direction == "forward" else "forward",
-                        marking=l.marking, speed_limit=l.speed_limit, tags=tags))
+                        marking=copy.copy(l.marking) if l.marking is not None else None,
+                        speed_limit=l.speed_limit, tags=tags))
     return sorted(out, key=lambda l: l.id)
 
 
@@ -869,19 +872,20 @@ def _antiparallel_run(a: LineString, b: LineString, *, min_gap: float, max_gap: 
     median separation over that run)``. Both lines run in travel direction."""
     n = max(2, int(a.length / step) + 1)
     ds = a.length / (n - 1)
+    ss = np.minimum(a.length, np.arange(n, dtype=np.float64) * ds)
+    pts = shapely.line_interpolate_point(a, ss)
+    sbs = shapely.line_locate_point(b, pts)
+    qts = shapely.line_interpolate_point(b, sbs)
+    dists = shapely.distance(pts, qts)
     ok_len = 0.0
     gaps: list[float] = []
-    for i in range(n):
-        s = min(a.length, i * ds)
-        p = a.interpolate(s)
-        sb = b.project(p)
-        d = p.distance(b.interpolate(sb))
-        if not (min_gap <= d <= max_gap):
-            continue
+    for i in np.flatnonzero((dists >= min_gap) & (dists <= max_gap)):
+        s = float(ss[i])
+        sb = float(sbs[i])
         if abs(abs(_wrap(_heading_along(a, s) - _heading_along(b, sb))) - math.pi) > parallel_rad:
             continue
         ok_len += ds
-        gaps.append(d)
+        gaps.append(float(dists[i]))
     return min(ok_len, a.length), (float(np.median(gaps)) if gaps else 0.0)
 
 
@@ -1263,6 +1267,20 @@ def _cluster_service_nodes(uf: "_UnionFind", chains: list["_Chain"], intersectio
     return n_suppressed
 
 
+_SIDE_TAG_SWAP = {"left": "right", "right": "left", "forward": "backward", "backward": "forward"}
+
+
+def _flip_reversed_way_tags(tags: dict[str, str]) -> dict[str, str]:
+    """Flip directional tag keys/values when reversing a ``oneway=-1`` / ``reverse`` way."""
+    out: dict[str, str] = {}
+    for k, v in tags.items():
+        nk = ":".join(_SIDE_TAG_SWAP.get(p, p) for p in k.split(":"))
+        nv = {"left": "right", "right": "left"}.get(v, v) if k in ("sidewalk", "cycleway", "parking") else v
+        out[nk] = nv
+    out["oneway"] = "yes"
+    return out
+
+
 # --------------------------------------------------------------------------- the builder
 
 def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, float, float],
@@ -1345,8 +1363,8 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                         and not _way_is_road(w, length, ramp_nodes, aisle_nodes, shared_nodes, lot_nodes))
             continue
         oneway, rev = _is_oneway(w.tags)
-        if rev:  # normalise oneway=-1 by reversing the node order
-            w = OsmWay(w.id, list(reversed(w.nodes)), {**w.tags, "oneway": "yes"})
+        if rev:  # normalise oneway=-1 by reversing the node order and directional tags
+            w = OsmWay(w.id, list(reversed(w.nodes)), _flip_reversed_way_tags(w.tags))
         pieces.extend(_clip_way(w, osm, frame, bbox))
     stats["drivable_ways"] = len({p.way.id for p in pieces})
     stats["service_ways_skipped"] = n_service_dropped
@@ -1676,7 +1694,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             # lanes: the first segment's spec, reversed if that segment is reversed in the chain
             spec = spec_for(head)
             lanes = (_reversed_lanes(spec.lanes) if ch.reversed_flags[0]
-                     else [Lane(**l.__dict__) for l in spec.lanes])
+                     else [_clone_lane(l) for l in spec.lanes])
             # forward lanes take their turn:lanes from the last segment (approach to the successor)
             tail, tail_rev = ch.segments[-1], ch.reversed_flags[-1]
             if tail is not head:
@@ -1761,8 +1779,9 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             road_end_node[road.id] = {"start": nodes[0], "end": nodes[-1]}
             road_nodes[road.id] = nodes
         # street canyon: cross section from the building faces (widths guarded per street)
+        roads_by_id = {r.id: r for r in roads}
         for rid, (fl, fr, guarded) in _street_width_guard(canyon_faces, canyon_key).items():
-            r = next(r for r in roads if r.id == rid)
+            r = roads_by_id[rid]
             n_canyon += _building_cross_section(r, canyon_tags[rid], (fl, fr), footways)
             if guarded:
                 r.tags["street_width_guarded"] = True
@@ -2599,10 +2618,9 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                                   "trim_area_wkt": (c.area.wkt if c.area is not None else None),
                                   "n_incoming": len(incoming), "n_outgoing": len(outgoing)})
         m = 0
-        # (arrival, its lane, departure, its lane, turn) for every movement of this junction
-        movements: list[tuple[_Approach, Lane, _Approach, Lane, str]] = []
         def make_connection(inc: _Approach, out: _Approach, turn: str,
-                            in_lane: Lane, out_lane: Lane) -> bool:
+                            in_lane: Lane, out_lane: Lane, *,
+                            _cid_prefix: str = c.id, _junction: Junction = junction) -> bool:
             nonlocal m
             m += 1
             p0 = inc.lane_inner_edge(in_lane)
@@ -2611,19 +2629,19 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             if _polyline_length(coords) < P.geometry.min_road_length:
                 coords = [p0, p1] if math.dist(p0, p1) >= P.geometry.min_road_length else coords
                 if _polyline_length(coords) < P.geometry.min_road_length:
-                    log.warning("%s: skipping degenerate connection %s->%s", c.id, inc.road.id, out.road.id)
+                    log.warning("%s: skipping degenerate connection %s->%s", _cid_prefix, inc.road.id, out.road.id)
                     return False
-            cid = f"{c.id}c{m}"
+            cid = f"{_cid_prefix}c{m}"
             cr = Road(id=cid, reference_line=_line3d(coords),
                       lanes=[Lane(id=-1, type="driving", width=in_lane.width, direction="forward",
                                   speed_limit=in_lane.speed_limit, tags={"turn": turn})],
-                      name=inc.road.name, highway=inc.road.highway, junction_id=c.id,
+                      name=inc.road.name, highway=inc.road.highway, junction_id=_cid_prefix,
                       predecessor=RoadLink("road", inc.road.id, inc.contact),
                       successor=RoadLink("road", out.road.id, out.contact),
                       tags={"turn": turn, "from_lane": in_lane.id, "to_lane": out_lane.id,
                             "to_road": out.road.id})
             roads.append(cr)
-            junction.connections.append(Connection(
+            _junction.connections.append(Connection(
                 id=cid, incoming_road=inc.road.id, connecting_road=cid, contact_point="start",
                 lane_links=[LaneLink(from_lane=in_lane.id, to_lane=-1)]))
             return True
@@ -3467,13 +3485,22 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
     # no crossings (a zebra node on the street must never land on the aisle beside it)
     plain_roads = [r for r in model.roads
                    if r.junction_id is None and not r.tags.get("parking_aisle")]
+    plain_tree = STRtree([r.reference_line for r in plain_roads]) if plain_roads else None
     tagged = {nid: n for nid, n in osm.nodes.items() if n.tags}
-    xy_of = {}
-    for nid, n in tagged.items():
+    xy_of: dict[int, tuple[float, float]] = {}
+    missing_nids: list[int] = []
+    for nid in tagged:
         if nid in node_xy:
             xy_of[nid] = node_xy[nid]
         else:
-            xy_of[nid] = _frame_xy(model, n)
+            missing_nids.append(nid)
+    if missing_nids:
+        fr = LocalFrame(model.origin_lat, model.origin_lon)
+        lons = np.array([tagged[nid].lon for nid in missing_nids], dtype=np.float64)
+        lats = np.array([tagged[nid].lat for nid in missing_nids], dtype=np.float64)
+        xs, ys = fr.to_local(lons, lats)
+        for nid, x, y in zip(missing_nids, np.atleast_1d(xs), np.atleast_1d(ys)):
+            xy_of[nid] = (float(x), float(y))
 
     # traffic lights: one per incoming approach of every junction that has a traffic_signals node
     tl_nodes = [nid for nid, n in tagged.items() if n.tags.get("highway") == "traffic_signals"]
@@ -3597,12 +3624,18 @@ def _build_signals(model: TwinModel, osm: OsmData, node_xy: dict, clusters: list
         cands = [by_id[r] for r in node_roads.get(nid, [])
                  if r in by_id and not by_id[r].tags.get("parking_aisle")]
         road = min(cands, key=lambda r: r.reference_line.distance(pt)) if cands else None
-        if (road is None or road.reference_line.distance(pt) > 1.0) and plain_roads:
+        if (road is None or road.reference_line.distance(pt) > 1.0) and plain_tree is not None:
             # the node's own road was shortened past it (taper split, merge): the road that
             # now runs through the node takes it; otherwise the node keeps its own road
-            alt = min(plain_roads, key=lambda r: r.reference_line.distance(pt))
-            if road is None or alt.reference_line.distance(pt) < 1.0:
-                road = alt
+            near_idx = sorted(int(k) for k in plain_tree.query_nearest(pt, max_distance=1.0))
+            if near_idx:
+                alt = min((plain_roads[k] for k in near_idx), key=lambda r: r.reference_line.distance(pt))
+                if road is None or alt.reference_line.distance(pt) < 1.0:
+                    road = alt
+            elif road is None:
+                near_all = sorted(int(k) for k in plain_tree.query_nearest(pt))
+                if near_all:
+                    road = min((plain_roads[k] for k in near_all), key=lambda r: r.reference_line.distance(pt))
         in_junction = [c.id for c in clusters
                        if (c.plaza if c.plaza is not None else c.area) is not None
                        and (c.plaza if c.plaza is not None else c.area).contains(pt)]
@@ -3879,8 +3912,9 @@ def _sidewalk_widths_from_footways(roads: list[Road], fw: _FootwayIndex) -> dict
 # --------------------------------------------------------------------------- street canyon
 
 def _clone_lane(l: Lane, **kw) -> Lane:
-    d = dict(id=l.id, type=l.type, width=l.width, direction=l.direction, marking=l.marking,
-             speed_limit=l.speed_limit, tags=dict(l.tags))
+    d = dict(id=l.id, type=l.type, width=l.width, direction=l.direction,
+             marking=copy.copy(l.marking) if l.marking is not None else None,
+             speed_limit=l.speed_limit, tags=copy.deepcopy(l.tags))
     d.update(kw)
     return Lane(**d)
 
@@ -4150,7 +4184,7 @@ def _buildings(osm: OsmData, frame: LocalFrame) -> list[Building]:
                 continue
         out.append(_building_from(rel.tags, geom, rel.id, "br"))
     for w in osm.ways:
-        if "building" not in w.tags or w.tags.get("building") == "no":
+        if w.id in rel_member_ways or "building" not in w.tags or w.tags.get("building") == "no":
             continue
         if len(w.nodes) < 4 or w.nodes[0] != w.nodes[-1]:
             continue
@@ -4167,19 +4201,22 @@ def _buildings(osm: OsmData, frame: LocalFrame) -> list[Building]:
 
 
 def _objects(osm: OsmData, frame: LocalFrame) -> list[PointObject]:
-    out: list[PointObject] = []
+    selected: list[tuple[int, OsmNode, str]] = []
     for nid, n in osm.nodes.items():
-        kind = None
         if n.tags.get("natural") == "tree":
-            kind = "tree"
+            selected.append((nid, n, "tree"))
         elif "traffic_sign" in n.tags:
-            kind = "traffic_sign"
-        if kind is None:
-            continue
-        x, y = frame.to_local(n.lon, n.lat)
-        keep = {k: v for k, v in n.tags.items()
-                if k in ("traffic_sign", "direction", "leaf_type", "genus", "species", "height",
-                         "diameter_crown", "circumference")}
+            selected.append((nid, n, "traffic_sign"))
+    if not selected:
+        return []
+    lons = np.array([n.lon for _, n, _ in selected], dtype=np.float64)
+    lats = np.array([n.lat for _, n, _ in selected], dtype=np.float64)
+    xs, ys = frame.to_local(lons, lats)
+    _KEEP_OBJ_TAGS = ("traffic_sign", "direction", "leaf_type", "genus", "species", "height",
+                      "diameter_crown", "circumference")
+    out: list[PointObject] = []
+    for (nid, n, kind), x, y in zip(selected, np.atleast_1d(xs), np.atleast_1d(ys)):
+        keep = {k: v for k, v in n.tags.items() if k in _KEEP_OBJ_TAGS}
         out.append(PointObject(id=f"{kind}{nid}", kind=kind, position=Point(float(x), float(y)),
                                osm_id=nid, tags=keep))
     return out

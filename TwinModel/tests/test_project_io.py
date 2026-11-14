@@ -59,7 +59,9 @@ def test_furniture_save_does_not_invalidate_geometry(project):
 def test_archive_rejects_unsafe_paths(tmp_path, bad_name):
     archive = tmp_path/'bad.zip'
     with zipfile.ZipFile(archive, 'w') as z:
-        z.writestr(bad_name, 'bad')
+        zi = zipfile.ZipInfo('entry')
+        zi.filename = bad_name
+        z.writestr(zi, 'bad')
     with pytest.raises(ValueError, match='Unsafe'):
         import_project(archive, tmp_path/'result')
     assert not (tmp_path/'result').exists()

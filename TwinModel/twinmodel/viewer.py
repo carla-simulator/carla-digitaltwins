@@ -7,6 +7,7 @@ URIs into `templates/compare_viewer.html`, and writes `<build_dir>/compare/viewe
 from __future__ import annotations
 
 import base64
+import html as html_mod
 import json
 import logging
 import mimetypes
@@ -19,7 +20,9 @@ log = logging.getLogger("twinmodel.viewer")
 TEMPLATE = Path(__file__).parent / "templates" / "compare_viewer.html"
 
 
-def _data_uri(path: Path) -> str:
+def _data_uri(path: Path | None) -> str:
+    if path is None:
+        return ""
     mime = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
     return f"data:{mime};base64," + base64.b64encode(path.read_bytes()).decode("ascii")
 
@@ -33,7 +36,7 @@ def vectors_from_twin(twin_dir: Path) -> dict:
     out = {"junctions": [], "roads": [], "signals": []}
     jpath = twin_dir / "junctions.geojson"
     if jpath.exists():
-        for f in json.loads(jpath.read_text())["features"]:
+        for f in json.loads(jpath.read_text(encoding="utf-8"))["features"]:
             p = f["properties"]
             if not p.get("has_polygon"):
                 continue
@@ -45,51 +48,59 @@ def vectors_from_twin(twin_dir: Path) -> dict:
                                      "area": round(float(geom.area), 1), "connections": len(p.get("connections", []))})
     rpath = twin_dir / "roads.geojson"
     if rpath.exists():
-        for f in json.loads(rpath.read_text())["features"]:
+        for f in json.loads(rpath.read_text(encoding="utf-8"))["features"]:
             out["roads"].append(_round_coords(f["geometry"]["coordinates"]))
     spath = twin_dir / "signals.geojson"
     if spath.exists():
-        for f in json.loads(spath.read_text())["features"]:
+        for f in json.loads(spath.read_text(encoding="utf-8"))["features"]:
             x, y, *_ = f["geometry"]["coordinates"]
             out["signals"].append({"x": round(x, 2), "y": round(y, 2), "kind": f["properties"].get("kind", "")})
     return out
+
+
+def _safe_json_for_script(obj: object) -> str:
+    return json.dumps(obj).replace("</", "<\\/")
 
 
 def write_viewer(build_dir: Path | str, name: str, out_html: Path | str | None = None,
                  title: str | None = None) -> Path:
     build_dir = Path(build_dir)
     cmp_dir = build_dir / "compare"
-    layers = json.loads((cmp_dir / "layers.json").read_text())
+    layers = json.loads((cmp_dir / "layers.json").read_text(encoding="utf-8"))
     files = layers.get("files", {})
 
-    def pick(key: str, *fallbacks: str) -> Path:
+    def pick(key: str, *fallbacks: str, required: bool = False) -> Path | None:
         cand = [files.get(key)] + list(fallbacks)
         for c in cand:
             if c and (cmp_dir / Path(c).name).exists():
                 return cmp_dir / Path(c).name
-        raise FileNotFoundError(f"compare raster for {key!r} not found in {cmp_dir}")
+        if required:
+            raise FileNotFoundError(f"compare raster for {key!r} not found in {cmp_dir}")
+        return None
 
     imgs = {
         "osm": pick("osm_tiles", "osm_tiles.png"),
         "ortho": pick("ortho", "ortho.jpg", "ortho.png"),
-        "mesh": pick("mesh_top", "mesh_top.png"),
+        "mesh": pick("mesh_top", "mesh_top.png", required=True),
         "diff": pick("diff", "diff.png"),
     }
-    total = sum(p.stat().st_size for p in imgs.values())
+    total = sum(p.stat().st_size for p in imgs.values() if p is not None)
     if total > 14_000_000:
         log.warning("embedded rasters total %.1f MB — the artifact limit is 16 MB", total / 1e6)
 
     vectors = vectors_from_twin(build_dir / f"{name}.twin")
-    html = TEMPLATE.read_text()
-    html = (html.replace("__TITLE__", title or f"{name.capitalize()} Twin Compare")
-                .replace("__LAYERS_JSON__", json.dumps(layers))
-                .replace("__VECTORS_JSON__", json.dumps(vectors))
+    safe_title = html_mod.escape(title or f"{name.capitalize()} Twin Compare", quote=True)
+    html = TEMPLATE.read_text(encoding="utf-8")
+    html = (html.replace("__TITLE__", safe_title)
+                .replace("__LAYERS_JSON__", _safe_json_for_script(layers))
+                .replace("__VECTORS_JSON__", _safe_json_for_script(vectors))
                 .replace("__IMG_OSM__", _data_uri(imgs["osm"]))
                 .replace("__IMG_ORTHO__", _data_uri(imgs["ortho"]))
                 .replace("__IMG_MESH__", _data_uri(imgs["mesh"]))
                 .replace("__IMG_DIFF__", _data_uri(imgs["diff"])))
     out = Path(out_html) if out_html else cmp_dir / "viewer.html"
-    out.write_text(html)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(html, encoding="utf-8")
     log.info("wrote %s (%.1f MB, %d junctions, %d roads, %d signals)", out, out.stat().st_size / 1e6,
              len(vectors["junctions"]), len(vectors["roads"]), len(vectors["signals"]))
     return out

@@ -130,10 +130,16 @@ def road_profile_from_dem(road: Road, elevation: Elevation,
     pts = shapely.line_interpolate_point(line2d, inside)
     px = shapely.get_x(pts).astype(np.float64)
     py = shapely.get_y(pts).astype(np.float64)
-    t0 = xy[1] - xy[0]
-    t0 /= max(np.linalg.norm(t0), 1e-9)
-    t1 = xy[-1] - xy[-2]
-    t1 /= max(np.linalg.norm(t1), 1e-9)
+    seg_vecs = xy[1:] - xy[:-1]
+    seg_lens = np.hypot(seg_vecs[:, 0], seg_vecs[:, 1])
+    valid_segs = np.flatnonzero(seg_lens > 1e-9)
+    if len(valid_segs):
+        i0, i1 = int(valid_segs[0]), int(valid_segs[-1])
+        t0 = seg_vecs[i0] / seg_lens[i0]
+        t1 = seg_vecs[i1] / seg_lens[i1]
+    else:
+        t0 = np.array([1.0, 0.0], dtype=np.float64)
+        t1 = np.array([1.0, 0.0], dtype=np.float64)
     before = s_dense < 0
     after = s_dense > length
     px[before] += t0[0] * s_dense[before]
@@ -235,12 +241,10 @@ def _crossing_samples(model: TwinModel, chain_xy: np.ndarray, half_width: float,
             pieces = [below]
         s_below = _vertex_s(c[:, :2])
         for g in pieces:
-            gc = np.asarray(g.coords, dtype=np.float64)[:, :2]
             n = max(2, int(g.length / 2.0) + 1)
-            pts = np.asarray([shapely.line_interpolate_point(g, t).coords[0]
-                              for t in np.linspace(0.0, g.length, n)], dtype=np.float64)
-            z_lo = np.interp([below.project(Point(p)) for p in pts], s_below, c[:, 2])
-            s_up = np.asarray([line.project(Point(p)) for p in pts], dtype=np.float64)
+            pts_geom = shapely.line_interpolate_point(g, np.linspace(0.0, g.length, n))
+            z_lo = np.interp(shapely.line_locate_point(below, pts_geom), s_below, c[:, 2])
+            s_up = shapely.line_locate_point(line, pts_geom)
             out.extend((float(s), float(z)) for s, z in zip(s_up, z_lo))
     return out
 
@@ -508,7 +512,7 @@ def apply_tunnel_profiles(model: TwinModel, elevation: Elevation,
         half_w = max((r.width_left() + r.width_right()) / 2.0 for r, _ in chain) + 1.0
         cover = _crossing_samples(model, chain_xy, half_w,
                                   _chain_adjacent(model, {r.id for r, _ in chain}),
-                                  lambda r: road_osm_layer(r) > layer)
+                                  lambda r, _layer=layer: road_osm_layer(r) > _layer)
         # dense vertical alignment along the chain: the straight line between the portals,
         # lowered under every cover requirement with ramps at the maximum grade
         s_dense = np.unique(np.concatenate([s_chain, np.arange(0.0, span, 2.0), [span]]))
@@ -531,7 +535,7 @@ def apply_tunnel_profiles(model: TwinModel, elevation: Elevation,
                          "%+.2f / %+.2f m", chain[0][0].id, len(chain), span,
                          "both portals in the data" if head_anchored and tail_anchored
                          else "clipped by the bbox", float(sunk.max()), len(cover), depth,
-                         -sink_head, -sink_tail)
+                         E.tunnel_max_grade * 100.0, -sink_head, -sink_tail)
         s0 = 0.0
         for r, entry in chain:
             line2d = _densified_line(r.reference_line, 4.0)
@@ -767,9 +771,9 @@ def _rewrite_metadata(twin_dir: Path, model: TwinModel) -> None:
     p = twin_dir / "model.json"
     if not p.exists():
         return
-    meta = json.loads(p.read_text())
+    meta = json.loads(p.read_text(encoding="utf-8"))
     meta["metadata"] = model.metadata
-    p.write_text(json.dumps(meta, indent=2, default=str))
+    p.write_text(json.dumps(meta, indent=2, default=str), encoding="utf-8")
 
 
 def _json_safe(o: Any) -> Any:
@@ -892,7 +896,7 @@ def build(args: argparse.Namespace) -> int:
     # 1. OSM --------------------------------------------------------------------------------
     with timer.stage("osm"):
         if args.fixture:
-            raw = json.loads(Path(args.fixture).read_text())
+            raw = json.loads(Path(args.fixture).read_text(encoding="utf-8"))
             build_meta["osm_source"] = f"fixture:{args.fixture}"
         else:
             if not args.bbox:
@@ -1101,7 +1105,7 @@ def _build_pipeline(args: argparse.Namespace, osm, bbox, frame: LocalFrame, out:
     if any(o.get('op') in {'space.set','control.set'} and not o.get('disabled') for o in ops):
         from .reviewed_map import resolve_reviewed_map, apply_reviewed_geometry, apply_reviewed_logic
         reviewed = resolve_reviewed_map(model, ops)
-        (out / f'{args.name}.reviewed-map.json').write_text(json.dumps(reviewed, indent=2))
+        (out / f'{args.name}.reviewed-map.json').write_text(json.dumps(reviewed, indent=2), encoding="utf-8")
         if not (reviewed['geometry_ready'] and reviewed['logic_ready']):
             log.error('Reviewed annotations have unresolved geometry/logic; see %s. Existing exports retained.',
                       out / f'{args.name}.reviewed-map.json')
@@ -1158,8 +1162,25 @@ def _build_pipeline(args: argparse.Namespace, osm, bbox, frame: LocalFrame, out:
                 log.warning("dem quicklook failed: %s", exc)
 
     # 6. validate ---------------------------------------------------------------------------
+    carla_skipped = False
     with timer.stage("validate"):
-        report = validate_mod.validate(model, xodr_text, step=args.step, out_dir=out)
+        try:
+            report = validate_mod.validate(model, xodr_text, step=args.step, out_dir=out)
+        except ModuleNotFoundError as exc:
+            if exc.name != "carla":
+                raise
+            carla_skipped = True
+            log.warning("carla Python package not installed; skipping CARLA Map validation")
+            report = {
+                "name": model.name, "step": args.step, "tolerance_m": validate_mod.CONTAINMENT_TOL,
+                "topology": {"loaded": False, "skipped": True, "reason": "carla module not installed"},
+                "lane_in_drivable": None, "junction_containment": None,
+                "z_error": None, "z_error_dem": None, "sidewalk_coverage": None, "lane_coverage": None,
+                "landmarks": None, "grade_separation": None,
+                "notes": ["carla module not installed; OpenDRIVE runtime validation skipped"],
+                "violations": [],
+            }
+            validate_mod.write_violations([], out / "violations.geojson")
         report_path = validate_mod.write_report(report, out / "report.json")
         outputs["report"] = str(report_path)
         outputs["violations"] = str(out / "violations.geojson")
@@ -1168,16 +1189,16 @@ def _build_pipeline(args: argparse.Namespace, osm, bbox, frame: LocalFrame, out:
     build_meta["total_seconds"] = round(sum(timer.timings.values()), 3)
     loaded = bool(report["topology"].get("loaded"))
     lid = report.get("lane_in_drivable")
-    ok = loaded and lid is not None and lid["fraction"] >= LANE_IN_DRIVABLE_MIN
+    ok = carla_skipped or (loaded and lid is not None and lid["fraction"] >= LANE_IN_DRIVABLE_MIN)
     build_meta["status"] = "ok" if ok else "failed"
     _rewrite_metadata(twin_dir, model)
     # report.json also carries the build metadata so a reader has everything in one file
-    report_slim = json.loads(report_path.read_text())
+    report_slim = json.loads(report_path.read_text(encoding="utf-8"))
     report_slim["build"] = _json_safe(build_meta)
     report_slim["profile"] = _json_safe(model.metadata.get("profile"))
     report_slim["elevation"] = model.metadata.get("elevation")
     report_slim["refine"] = _json_safe({k: v for k, v in model.metadata.get("refine", {}).items()})
-    report_path.write_text(json.dumps(report_slim, indent=2, default=str))
+    report_path.write_text(json.dumps(report_slim, indent=2, default=str), encoding="utf-8")
 
     print(validate_mod.summary(report))
     print(f"profile: {profiles.summary(P)} [{profile_meta['source']}"
@@ -1250,11 +1271,11 @@ def review_annotations(args: argparse.Namespace) -> int:
     report = resolve_reviewed_map(model, ops, tolerance=args.tolerance)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    (out / 'reviewed-map.json').write_text(json.dumps(report, indent=2))
+    (out / 'reviewed-map.json').write_text(json.dumps(report, indent=2), encoding="utf-8")
     # Explicit local CRS: this is a model-space artifact, not a WGS84 web-map layer.
     (out / 'reviewed-spaces.local.json').write_text(json.dumps({
         'type':'FeatureCollection', 'crs':report['crs'], 'origin':report['origin'],
-        'features':report['features']}, indent=2))
+        'features':report['features']}, indent=2), encoding="utf-8")
     for diagnostic in report['diagnostics']:
         print(f"{diagnostic['severity']} [{diagnostic['stage']}] {','.join(diagnostic['ids'])}: "
               f"{diagnostic['code']}: {diagnostic['message']}")

@@ -31,6 +31,15 @@ SPACE_SURFACES = {
 }
 
 
+def _layer_int(val, default: int = 0) -> int:
+    if val is None or val == "" or isinstance(val, bool):
+        return default
+    try:
+        return int(round(float(val)))
+    except (TypeError, ValueError):
+        return default
+
+
 def fit_boundary(points, tolerance=0.10, closed=False, pinned=()):
     """Quadratic B-spline subdivision, bounded against the input polyline.
 
@@ -584,7 +593,7 @@ def apply_reviewed_geometry(model, report):
                         "island",
                         "ground",
                     }
-                    and int(s.tags.get("layer", 0)) == p["layer"]
+                    and _layer_int(s.tags.get("layer", 0)) == p["layer"]
                 ):
                     s.geometry = s.geometry.difference(coverage)
             # Never leave the generated curb through the newly reviewed surface.
@@ -699,9 +708,9 @@ def apply_reviewed_geometry(model, report):
         ):
             continue
         for low in model.surfaces:
-            if low.kind not in {"drivable", "parking", "ground"} or int(
+            if low.kind not in {"drivable", "parking", "ground"} or _layer_int(
                 low.tags.get("layer", 0)
-            ) != int(raised.tags.get("layer", 0)):
+            ) != _layer_int(raised.tags.get("layer", 0)):
                 continue
             border = raised.geometry.boundary.intersection(low.geometry.boundary)
             parts = (
@@ -718,7 +727,7 @@ def apply_reviewed_geometry(model, report):
                             raised.z_offset - low.z_offset,
                             low.kind,
                             raised.kind,
-                            int(raised.tags.get("layer", 0)),
+                            _layer_int(raised.tags.get("layer", 0)),
                         )
                     )
     # Difference can split a curb; keep the model's LineString contract.
@@ -761,8 +770,12 @@ def write_reviewed_objects(parent, model, road, geoms, sub):
     survive in userData for consumers that implement the additional behavior.
     """
     report = model.metadata.get("reviewed_map", {})
-    if not report.get("geometry_ready"):
+    if not report.get("geometry_ready") or not geoms:
         return
+    from .export.xodr import road_sections, section_ids
+
+    sections = road_sections(road)
+    sampled_refs = _sampled_geoms(geoms)
     blocked = {
         oid
         for d in report.get("diagnostics", [])
@@ -782,11 +795,13 @@ def write_reviewed_objects(parent, model, road, geoms, sub):
             continue
         g = shape(f["geometry"])
         g = g if g.geom_type == "Polygon" else g.buffer(o["width_m"] / 2, cap_style=2)
+        if g.geom_type == "MultiPolygon":
+            g = max(g.geoms, key=lambda poly: poly.area)
+        if g.is_empty or g.geom_type != "Polygon":
+            continue
         # The object anchor is projected onto the *exported* spline, not the raw OSM line.
         center = g.centroid
-        _, s, t, heading = project_reference(center, geoms)
-        segment = next((g for g in geoms if g.s <= s <= g.s + g.length), geoms[-1])
-        x0, y0 = segment.point_at(max(0, min(1, (s - segment.s) / segment.length)))
+        _, s, t, heading, (x0, y0) = _project_sampled(center, sampled_refs)
         anchor = Point(x0 - t * math.sin(heading), y0 + t * math.cos(heading))
         obj = sub(
             parent,
@@ -809,20 +824,19 @@ def write_reviewed_objects(parent, model, road, geoms, sub):
         outline = sub(obj, "outline")
         for x, y in g.exterior.coords:
             sub(outline, "cornerLocal", u=x - anchor.x, v=y - anchor.y, z=0)
+        section = next(
+            (sec for sec in sections if sec[0] <= s < sec[1]),
+            sections[-1],
+        )
+        sec_map = section_ids(section[2])
         for lid in p["target"].get("lane_ids", []) or (
             [p["target"]["lane_id"]] if "lane_id" in p["target"] else []
         ):
             # Convert model IDs through the same lane-section mapping as ordinary objects.
-            from .export.xodr import road_sections, section_ids
-
-            sections = road_sections(road)
-            section = next(
-                (section for section in sections if section[0] <= s < section[1]),
-                sections[-1],
-            )
-            mapped = section_ids(section[2])[lid]
-            sub(obj, "validity", fromLane=mapped, toLane=mapped)
-        data = sub(
+            mapped = sec_map.get(lid)
+            if mapped is not None:
+                sub(obj, "validity", fromLane=mapped, toLane=mapped)
+        sub(
             obj,
             "userData",
             code="twin:review",
@@ -928,6 +942,7 @@ def apply_reviewed_logic(model, report):
     }
     replaced.update("review:" + f["properties"]["id"] for f in report["features"])
     model.signals = [sig for sig in model.signals if sig.id not in replaced]
+    sampled_cache: dict[str, list[tuple]] = {}
     for f in report["features"]:
         p = f["properties"]
         o = p["annotation"]
@@ -937,8 +952,10 @@ def apply_reviewed_logic(model, report):
         road = model.road(p["target"]["road_id"])
         g = shape(f["geometry"])
         position = g if g.geom_type == "Point" else g.centroid
-        geoms, _ = road_geometry(road)
-        _, station, lateral, tangent = project_reference(position, geoms)
+        if road.id not in sampled_cache:
+            geoms, _ = road_geometry(road)
+            sampled_cache[road.id] = _sampled_geoms(geoms)
+        _, station, lateral, tangent, _ = _project_sampled(position, sampled_cache[road.id])
         lane_ids = p["target"].get("lane_ids") or [p["target"]["lane_id"]]
         forward = next(l.direction for l in road.lanes if l.id in lane_ids) == "forward"
         heading = (
@@ -955,6 +972,14 @@ def apply_reviewed_logic(model, report):
             if o["type"] != "vehicle"
             else "traffic_light"
         )
+        sig_tags: dict = {"review_id": p["id"], "relationships": p["relationships"]}
+        if signal_kind == "traffic_light_arrow":
+            raw_type = str(o.get("type", "")).lower()
+            if "right" in raw_type and "left" not in raw_type:
+                sig_tags["arrow_turn"] = "right"
+                sig_tags["name"] = "Signal_3Light_ArrowRight01"
+            else:
+                sig_tags["arrow_turn"] = "left"
         sig = Signal(
             "review:" + p["id"],
             signal_kind,
@@ -968,7 +993,7 @@ def apply_reviewed_logic(model, report):
             orientation="+" if forward else "-",
             validities=[(lid, lid) for lid in lane_ids],
             h_offset=heading - tangent,
-            tags={"review_id": p["id"], "relationships": p["relationships"]},
+            tags=sig_tags,
         )
         model.signals.append(sig)
     current = {sig.id for sig in model.signals}
@@ -983,26 +1008,47 @@ def apply_reviewed_logic(model, report):
     model.metadata["reviewed_map"] = copy.deepcopy(report)
 
 
-def project_reference(center, geoms):
-    """Project onto the exported reference, with <=5 cm sampling intervals."""
-    best = None
+def _sampled_geoms(geoms):
+    out = []
     for segment in geoms:
-        n = max(8, int(math.ceil(segment.length / 0.05)))
+        n = max(8, int(math.ceil(max(segment.length, 0.0) / 0.05)))
         ref = LineString([segment.point_at(i / n) for i in range(n + 1)])
-        along = ref.project(center)
-        foot = ref.interpolate(along)
-        distance = center.distance(foot)
-        if best is None or distance < best[0]:
-            before = ref.interpolate(max(0, along - 0.01))
+        out.append((segment, ref))
+    return out
+
+
+def _project_sampled(center, sampled):
+    best = None
+    for segment, ref in sampled:
+        if ref.length <= 1e-12:
+            foot = Point(ref.coords[0])
+            distance = center.distance(foot)
+            heading = getattr(segment, "hdg", 0.0)
+            lateral = -(center.x - foot.x) * math.sin(heading) + (center.y - foot.y) * math.cos(heading)
+            cand = (distance, segment.s, lateral, heading, (foot.x, foot.y))
+        else:
+            along = ref.project(center)
+            foot = ref.interpolate(along)
+            distance = center.distance(foot)
+            before = ref.interpolate(max(0.0, along - 0.01))
             after = ref.interpolate(min(ref.length, along + 0.01))
             heading = math.atan2(after.y - before.y, after.x - before.x)
             lateral = -(center.x - foot.x) * math.sin(heading) + (
                 center.y - foot.y
             ) * math.cos(heading)
-            best = (
+            cand = (
                 distance,
                 segment.s + along / ref.length * segment.length,
                 lateral,
                 heading,
+                (foot.x, foot.y),
             )
+        if best is None or cand[0] < best[0]:
+            best = cand
     return best
+
+
+def project_reference(center, geoms):
+    """Project onto the exported reference, with <=5 cm sampling intervals."""
+    res = _project_sampled(center, _sampled_geoms(geoms))
+    return res[:4] if res is not None else None

@@ -1,7 +1,7 @@
 """Explicit empty outputs for disabled placement components."""
 from importlib import import_module
 
-from .project import ROOT, read, write
+from .project import read, write
 from .project_pipeline import PrerequisiteError
 
 
@@ -12,21 +12,23 @@ def component(stage):
 
 
 def execute_disabled(pipe, stage, work, run_dir):
-    from .model import TwinModel
     from .project_stages import execute
     name = component(stage)
-    model = TwinModel.load(pipe.project.path('build/model')/(pipe.project.spec['name']+'.twin'))
+    twin_dir = pipe.project.path('build/model')/(pipe.project.spec['name']+'.twin')
     if name == 'traffic':
+        from .model import TwinModel
+        model = TwinModel.load(twin_dir)
         if model.signals:
             raise PrerequisiteError('Traffic cannot be disabled while the model contains traffic controls; reconcile layout controls first')
         return execute(pipe, stage, work, run_dir)
     if not stage.endswith('.plan'):
         # Baking the explicit empty plan removes only the owned placement region.
         return execute(pipe, stage, work, run_dir)
+    meta = read(twin_dir/'model.json')
     planner = import_module('twinmodel.'+name)
     config = planner.configuration(read(pipe.project.path('authoring/'+name+'.json')))
     plan = {'schema':planner.SCHEMA, 'map':pipe.project.spec['name'], 'region':pipe.project.spec['name'],
-            'origin':[model.origin_lat, model.origin_lon], 'coordinate_system':'carla-metres',
+            'origin':[meta['origin_lat'], meta['origin_lon']], 'coordinate_system':'carla-metres',
             'disabled':True, 'config':config, 'points':[], 'review':[],
             'summary':{'accepted':0,'rejected':0,'footings':0,'by_kind':{},'reasons':{},'groups':0,'groups_by_kind':{}}}
     if name == 'furniture':plan['catalog'] = planner.CATALOG

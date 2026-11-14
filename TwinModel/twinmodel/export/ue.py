@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,8 +37,8 @@ from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
 from .. import profiles
-from ..model import Building, CurbLine, Road, TwinModel, road_osm_layer
-from .mesh import (MATERIALS, _add_marking, _add_surface, _grid_split, _polygons, _z,
+from ..model import Building, CurbLine, TwinModel, aux_width_at, road_osm_layer
+from .mesh import (MATERIALS, _add_surface, _grid_split, _polygons, _z,
                    triangulate_polygon)
 
 log = logging.getLogger("twinmodel.export.ue")
@@ -469,16 +470,33 @@ def _add_plate_walls(mb_of, model: TwinModel, geom: BaseGeometry, z_top_offset: 
     """Closed-prism side walls of a raised plate: every perimeter ring, plate top down to
     ``SKIRT_DROP`` under the datum. ``mb_of(tile)`` returns the builder for a tile."""
     n = 0
+    grid_m = profiles.get().elevation.mesh_grid_m
     for ring in plate_wall_rings(geom):
         if ring.length < 0.05:
             continue
-        line = ring.segmentize(profiles.get().elevation.mesh_grid_m) if subdivide else ring
-        xy = np.asarray(line.coords, dtype=np.float64)[:, :2]
-        z1 = _z(model, xy, z_top_offset, layer)
-        z0 = _z(model, xy, 0.0, layer) - SKIRT_DROP
-        cen = line.centroid
-        n += _add_wall_ring(mb_of(_tile_index(cen.x, cen.y, tile_m)), line, z1, z0,
-                            curb_uv=CURB_TEX_BAND_M)
+        minx, miny, maxx, maxy = ring.bounds
+        i0, j0 = _tile_index(minx, miny, tile_m)
+        i1, j1 = _tile_index(maxx, maxy, tile_m)
+        if tile_m <= 0 or (i0, j0) == (i1, j1):
+            line = ring.segmentize(grid_m) if subdivide else ring
+            xy = np.asarray(line.coords, dtype=np.float64)[:, :2]
+            z1 = _z(model, xy, z_top_offset, layer)
+            z0 = _z(model, xy, 0.0, layer) - SKIRT_DROP
+            n += _add_wall_ring(mb_of((i0, j0)), line, z1, z0, curb_uv=CURB_TEX_BAND_M)
+            continue
+        for i in range(i0, i1 + 1):
+            for j in range(j0, j1 + 1):
+                clipped = ring.intersection(box(i * tile_m, j * tile_m, (i + 1) * tile_m, (j + 1) * tile_m))
+                if clipped.is_empty:
+                    continue
+                for seg_line in (getattr(clipped, "geoms", [clipped])):
+                    if not isinstance(seg_line, LineString) or seg_line.length < 1e-4:
+                        continue
+                    line = seg_line.segmentize(grid_m) if subdivide else seg_line
+                    xy = np.asarray(line.coords, dtype=np.float64)[:, :2]
+                    z1 = _z(model, xy, z_top_offset, layer)
+                    z0 = _z(model, xy, 0.0, layer) - SKIRT_DROP
+                    n += _add_wall_ring(mb_of((i, j)), line, z1, z0, curb_uv=CURB_TEX_BAND_M)
     return n
 
 
@@ -490,8 +508,11 @@ class RoadMeshZ:
     def __init__(self, tris: np.ndarray):
         # tris: (n, 3, 3) xyz
         self.tris = np.asarray(tris, dtype=np.float64).reshape(-1, 3, 3)
-        polys = [Polygon(t[:, :2]) for t in self.tris]
-        self.tree = shapely.STRtree(polys) if polys else None
+        if len(self.tris):
+            polys = shapely.polygons(self.tris[:, :, :2])
+            self.tree = shapely.STRtree(polys)
+        else:
+            self.tree = None
 
     @classmethod
     def from_builders(cls, builders: Iterable[MeshBuilder]) -> "RoadMeshZ":
@@ -504,26 +525,34 @@ class RoadMeshZ:
 
     def z(self, model: TwinModel, xy: np.ndarray, layer: Optional[int]) -> np.ndarray:
         xy = np.asarray(xy, dtype=np.float64).reshape(-1, 2)
-        out = _z(model, xy, 0.0, layer)
-        if self.tree is None or len(xy) == 0:
-            return out
+        if len(xy) == 0:
+            return np.zeros(0, dtype=np.float64)
+        if self.tree is None:
+            return _z(model, xy, 0.0, layer)
+        out = np.empty(len(xy), dtype=np.float64)
+        done = np.zeros(len(xy), dtype=bool)
         pts = shapely.points(xy[:, 0], xy[:, 1])
         qi, ti = self.tree.query(pts, predicate="intersects")
-        done = np.zeros(len(xy), dtype=bool)
-        for q, t in zip(qi, ti):
-            if done[q]:
-                continue
-            a, b, c = self.tris[t]
-            v0, v1 = b[:2] - a[:2], c[:2] - a[:2]
-            v2 = xy[q] - a[:2]
-            den = v0[0] * v1[1] - v1[0] * v0[1]
-            if abs(den) < 1e-12:
-                continue
-            l1 = (v2[0] * v1[1] - v1[0] * v2[1]) / den
-            l2 = (v0[0] * v2[1] - v2[0] * v0[1]) / den
-            l0 = 1.0 - l1 - l2
-            out[q] = l0 * a[2] + l1 * b[2] + l2 * c[2]
-            done[q] = True
+        if len(qi):
+            tri_q = self.tris[ti]
+            a, b, c = tri_q[:, 0], tri_q[:, 1], tri_q[:, 2]
+            v0, v1 = b[:, :2] - a[:, :2], c[:, :2] - a[:, :2]
+            v2 = xy[qi] - a[:, :2]
+            den = v0[:, 0] * v1[:, 1] - v1[:, 0] * v0[:, 1]
+            valid = np.abs(den) >= 1e-12
+            if valid.any():
+                qi_v = qi[valid]
+                den_v = den[valid]
+                v0_v, v1_v, v2_v = v0[valid], v1[valid], v2[valid]
+                a_z, b_z, c_z = a[valid, 2], b[valid, 2], c[valid, 2]
+                l1 = (v2_v[:, 0] * v1_v[:, 1] - v1_v[:, 0] * v2_v[:, 1]) / den_v
+                l2 = (v0_v[:, 0] * v2_v[:, 1] - v2_v[:, 0] * v0_v[:, 1]) / den_v
+                z_interp = (1.0 - l1 - l2) * a_z + l1 * b_z + l2 * c_z
+                _, first_idx = np.unique(qi_v, return_index=True)
+                out[qi_v[first_idx]] = z_interp[first_idx]
+                done[qi_v[first_idx]] = True
+        if not done.all():
+            out[~done] = _z(model, xy[~done], 0.0, layer)
         return out
 
 
@@ -643,8 +672,9 @@ def _footprint_ring_ue(poly: Polygon) -> Optional[list[list[float]]]:
 
 
 def _add_building(mb: MeshBuilder, model: TwinModel, b: Building, level_height: float,
-                  default_levels: int, footprint: Optional[BaseGeometry] = None) -> int:
-    base, roof = building_geometry(model, b, level_height, default_levels)
+                  default_levels: int, footprint: Optional[BaseGeometry] = None,
+                  z_span: Optional[tuple[float, float]] = None) -> int:
+    base, roof = z_span if z_span is not None else building_geometry(model, b, level_height, default_levels)
     n = 0
     for poly in _polygons(b.footprint if footprint is None else footprint):
         poly = shapely.force_2d(poly)
@@ -688,6 +718,15 @@ def _add_building(mb: MeshBuilder, model: TwinModel, b: Building, level_height: 
 
 # --------------------------------------------------------------------------- spawn points
 
+def _safe_layer_int(val, default: int = 0) -> int:
+    if val is None or val == "" or isinstance(val, bool):
+        return default
+    try:
+        return int(round(float(val)))
+    except (TypeError, ValueError):
+        return default
+
+
 def spawn_points(model: TwinModel, spacing: float = SPAWN_SPACING, margin: float = SPAWN_MARGIN,
                  z_above: float = SPAWN_Z, limit: int = 400) -> list[dict]:
     """Vehicle spawn transforms on the driving lanes of non-junction roads, every ``spacing``
@@ -704,29 +743,57 @@ def spawn_points(model: TwinModel, spacing: float = SPAWN_SPACING, margin: float
             continue
         layer = road_osm_layer(r)
         ss = np.arange(margin, L - margin + 1e-6, spacing)
+        if len(ss) == 0:
+            continue
+        pts = shapely.line_interpolate_point(line, ss)
+        p1s = shapely.line_interpolate_point(line, np.minimum(L, ss + 0.5))
+        p0s = shapely.line_interpolate_point(line, np.maximum(0.0, ss - 0.5))
+        px, py = shapely.get_x(pts), shapely.get_y(pts)
+        dx = shapely.get_x(p1s) - shapely.get_x(p0s)
+        dy = shapely.get_y(p1s) - shapely.get_y(p0s)
+        hs_base = np.arctan2(dy, dx)
+        nxs, nys = -np.sin(hs_base), np.cos(hs_base)
+        has_aux = any(l.tags.get("aux") for l in r.lanes)
+        road_cands: list[tuple[float, float, float, int]] = []
         for side in (1, -1):
             lanes = r.lanes_left() if side > 0 else r.lanes_right()
-            inner = 0.0
-            for lane in lanes:
-                t = side * (inner + lane.width / 2.0)
-                inner += lane.width
-                if lane.type != "driving":
-                    continue
-                for s in ss:
-                    p = line.interpolate(float(s))
-                    p1 = line.interpolate(min(L, float(s) + 0.5))
-                    p0 = line.interpolate(max(0.0, float(s) - 0.5))
-                    dx, dy = p1.x - p0.x, p1.y - p0.y
-                    h = math.atan2(dy, dx)
-                    if lane.direction == "backward":
-                        h += math.pi
-                    nx, ny = -math.sin(math.atan2(dy, dx)), math.cos(math.atan2(dy, dx))
-                    x, y = p.x + t * nx, p.y + t * ny
-                    z = float(np.asarray(model.sample_z(x, y, layer=layer))) + z_above
-                    out.append({"x": round(x * UE_SCALE, 1), "y": round(-y * UE_SCALE, 1),
-                                "z": round(z * UE_SCALE, 1), "yaw": round(-math.degrees(h), 2),
-                                "road": r.id, "lane": lane.id,
-                                "model": [round(x, 3), round(y, 3), round(z, 3), round(h, 4)]})
+            if not has_aux:
+                inner = 0.0
+                for lane in lanes:
+                    t = side * (inner + lane.width / 2.0)
+                    inner += lane.width
+                    if lane.type != "driving":
+                        continue
+                    for k in range(len(ss)):
+                        h = float(hs_base[k]) + (math.pi if lane.direction == "backward" else 0.0)
+                        road_cands.append((float(px[k] + t * nxs[k]), float(py[k] + t * nys[k]), h, lane.id))
+            else:
+                for lane_idx, lane in enumerate(lanes):
+                    if lane.type != "driving":
+                        continue
+                    for k, s_val in enumerate(ss):
+                        s_f = float(s_val)
+                        w_here = aux_width_at(lane, r, s_f) if lane.tags.get("aux") else lane.width
+                        if w_here < 2.5:
+                            continue
+                        inner_s = sum(
+                            aux_width_at(prev, r, s_f) if prev.tags.get("aux") else prev.width
+                            for prev in lanes[:lane_idx]
+                        )
+                        t = side * (inner_s + w_here / 2.0)
+                        h = float(hs_base[k]) + (math.pi if lane.direction == "backward" else 0.0)
+                        road_cands.append((float(px[k] + t * nxs[k]), float(py[k] + t * nys[k]), h, lane.id))
+        if not road_cands:
+            continue
+        xs_arr = np.array([c[0] for c in road_cands], dtype=np.float64)
+        ys_arr = np.array([c[1] for c in road_cands], dtype=np.float64)
+        zs_arr = np.asarray(model.sample_z(xs_arr, ys_arr, layer=layer), dtype=np.float64).reshape(-1) + z_above
+        for (x, y, h, lid), z in zip(road_cands, zs_arr):
+            z_f = float(z)
+            out.append({"x": round(x * UE_SCALE, 1), "y": round(-y * UE_SCALE, 1),
+                        "z": round(z_f * UE_SCALE, 1), "yaw": round(-math.degrees(h), 2),
+                        "road": r.id, "lane": lid,
+                        "model": [round(x, 3), round(y, 3), round(z_f, 3), round(h, 4)]})
     if len(out) > limit:
         step = len(out) / limit
         out = [out[int(i * step)] for i in range(limit)]
@@ -757,7 +824,7 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
     builders: dict[tuple[int, str, tuple[int, int]], MeshBuilder] = {}
 
     def mb(layer: Optional[int], kind: str, tile: tuple[int, int]) -> MeshBuilder:
-        key = (int(layer or 0), kind, tile)
+        key = (_safe_layer_int(layer), kind, tile)
         if key not in builders:
             builders[key] = MeshBuilder()
         return builders[key]
@@ -767,8 +834,8 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
     M = profiles.get().marking
     road_union = unary_union([s.geometry for s in model.surfaces if s.kind in ("drivable", "parking")])
     road_cover = road_union.buffer(0.02) if not road_union.is_empty else None
-    plates_union = unary_union([s.geometry for s in model.surfaces if s.kind in SKIRT_KINDS])
-    cover_union = unary_union([s.geometry for s in model.surfaces])
+    if road_cover is not None:
+        shapely.prepare(road_cover)
     overlays: list[tuple] = []   # (surface, polygon) crossings drawn on the road mesh
     n_cross_overlay = n_cross_base = 0
     for s in model.surfaces:
@@ -786,12 +853,22 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
             continue
         for tile, piece in _tiles_of(s.geometry, tile_m):
             _add_surface(mb(layer, kind, tile), model, piece, s.z_offset, kind, subdivide, layer)
-    # slots between the road and the raised plates get paved (see road_plate_gaps)
-    gaps = road_plate_gaps(road_union, plates_union, cover_union)
-    n_gap_m2 = float(gaps.area) if not gaps.is_empty else 0.0
-    for poly in _polygons(gaps):
-        for tile, piece in _tiles_of(poly, tile_m):
-            _add_surface(mb(0, "drivable", tile), model, piece, 0.0, "drivable", subdivide, None)
+    # slots between the road and the raised plates get paved per layer (see road_plate_gaps)
+    surfs_by_lay: dict[Optional[int], list] = {}
+    for s in model.surfaces:
+        surfs_by_lay.setdefault(_safe_layer_int(s.tags.get("layer")) if "layer" in (s.tags or {}) else None, []).append(s)
+    n_gap_m2 = 0.0
+    for lay_opt, lay_surfs in surfs_by_lay.items():
+        lay_road = unary_union([s.geometry for s in lay_surfs if s.kind in ("drivable", "parking")])
+        lay_plates = unary_union([s.geometry for s in lay_surfs if s.kind in SKIRT_KINDS])
+        lay_cover = unary_union([s.geometry for s in lay_surfs])
+        gaps = road_plate_gaps(lay_road, lay_plates, lay_cover)
+        if gaps.is_empty:
+            continue
+        n_gap_m2 += float(gaps.area)
+        for poly in _polygons(gaps):
+            for tile, piece in _tiles_of(poly, tile_m):
+                _add_surface(mb(lay_opt, "drivable", tile), model, piece, 0.0, "drivable", subdivide, lay_opt)
     # the road mesh per layer: what overlays sit on
     roadz: dict[int, RoadMeshZ] = {}
     for layer in sorted({int(k[0]) for k in builders}):
@@ -824,7 +901,7 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
     plate_groups: dict[tuple[int, float], list[BaseGeometry]] = {}
     for s in model.surfaces:
         if s.kind in SKIRT_KINDS:
-            key = (int(s.tags.get("layer") or 0), round(float(s.z_offset), 4))
+            key = (_safe_layer_int(s.tags.get("layer")), round(float(s.z_offset), 4))
             plate_groups.setdefault(key, []).append(s.geometry)
     n_wall_faces = 0
     for (layer, z_top), geoms in sorted(plate_groups.items()):
@@ -873,8 +950,11 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
     buildings_out: list[dict] = []
     if buildings:
         drivable = unary_union([s.geometry for s in model.surfaces
-                                if s.kind in ("drivable", "parking", "crossing")])
+                                if s.kind in ("drivable", "parking", "crossing")
+                                and _safe_layer_int(s.tags.get("layer")) >= 0])
         drivable = drivable.buffer(0.25) if not drivable.is_empty else None
+        if drivable is not None:
+            shapely.prepare(drivable)
         for idx, b in enumerate(model.buildings):
             fp = clip_building_footprint(b, drivable)
             if fp is None:
@@ -883,8 +963,9 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
             if fp is not b.footprint:
                 n_clipped += 1
             cen = fp.centroid
+            base, roof = building_geometry(model, b, level_height, default_levels)
             _add_building(mb(0, "building", _tile_index(cen.x, cen.y, tile_m)), model, b,
-                          level_height, default_levels, footprint=fp)
+                          level_height, default_levels, footprint=fp, z_span=(base, roof))
             # per-building footprint contours for an editor-side procedural building
             # generator (an alternative to the baked slabs in the ``building`` assets)
             rings = [r for r in (_footprint_ring_ue(p) for p in _polygons(fp)) if r is not None]
@@ -893,7 +974,6 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
             raw_polys = sorted(_polygons(b.footprint), key=lambda p: p.area, reverse=True)
             raw_ring = next((r for r in (_footprint_ring_ue(p) for p in raw_polys)
                              if r is not None), None)
-            base, roof = building_geometry(model, b, level_height, default_levels)
             buildings_out.append({
                 "id": b.osm_id if b.osm_id is not None else idx,
                 "rings_ue": rings,
@@ -905,12 +985,13 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
                 "category": str((b.tags or {}).get("building") or ""),
             })
 
+    safe_prefix = re.sub(r"[^A-Za-z0-9_]+", "_", str(name)).strip("_") or "twin"
     assets = []
     for (layer, kind, tile), b in sorted(builders.items()):
         if b.n_faces == 0:
             continue
         pos, nrm, uv, faces = b.arrays()
-        asset_name = f"{name}_L{layer}_{kind}_{tile[0]}_{tile[1]}".replace("-", "m")
+        asset_name = f"{safe_prefix}_L{layer}_{kind}_{tile[0]}_{tile[1]}".replace("-", "m")
         mat_key, semantic = KIND_MATERIAL[kind]
         rel = f"meshes/{asset_name}.glb"
         bbox = write_glb(mesh_dir / f"{asset_name}.glb", asset_name, pos, nrm, uv, faces, mat_key,
@@ -931,6 +1012,9 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
                           "model": [round(cx, 2), round(cy, 2), round(z, 2)]})
     allmin = np.array([a["bbox_ue"]["min"] for a in assets]).min(axis=0).tolist() if assets else [0, 0, 0]
     allmax = np.array([a["bbox_ue"]["max"] for a in assets]).max(axis=0).tolist() if assets else [0, 0, 0]
+    materials_meta: dict[str, dict] = {}
+    for _kk, (mat_k, sem) in KIND_MATERIAL.items():
+        materials_meta.setdefault(mat_k, {"semantic": sem})
     manifest = {
         "schema": MANIFEST_SCHEMA,
         "name": name,
@@ -944,7 +1028,7 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
         "tile_m": tile_m,
         "profile": profiles.get().name,
         "bbox_ue": {"min": [round(v, 1) for v in allmin], "max": [round(v, 1) for v in allmax]},
-        "materials": {k: {"semantic": KIND_MATERIAL[kk][1]} for kk, (k, _) in KIND_MATERIAL.items()},
+        "materials": materials_meta,
         "kinds": {kk: {"material": k, "semantic": sem} for kk, (k, sem) in KIND_MATERIAL.items()},
         "assets": assets,
         "spawn_points": sp,
@@ -955,7 +1039,7 @@ def export_ue(model: TwinModel, out_dir: Path | str, name: Optional[str] = None,
                   "buildings_clipped_by_roads": n_clipped, "buildings_skipped": n_skipped,
                   "layers": sorted({a["layer"] for a in assets})},
     }
-    (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1))
+    (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")
     log.info("wrote %d glb assets (%d triangles), %d spawn points -> %s", len(assets),
              manifest["stats"]["triangles"], len(sp), out_dir)
     return manifest

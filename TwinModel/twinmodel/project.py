@@ -1,17 +1,17 @@
 """Durable projects and portable build stages for the existing TwinModel CLI."""
 from __future__ import annotations
 
-import argparse
-from contextlib import contextmanager, redirect_stdout
+from contextlib import contextmanager, nullcontext, redirect_stdout
 from .filelock import lock_exclusive, unlock
 import hashlib
 import json
 import math
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import shutil
 import sys
 import tempfile
+import time
 import uuid
 
 SCHEMA = 'twin-project/1'
@@ -22,8 +22,31 @@ class ProjectBusy(ValueError):
     pass
 
 
+def _is_num(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _replace_retry(src: Path, dst: Path, retries: int = 5) -> None:
+    for attempt in range(retries):
+        try:
+            src.replace(dst)
+            return
+        except PermissionError:
+            if attempt + 1 >= retries:
+                raise
+            time.sleep(0.01 * (attempt + 1))
+
+
+def validate_level_path(level: str) -> None:
+    if not isinstance(level, str) or not re.fullmatch(r'/Game/(?:[A-Za-z0-9_]+/)+[A-Za-z0-9_]+', level):
+        raise ValueError('Level must be a full /Game/ asset path')
+    rel = PurePosixPath(level.removeprefix('/Game/'))
+    if rel.parent.as_posix() in ('', '.', 'Carla', 'Developers', 'Collections'):
+        raise ValueError('Level must reside in a dedicated map folder under /Game/')
+
+
 def read(path):
-    return json.loads(Path(path).read_text())
+    return json.loads(Path(path).read_text(encoding='utf-8'))
 
 
 def write(path, value):
@@ -31,8 +54,8 @@ def write(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
     try:
-        tmp.write_text(json.dumps(value, indent=2, allow_nan=False) + '\n')
-        tmp.replace(path)
+        tmp.write_text(json.dumps(value, indent=2, allow_nan=False) + '\n', encoding='utf-8', newline='\n')
+        _replace_retry(tmp, path)
     finally:
         tmp.unlink(missing_ok=True)
 
@@ -42,21 +65,31 @@ def checksum(path):
     if not path.exists():
         return None
     h = hashlib.sha256()
-    files = sorted(p for p in path.rglob('*') if p.is_file() and '__pycache__' not in p.parts) if path.is_dir() else [path]
+    files = (
+        sorted(
+            (p for p in path.rglob('*') if p.is_file() and '__pycache__' not in p.parts),
+            key=lambda p: p.relative_to(path).as_posix(),
+        )
+        if path.is_dir()
+        else [path]
+    )
     for p in files:
-        h.update(str(p.relative_to(path) if path.is_dir() else p.name).encode())
-        h.update(p.read_bytes())
+        rel = p.relative_to(path).as_posix() if path.is_dir() else p.name
+        h.update(rel.encode('utf-8'))
+        with p.open('rb') as f:
+            h.update(hashlib.file_digest(f, 'sha256').digest())
     return h.hexdigest()
 
 
 def digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode('utf-8')).hexdigest()
 
 
 @contextmanager
 def locked(root):
+    root = Path(root)
     (root/'state').mkdir(exist_ok=True)
-    with (root/'state/project.lock').open('a') as handle:
+    with (root/'state/project.lock').open('a', encoding='utf-8') as handle:
         try:
             lock_exclusive(handle)
         except BlockingIOError:
@@ -98,11 +131,16 @@ class Project:
             raise ValueError('Unknown refinement mask method')
         if self.spec['source']['mode'] == 'osm':
             bbox = self.spec['source'].get('bbox', [])
-            if len(bbox) != 4 or not all(isinstance(v, (int,float)) and math.isfinite(v) for v in bbox) or not (
+            if not isinstance(bbox, list) or len(bbox) != 4 or not all(_is_num(v) for v in bbox) or not (
                 -90 <= bbox[0] < bbox[2] <= 90 and -180 <= bbox[1] < bbox[3] <= 180):
                 raise ValueError('Invalid source bounding box')
             frame = self.spec.get('frame')
-            if frame and (frame['origin_lat'], frame['origin_lon']) != ((bbox[0]+bbox[2])/2, (bbox[1]+bbox[3])/2):
+            if frame and not (
+                _is_num(frame.get('origin_lat'))
+                and _is_num(frame.get('origin_lon'))
+                and math.isclose(frame['origin_lat'], (bbox[0] + bbox[2]) / 2, abs_tol=1e-9)
+                and math.isclose(frame['origin_lon'], (bbox[1] + bbox[3]) / 2, abs_tol=1e-9)
+            ):
                 raise ValueError('Source bounds change the authoring coordinate origin; create a new project or reconcile coordinates')
 
     def path(self, relative):
@@ -113,10 +151,13 @@ class Project:
 
     def fingerprint(self, stage):
         spec = read(self.root/'project.json')
-        modules = sorted(p for p in Path(__file__).parent.glob('*.py')
-                         if not p.name.startswith(('project', 'vegetation', 'furniture')))
+        pkg_dir = Path(__file__).parent
+        modules = sorted(
+            p for p in (*pkg_dir.glob('*.py'), *(pkg_dir/'ingest').glob('*.py'))
+            if not p.name.startswith(('project', 'vegetation', 'furniture'))
+        )
         modules.append(ROOT/'twinmodel/export/xodr.py')
-        inputs = {'implementation': {str(p.relative_to(ROOT)): checksum(p) for p in modules},
+        inputs = {'implementation': {p.relative_to(ROOT).as_posix(): checksum(p) for p in modules},
                   'recipe': {k: spec[k] for k in ('name', 'source', 'profile', 'build')},
                   'sources': {name: checksum(self.path('sources/'+name)) for name in
                               ('model.twin', 'model.xodr') if spec['source']['mode'] == 'snapshot'},
@@ -126,7 +167,10 @@ class Project:
                                 ('osm.json', 'dem.npz', 'imagery.tif', 'acquisition.json')}
         if stage == 'export':
             inputs['model'] = checksum(self.path('build/model'))
-            inputs['exporter'] = checksum(ROOT/'twinmodel/export/ue.py')
+            inputs['exporter'] = [
+                checksum(ROOT/'twinmodel/export/ue.py'),
+                checksum(ROOT/'twinmodel/export/mesh.py'),
+            ]
         return digest(inputs)
 
     def status(self):
@@ -146,10 +190,11 @@ class Project:
                 'capabilities': {'portable_build': True, 'unreal_apply': True,
                                  'layout_recompile': self.spec['source']['mode'] == 'osm'}}
 
-    def build(self, through='export', dry_run=False, resume=None):
+    def build(self, through='export', dry_run=False, resume=None, _locked=False):
         if dry_run:
             return self.status()
-        with locked(self.root):
+        guard = nullcontext() if _locked else locked(self.root)
+        with guard:
             self.spec = Project(self.root).spec
             if resume and not self.path('runs/'+resume+'/inputs.json').exists():
                 raise ValueError('Unknown build run to resume')
@@ -166,7 +211,7 @@ class Project:
                     work = run/stage
                     work.mkdir()
                     try:
-                        with (run/f'{stage}.log').open('w') as log, redirect_stdout(log):
+                        with (run/f'{stage}.log').open('w', encoding='utf-8') as log, redirect_stdout(log):
                             if stage == 'model':
                                 self.build_model(work)
                             else:
@@ -183,8 +228,8 @@ class Project:
                         output = self.path('build/'+stage)
                         output.parent.mkdir(exist_ok=True)
                         if output.exists():
-                            output.rename(run/(stage+'-previous'))
-                        work.rename(output)
+                            _replace_retry(output, run/(stage+'-previous'))
+                        _replace_retry(work, output)
                         write(self.path(f'state/{stage}.json'), {
                             'input': before, 'output': checksum(output), 'run': run.name})
                         write(run/f'{stage}.json', {'state': 'success'})
@@ -238,7 +283,7 @@ def create(args):
     if not re.fullmatch(r'[A-Za-z0-9_-]+', name):
         raise ValueError('Name must contain letters, numbers, underscores or hyphens')
     bbox = getattr(args, 'bbox', None)
-    if bbox and (not all(math.isfinite(v) for v in bbox) or
+    if bbox and (not all(_is_num(v) for v in bbox) or
                  not (-90 <= bbox[0] < bbox[2] <= 90 and -180 <= bbox[1] < bbox[3] <= 180)):
         raise ValueError('Expected valid south west north east bounds')
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -283,8 +328,8 @@ def create(args):
               'build': {'imagery': not getattr(args, 'no_imagery', False),
                         'dem': not getattr(args, 'no_dem', False),
                         'refine': not getattr(args, 'no_refine', False)}})
-        (temporary/'.gitignore').write_text('build/\nstate/\nruns/\n')
-        temporary.rename(destination)
+        (temporary/'.gitignore').write_text('build/\nstate/\nruns/\n', encoding='utf-8', newline='\n')
+        _replace_retry(temporary, destination)
     finally:
         if temporary.exists():
             shutil.rmtree(temporary)
@@ -318,7 +363,7 @@ def command(args):
             elif args.action == 'validate':
                 from .project_io import validate_project
                 result = validate_project(project)
-                if project.path('build/model').exists():
+                if project.status()['stages'][0]['state'] == 'current':
                     from .project_pipeline import Pipeline
                     result['artifacts'] = Pipeline(project, args.target or 'local').run(
                         stage='validate.target' if args.target else 'validate.model')
@@ -373,8 +418,7 @@ def command(args):
                 for value in (args.engine, args.uproject):
                     if not Path(value).is_file():
                         raise ValueError(f'Target file does not exist: {value}')
-                if not re.fullmatch(r'/Game/(?:[A-Za-z0-9_]+/)+[A-Za-z0-9_]+', args.level):
-                    raise ValueError('Level must be a full /Game/ asset path')
+                validate_level_path(args.level)
                 with locked(project.root):
                     path = project.path('state/targets.json')
                     targets = read(path) if path.exists() else {}

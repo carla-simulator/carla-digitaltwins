@@ -4,7 +4,7 @@ import shutil
 import tempfile
 import uuid
 
-from .project import ROOT, Project, checksum, locked, read, write
+from .project import ROOT, checksum, locked, read, write
 
 
 def acquire(project, refresh=False):
@@ -51,7 +51,9 @@ def acquire(project, refresh=False):
             old = project.path('runs')/('source-'+uuid.uuid4().hex)
             old.mkdir(parents=True)
             for name in read(snapshot)['files']:
-                shutil.copyfile(project.path('sources/'+name), old/name)
+                src_file = project.path('sources/'+name)
+                if src_file.is_file():
+                    shutil.copyfile(src_file, old/name)
             shutil.copyfile(snapshot, old/'acquisition.json')
         for name in files:
             shutil.copyfile(staging/name, project.path('sources/'+name))
@@ -61,6 +63,9 @@ def acquire(project, refresh=False):
 
 def import_recipe(project, build_dir, cache_dir):
     """Attach original local compiler inputs to an adopted model without fetching."""
+    import math
+    if not build_dir:
+        raise ValueError('--build-dir is required for source import-recipe')
     with locked(project.root):
         report = read(Path(build_dir)/'report.json')
         recipe = report['build']['args']
@@ -70,6 +75,12 @@ def import_recipe(project, build_dir, cache_dir):
         if not fixture.is_file():
             raise ValueError('Original OSM fixture is missing: '+str(fixture))
         bbox = recipe['bbox']
+        frame = project.spec.get('frame')
+        if frame and not (
+            math.isclose(frame['origin_lat'], (bbox[0] + bbox[2]) / 2, abs_tol=1e-9)
+            and math.isclose(frame['origin_lon'], (bbox[1] + bbox[3]) / 2, abs_tol=1e-9)
+        ):
+            raise ValueError('Recipe bounds do not match the project coordinate origin')
         from .ingest.elevation import _cache_path as dem_path, DEFAULT_RES
         from .ingest.imagery import _cache_path as imagery_path, NATIVE_RES, DEFAULT_LAYER as LAYER
         dem = dem_path(Path(cache_dir), bbox, DEFAULT_RES)

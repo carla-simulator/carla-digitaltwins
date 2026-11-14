@@ -76,3 +76,42 @@ def test_strict_stage_refuses_missing_dependencies_and_dry_run_does_not_execute(
     with pytest.raises(PrerequisiteError):pipe.run(stage='furniture.bake')
     assert 'unreal.geometry' in pipe.run(only='furniture', dry_run=True)['will_run']
     assert calls == []
+
+
+def test_ue58_teardown_exit_and_procedural_buildings_detection(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from twinmodel import project_stages as ps
+
+    uproject = tmp_path / 'Unreal/CarlaUnreal/CarlaUnreal.uproject'
+    uproject.parent.mkdir(parents=True)
+    uproject.write_text('{}', encoding='utf-8')
+    assert ps._procedural_buildings_available(uproject) is False
+
+    bgen = uproject.parent / 'Plugins/CarlaDigitalTwinsTool/Content/Blueprints/BP_BuildingGen.uasset'
+    bgen.parent.mkdir(parents=True)
+    bgen.write_bytes(b'version https://git-lfs.github.com/spec/v1\noid sha256:00\nsize 123\n')
+    assert ps._procedural_buildings_available(uproject) is False
+
+    bgen.write_bytes(b'\xc1\x83\x2a\x9e\x00\x00\x00\x00real-uasset-binary')
+    assert ps._procedural_buildings_available(uproject) is True
+
+    work = tmp_path / 'run/unreal.geometry'
+    work.mkdir(parents=True)
+    pipe = SimpleNamespace(target={'engine': 'fake-ue', 'uproject': str(uproject), 'level': '/Game/Maps/T/T'})
+
+    def fake_run_clean(cmd, stdout, stderr, close_fds):
+        assert '-FullStdOutLogOutput' in cmd
+        stdout.write('[bake_level] exit 0\nShutdown handler: cleanup.\n')
+        return SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr(ps.subprocess, 'run', fake_run_clean)
+    ps.unreal(pipe, tmp_path / 'bake_level.py', [], work, 'geometry')
+
+    def fake_run_failed(cmd, stdout, stderr, close_fds):
+        stdout.write('Traceback (most recent call last):\n[bake_level] FAILED\n[bake_level] exit 1\n')
+        return SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr(ps.subprocess, 'run', fake_run_failed)
+    with pytest.raises(StageFailure):
+        ps.unreal(pipe, tmp_path / 'bake_level.py', [], work, 'geometry')
+

@@ -25,6 +25,15 @@ class PlacementRules:
     max_along_m: float = 8.0
 
 
+def _parse_layer(val, default: int = 0) -> int:
+    if val is None or val == "" or isinstance(val, bool):
+        return default
+    try:
+        return int(round(float(val)))
+    except (TypeError, ValueError):
+        return default
+
+
 class PolePlacer:
     """Deterministic nearest safe position on the original side and vertical layer.
 
@@ -34,26 +43,42 @@ class PolePlacer:
     poles do not collapse onto the same corner. Clearances are design defaults,
     not a claim of regional regulatory compliance.
     """
-    def __init__(self, model, rules=PlacementRules()):
+    def __init__(self, model, rules: PlacementRules | None = None):
+        rules = rules or PlacementRules()
         self.model, self.rules = model, rules
+        self._signals = {s.id: s for s in model.signals}
         self.occupied = {}
         self.layers = {}
+        buildings = unary_union([b.footprint for b in model.buildings]) if model.buildings else Polygon()
+        bld_keepout = buildings.buffer(rules.building_clearance_m) if not buildings.is_empty else Polygon()
         for layer in {road_osm_layer(r) for r in model.roads}:
-            surfaces = [s for s in model.surfaces if int(s.tags.get('layer') or 0) == layer]
+            surfaces = [s for s in model.surfaces if _parse_layer(s.tags.get('layer')) == layer]
             support = [s for s in surfaces if s.kind in {'sidewalk', 'island', 'median', 'verge'}]
             roads = unary_union([s.geometry for s in surfaces
                                  if s.kind in {'drivable', 'parking', 'crossing', 'biking'}])
-            buildings = unary_union([b.footprint for b in model.buildings])
-            safe = unary_union([s.geometry for s in support]).buffer(-rules.edge_clearance_m)
-            safe = safe.difference(roads.buffer(rules.road_clearance_m))
-            safe = safe.difference(buildings.buffer(rules.building_clearance_m))
+            safe = unary_union([s.geometry for s in support]).buffer(-rules.edge_clearance_m) if support else Polygon()
+            if not safe.is_empty and not roads.is_empty:
+                safe = safe.difference(roads.buffer(rules.road_clearance_m))
+            if not safe.is_empty and not bld_keepout.is_empty:
+                safe = safe.difference(bld_keepout)
             self.layers[layer] = safe, support
 
     def place(self, signal_id, anchor=None):
-        sig = next(s for s in self.model.signals if s.id == signal_id)
-        road = self.model.road(sig.road_id)
+        sig = self._signals.get(signal_id)
+        if sig is None:
+            sig = next((s for s in self.model.signals if s.id == signal_id), None)
+        if sig is None:
+            return {'status': 'unresolved', 'reason': f'unknown signal id {signal_id!r}'}
+        try:
+            road = self.model.road(sig.road_id)
+        except KeyError:
+            return {'status': 'unresolved', 'reason': f'unknown road id {sig.road_id!r}'}
         layer = road_osm_layer(road)
+        if layer not in self.layers:
+            return {'status': 'unresolved', 'reason': f'no surfaces for layer {layer}'}
         safe, supports = self.layers[layer]
+        if not supports or safe.is_empty:
+            return {'status': 'unresolved', 'reason': 'no safe support on the same road side/layer within search limits'}
         p = anchor if anchor is not None else Point(sig.position.x, sig.position.y)
         h = _heading_along(road.reference_line, sig.s)
         tangent = (math.cos(h), math.sin(h))

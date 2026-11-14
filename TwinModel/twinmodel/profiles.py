@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import Iterator, Literal, Optional
 
 FT = 0.3048

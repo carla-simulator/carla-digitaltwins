@@ -27,9 +27,10 @@ from shapely.geometry import (GeometryCollection, LineString, MultiLineString, M
                               Point, Polygon, box)
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import linemerge, nearest_points, substring, unary_union
+from shapely.strtree import STRtree
 
 from . import profiles, streetspace
-from .model import (AUX_EPS, aux_span, aux_width_at, lane_present_at,
+from .model import (AUX_EPS, aux_span, aux_width_at,
                     CurbLine, Junction, Lane, Marking, Road, Signal, Surface, TwinModel,
                     road_is_tunnel, road_osm_layer)
 
@@ -568,7 +569,8 @@ def bound_plaza(plaza: Polygon | MultiPolygon | None, env: Optional[_Envelope]) 
 
 
 def junction_plaza(model: TwinModel, j: Junction, arms: list[_Arm], buildings: BaseGeometry,
-                   seed: BaseGeometry, connecting_ids: set[str]
+                   seed: BaseGeometry, connecting_ids: set[str],
+                   _road_index: Optional[tuple[list[tuple[Road, LineString]], STRtree]] = None
                    ) -> Optional[tuple[Polygon | MultiPolygon, BaseGeometry]]:
     """The open space between the corner buildings of a junction (Eixample: the chamfered
     octagon) and the sidewalk keep-out inside it, or None when the arms are not in a canyon.
@@ -639,14 +641,23 @@ def junction_plaza(model: TwinModel, j: Junction, arms: list[_Arm], buildings: B
                                                for a in group]))
         bands.append(env)
     arm_ids = {a.road.id for a in arms}
-    for r in model.roads:
-        if r.id in arm_ids or r.id in connecting_ids or r.junction_id is not None:
-            continue
-        ref = _ref2d(r)
-        if ref.is_empty or ref.distance(centre) > plaza_radius:
-            continue
-        tl, tr = _street_extent(r)
-        bands.append(_band(ref, tl + 1.0, tr + 1.0))
+    if _road_index is not None:
+        indexed_roads, road_tree = _road_index
+        for idx in sorted(int(k) for k in road_tree.query(centre, predicate="dwithin", distance=plaza_radius)):
+            r, ref = indexed_roads[idx]
+            if r.id in arm_ids:
+                continue
+            tl, tr = _street_extent(r)
+            bands.append(_band(ref, tl + 1.0, tr + 1.0))
+    else:
+        for r in model.roads:
+            if r.id in arm_ids or r.id in connecting_ids or r.junction_id is not None:
+                continue
+            ref = _ref2d(r)
+            if ref.is_empty or ref.distance(centre) > plaza_radius:
+                continue
+            tl, tr = _street_extent(r)
+            bands.append(_band(ref, tl + 1.0, tr + 1.0))
     plaza = _clean(void.intersection(_clean(unary_union(corridors))))
     if bands:
         plaza = _clean(plaza.difference(_clean(unary_union(bands))), min_area=MIN_SURFACE_AREA)
@@ -1291,7 +1302,6 @@ def build_surfaces(model: TwinModel,
     ground_reach = P.streetspace.ground_reach_m
     side_canyon_min = P.streetspace.canyon_min_fraction
 
-    roads_by_id = {r.id: r for r in model.roads}
     connecting_ids = {r.id for r in model.roads if r.junction_id is not None}
     for j in model.junctions:
         connecting_ids |= {c.connecting_road for c in j.connections}
@@ -1326,6 +1336,10 @@ def build_surfaces(model: TwinModel,
     n_capped = 0
     n_mouth_tapers = 0
     plaza_ratios: dict[str, float] = {}
+    _plaza_roads = [(r, ref) for r in model.roads
+                    if r.id not in connecting_ids and r.junction_id is None
+                    and not (ref := _ref2d(r)).is_empty]
+    _plaza_road_index = (_plaza_roads, STRtree([ref for _, ref in _plaza_roads])) if _plaza_roads else None
     for j in model.junctions:
         if j.tags.get("polygon_source") == "surfaces":
             j.polygon = None  # our own previous result is not an input (idempotent rebuilds)
@@ -1367,7 +1381,8 @@ def build_surfaces(model: TwinModel,
                                                                  mitre_limit=MITRE_LIMIT))
                 keep_out = keep_out_cache[sw]
             else:
-                res = junction_plaza(model, j, arms, buildings, base, connecting_ids)
+                res = junction_plaza(model, j, arms, buildings, base, connecting_ids,
+                                     _road_index=_plaza_road_index)
                 if res is not None:
                     plaza, keep_out = res
             # the plaza never leaves the envelope built from the arms (corridors + arm-end hull);
@@ -1508,8 +1523,20 @@ def build_surfaces(model: TwinModel,
         log.info("surfaces: %d aisle-enclosed hole(s) (%.0f m2) taken as parking lots at grade",
                  len(inferred_lots), sum(h.area for h in inferred_lots))
 
-    def touching_roads(geom: BaseGeometry, candidates: Iterable[str]) -> list[str]:
-        return [rid for rid in candidates if carriageways[rid].intersects(geom)]
+    _cw_items = list(carriageways.items())
+    _cw_tree = STRtree([g for _, g in _cw_items]) if _cw_items else None
+    _jp_items = list(junction_polys.items())
+    _jp_tree = STRtree([g for _, g in _jp_items]) if _jp_items else None
+
+    def touching_roads(geom: BaseGeometry, lay_filter: Optional[int]) -> list[str]:
+        if _cw_tree is None:
+            return []
+        out: list[str] = []
+        for idx in sorted(int(k) for k in _cw_tree.query(geom, predicate="intersects")):
+            rid = _cw_items[idx][0]
+            if lay_filter is None or road_layer[rid] == lay_filter:
+                out.append(rid)
+        return out
 
     # grade separation: an overpass and the road under it overlap in 2D but are different
     # surfaces at different z. Emit one drivable surface per OSM ``layer`` (tagged with it) so
@@ -1563,10 +1590,13 @@ def build_surfaces(model: TwinModel,
     n = 0
     for lay, geom in layer_groups:
         for part in _parts(geom):
-            rids = touching_roads(part, [rid for rid in carriageways
-                                         if lay is None or road_layer[rid] == lay])
-            jids = [jid for jid, jp in junction_polys.items()
-                    if (lay is None or junction_layer.get(jid, 0) == lay) and jp.intersects(part)]
+            rids = touching_roads(part, lay)
+            if _jp_tree is not None:
+                jids = [_jp_items[idx][0]
+                        for idx in sorted(int(k) for k in _jp_tree.query(part, predicate="intersects"))
+                        if lay is None or junction_layer.get(_jp_items[idx][0], 0) == lay]
+            else:
+                jids = []
             tags: dict = {"junction_ids": jids} if len(jids) > 1 else {}
             if lay is not None:
                 tags["layer"] = lay
@@ -1673,14 +1703,17 @@ def build_surfaces(model: TwinModel,
             if kind == "verge" and not sidewalk_so_far.is_empty:
                 # sidewalk wins where the two meet (corner aprons): sidewalk ∩ verge = 0
                 geom = _clean(geom.difference(sidewalk_so_far), min_area=MIN_SURFACE_AREA)
+            group_tree = STRtree([g for g, _ in group]) if group else None
             for part in _parts(geom):
                 if (part.area <= SLIVER_MAX_AREA
                         and part.area / max(part.length / 2.0, 1e-6) < SLIVER_MEAN_WIDTH_M):
                     paved_slivers.append((part, lay))
                     continue
-                rids = [rid for g, rid in group if not rid.startswith("junction:") and g.intersects(part)]
-                jids = [rid.split(":", 1)[1] for g, rid in group
-                        if rid.startswith("junction:") and g.intersects(part)]
+                hits = (sorted(int(idx) for idx in group_tree.query(part, predicate="intersects"))
+                        if group_tree is not None else [])
+                rids = [group[idx][1] for idx in hits if not group[idx][1].startswith("junction:")]
+                jids = [group[idx][1].split(":", 1)[1] for idx in hits
+                        if group[idx][1].startswith("junction:")]
                 tags: dict = {"junction_ids": jids} if len(jids) > 1 else {}
                 if lay is not None:
                     tags["layer"] = lay
@@ -1820,15 +1853,31 @@ def build_surfaces(model: TwinModel,
 
     # 7. markings (never inside junctions) ---------------------------------------------------
     clip_out = junction_union.buffer(0.05) if not junction_union.is_empty else None
+    clip_geoms = list(clip_out.geoms) if isinstance(clip_out, MultiPolygon) and len(clip_out.geoms) > 1 else None
+    clip_tree = STRtree(clip_geoms) if clip_geoms is not None else None
     keep_in = drivable.buffer(0.05)
+    keep_geoms = list(keep_in.geoms) if isinstance(keep_in, MultiPolygon) and len(keep_in.geoms) > 1 else None
+    keep_tree = STRtree(keep_geoms) if keep_geoms is not None else None
     for r in model.roads:
         if r.id in connecting_ids:
             continue
         for mk in road_markings(r, default_markings=default_markings):
             g = mk.geometry
-            if clip_out is not None:
+            if clip_tree is not None and clip_geoms is not None:
+                c_idx = sorted(int(i) for i in clip_tree.query(g, predicate="intersects"))
+                if c_idx:
+                    g = g.difference(clip_geoms[c_idx[0]] if len(c_idx) == 1
+                                     else unary_union([clip_geoms[i] for i in c_idx]))
+            elif clip_out is not None:
                 g = g.difference(clip_out)
-            g = g.intersection(keep_in)
+            if keep_tree is not None and keep_geoms is not None:
+                k_idx = sorted(int(i) for i in keep_tree.query(g, predicate="intersects"))
+                if not k_idx:
+                    continue
+                g = g.intersection(keep_geoms[k_idx[0]] if len(k_idx) == 1
+                                   else unary_union([keep_geoms[i] for i in k_idx]))
+            else:
+                g = g.intersection(keep_in)
             for line in _lines(g):
                 if line.length > 0.3:
                     model.markings.append(Marking(kind=mk.kind, color=mk.color, width=mk.width,

@@ -331,6 +331,7 @@ def test_a_twin_without_a_tunnel_writes_no_tunnel_materials(tmp_path):
 # ------------------------------------------------------------------ validation
 
 def test_validate_reports_the_under_crossing(short_tunnel, tmp_path):
+    pytest.importorskip("carla")
     with profiles.use("us_urban"):
         xodr = export_xodr(short_tunnel)
         report = validate(short_tunnel, xodr, out_dir=tmp_path)
@@ -349,7 +350,7 @@ def test_validate_reports_the_under_crossing(short_tunnel, tmp_path):
 # ------------------------------------------------------------------ the Stockton Tunnel
 
 @pytest.fixture(scope="module")
-def stockton() -> tuple[TwinModel, dict]:
+def stockton_built() -> tuple[TwinModel, str]:
     bbox = (37.7888, -122.4100, 37.7942, -122.4050)
     osm = load_fixture(FIX / "sf_stockton_overpass.json")
     with profiles.use("us_urban"):
@@ -358,12 +359,20 @@ def stockton() -> tuple[TwinModel, dict]:
         m.metadata["elevation"] = apply_elevation(m)
         build_surfaces(m)
         xodr = export_xodr(m)
+    return m, xodr
+
+
+@pytest.fixture(scope="module")
+def stockton(stockton_built) -> tuple[TwinModel, dict]:
+    pytest.importorskip("carla")
+    m, xodr = stockton_built
+    with profiles.use("us_urban"):
         report = validate(m, xodr)
     return m, report
 
 
-def test_stockton_tunnel_is_built_under_nob_hill(stockton):
-    m, report = stockton
+def test_stockton_tunnel_is_built_under_nob_hill(stockton_built):
+    m, _ = stockton_built
     tunnels = _tunnel_roads(m)
     assert len(tunnels) == 1 and road_osm_layer(tunnels[0]) == -2, [(r.id, r.tags) for r in tunnels]
     assert tunnels[0].tags.get("tunnel") == "yes"

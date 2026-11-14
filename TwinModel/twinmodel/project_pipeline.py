@@ -1,12 +1,15 @@
 """Dependency-aware project stages, resumable receipts and one target writer."""
-from contextlib import contextmanager, redirect_stdout
+from contextlib import contextmanager, nullcontext, redirect_stdout
 from .filelock import lock_exclusive, unlock
+import getpass
+import os
 from pathlib import Path
+import re
+import shutil
 import tempfile
 import uuid
-import re
 
-from .project import ROOT, checksum, digest, locked, read, write
+from .project import ROOT, _replace_retry, checksum, digest, locked, read, validate_level_path, write
 from .project_io import revision
 
 DEPS = {
@@ -30,11 +33,23 @@ class StageFailure(RuntimeError):
     pass
 
 
+def _lock_user_tag() -> str:
+    if hasattr(os, 'getuid'):
+        return str(os.getuid())
+    try:
+        user = getpass.getuser()
+    except Exception:
+        user = 'default'
+    return re.sub(r'[^A-Za-z0-9_-]', '_', user) or 'default'
+
+
 @contextmanager
 def target_lock(target):
-    key = digest(str(Path(target['uproject']).resolve()))
-    path = Path(tempfile.gettempdir())/('twin-target-'+key+'.lock')
-    with path.open('a') as file:
+    key = digest(os.path.normcase(str(Path(target['uproject']).resolve())))
+    lock_dir = Path(tempfile.gettempdir()) / ('twin-locks-' + _lock_user_tag())
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    path = lock_dir / ('twin-target-' + key + '.lock')
+    with path.open('a', encoding='utf-8') as file:
         try:
             lock_exclusive(file)
         except BlockingIOError:
@@ -53,8 +68,8 @@ class Pipeline:
             raise ValueError('Invalid target name')
         targets = project.path('state/targets.json')
         self.target = (read(targets) if targets.exists() else {}).get(target_name)
-        if self.target and not re.fullmatch(r'/Game/(?:[A-Za-z0-9_]+/)+[A-Za-z0-9_]+', self.target.get('level', '')):
-            raise ValueError('Invalid Unreal level asset path')
+        if self.target:
+            validate_level_path(self.target.get('level', ''))
         self.base = project.path('build/targets/'+target_name)
         self.state = project.path('state/pipeline-'+target_name+'.json')
         self.receipts = read(self.state) if self.state.exists() else {'stages': {}}
@@ -80,17 +95,41 @@ class Pipeline:
             common['model'] = checksum(p.path('build/model'))
         if stage == 'unreal.geometry':
             common['export'] = checksum(p.path('build/export'))
-            common['implementation'] = [checksum(ROOT/'ue/bake_level.py'), checksum(ROOT/'ue/twin_materials.py')]
+            common['implementation'] = [
+                checksum(ROOT/'ue/bake_level.py'),
+                checksum(ROOT/'ue/twin_materials.py'),
+                checksum(ROOT/'ue/twin_buildings.py'),
+            ]
+            if self.target and Path(self.target['uproject']).is_file():
+                from .project_stages import _procedural_buildings_available
+                common['procedural_buildings'] = _procedural_buildings_available(self.target['uproject'])
         if stage == 'unreal.traffic':
             common['config'] = checksum(p.path('authoring/traffic.json'))
-            common['implementation'] = [checksum(ROOT/'ue/place_traffic_lights.py'), checksum(ROOT/'ue/place_traffic_signs.py'), checksum(ROOT/'ue/rigs')]
+            common['implementation'] = [
+                checksum(ROOT/'ue/place_traffic_lights.py'),
+                checksum(ROOT/'ue/place_traffic_signs.py'),
+                checksum(ROOT/'ue/rigs'),
+                checksum(ROOT/'ue/assets/sign_catalog_manifest.json'),
+                checksum(ROOT/'tools/xodr_signals.py'),
+            ]
         for name in ('vegetation', 'furniture'):
             if stage.startswith(name):
                 common['config'] = checksum(p.path(f'authoring/{name}.json'))
-                common['implementation'] = [checksum(ROOT/f'twinmodel/{name}.py'), checksum(ROOT/f'ue/bake_{name}.py')]
+                impl = [
+                    checksum(ROOT/f'twinmodel/{name}.py'),
+                    checksum(ROOT/f'ue/bake_{name}.py'),
+                    checksum(ROOT/f'ue/setup_{name}_tool.py'),
+                ]
+                if name == 'furniture':
+                    impl.extend([
+                        checksum(ROOT/'twinmodel/furniture_anchors.py'),
+                        checksum(ROOT/'twinmodel/furniture_assemblies.py'),
+                    ])
+                common['implementation'] = impl
                 common['catalogue'] = checksum(ROOT/'twinmodel/data')
                 if name == 'vegetation':
-                    common['defaults'] = checksum(ROOT/'vegetation/defaults.json')
+                    from .vegetation import DEFAULTS as VEG_DEFAULTS
+                    common['defaults'] = checksum(VEG_DEFAULTS)
                 if self.target:
                     native = Path(self.target['uproject']).parent/'Plugins/Carla/Source/Carla'/name.title()
                     common['native'] = checksum(native)
@@ -166,8 +205,11 @@ class Pipeline:
             content = Path(self.target['uproject']).parent/'Content'
             level = content/self.target['level'].removeprefix('/Game/')
             owner = level.parent/'twin-project-owner.json'
-            if level.with_suffix('.umap').exists() and (not owner.exists() or read(owner).get('project_id') != self.project.spec['id']):
-                blockers.append('Existing level ownership is unverified. Inspect with project target adopt --dry-run, or select a new level.')
+            if level.with_suffix('.umap').exists():
+                if not owner.exists() or read(owner).get('project_id') != self.project.spec['id']:
+                    blockers.append('Existing level ownership is unverified. Inspect with project target adopt --dry-run, or select a new level.')
+                elif self.receipts.get('target_signature') != self.target_signature():
+                    blockers.append('Target changed externally; inspect unmanaged changes before geometry replacement.')
         return blockers
 
     def run(self, only=None, dry_run=False, resume=None, stage=None):
@@ -187,9 +229,10 @@ class Pipeline:
             missing = [d for d in prerequisites if states[d] != 'current']
             if missing:
                 raise PrerequisiteError('Run prerequisites first: '+', '.join(missing))
-        else:
-            self.project.build()
-        with locked(self.project.root), target_lock(self.target or {'uproject': str(self.project.root)}):
+        tlock = target_lock(self.target) if self.target else nullcontext()
+        with locked(self.project.root), tlock:
+            if not stage:
+                self.project.build(_locked=True)
             rev = revision(self.project)
             if resume:
                 old = self.project.path('runs/'+resume+'/pipeline.json')
@@ -205,6 +248,8 @@ class Pipeline:
             write(run_dir/'pipeline.json', report)
             self.receipts['run'] = run_id
             write(self.state, self.receipts)
+            name = None
+            before = None
             try:
                 for name in requested:
                     current = next(s for s in self.status()['stages'] if s['stage'] == name)
@@ -221,20 +266,23 @@ class Pipeline:
                     if name.startswith('unreal.') or name.endswith('.bake'):
                         from .project_target import checkpoint
                         checkpoint(self, run_dir/'checkpoints'/name)
-                    with (work/'stage.log').open('w') as stage_log, redirect_stdout(stage_log):
+                    run_stage_log = run_dir / f'{name}.stage.log'
+                    with run_stage_log.open('w', encoding='utf-8') as stage_log, redirect_stdout(stage_log):
                         from .project_components import component, execute_disabled
                         kind = component(name)
                         if kind and not self.project.spec.get('enabled', {}).get(kind, True):
                             execute_disabled(self, name, work, run_dir)
                         else:
                             self.executor(self, name, work, run_dir)
+                    if work.is_dir():
+                        shutil.copyfile(run_stage_log, work/'stage.log')
                     if rev != revision(self.project) or before != self.fingerprint(name):
                         raise PrerequisiteError('Inputs changed; stage cannot be certified')
                     output = self.output(name)
                     output.parent.mkdir(parents=True, exist_ok=True)
                     if output.exists():
-                        output.rename(run_dir/(name+'-previous'))
-                    work.rename(output)
+                        _replace_retry(output, run_dir/(name+'-previous'))
+                    _replace_retry(work, output)
                     self.receipts['stages'][name] = {'input': before, 'output': checksum(output), 'run': run_id}
                     if name != 'validate.model':
                         self.receipts['target_signature'] = self.target_signature()
@@ -245,7 +293,7 @@ class Pipeline:
             except Exception as exc:
                 report['state'] = 'failed'
                 report['error'] = str(exc)
-                if name in report['stages']:
+                if name and name in report['stages']:
                     report['stages'][name] = {'state': 'failed', 'error': str(exc), 'input': before}
                 write(run_dir/'pipeline.json', report)
                 raise

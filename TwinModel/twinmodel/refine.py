@@ -48,12 +48,12 @@ from typing import Any, Optional
 import numpy as np
 import shapely
 from scipy import ndimage
-from shapely.geometry import LineString, MultiPolygon, Polygon, shape
+from shapely.geometry import MultiPolygon, Polygon, shape
 from shapely.geometry.polygon import orient
 from shapely.ops import unary_union
 
 from .ingest.imagery import OrthoImage
-from .model import Surface, TwinModel
+from .model import TwinModel
 
 log = logging.getLogger("twinmodel.refine")
 
@@ -193,14 +193,21 @@ class GMM:
     def __init__(self, X: np.ndarray, k: int, iters: int = 25, seed: int = 0):
         rng = np.random.default_rng(seed)
         n, d = X.shape
+        if n == 0:
+            raise ValueError("GMM requires non-empty training array")
         k = max(1, min(k, n // 50))
         # k-means++ init
         centers = [X[rng.integers(n)]]
         for _ in range(1, k):
             d2 = np.min(((X[:, None, :] - np.asarray(centers)[None]) ** 2).sum(-1), axis=1)
-            centers.append(X[rng.choice(n, p=d2 / d2.sum())])
+            d2_sum = float(d2.sum())
+            if d2_sum <= 1e-12 or not np.isfinite(d2_sum):
+                centers.append(X[rng.integers(n)])
+            else:
+                centers.append(X[rng.choice(n, p=d2 / d2_sum)])
         mu = np.asarray(centers, dtype=np.float64)
-        cov = np.repeat((np.cov(X.T) + 1e-3 * np.eye(d))[None], k, axis=0)
+        base_cov = np.atleast_2d(np.cov(X.T)) if n >= 2 else np.zeros((d, d), dtype=np.float64)
+        cov = np.repeat((base_cov + 1e-3 * np.eye(d))[None], k, axis=0)
         w = np.full(k, 1.0 / k)
         eps = 1e-3 * np.eye(d)
         for _ in range(iters):
@@ -228,14 +235,22 @@ class GMM:
         return out
 
     def logpdf(self, X: np.ndarray) -> np.ndarray:
-        X2 = X.reshape(-1, X.shape[-1]).astype(np.float64)
-        out = np.empty((X2.shape[0], len(self.w)))
-        for j in range(len(self.w)):
-            dx = X2 - self.mu[j]
-            out[:, j] = (-0.5 * np.einsum("ni,ij,nj->n", dx, self.icov[j], dx)
-                         - 0.5 * self.logdet[j] + np.log(self.w[j]))
-        m = out.max(1)
-        return (m + np.log(np.exp(out - m[:, None]).sum(1))).reshape(X.shape[:-1])
+        X2 = X.reshape(-1, X.shape[-1])
+        total = X2.shape[0]
+        res = np.empty(total, dtype=np.float64)
+        chunk = 262144
+        log_w = np.log(self.w)
+        for start in range(0, total, chunk):
+            stop = min(total, start + chunk)
+            blk = np.asarray(X2[start:stop], dtype=np.float64)
+            out = np.empty((stop - start, len(self.w)), dtype=np.float64)
+            for j in range(len(self.w)):
+                dx = blk - self.mu[j]
+                out[:, j] = (-0.5 * np.einsum("ni,ij,nj->n", dx, self.icov[j], dx)
+                             - 0.5 * self.logdet[j] + log_w[j])
+            m = out.max(1)
+            res[start:stop] = m + np.log(np.exp(out - m[:, None]).sum(1))
+        return res.reshape(X.shape[:-1])
 
 
 def signed_distance(prior_raster: np.ndarray, px_m: float) -> np.ndarray:
@@ -317,19 +332,28 @@ def classical_road_mask(ortho: OrthoImage, prior=None, core_erode_m: float = COR
             keep = ((pos[:, 0] < np.percentile(pos[:, 0], 80)) & (chroma < np.percentile(chroma, 85))
                     & (pos[:, 3] < np.percentile(pos[:, 3], 85)))
             pos = pos[keep]
-            # the band must not be polluted by asphalt that leaked outside a too-narrow prior:
-            # drop band samples the asphalt-vs-band QDA already calls asphalt
-            qda0 = QDA(pos, neg_band)
-            neg_band = neg_band[qda0.llr(neg_band) < 0]
-            neg = np.vstack([neg_band, neg_far])
-            g_pos = GMM(pos, k_pos)
-            g_neg = GMM(neg, k_neg)
-            llr = (g_pos.logpdf(feat) - g_neg.logpdf(feat)).astype(np.float32)
-            if use_spatial_bias:
-                llr += spatial_bias(signed_distance(prior_r, ortho.dx), free_m=free_m)
-            raw = llr > llr_threshold
-            log.info("road_mask: GMM(%d/%d) on %d asphalt / %d non-road samples; raw road "
-                     "fraction %.3f", k_pos, k_neg, len(pos), len(neg), raw.mean())
+            if len(pos) < max(32, 2 * k_pos) or len(neg_band) < 32:
+                log.warning("road_mask: insufficient clean asphalt/band samples (%d/%d); fixed thresholds",
+                            len(pos), len(neg_band))
+                raw = _fixed_threshold_mask(feat)
+            else:
+                # the band must not be polluted by asphalt that leaked outside a too-narrow prior:
+                # drop band samples the asphalt-vs-band QDA already calls asphalt
+                qda0 = QDA(pos, neg_band)
+                neg_band = neg_band[qda0.llr(neg_band) < 0]
+                neg = np.vstack([neg_band, neg_far]) if len(neg_far) else neg_band
+                if len(neg) < max(32, 2 * k_neg):
+                    log.warning("road_mask: insufficient non-road samples (%d); fixed thresholds", len(neg))
+                    raw = _fixed_threshold_mask(feat)
+                else:
+                    g_pos = GMM(pos, k_pos)
+                    g_neg = GMM(neg, k_neg)
+                    llr = (g_pos.logpdf(feat) - g_neg.logpdf(feat)).astype(np.float32)
+                    if use_spatial_bias:
+                        llr += spatial_bias(signed_distance(prior_r, ortho.dx), free_m=free_m)
+                    raw = llr > llr_threshold
+                    log.info("road_mask: GMM(%d/%d) on %d asphalt / %d non-road samples; raw road "
+                             "fraction %.3f", k_pos, k_neg, len(pos), len(neg), raw.mean())
     mask = _postprocess(raw, ortho) if postprocess else raw
     return (mask, llr) if return_llr else mask
 

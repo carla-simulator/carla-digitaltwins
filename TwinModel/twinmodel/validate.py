@@ -170,10 +170,12 @@ def unreachable_lanes(model: TwinModel, cmap, road_of: dict[int, str], driving,
 
     # components over the undirected link graph, restricted to the unreachable lanes
     comp: dict[tuple[str, int], int] = {}
+    next_cid = 0
     for n in unreached:
         if n in comp:
             continue
-        cid = len({c for c in comp.values()})
+        cid = next_cid
+        next_cid += 1
         comp[n] = cid
         stack = [n]
         while stack:
@@ -320,16 +322,38 @@ def validate(model: TwinModel, xodr_text: str, *, step: float = 1.0,
     else:
         xyz = np.zeros((0, 3))
 
-    drivable = _union([s.geometry for s in model.surfaces_of("drivable")])
+    drivable_surfaces = model.surfaces_of("drivable")
+    drivable = _union([s.geometry for s in drivable_surfaces])
     violations: list[dict[str, Any]] = []
     if drivable is None:
         report["lane_in_drivable"] = None
         report["notes"].append("no drivable surfaces in the model (surfaces.py not run?) - "
                                "lane_in_drivable skipped")
     elif len(xyz):
-        area = drivable.buffer(tol) if tol > 0 else drivable
-        shapely.prepare(area)
-        inside = shapely.contains_xy(area, xyz[:, 0], xyz[:, 1])
+        has_surface_layers = any("layer" in (s.tags or {}) for s in drivable_surfaces)
+        if has_surface_layers:
+            drv_by_lay: dict[int, list[BaseGeometry]] = {}
+            for s in drivable_surfaces:
+                raw_lay = (s.tags or {}).get("layer")
+                lay_k = int(round(float(raw_lay))) if raw_lay is not None and raw_lay != "" else 0
+                drv_by_lay.setdefault(lay_k, []).append(s.geometry)
+            union_by_lay = {k: _union(gs) for k, gs in drv_by_lay.items()}
+            area_by_lay = {k: (u.buffer(tol) if tol > 0 else u)
+                           for k, u in union_by_lay.items() if u is not None}
+            for a in area_by_lay.values():
+                shapely.prepare(a)
+            wp_lay_arr = np.array([layer_of.get(road_of.get(wp.road_id), 0) for wp in driving],
+                                  dtype=np.int64)
+            inside = np.zeros(len(xyz), dtype=bool)
+            for lay_k in np.unique(wp_lay_arr):
+                sel = wp_lay_arr == lay_k
+                area_k = area_by_lay.get(int(lay_k))
+                if area_k is not None:
+                    inside[sel] = shapely.contains_xy(area_k, xyz[sel, 0], xyz[sel, 1])
+        else:
+            area = drivable.buffer(tol) if tol > 0 else drivable
+            shapely.prepare(area)
+            inside = shapely.contains_xy(area, xyz[:, 0], xyz[:, 1])
         report["lane_in_drivable"] = {
             "fraction": float(inside.mean()), "inside": int(inside.sum()),
             "outside": int((~inside).sum()), "total": int(len(inside)),
@@ -337,11 +361,12 @@ def validate(model: TwinModel, xodr_text: str, *, step: float = 1.0,
         }
         for i in np.flatnonzero(~inside):
             wp = driving[i]
+            ref_drv = (union_by_lay.get(int(wp_lay_arr[i])) or drivable) if has_surface_layers else drivable
             violations.append({
                 "kind": "outside_drivable", "x": float(xyz[i, 0]), "y": float(xyz[i, 1]),
                 "z": float(xyz[i, 2]), "road_id": road_of.get(wp.road_id, str(wp.road_id)),
                 "lane_id": wp.lane_id, "s": float(wp.s),
-                "distance": float(drivable.distance(Point(xyz[i, 0], xyz[i, 1]))),
+                "distance": float(ref_drv.distance(Point(xyz[i, 0], xyz[i, 1]))),
             })
     else:
         report["lane_in_drivable"] = {"fraction": 0.0, "inside": 0, "outside": 0, "total": 0,
@@ -353,8 +378,12 @@ def validate(model: TwinModel, xodr_text: str, *, step: float = 1.0,
     if not polys:
         report["notes"].append("no junction polygons in the model - junction_containment skipped")
     else:
+        prep_polys = {jid: (p.buffer(tol) if tol > 0 else p) for jid, p in polys.items()}
+        for bp in prep_polys.values():
+            shapely.prepare(bp)
         n_in = n_tot = 0
         # (a) CARLA waypoints on connecting roads
+        by_jid_idx: dict[str, list[int]] = {}
         for i, wp in enumerate(driving):
             rid = road_of.get(wp.road_id)
             if rid is None:
@@ -363,12 +392,17 @@ def validate(model: TwinModel, xodr_text: str, *, step: float = 1.0,
                 jid = model.road(rid).junction_id
             except KeyError:
                 continue
-            if jid is None or jid not in polys:
+            if jid is None or jid not in prep_polys:
                 continue
-            n_tot += 1
-            if polys[jid].buffer(tol).covers(Point(xyz[i, 0], xyz[i, 1])):
-                n_in += 1
-            else:
+            by_jid_idx.setdefault(jid, []).append(i)
+        for jid, idxs in by_jid_idx.items():
+            idx_arr = np.asarray(idxs, dtype=np.int64)
+            cov_w = shapely.covers(prep_polys[jid], shapely.points(xyz[idx_arr, 0], xyz[idx_arr, 1]))
+            n_tot += len(idx_arr)
+            n_in += int(cov_w.sum())
+            for i in idx_arr[~cov_w]:
+                wp = driving[int(i)]
+                rid = road_of.get(wp.road_id, str(wp.road_id))
                 violations.append({"kind": "outside_junction", "x": float(xyz[i, 0]),
                                    "y": float(xyz[i, 1]), "z": float(xyz[i, 2]), "road_id": rid,
                                    "lane_id": wp.lane_id, "s": float(wp.s), "junction_id": jid,
@@ -376,10 +410,10 @@ def validate(model: TwinModel, xodr_text: str, *, step: float = 1.0,
         # (b) model-side: the fitted reference line of every connecting road
         m_in = m_tot = 0
         for r in model.roads:
-            if r.junction_id is None or r.junction_id not in polys:
+            if r.junction_id is None or r.junction_id not in prep_polys:
                 continue
             pts = sample_reference(r, 1.0)
-            cov = shapely.contains_xy(polys[r.junction_id].buffer(tol), pts[:, 0], pts[:, 1])
+            cov = shapely.contains_xy(prep_polys[r.junction_id], pts[:, 0], pts[:, 1])
             m_in += int(cov.sum())
             m_tot += len(cov)
         report["junction_containment"] = {
@@ -431,10 +465,17 @@ def validate(model: TwinModel, xodr_text: str, *, step: float = 1.0,
             if link is not None and link.element == "road":
                 adjacent.add((r.id, link.id))
                 adjacent.add((link.id, r.id))
+    roads_map = {r.id: r for r in model.roads}
     for j in model.junctions:
-        arms = sorted({c.incoming_road for c in j.connections} |
-                      {model.road(c.connecting_road).successor.id for c in j.connections
-                       if model.road(c.connecting_road).successor is not None})
+        arms_set = {c.incoming_road for c in j.connections}
+        for c in j.connections:
+            cr = roads_map.get(c.connecting_road)
+            if cr is None:
+                continue
+            out_link = cr.predecessor if c.contact_point == "end" else cr.successor
+            if out_link is not None:
+                arms_set.add(out_link.id)
+        arms = sorted(arms_set)
         for a in arms:
             for b in arms:
                 adjacent.add((a, b))
@@ -584,10 +625,10 @@ def _ramp_continuity(model: TwinModel, driving: list, road_of: dict[int, str],
     last: dict[tuple[str, int], Any] = {}
     for wp in driving:
         rid = road_of.get(wp.road_id)
-        if rid is None or wp.lane_id >= 0:
+        if rid is None or wp.lane_id == 0:
             continue
         cur = last.get((rid, wp.lane_id))
-        if cur is None or wp.s > cur.s:
+        if cur is None or (wp.s > cur.s if wp.lane_id < 0 else wp.s < cur.s):
             last[(rid, wp.lane_id)] = wp
     checks: list[dict[str, Any]] = []
     for r in model.roads:
@@ -602,14 +643,16 @@ def _ramp_continuity(model: TwinModel, driving: list, road_of: dict[int, str],
             starts = [wp for (rid, _lid), wp in last.items() if rid == r.id]
             target = main.id
         else:
-            # the lanes feeding the ramp at the mainline's end, by their OpenDRIVE ids there
+            # the lanes feeding the ramp at the mainline's travel end, by their OpenDRIVE ids there
             # (an auxiliary lane that began mid-road is renumbered in the last lane section)
             from .export.xodr import _contact_lanes
-            lanes_at_end, ids_at_end = _contact_lanes(main, "end")
+            has_neg = any(l.type == "driving" and l.id < 0 for l in main.lanes)
+            contact_end = "end" if has_neg else "start"
+            lanes_at_end, ids_at_end = _contact_lanes(main, contact_end)
             aux_ids = [ids_at_end[l.id] for l in lanes_at_end
                        if l.tags.get("aux") and l.tags.get("ramp") == r.id]
-            feeder = sorted((ids_at_end[l.id] for l in lanes_at_end
-                             if l.type == "driving" and l.id < 0), reverse=True)
+            feeder = sorted((ids_at_end[l.id] for l in lanes_at_end if l.type == "driving"),
+                            key=lambda lid: abs(lid))
             lane_ids = aux_ids or feeder[-1:]
             starts = [wp for (rid, lid), wp in last.items() if rid == main.id and lid in lane_ids]
             target = r.id
@@ -655,7 +698,7 @@ def write_violations(violations: list[dict[str, Any]], path: Path | str) -> Path
               "properties": {k: val for k, val in v.items() if k not in ("x", "y")}}
              for v in violations]
     Path(path).write_text(json.dumps({"type": "FeatureCollection", "crs": "local-enu",
-                                      "features": feats}))
+                                      "features": feats}), encoding="utf-8")
     return Path(path)
 
 
@@ -664,7 +707,7 @@ def write_report(report: dict[str, Any], path: Path | str) -> Path:
     p.parent.mkdir(parents=True, exist_ok=True)
     slim = dict(report)
     slim["violations"] = slim.get("violations", [])[:200]  # keep report.json small
-    p.write_text(json.dumps(slim, indent=2))
+    p.write_text(json.dumps(slim, indent=2), encoding="utf-8")
     return p
 
 
@@ -751,7 +794,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
     model = TwinModel.load(args.twin_dir)
-    xodr_text = Path(args.xodr).read_text()
+    xodr_text = Path(args.xodr).read_text(encoding="utf-8")
     out = Path(args.out or args.twin_dir)
     report = validate(model, xodr_text, step=args.step, out_dir=out)
     write_report(report, out / "report.json")
