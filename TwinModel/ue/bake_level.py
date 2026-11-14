@@ -37,7 +37,9 @@ What it does (DESIGN.md §Baker):
                          the level, then the CarlaCrosswalkNavBuilder and
                          WorldPartitionNavigationDataBuilder World Partition builders. Without
                          the saved RecastNavMesh the server spawns an empty one and every
-                         get_random_location_from_navigation returns the origin
+                         get_random_location_from_navigation returns the origin.
+                         ``--no-nav-build`` keeps the volume and the RecastNavMesh but leaves the
+                         builders (two more editors) to a later, separate run
   6. report              <manifest dir>/bake_report.json
 
 Idempotent: re-running replaces the meshes and recreates the level.
@@ -1461,6 +1463,10 @@ def main(argv):
     ap.add_argument("--no-navmesh", action="store_true",
                     help="skip the nav bounds volume, the RecastNavMesh and both "
                          "World Partition navigation builders")
+    ap.add_argument("--no-nav-build", action="store_true",
+                    help="place the nav bounds volume and the RecastNavMesh but skip the two World "
+                         "Partition navigation builders (each a second editor beside this one: run them "
+                         "afterwards with WorldPartitionBuilderCommandlet when memory is short)")
     ap.add_argument("--no-tm-cache", action="store_true",
                     help="skip cooking the Traffic Manager's InMemoryMap cache")
     ap.add_argument("--python-bin", default=None,
@@ -1542,7 +1548,7 @@ def main(argv):
                             else setup_navigation(manifest, name, args.map_root))
 
     # after the save: both builders load the level from disk in their own editor
-    report["navigation_builders"] = (None if args.no_navmesh
+    report["navigation_builders"] = (None if args.no_navmesh or args.no_nav_build
                                      else build_navigation_data(name, args.map_root))
 
     sizes = {}
