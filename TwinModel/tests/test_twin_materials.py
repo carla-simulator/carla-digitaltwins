@@ -201,3 +201,15 @@ def test_pool_returns_a_copy(key):
     p = tm.pool(key)
     p.append("x")
     assert tm.pool(key) != p
+
+
+def test_textured_parent_maps_by_uv_and_roofs_have_a_pool():
+    """3DBAG facade/roof textures need an M_GeneralMaster child that samples the mesh UVs:
+    MI_Brick01 (World Position, Triplanar and Change Color all off), not the MI_Facade
+    world-projected, grey-tinted instances."""
+    path = tm.TEXTURED_PARENT
+    pkg, obj = path.rsplit(".", 1)
+    assert path.startswith("/Game/Carla/Static/GenericMaterials/") and pkg.endswith("/" + obj)
+    assert obj == "MI_Brick01"
+    assert set(tm.TEXTURE_PARAMS) == {"base_color", "normal", "orm"}
+    assert len(tm.pool("roof")) >= 2

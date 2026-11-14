@@ -106,6 +106,19 @@ MATERIAL_PARENTS = {
     ],
 }
 
+# roofs when the twin has no aerial photo to texture them with (3DBAG roofs, see TEXTURED_PARENT)
+MATERIAL_PARENTS["roof"] = [_p("Facade/MI_Facade05"), _p("Facade/MI_Facade11"), _p("Facade/MI_Facade08")]
+
+# Textured twin surfaces (manifest ``textures``: 3DBAG facade styles and aerial-photo roofs, see
+# tools/threedbag_buildings.py). Their MICs sit on MI_Brick01: an M_GeneralMaster instance that maps
+# by the mesh UVs ("World Position"/"Triplanar" off, unlike MI_Facade01-12) and does not recolour
+# ("Change Color" off -- MI_Facade01/03/11 tint their texture to flat grey with it, which is why
+# the facade-pool slabs render as plain grey). The UVs written by the tool are in texture tiles,
+# so the scale is 1. Being M_GeneralMaster, they keep the weather wetness.
+TEXTURED_PARENT = _p("Facade/MI_Brick01")
+TEXTURE_PARAMS = {"base_color": "BaseColor", "normal": "Normal", "orm": "AO / Roughness / Metallic / Emissive"}
+TEXTURED_SCALARS = {"Scale X": 1.0, "Scale Y": 1.0}
+
 # RoadPainter-bound instances: they must never appear in a pool (see the module docstring)
 FORBIDDEN = ("MI_Road_Asphalt_A", "MI_Road_Asphalt_B", "MI_Road_Asphalt_B_Wet",
              "MI_sidewalk_01", "MI_sidewalk_04", "MI_sidewalk_04b")

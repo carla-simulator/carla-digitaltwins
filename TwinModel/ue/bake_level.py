@@ -7,6 +7,9 @@ UE 5.8 World Partition level. Editor Python, run headless:
 What it does (DESIGN.md §Baker):
   1. material instances  /Game/Carla/Maps/Twins/<Name>/Materials/MI_<Name>_<key>, parented to
                          CARLA's road / sidewalk / curb / marking / grass / facade masters
+  1b. textured materials manifest ``textures`` (3DBAG facade styles and aerial-photo roofs from
+                         tools/threedbag_buildings.py): the PNGs imported to .../<Name>/Textures and
+                         one MI_<Name>_<key> each on twin_materials.TEXTURED_PARENT (UV-mapped)
   2. static meshes       Interchange import of every .glb into
                          /Game/Carla/Static/<Semantic>/Twins/<Name>/  (the folder right under
                          /Game/Carla/Static/ is what ATagger reads: Road, SideWalk, RoadLine,
@@ -24,7 +27,12 @@ What it does (DESIGN.md §Baker):
   5. buildings           ``--buildings procedural``: instead of the manifest's extruded facade
                          slabs, every footprint is fed to carla-digitaltwins' BP_BuildingGen
                          (modular Nanite facade atoms as ISM instances + a generated roof cap),
-                         see place_buildings(). Needs the CarlaDigitalTwinsTool content mounted.
+                         see place_buildings(). Needs the CarlaDigitalTwinsTool content mounted
+                         (bitbucket.org/carla-simulator/digitaltwins, branch ue5-digitaltwins, git
+                         LFS, ~9.4 GB, into Plugins/CarlaDigitalTwinsTool/Content). On a 3DBAG
+                         twin only the buildings marked ``procedural`` are generated, at their real
+                         eaves height, and the 3DBAG roofs and gables (kinds roof/building_3dbag)
+                         stay instead of the flat cap.
   5b. navigation        a NavMeshBoundsVolume over the twin and a RecastNavMesh saved into
                          the level, then the CarlaCrosswalkNavBuilder and
                          WorldPartitionNavigationDataBuilder World Partition builders. Without
@@ -237,8 +245,110 @@ def make_material_instances(name, materials, mat_dir):
 
 def asset_key(a):
     """Surface key of a manifest asset. Taken from the asset kind so a level baked before a
-    key split (``riser`` left ``curb`` on 2026-09-02) repaints onto the new pools."""
+    key split (``riser`` left ``curb`` on 2026-09-02) repaints onto the new pools. Textured
+    assets (3DBAG facade styles, photo roofs) key on their texture entry."""
+    if a.get("texture"):
+        return a["texture"]
+    if a.get("kind") == "roof":
+        return "roof"
     return twin_materials.KIND_KEY.get(a.get("kind"), a.get("material"))
+
+
+TEXTURE_SETTINGS = {  # manifest texture slot -> (sRGB, compression)
+    "base_color": (True, "TC_DEFAULT"),
+    "normal": (False, "TC_NORMALMAP"),
+    "orm": (False, "TC_MASKS"),
+}
+
+
+def import_textures(manifest, keys, tex_dir):
+    """Import the PNGs the manifest's ``textures`` entries for ``keys`` name (each file once);
+    returns relative file -> Texture2D."""
+    base = os.path.dirname(os.path.abspath(manifest["_path"]))
+    files = {}
+    for key in sorted(keys):
+        for slot, rel in manifest["textures"][key].items():
+            if slot in TEXTURE_SETTINGS:
+                files.setdefault(rel, slot)
+    unreal.EditorAssetLibrary.make_directory(tex_dir)
+    tasks = []
+    for rel in sorted(files):
+        t = unreal.AssetImportTask()
+        t.set_editor_property("filename", os.path.join(base, rel))
+        t.set_editor_property("destination_path", tex_dir)
+        t.set_editor_property("destination_name", os.path.splitext(os.path.basename(rel))[0])
+        t.set_editor_property("automated", True)
+        t.set_editor_property("replace_existing", True)
+        t.set_editor_property("save", False)
+        tasks.append(t)
+    t0 = time.time()
+    if tasks:
+        unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks(tasks)
+    out = {}
+    for rel, slot in sorted(files.items()):
+        path = "%s/%s" % (tex_dir, os.path.splitext(os.path.basename(rel))[0])
+        if not asset_exists(path):
+            warn("texture %s not found after import" % path)
+            continue
+        tex = load_asset(path)
+        srgb, comp = TEXTURE_SETTINGS[slot]
+        try:
+            tex.set_editor_property("srgb", srgb)
+            tex.set_editor_property("compression_settings", getattr(unreal.TextureCompressionSettings, comp))
+        except Exception as exc:
+            warn("texture settings %s: %s" % (path, exc))
+        unreal.EditorAssetLibrary.save_asset(path, only_if_is_dirty=False)
+        out[rel] = tex
+    log("imported %d textures in %.1f s" % (len(out), time.time() - t0))
+    return out
+
+
+def make_textured_instances(name, manifest, keys, mat_dir, tex_dir):
+    """One MIC per textured key (MI_<Name>_<key>) on twin_materials.TEXTURED_PARENT, its texture
+    parameters pointing at the imported PNGs. Returns key -> [MIC] (a one-member pool)."""
+    if not keys:
+        return {}
+    if not asset_exists(twin_materials.TEXTURED_PARENT):
+        warn("textured parent %s missing; facades fall back to the building pool"
+             % twin_materials.TEXTURED_PARENT)
+        return {}
+    texs = import_textures(manifest, keys, tex_dir)
+    parent = load_asset(twin_materials.TEXTURED_PARENT)
+    tools = unreal.AssetToolsHelpers.get_asset_tools()
+    unreal.EditorAssetLibrary.make_directory(mat_dir)
+    out = {}
+    for key in sorted(keys):
+        entry = manifest["textures"][key]
+        mi_name = "MI_%s_%s" % (name, key)
+        mi_path = "%s/%s" % (mat_dir, mi_name)
+        mic = load_asset(mi_path) if asset_exists(mi_path) else tools.create_asset(
+            mi_name, mat_dir, unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
+        unreal.MaterialEditingLibrary.set_material_instance_parent(mic, parent)
+        tex_entries = []
+        for slot, pname in sorted(twin_materials.TEXTURE_PARAMS.items()):
+            tex = texs.get(entry.get(slot))
+            if tex is None:
+                continue
+            e = unreal.TextureParameterValue()
+            e.set_editor_property("parameter_info", unreal.MaterialParameterInfo(name=pname))
+            e.set_editor_property("parameter_value", tex)
+            tex_entries.append(e)
+        mic.set_editor_property("texture_parameter_values", tex_entries)
+        sc = []
+        for pname, val in sorted(twin_materials.TEXTURED_SCALARS.items()):
+            e = unreal.ScalarParameterValue()
+            e.set_editor_property("parameter_info", unreal.MaterialParameterInfo(name=pname))
+            e.set_editor_property("parameter_value", float(val))
+            sc.append(e)
+        mic.set_editor_property("scalar_parameter_values", sc)
+        unreal.MaterialEditingLibrary.update_material_instance(mic)
+        unreal.EditorAssetLibrary.save_asset(mi_path, only_if_is_dirty=False)
+        n_set = len(mic.get_editor_property("texture_parameter_values") or [])
+        if n_set != len(tex_entries) or not tex_entries:
+            warn("%s: %d of %d texture parameters set" % (mi_name, n_set, len(tex_entries)))
+        out[key] = [mic]
+    log("textured materials: %d (%s)" % (len(out), ", ".join(sorted(out))[:300]))
+    return out
 
 
 def pick_variant(name, asset, variants):
@@ -795,6 +905,8 @@ def snap_height_cm(h_cm, dims):
 
 
 def family_for(b):
+    if b.get("family") in FAMILIES:   # 3DBAG twins: picked from the facade style
+        return b["family"]
     cands = CATEGORY_FAMILIES.get(b.get("category") or "", [DEFAULT_FAMILY])
     return cands[int(b.get("id", 0)) % len(cands)]
 
@@ -889,6 +1001,14 @@ def place_buildings(world, manifest, name, mats, roof_material=None):
     report = {"buildings": 0, "instances": 0, "roofs": 0, "families": {}, "skipped": 0,
               "hosts_over_limit": 0}
     blds = [b for b in manifest.get("buildings", ()) if b.get("rings_ue")]
+    if any("procedural" in b for b in blds):
+        # 3DBAG twins (tools/threedbag_buildings.py): only the buildings whose walls below the
+        # eaves were written apart (kind 'building'); the others keep their 3DBAG walls
+        report["not_procedural"] = sum(1 for b in blds if not b.get("procedural"))
+        blds = [b for b in blds if b.get("procedural")]
+    # 3DBAG roofs (kind 'roof') replace the generator's flat cap
+    roofs_3dbag = any(a.get("kind") == "roof" for a in manifest.get("assets", ()))
+    report["roof_source"] = "3dbag" if roofs_3dbag else "streetmap_cap"
     if not blds:
         warn("manifest has no buildings; nothing to generate")
         return report
@@ -929,10 +1049,24 @@ def place_buildings(world, manifest, name, mats, roof_material=None):
     # one row-snapped .osm (the roof cap reads the way's height tag), one StreetMap import
     rings = []
     snapped = []
+    report["too_low"] = 0
     for b in blds:
         fam = family_for(b)
-        hs, n = snap_height_cm(float(b["height_m"]) * 100.0, fams[fam]["dims"])
+        if "eaves_z_cm" in b:
+            # real eaves height: whole window rows, the generator's slope band (the plain filler
+            # quad) takes the remainder under the cornice, and the 3DBAG roof sits on the real eaves
+            d = fams[fam]["dims"]
+            hs = float(b["eaves_z_cm"]) - float(b["base_z_cm"])
+            n = int((hs - d["door_bb_height"] - d["top_atom_bb_height"]) // d["window_bb_height"])
+            if n < 1:
+                report["too_low"] += 1
+                continue
+        else:
+            hs, n = snap_height_cm(float(b["height_m"]) * 100.0, fams[fam]["dims"])
         snapped.append((b, fam, hs, n))
+    if report["too_low"]:
+        warn("%d buildings are lower than door + window + top rows: their lower walls are missing; "
+             "raise threedbag_buildings.py --procedural-min-height" % report["too_low"])
     osm_manifest = {"buildings": [dict(b, height_m=hs / 100.0, levels=n) for b, fam, hs, n in snapped]}
     osm_path = os.path.join(manifest["_scratch"], "buildings.osm")
     n_ways = twin_buildings.write_buildings_osm(osm_manifest, osm_path)
@@ -1060,6 +1194,14 @@ def place_buildings(world, manifest, name, mats, roof_material=None):
             except Exception:
                 pass
         # roof cap
+        if roofs_3dbag:
+            report["buildings"] += 1
+            report["instances"] += n_inst
+            report["families"][fam] = report["families"].get(fam, 0) + 1
+            if bi % 50 == 0:
+                log("building %d/%d (%s, %d rows, %d instances so far)" %
+                    (bi + 1, len(snapped), fam, n, report["instances"]))
+            continue
         roof_mic = roof_pool[twin_materials.building_variant_index(
             name, "roof", b.get("id", bi), len(roof_pool))]
         try:
@@ -1346,8 +1488,16 @@ def main(argv):
     log("bake %s: %d assets, %d spawn points, xodr %s" % (
         name, len(manifest["assets"]), len(manifest["spawn_points"]), manifest.get("xodr")))
 
-    mats = make_material_instances(name, {asset_key(a) for a in manifest["assets"]}, mat_dir)
+    keys = {asset_key(a) for a in manifest["assets"]}
+    tex_keys = {k for k in keys if k in manifest.get("textures", {})}
+    mats = make_material_instances(name, keys - tex_keys, mat_dir)
+    textured = make_textured_instances(name, manifest, tex_keys, mat_dir, "%s/Textures" % map_dir)
+    for k in tex_keys - set(textured):   # no textured parent: the old pools
+        mats.setdefault("building", make_material_instances(name, {"building"}, mat_dir).get("building", []))
+        mats[k] = mats["building"]
+    mats.update(textured)
     report["materials"] = {k: [m.get_path_name() for m in v] for k, v in mats.items()}
+    report["textured_materials"] = len(textured)
 
     mesh_paths = import_meshes(manifest, args.mesh_root, name, replace=not args.skip_import)
     by_asset = {a["asset"]: a for a in manifest["assets"]}
