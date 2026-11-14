@@ -161,6 +161,7 @@ def classify(b: BuildingInfo) -> tuple[str, bool]:
 # kit 533 + 502 + 502 cm), and they are apartment / office kits, not sheds, shops or warehouses
 PROCEDURAL_FAMILY_MIN_M = {"Skysc21": 9.6, "Skysc19": 15.4}
 PROCEDURAL_MIN_HEIGHT_M = min(PROCEDURAL_FAMILY_MIN_M.values())
+PROCEDURAL_SIMPLIFY_M = 1.0   # footprint simplification before the generator (its modules are 5 m wide)
 PROCEDURAL_STYLES = {"brick_old", "brick_postwar", "brick_modern", "render_modern", "office_concrete", "office_glass"}
 
 

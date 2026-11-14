@@ -550,8 +550,16 @@ def main():
             ring = np.asarray(poly.exterior.coords)[:-1]
             rgb = facades.mean_colour(ortho[0], ortho[1], ring) if ortho else None
             a = i["attrs"]
+            gen_ring = ring
+            if i.get("procedural"):
+                # the generator fills every segment shorter than one 5 m module with a plain quad:
+                # drop the footprint's small jogs (and zero-length edges) first
+                simple = poly.simplify(facades.PROCEDURAL_SIMPLIFY_M, preserve_topology=True)
+                if simple.geom_type == "Polygon" and simple.is_valid and len(simple.exterior.coords) >= 4:
+                    gen_ring = np.asarray(simple.exterior.coords)[:-1]
             man["buildings"].append({
-                "id": i["id"], "rings_ue": [[[round(x * 100, 1), round(-y * 100, 1)] for x, y in ring]],
+                "id": i["id"], "rings_ue": [[[round(x * 100, 1), round(-y * 100, 1)] for x, y in gen_ring]],
+                "raw_ring_ue": [[round(x * 100, 1), round(-y * 100, 1)] for x, y in ring],
                 "base_z_cm": round(float(i["ground"]) * 100, 1),
                 "eaves_z_cm": round((float(i["ground"]) + i["height"]) * 100, 1),
                 "roof_z_cm": round(float(a.get("b3_h_dak_max") or (i["ground"] + i["height"])) * 100, 1),
