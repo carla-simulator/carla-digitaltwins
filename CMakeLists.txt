@@ -12,7 +12,7 @@ set (THREADS_PREFER_PTHREAD_FLAG ON)
 macro (DumpLibraryPath PATH)
   file (
     APPEND
-    ${CMAKE_BINARY_DIR}/LinkLibraries.txt.in
+    "${CMAKE_BINARY_DIR}/LinkLibraries.txt.in"
     "${PATH}\n"
   )
 endmacro ()
@@ -20,7 +20,7 @@ endmacro ()
 macro (DumpIncludePath PATH)
   file (
     APPEND
-    ${CMAKE_BINARY_DIR}/IncludeDirectories.txt.in
+    "${CMAKE_BINARY_DIR}/IncludeDirectories.txt.in"
     "${PATH}\n"
   )
 endmacro ()
@@ -28,53 +28,74 @@ endmacro ()
 macro (DumpPublicDefinition DEFINITION)
   file (
     APPEND
-    ${CMAKE_BINARY_DIR}/PublicDefinitions.txt.in
+    "${CMAKE_BINARY_DIR}/PublicDefinitions.txt.in"
     "${DEFINITION}\n"
   )
 endmacro ()
 
-macro (DumpDependencyInfo DEPENDENCY_NAME)
-  message (STATUS "Retrieving dependency info for ${DEPENDENCY_NAME}.")
+function ( DumpDependencyTargetInternal DEPENDENCY_NAME VISITED_LIST )
+  list (FIND VISITED_LIST "${DEPENDENCY_NAME}" ALREADY_VISITED)
+  if (NOT ALREADY_VISITED EQUAL -1)
+    return ()
+  endif ()
+  list (APPEND VISITED_LIST "${DEPENDENCY_NAME}")
 
-  get_target_property (DEPENDENCY_TYPE ${DEPENDENCY_NAME} TYPE)
-  if (NOT ("${DEPENDENCY_TYPE}" STREQUAL "INTERFACE_LIBRARY"))
-    get_target_property (COMPONENT_LOCATION ${DEPENDENCY_NAME} LOCATION)
-    DumpLibraryPath("${COMPONENT_LOCATION}\n")
-  else ()
-    get_target_property (DEPENDENCY_INTERFACE_LINK_LIBRARIES ${DEPENDENCY_NAME} INTERFACE_LINK_LIBRARIES)
-    foreach (DEPENDENCY_INTERFACE_LINK_LIBRARY ${DEPENDENCY_INTERFACE_LINK_LIBRARIES})
-      DumpLibraryPath("$<TARGET_PROPERTY:${DEPENDENCY_INTERFACE_LINK_LIBRARY},COMPONENT_LOCATION>\n")
-    endforeach ()
+  if (NOT TARGET "${DEPENDENCY_NAME}")
+    if (EXISTS "${DEPENDENCY_NAME}")
+      DumpLibraryPath("${DEPENDENCY_NAME}")
+    endif ()
+    return ()
   endif ()
 
-  DumpIncludePath("$<JOIN:$<TARGET_PROPERTY:${DEPENDENCY_NAME},INTERFACE_INCLUDE_DIRECTORIES>,\n>\n")
-  DumpPublicDefinition("$<JOIN:$<TARGET_PROPERTY:${DEPENDENCY_NAME},INTERFACE_COMPILE_DEFINITIONS>,\n>\n")
+  get_target_property (DEPENDENCY_TYPE "${DEPENDENCY_NAME}" TYPE)
+  if ("${DEPENDENCY_TYPE}" STREQUAL "SHARED_LIBRARY")
+    DumpLibraryPath("$<TARGET_LINKER_FILE:${DEPENDENCY_NAME}>")
+    if (WIN32)
+      DumpLibraryPath("$<TARGET_FILE:${DEPENDENCY_NAME}>")
+    endif ()
+  elseif (NOT ("${DEPENDENCY_TYPE}" STREQUAL "INTERFACE_LIBRARY"))
+    DumpLibraryPath("$<TARGET_FILE:${DEPENDENCY_NAME}>")
+  endif ()
+
+  get_target_property (DEPENDENCY_INCLUDE_DIRS "${DEPENDENCY_NAME}" INTERFACE_INCLUDE_DIRECTORIES)
+  if (DEPENDENCY_INCLUDE_DIRS)
+    DumpIncludePath("$<JOIN:$<TARGET_PROPERTY:${DEPENDENCY_NAME},INTERFACE_INCLUDE_DIRECTORIES>,\n>")
+  endif ()
+
+  get_target_property (DEPENDENCY_COMPILE_DEFS "${DEPENDENCY_NAME}" INTERFACE_COMPILE_DEFINITIONS)
+  if (DEPENDENCY_COMPILE_DEFS)
+    DumpPublicDefinition("$<JOIN:$<TARGET_PROPERTY:${DEPENDENCY_NAME},INTERFACE_COMPILE_DEFINITIONS>,\n>")
+  endif ()
+
+  get_target_property (DEPENDENCY_INTERFACE_LINK_LIBRARIES "${DEPENDENCY_NAME}" INTERFACE_LINK_LIBRARIES)
+  if (DEPENDENCY_INTERFACE_LINK_LIBRARIES)
+    foreach (DEPENDENCY_INTERFACE_LINK_LIBRARY ${DEPENDENCY_INTERFACE_LINK_LIBRARIES})
+      string (REGEX REPLACE "^\\$<LINK_ONLY:(.*)>$" "\\1" CLEAN_LINK_ITEM "${DEPENDENCY_INTERFACE_LINK_LIBRARY}")
+      if (TARGET "${CLEAN_LINK_ITEM}" OR EXISTS "${CLEAN_LINK_ITEM}")
+        DumpDependencyTargetInternal("${CLEAN_LINK_ITEM}" "${VISITED_LIST}")
+      endif ()
+    endforeach ()
+  endif ()
+endfunction ()
+
+macro (DumpDependencyInfo DEPENDENCY_NAME)
+  message (STATUS "Retrieving dependency info for ${DEPENDENCY_NAME}.")
+  DumpDependencyTargetInternal("${DEPENDENCY_NAME}" "")
 endmacro ()
 
 macro (GenerateFinalDumpFiles)
-  file (
-    GENERATE
-    OUTPUT
-      ${CMAKE_BINARY_DIR}/LinkLibraries.txt
-    INPUT
-      ${CMAKE_BINARY_DIR}/LinkLibraries.txt.in
-  )
-
-  file (
-    GENERATE
-    OUTPUT
-      ${CMAKE_BINARY_DIR}/IncludeDirectories.txt
-    INPUT
-      ${CMAKE_BINARY_DIR}/IncludeDirectories.txt.in
-  )
-
-  file (
-    GENERATE
-    OUTPUT
-      ${CMAKE_BINARY_DIR}/PublicDefinitions.txt
-    INPUT
-      ${CMAKE_BINARY_DIR}/PublicDefinitions.txt.in
-  )
+  foreach (DUMP_STEM LinkLibraries IncludeDirectories PublicDefinitions)
+    if (NOT EXISTS "${CMAKE_BINARY_DIR}/${DUMP_STEM}.txt.in")
+      file (WRITE "${CMAKE_BINARY_DIR}/${DUMP_STEM}.txt.in" "")
+    endif ()
+    file (
+      GENERATE
+      OUTPUT
+        "${CMAKE_BINARY_DIR}/${DUMP_STEM}.txt"
+      INPUT
+        "${CMAKE_BINARY_DIR}/${DUMP_STEM}.txt.in"
+    )
+  endforeach ()
 endmacro ()
 
 find_package (
@@ -85,7 +106,7 @@ find_package (
 # -- Temporary check for numpy 2 presence, which breaks our current version of Boost.Python.
 execute_process (
   COMMAND
-    ${Python3_EXECUTABLE}
+    "${Python3_EXECUTABLE}"
       -c
       "import numpy; print(numpy.__version__)"
   OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -96,10 +117,11 @@ execute_process (
 )
 if (NUMPY_VERSION_QUERY_RESULT)
   message (WARNING "Failed to query numpy version.")
-endif ()
-message (STATUS "Found Numpy ${NUMPY_VERSION_STRING} for Python ${Python3_VERSION} (${Python3_EXECUTABLE}).")
-if ("${NUMPY_VERSION_STRING}" VERSION_GREATER "2.0.0")
-  message (FATAL_ERROR "Unsupported Numpy version, please downgrade to a version prior to numpy 2.")
+else ()
+  message (STATUS "Found Numpy ${NUMPY_VERSION_STRING} for Python ${Python3_VERSION} (${Python3_EXECUTABLE}).")
+  if ("${NUMPY_VERSION_STRING}" VERSION_GREATER_EQUAL "2.0.0")
+    message (FATAL_ERROR "Unsupported Numpy version (${NUMPY_VERSION_STRING}), please downgrade to a version prior to numpy 2.")
+  endif ()
 endif ()
 # --
 
@@ -120,8 +142,8 @@ foreach (COMPONENT ${BOOST_COMPONENTS})
   message (STATUS " - ${COMPONENT}")
 endforeach ()
 
-list (APPEND CMAKE_PREFIX_PATH ${CMAKE_CURRENT_LIST_DIR}/CMake)
-list (APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/CMake)
+list (APPEND CMAKE_PREFIX_PATH "${CMAKE_CURRENT_LIST_DIR}/CMake")
+list (APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/CMake")
 
 include (CMake/UEPlugins/CarlaMeshGeneration.cmake)
 include (CMake/UEPlugins/StreetMap.cmake)
@@ -150,7 +172,7 @@ find_package (
   REQUIRED
 )
 
-set (PROJ_VERSION 7.2.0)
+set (PROJ_VERSION 9.6.0)
 message (STATUS "Looking for PROJ")
 find_package (
   PROJ ${PROJ_VERSION}
@@ -167,42 +189,67 @@ find_package (
 
 # Dump dependency information for consumption by the UE Plugin:
 
-file (REMOVE ${CMAKE_BINARY_DIR}/LinkLibraries.txt.in)
-file (REMOVE ${CMAKE_BINARY_DIR}/LinkLibraries.txt)
-file (REMOVE ${CMAKE_BINARY_DIR}/IncludeDirectories.txt.in)
-file (REMOVE ${CMAKE_BINARY_DIR}/IncludeDirectories.txt)
-file (REMOVE ${CMAKE_BINARY_DIR}/PublicDefinitions.txt.in)
-file (REMOVE ${CMAKE_BINARY_DIR}/PublicDefinitions.txt)
+file (REMOVE "${CMAKE_BINARY_DIR}/LinkLibraries.txt.in")
+file (REMOVE "${CMAKE_BINARY_DIR}/LinkLibraries.txt")
+file (REMOVE "${CMAKE_BINARY_DIR}/IncludeDirectories.txt.in")
+file (REMOVE "${CMAKE_BINARY_DIR}/IncludeDirectories.txt")
+file (REMOVE "${CMAKE_BINARY_DIR}/PublicDefinitions.txt.in")
+file (REMOVE "${CMAKE_BINARY_DIR}/PublicDefinitions.txt")
 
 foreach (BOOST_COMPONENT ${BOOST_COMPONENTS})
   DumpDependencyInfo(Boost::${BOOST_COMPONENT})
 endforeach ()
 
-DumpIncludePath(${THIRD_PARTY_INSTALL_DIR}/SQLite3/include)
-DumpLibraryPath(${THIRD_PARTY_INSTALL_DIR}/SQLite3/lib/libsqlite3${LIB_EXT})
+if (TARGET SQLite::SQLite3)
+  DumpDependencyInfo(SQLite::SQLite3)
+else ()
+  foreach (SQLITE_INC ${SQLite3_INCLUDE_DIRS})
+    DumpIncludePath("${SQLITE_INC}")
+  endforeach ()
+  foreach (SQLITE_LIB ${SQLite3_LIBRARIES})
+    DumpDependencyInfo("${SQLITE_LIB}")
+  endforeach ()
+endif ()
 
 DumpDependencyInfo(XercesC::XercesC)
 
-foreach (PROJ_LIB ${PROJ_LIBRARIES})
-  DumpDependencyInfo(${PROJ_LIB})
-endforeach ()
+if (TARGET PROJ::proj)
+  DumpDependencyInfo(PROJ::proj)
+else ()
+  if (PROJ_INCLUDE_DIR)
+    DumpIncludePath("${PROJ_INCLUDE_DIR}")
+  endif ()
+  foreach (PROJ_LIB ${PROJ_LIBRARIES})
+    DumpDependencyInfo("${PROJ_LIB}")
+  endforeach ()
+endif ()
+DumpPublicDefinition("PROJ_DLL=")
 
 if (SUMO_INSTALL_DIR)
-  # Find OSM2ODR:
+  # Find OSM2ODR static/import library first, falling back to any shared library match:
   file (
     GLOB_RECURSE
     OSM2ODR_CANDIDATES
     FOLLOW_SYMLINKS
     LIST_DIRECTORIES FALSE
-    ${SUMO_INSTALL_DIR}/lib/*osm2odr.*
+    "${SUMO_INSTALL_DIR}/lib/*osm2odr*${LIB_EXT}"
   )
+  if (NOT OSM2ODR_CANDIDATES)
+    file (
+      GLOB_RECURSE
+      OSM2ODR_CANDIDATES
+      FOLLOW_SYMLINKS
+      LIST_DIRECTORIES FALSE
+      "${SUMO_INSTALL_DIR}/lib/*osm2odr.*"
+    )
+  endif ()
   if (NOT OSM2ODR_CANDIDATES)
     message (FATAL_ERROR "Could not find OSM2ODR.")
   endif ()
   list (GET OSM2ODR_CANDIDATES 0 OSM2ODR_PATH)
   message (STATUS "Found OSM2ODR at \"${OSM2ODR_PATH}\".")
-  DumpIncludePath(${SUMO_INSTALL_DIR}/include)
-  DumpLibraryPath(${OSM2ODR_PATH})
+  DumpIncludePath("${SUMO_INSTALL_DIR}/include")
+  DumpLibraryPath("${OSM2ODR_PATH}")
 else ()
   message (FATAL_ERROR "Could not find SUMO install path.")
 endif ()

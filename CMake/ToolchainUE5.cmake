@@ -9,4 +9,4 @@
 ]]
 
 set (CARLA_UE_ENV_VAR_NAME CARLA_UNREAL_ENGINE_PATH)
-include (${CMAKE_CURRENT_LIST_DIR}/ToolchainCommon.cmake)
+include ("${CMAKE_CURRENT_LIST_DIR}/ToolchainCommon.cmake")
