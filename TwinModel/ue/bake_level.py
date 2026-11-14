@@ -1424,7 +1424,8 @@ def build_navigation_data(name, map_root=MAP_ROOT):
     done = {}
     for builder in NAV_BUILDERS:
         cmd = [editor, uproject, level, "-run=WorldPartitionBuilderCommandlet",
-               "-Builder=%s" % builder, "-SCCProvider=None", "-nullrhi", "-unattended"]
+               "-Builder=%s" % builder, "-SCCProvider=None", "-nullrhi", "-unattended", "-stdout",
+               "-FullStdOutLogOutput"]
         proc = subprocess.run(cmd, capture_output=True, text=True)
         # the editor binary can exit non-zero in its shutdown handler after the builder itself
         # finished and saved (seen on lin5080 2026-11-14): trust the commandlet's own result line
