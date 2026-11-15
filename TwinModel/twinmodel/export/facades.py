@@ -14,6 +14,10 @@ twinmodel.export.realbuildings). This module turns their attributes into a look:
   a whole number of bays across each wall and a whole number of storeys up to the eaves.
 * ``synth_facade`` draws the tiling textures (base colour, normal, AO/roughness/metallic) of a
   style with numpy, so the pipeline needs no texture download: 2 bays x 2 storeys a tile.
+* ``synth_window_lights`` draws the night mask of a style: which windows are lit and how (a rank
+  per window that the material compares with the lit share of the building use, a brightness and
+  a warm/cool tint), over MASK_BAYS x MASK_STOREYS windows so the lit pattern does not repeat every
+  2 x 2 windows; ``light_offset`` shifts it per building and wall by whole facade tiles.
 * ``roof_uv`` and ``ortho_tile`` texture the roofs with the aerial photo (PDOK Luchtfoto,
   CC BY 4.0, the twin's ortho): one texture per World Partition tile, planar from the top.
 
@@ -216,13 +220,15 @@ def wall_frame(normal: np.ndarray) -> np.ndarray:
 
 
 def wall_uv(verts: np.ndarray, normal: np.ndarray, base_z: float, storey_h: float, bay_m: float,
-            ring: Optional[np.ndarray] = None, z0: float = 0.0) -> np.ndarray:
+            ring: Optional[np.ndarray] = None, z0: float = 0.0, tile_offset: tuple = (0, 0)) -> np.ndarray:
     """glTF UVs (v grows downwards) for points of a wall polygon.
 
     u: a whole number of bays across the wall's horizontal extent (taken from ``ring``, the
     polygon's own vertices, so every piece of a clipped wall shares the mapping);
     v: storeys from ``base_z + z0`` (the floor of the first storey this texture covers).
-    One texture tile is TEX_BAYS x TEX_STOREYS modules."""
+    One texture tile is TEX_BAYS x TEX_STOREYS modules. ``tile_offset`` adds whole texture tiles
+    (integers: the facade textures look the same, the night mask, which repeats every
+    MASK_OFFSETS tiles, shows another part of itself; see light_offset)."""
     along = wall_frame(normal)
     ref = verts if ring is None else ring
     a_ref = ref @ along
@@ -230,8 +236,8 @@ def wall_uv(verts: np.ndarray, normal: np.ndarray, base_z: float, storey_h: floa
     width = max(a1 - a0, 1e-6)
     bays = max(1, int(round(width / bay_m)))
     bay = width / bays
-    u = (verts @ along - a0) / bay / TEX_BAYS
-    v = -(verts[:, 2] - (base_z + z0)) / storey_h / TEX_STOREYS
+    u = (verts @ along - a0) / bay / TEX_BAYS + int(tile_offset[0])
+    v = -(verts[:, 2] - (base_z + z0)) / storey_h / TEX_STOREYS + int(tile_offset[1])
     return np.column_stack([u, v])
 
 
@@ -362,17 +368,11 @@ def synth_facade(style: Style, variant: int = 0, px: int = TEX_PX, seed: int = 0
     ao = np.ones((h, w))
     if not style.blank:
         bw, sh = w / TEX_BAYS, h / TEX_STOREYS
-        fpx = max(2, int(round(style.frame_m / style.bay_m * bw)))
-        x0, x1, y0, y1 = style.window
+        fpx = _frame_px(style, bw)
         for sy in range(TEX_STOREYS):
             for bx in range(TEX_BAYS):
-                # storey floor at the bottom of its band (row grows downwards)
                 floor = (sy + 1) * sh
-                wx0, wx1 = int(bx * bw + x0 * bw), int(bx * bw + x1 * bw)
-                wy0, wy1 = int(floor - y1 * sh), int(floor - y0 * sh)
-                door = style.shop and bx == (sy + variant) % TEX_BAYS
-                if door:
-                    wy1 = int(floor - 0.01 * sh)
+                wx0, wx1, wy0, wy1, door = _window_rect(style, variant, bx, sy, bw, sh)
                 # frame (outer rectangle) then glass inset
                 col[wy0:wy1, wx0:wx1] = style.frame
                 height[wy0:wy1, wx0:wx1] = -0.3
@@ -424,6 +424,103 @@ def synth_facade(style: Style, variant: int = 0, px: int = TEX_PX, seed: int = 0
     orm = np.stack([ao, rough, metal, np.zeros_like(ao)], axis=-1)
     orm = np.clip(orm * 255.0, 0, 255).astype(np.uint8)
     return albedo, normal, orm
+
+
+def _frame_px(style: Style, bay_px: float) -> int:
+    return max(2, int(round(style.frame_m / style.bay_m * bay_px)))
+
+
+def _window_rect(style: Style, variant: int, bx: int, sy: int, bw: float, sh: float):
+    """Window (outer frame) of bay ``bx`` in storey row ``sy`` (row 0 = top) of a grid of bays
+    ``bw`` px wide and storeys ``sh`` px high: (x0, x1, y0, y1, door). The door of a shopfront sits
+    in bay (sy + variant) % TEX_BAYS of each facade tile, so a larger grid repeats it per tile."""
+    x0, x1, y0, y1 = style.window
+    floor = (sy + 1) * sh   # storey floor at the bottom of its band (row grows downwards)
+    wx0, wx1 = int(bx * bw + x0 * bw), int(bx * bw + x1 * bw)
+    wy0, wy1 = int(floor - y1 * sh), int(floor - y0 * sh)
+    door = style.shop and bx % TEX_BAYS == (sy % TEX_STOREYS + variant) % TEX_BAYS
+    if door:
+        wy1 = int(floor - 0.01 * sh)
+    return wx0, wx1, wy0, wy1, door
+
+
+# --------------------------------------------------------------------------- lit windows at night
+
+MASK_BAYS = 8        # one night mask covers 8 bays ...
+MASK_STOREYS = 8     # ... by 8 storeys = 4 x 4 facade texture tiles
+MASK_PX_PER_BAY = 128
+MASK_UV_SCALE = TEX_BAYS / MASK_BAYS                                  # the material samples it at UV x this
+MASK_OFFSETS = (MASK_BAYS // TEX_BAYS, MASK_STOREYS // TEX_STOREYS)   # whole facade tiles per mask
+LIGHT_COOL_SHARE = 0.12   # lit windows with cool white light (LED, screens) instead of warm
+
+# facade style -> building use whose lit share the material gets (ue/twin_materials.py WINDOW_LIT_SHARE).
+# The styles come from the BAG use of the units (classify): homes and mixed blocks, offices (also
+# schools, hospitals, hotels), the shopfront ground floor, industry; plain walls have no windows.
+USE_OF_STYLE = {"stone_prewar": "home", "brick_old": "home", "brick_postwar": "home", "brick_modern": "home", "render_modern": "home",
+                "office_concrete": "office", "office_glass": "office", "shopfront": "shop",
+                "industrial": "industry"}
+
+
+def light_offset(building_id: str, wall: int) -> tuple[int, int]:
+    """Whole facade tiles a wall's UVs are shifted by (wall_uv tile_offset), so buildings and their
+    walls show different parts of the night mask: u per wall, v per building (the storeys of one
+    building keep their order around its corners)."""
+    return _crc("lights-u", building_id, wall) % MASK_OFFSETS[0], _crc("lights-v", building_id) % MASK_OFFSETS[1]
+
+
+def synth_window_lights(style: Style, variant: int = 0, px_bay: int = MASK_PX_PER_BAY, seed: int = 0):
+    """Night mask of a style (uint8 HxWx3, MASK_BAYS x MASK_STOREYS windows, row 0 = top, linear), or
+    None for a style without windows. Per window (one cell of bay x storey):
+
+    * R: the glass of the window (same rectangle, frame and glazing bars as synth_facade) times its
+      brightness (0.6-1.0, a little brighter towards the ceiling); 0 on the wall;
+    * G: the window's rank in (0, 1), uniform over the cell: the material lights the window when
+      rank < lit share x NightFactor, so a share of 0.4 lights about 40 % of the windows and a
+      lower share (later at night, less dark) lights a subset of them;
+    * B: its tint, 0 warm (incandescent / warm LED) to 1 cool white (LIGHT_COOL_SHARE of them).
+
+    Seamless in both directions; the facade texture repeats MASK_OFFSETS times inside it."""
+    if style.blank:
+        return None
+    rng = np.random.default_rng(_crc("lights", style.name, variant, seed))
+    bw = sh = px_bay
+    h, w = MASK_STOREYS * sh, MASK_BAYS * bw
+    r = np.zeros((h, w))
+    g = np.zeros((h, w))
+    b = np.zeros((h, w))
+    fpx = _frame_px(style, bw)
+    bar = max(1, fpx // 2)
+    n = MASK_BAYS * MASK_STOREYS
+    # ranks: a shuffled even spread, so any share lights very nearly that fraction of the windows
+    ranks = (rng.permutation(n) + rng.uniform(0.15, 0.85, n)) / n
+    for k in range(n):
+        sy, bx = divmod(k, MASK_BAYS)
+        cy0, cx0 = sy * sh, bx * bw
+        g[cy0:cy0 + sh, cx0:cx0 + bw] = ranks[k]
+        cool = rng.random() < LIGHT_COOL_SHARE
+        b[cy0:cy0 + sh, cx0:cx0 + bw] = rng.uniform(0.6, 1.0) if cool else rng.uniform(0.0, 0.25)
+        bright = rng.uniform(0.6, 1.0)
+        wx0, wx1, wy0, wy1, door = _window_rect(style, variant, bx, sy, bw, sh)
+        gy0, gy1, gx0, gx1 = wy0 + fpx, wy1 - fpx, wx0 + fpx, wx1 - fpx
+        if gy1 <= gy0 or gx1 <= gx0:
+            continue
+        r[gy0:gy1, gx0:gx1] = bright * np.linspace(1.0, 0.8, gy1 - gy0)[:, None]
+        for m in range(1, style.mullions + 1):
+            xm = gx0 + (gx1 - gx0) * m // (style.mullions + 1)
+            r[gy0:gy1, xm - bar:xm + bar] = 0.0
+        if style.transom:
+            yt = gy0 + (gy1 - gy0) // 3
+            r[yt - bar:yt + bar, gx0:gx1] = 0.0
+    out = np.stack([r, g, b], axis=-1)
+    return np.clip(np.round(out * 255.0), 0, 255).astype(np.uint8)
+
+
+def lit_fraction(mask: np.ndarray, share: float) -> float:
+    """Fraction of the windows (cells) of a night mask lit at a lit share (what the material does at
+    NightFactor 1). For tests and reports."""
+    ch, cw = mask.shape[0] // MASK_STOREYS, mask.shape[1] // MASK_BAYS
+    cells = mask[ch // 2::ch, cw // 2::cw, 1] / 255.0
+    return float((cells < share).mean())
 
 
 def height_to_normal(height: np.ndarray, strength: float = 3.0) -> np.ndarray:

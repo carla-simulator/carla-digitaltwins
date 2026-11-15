@@ -277,7 +277,7 @@ class _Builder:
 
 def apply(build: Path, man: dict, buildings: list, source: Source, *, looks: bool = True,
           ortho=None, ortho_label: str = "", texture_px: Optional[int] = None, roof_px: int = 1024,
-          procedural_min_height: Optional[float] = None) -> dict:
+          procedural_min_height: Optional[float] = None, window_lights: bool = True) -> dict:
     """Mesh, style and texture ``buildings`` and swap them into the bake export ``build``/ue (its
     manifest ``man`` is updated in place and written). Returns the manifest's stats."""
     import shapely
@@ -358,6 +358,7 @@ def apply(build: Path, man: dict, buildings: list, source: Source, *, looks: boo
                 near = [boundaries[j] for j in tree.query(b.poly.buffer(facades.PARTY_TOL_M))
                         if j != k and boundaries[j] is not None]
         used = False
+        n_wall = 0
         for rings, kind in b.surfaces:
             if kind in SKIP_SURFACES or not rings:
                 continue
@@ -405,16 +406,18 @@ def apply(build: Path, man: dict, buildings: list, source: Source, *, looks: boo
                 add_wall(blank_key, v, tri, lambda vv: facades.blank_uv(vv, normal, blank))
                 continue
             ring0 = rings[0]
+            off = facades.light_offset(b.id, n_wall)   # each wall shows another part of the night mask
+            n_wall += 1
             if i["shop"]:
                 (vb, tb_), (va, ta) = facades.clip_triangles(v, tri, ground + facades.SHOP_FLOOR_M)
                 if len(tb_):
                     add_wall(shop_key, vb, tb_, lambda vv: facades.wall_uv(
-                        vv, normal, ground, shop_st.storey_m, shop_st.bay_m, ring=ring0))
+                        vv, normal, ground, shop_st.storey_m, shop_st.bay_m, ring=ring0, tile_offset=off))
                 v, tri = va, ta
                 if not len(tri):
                     continue
             add_wall(key, v, tri, lambda vv: facades.wall_uv(vv, normal, ground, storey_h, st.bay_m,
-                                                             ring=ring0, z0=low_h))
+                                                             ring=ring0, z0=low_h, tile_offset=off))
         if used:
             n_parts += b.parts
             n_buildings += 1
@@ -422,7 +425,9 @@ def apply(build: Path, man: dict, buildings: list, source: Source, *, looks: boo
 
     # ---- textures
     tex_dir = out / "textures"
-    textures = {}
+    # entries of other tools stay (tools/ground_photo.py: ground_<x>_<y>)
+    textures = {k: v for k, v in man.get("textures", {}).items() if k.startswith("ground_")}
+    n_lights = 0
     if looks:
         tex_dir.mkdir(exist_ok=True)
         for key in sorted(k for k in used_keys if k.startswith("facade_")):
@@ -435,6 +440,14 @@ def apply(build: Path, man: dict, buildings: list, source: Source, *, looks: boo
                 entry[{"d": "base_color", "n": "normal", "orm": "orm"}[suffix]] = rel
             st = facades.STYLES[sname]
             entry.update(style=sname, variant=int(var), bay_m=st.bay_m, storey_m=st.storey_m)
+            # lit windows at night (bake_level.py puts a style with a mask on the night parent)
+            lights = facades.synth_window_lights(st, int(var)) if window_lights else None
+            if lights is not None:
+                rel = f"textures/T_{name}_{key}_w.png"
+                facades.save_png(out / rel, lights)
+                entry.update(windows=rel, use=facades.USE_OF_STYLE.get(sname, "home"),
+                             windows_uv_scale=facades.MASK_UV_SCALE)
+                n_lights += 1
             textures[key] = entry
         if ortho:
             facades.save_png(out / f"textures/T_{name}_flat_n.png", facades.flat_normal())
@@ -533,6 +546,7 @@ def apply(build: Path, man: dict, buildings: list, source: Source, *, looks: boo
         man["stats"]["facade_styles"] = dict(sorted(styles_n.items()))
         man["stats"]["party_walls"] = n_party
         man["stats"]["roof_photo"] = bool(ortho)
+        man["stats"]["window_light_masks"] = n_lights
         if source.roof_photo_max_m is not None and ortho is not None:
             man["stats"]["roof_plain_tall"] = n_plain_roof
         man["stats"]["procedural_capable"] = sum(1 for i in info if i.get("procedural"))

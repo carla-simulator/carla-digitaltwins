@@ -37,6 +37,8 @@ def main(argv=None, default_source="auto"):
                     help="do not extend the walls down to the twin's terrain (providers with one ground height "
                          "per building, e.g. NYC)")
     ap.add_argument("--texture-px", type=int, default=facades.TEX_PX)
+    ap.add_argument("--no-window-lights", action="store_true",
+                    help="no night masks (bake_level.py then gives the facades no lit windows)")
     ap.add_argument("--roof-px", type=int, default=1024, help="aerial photo texture per tile")
     ap.add_argument("--procedural-min-height", type=float, default=facades.PROCEDURAL_MIN_HEIGHT_M,
                     help="buildings at least this high to the eaves (m) may take bake_level.py's "
@@ -70,7 +72,8 @@ def main(argv=None, default_source="auto"):
             print("ortho: none found; roofs get a plain roof material")
     realbuildings.apply(build, man, blds, source, looks=looks, ortho=ortho,
                         ortho_label=realbuildings.ortho_credit(build), texture_px=args.texture_px,
-                        roof_px=args.roof_px, procedural_min_height=args.procedural_min_height)
+                        roof_px=args.roof_px, procedural_min_height=args.procedural_min_height,
+                        window_lights=not args.no_window_lights)
     return 0
 
 

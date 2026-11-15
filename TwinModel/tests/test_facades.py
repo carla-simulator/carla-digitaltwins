@@ -159,3 +159,55 @@ def test_procedural_capable_buildings():
     assert fc.procedural_family("office_glass", 12.0) == "Skysc21"   # too low for 5 m office storeys
     assert fc.procedural_ok("office_glass", 12.0)
     assert fc.procedural_family("brick_old", 30.0) == "Skysc21"
+
+
+# --------------------------------------------------------------------------- lit windows at night
+
+def test_wall_uv_tile_offset_moves_by_whole_tiles():
+    v, nrm = _wall(10.0, 17.3, 5.0, 14.0)
+    a = fc.wall_uv(v, nrm, base_z=5.0, storey_h=3.0, bay_m=2.4)
+    b = fc.wall_uv(v, nrm, base_z=5.0, storey_h=3.0, bay_m=2.4, tile_offset=(3, 2))
+    assert np.allclose(b - a, [[3.0, 2.0]])
+
+
+def test_light_offset_is_deterministic_and_spread():
+    offs = [fc.light_offset("NL.IMBAG.Pand.%d" % i, w) for i in range(400) for w in range(3)]
+    assert offs == [fc.light_offset("NL.IMBAG.Pand.%d" % i, w) for i in range(400) for w in range(3)]
+    assert {o[0] for o in offs} == set(range(fc.MASK_OFFSETS[0]))
+    assert {o[1] for o in offs} == set(range(fc.MASK_OFFSETS[1]))
+    # v per building: every wall of a building keeps its storeys' rows
+    assert len({fc.light_offset("b", w)[1] for w in range(10)}) == 1
+    assert fc.MASK_UV_SCALE * fc.MASK_OFFSETS[0] == 1.0
+
+
+def test_blank_styles_have_no_window_lights():
+    assert fc.synth_window_lights(fc.STYLES["blank_brick"]) is None
+    assert set(fc.USE_OF_STYLE) == {n for n, s in fc.STYLES.items() if not s.blank}
+
+
+@pytest.mark.parametrize("name", sorted(n for n, s in fc.STYLES.items() if not s.blank))
+def test_window_lights_mask(name):
+    st = fc.STYLES[name]
+    m = fc.synth_window_lights(st, 0, px_bay=32)
+    assert m.shape == (fc.MASK_STOREYS * 32, fc.MASK_BAYS * 32, 3) and m.dtype == np.uint8
+    assert np.array_equal(m, fc.synth_window_lights(st, 0, px_bay=32))
+    assert not np.array_equal(m, fc.synth_window_lights(st, 1, px_bay=32))
+    # the lit glass lies inside the facade texture's glass (AO 0.85 behind the frame, glazing bars
+    # included), in every one of its tiles, and fills most of it
+    _, _, orm = fc.synth_facade(st, 0, px=64)
+    glass_tex = orm[..., 0] < 240
+    glass_mask = m[..., 0] > 0
+    for ty in range(fc.MASK_OFFSETS[1]):
+        for tx in range(fc.MASK_OFFSETS[0]):
+            tile = glass_mask[ty * 64:(ty + 1) * 64, tx * 64:(tx + 1) * 64]
+            assert not (tile & ~glass_tex).any()
+            assert tile.sum() > 0.6 * glass_tex.sum()
+    # ranks: about the share of windows is lit at any share, nested as the share drops
+    for share in (0.1, 0.4, 0.7):
+        assert abs(fc.lit_fraction(m, share) - share) < 0.04
+    cells = m[16::32, 16::32, 1]
+    assert ((cells < 0.1 * 255) <= (cells < 0.4 * 255)).all()
+    assert cells.min() > 0 and cells.max() < 255      # never lit by day, never always on
+    # a rank is uniform over its cell (filtering never mixes two windows' ranks inside the glass)
+    c = m[:32, :32, 1]
+    assert (c == c[0, 0]).all()

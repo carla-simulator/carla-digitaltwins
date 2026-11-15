@@ -9,7 +9,10 @@ What it does (DESIGN.md §Baker):
                          CARLA's road / sidewalk / curb / marking / grass / facade masters
   1b. textured materials manifest ``textures`` (3DBAG facade styles and aerial-photo roofs from
                          tools/threedbag_buildings.py): the PNGs imported to .../<Name>/Textures and
-                         one MI_<Name>_<key> each on twin_materials.TEXTURED_PARENT (UV-mapped)
+                         one MI_<Name>_<key> each on twin_materials.TEXTURED_PARENT (UV-mapped);
+                         facade styles with a night mask (``windows``) sit on
+                         twin_materials.NIGHT_PARENT instead, whose windows light up at night
+                         (CARLA's NightFactor) by the building use and ``--window-hour``
   2. static meshes       Interchange import of every .glb into
                          /Game/Carla/Static/<Semantic>/Twins/<Name>/  (the folder right under
                          /Game/Carla/Static/ is what ATagger reads: Road, SideWalk, RoadLine,
@@ -260,7 +263,167 @@ TEXTURE_SETTINGS = {  # manifest texture slot -> (sRGB, compression)
     "base_color": (True, "TC_DEFAULT"),
     "normal": (False, "TC_NORMALMAP"),
     "orm": (False, "TC_MASKS"),
+    "windows": (False, "TC_BC7"),   # night mask: rank and tint per window need more than BC1's 5-6 bits
 }
+
+
+# --------------------------------------------------------------------------- lit windows at night
+
+def _write_png_rgb(path, w, h, rgb):
+    """A flat RGB PNG without PIL/numpy (the editor's Python has neither)."""
+    import struct
+    import zlib as _z
+    row = b"\x00" + bytes(rgb) * w
+    raw = row * h
+
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", _z.crc32(tag + data) & 0xffffffff)
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", _z.compress(raw)) + chunk(b"IEND", b""))
+
+
+def _night_none_texture(scratch):
+    """T_TwinWindowsNone: the night parent's default mask, no window anywhere (R 0, rank 1)."""
+    path = twin_materials.NIGHT_NONE_TEXTURE.split(".")[0]
+    if asset_exists(path):
+        return load_asset(path)
+    png = os.path.join(scratch, "T_TwinWindowsNone.png")
+    _write_png_rgb(png, 4, 4, (0, 255, 0))
+    t = unreal.AssetImportTask()
+    t.set_editor_property("filename", png)
+    t.set_editor_property("destination_path", twin_materials.NIGHT_DIR)
+    t.set_editor_property("destination_name", "T_TwinWindowsNone")
+    t.set_editor_property("automated", True)
+    t.set_editor_property("replace_existing", True)
+    t.set_editor_property("save", False)
+    unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([t])
+    tex = load_asset(path)
+    srgb, comp = TEXTURE_SETTINGS["windows"]
+    tex.set_editor_property("srgb", srgb)
+    tex.set_editor_property("compression_settings", getattr(unreal.TextureCompressionSettings, comp))
+    unreal.EditorAssetLibrary.save_asset(path, only_if_is_dirty=False)
+    return tex
+
+
+def _build_night_master(none_tex):
+    """M_TwinFacadeNight: a copy of CARLA's M_GeneralMaster whose emissive gets the window term
+    (twin_materials, "lit windows at night") added to its own."""
+    mel = unreal.MaterialEditingLibrary
+    path = twin_materials.NIGHT_MASTER.split(".")[0]
+    mat = unreal.EditorAssetLibrary.duplicate_asset(twin_materials.NIGHT_SOURCE_MASTER.split(".")[0], path)
+    if mat is None:
+        raise RuntimeError("cannot copy %s" % twin_materials.NIGHT_SOURCE_MASTER)
+    emissive = unreal.MaterialProperty.MP_EMISSIVE_COLOR
+    old = mel.get_material_property_input_node(mat, emissive)
+    old_pin = mel.get_material_property_input_node_output_name(mat, emissive) if old is not None else ""
+    x0, y0 = -2400, 2400
+
+    def node(cls, dx, dy):
+        return mel.create_material_expression(mat, cls, x0 + dx, y0 + dy)
+
+    alias = {"": ("", "Input"), "UVs": ("UVs", "Coordinates")}
+
+    def link(a, a_out, b, b_in):
+        for name in alias.get(b_in, (b_in,)):
+            if mel.connect_material_expressions(a, a_out, b, name):
+                return
+        raise RuntimeError("cannot connect %s.%s -> %s.%s" % (a.get_name(), a_out, b.get_name(), b_in))
+
+    uv = node(unreal.MaterialExpressionTextureCoordinate, 0, 0)
+    uv.set_editor_property("u_tiling", twin_materials.WINDOW_UV_SCALE)
+    uv.set_editor_property("v_tiling", twin_materials.WINDOW_UV_SCALE)
+    tex = node(unreal.MaterialExpressionTextureSampleParameter2D, 250, 0)
+    tex.set_editor_property("parameter_name", twin_materials.WINDOW_TEXTURE_PARAM)
+    tex.set_editor_property("texture", none_tex)
+    tex.set_editor_property("sampler_type", unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+    link(uv, "", tex, "UVs")
+    nf = node(unreal.MaterialExpressionCollectionParameter, 250, -300)
+    nf.set_editor_property("collection", load_asset(twin_materials.NIGHT_MPC.split(".")[0]))
+    nf.set_editor_property("parameter_name", "NightFactor")
+    share = node(unreal.MaterialExpressionScalarParameter, 250, -450)
+    share.set_editor_property("parameter_name", twin_materials.WINDOW_SHARE_PARAM)
+    share.set_editor_property("default_value", 0.0)
+    nits = node(unreal.MaterialExpressionScalarParameter, 900, 300)
+    nits.set_editor_property("parameter_name", twin_materials.WINDOW_NITS_PARAM)
+    nits.set_editor_property("default_value", twin_materials.WINDOW_NITS["home"])
+    cols = {}
+    for k, (name, rgb) in enumerate(sorted(twin_materials.WINDOW_COLOURS.items())):
+        v = node(unreal.MaterialExpressionVectorParameter, 600, 450 + 200 * k)
+        v.set_editor_property("parameter_name", name)
+        v.set_editor_property("default_value", unreal.LinearColor(rgb[0], rgb[1], rgb[2], 1.0))
+        cols[name] = v
+    threshold = node(unreal.MaterialExpressionMultiply, 550, -400)       # share x NightFactor
+    link(share, "", threshold, "A")
+    link(nf, "", threshold, "B")
+    diff = node(unreal.MaterialExpressionSubtract, 750, -300)            # - rank
+    link(threshold, "", diff, "A")
+    link(tex, "G", diff, "B")
+    gain = node(unreal.MaterialExpressionMultiply, 950, -300)
+    link(diff, "", gain, "A")
+    gain.set_editor_property("const_b", 512.0)
+    lit = node(unreal.MaterialExpressionSaturate, 1150, -300)
+    link(gain, "", lit, "")
+    glass = node(unreal.MaterialExpressionMultiply, 1350, -100)          # x glass x brightness
+    link(lit, "", glass, "A")
+    link(tex, "R", glass, "B")
+    tint = node(unreal.MaterialExpressionLinearInterpolate, 900, 500)
+    link(cols["Window Warm"], "", tint, "A")
+    link(cols["Window Cool"], "", tint, "B")
+    link(tex, "B", tint, "Alpha")
+    lum = node(unreal.MaterialExpressionMultiply, 1550, 100)
+    link(glass, "", lum, "A")
+    link(nits, "", lum, "B")
+    light = node(unreal.MaterialExpressionMultiply, 1750, 300)
+    link(tint, "", light, "A")
+    link(lum, "", light, "B")
+    total = node(unreal.MaterialExpressionAdd, 1950, 0)
+    if old is not None:
+        link(old, old_pin, total, "A")
+    link(light, "", total, "B")
+    if not mel.connect_material_property(total, "", emissive):
+        raise RuntimeError("cannot connect the emissive input")
+    mel.recompile_material(mat)
+    unreal.EditorAssetLibrary.save_asset(path, only_if_is_dirty=False)
+    log("night master %s: %d expressions" % (path, mel.get_num_material_expressions(mat)))
+    return mat
+
+
+def ensure_night_parent(scratch):
+    """twin_materials.NIGHT_PARENT (built once per CARLA tree: delete Content/CoupledCarla/Materials to
+    rebuild it): MI_Brick01's settings (static switches, tiling, textures) on M_TwinFacadeNight.
+    Returns the MIC, or None (with a warning) when it cannot be made: the facades then keep
+    TEXTURED_PARENT and have no lit windows."""
+    mi_path = twin_materials.NIGHT_PARENT.split(".")[0]
+    try:
+        if asset_exists(mi_path) and asset_exists(twin_materials.NIGHT_MASTER.split(".")[0]):
+            return load_asset(mi_path)
+        unreal.EditorAssetLibrary.make_directory(twin_materials.NIGHT_DIR)
+        none_tex = _night_none_texture(scratch)
+        master = load_asset(twin_materials.NIGHT_MASTER.split(".")[0]) \
+            if asset_exists(twin_materials.NIGHT_MASTER.split(".")[0]) else _build_night_master(none_tex)
+        src = twin_materials.TEXTURED_PARENT.split(".")[0]
+        mi = unreal.EditorAssetLibrary.duplicate_asset(src, mi_path)
+        if mi is None:
+            raise RuntimeError("cannot copy %s" % src)
+        mel = unreal.MaterialEditingLibrary
+        before = {str(n): mel.get_material_instance_static_switch_parameter_value(mi, n)
+                  for n in mel.get_static_switch_parameter_names(mi)}
+        mel.set_material_instance_parent(mi, master)
+        for n, v in before.items():   # keep MI_Brick01's switches (UVs, no recolouring)
+            if mel.get_material_instance_static_switch_parameter_value(mi, n) != v:
+                mel.set_material_instance_static_switch_parameter_value(mi, n, v)
+        mel.update_material_instance(mi)
+        after = {str(n): mel.get_material_instance_static_switch_parameter_value(mi, n)
+                 for n in mel.get_static_switch_parameter_names(mi)}
+        if after != before:
+            warn("night parent static switches differ from %s: %s vs %s" % (src, after, before))
+        unreal.EditorAssetLibrary.save_asset(mi_path, only_if_is_dirty=False)
+        log("night parent %s on %s" % (mi_path, master.get_path_name()))
+        return mi
+    except Exception as exc:
+        warn("night facade parent unavailable (%s); no lit windows" % exc)
+        return None
 
 
 def import_textures(manifest, keys, tex_dir):
@@ -305,9 +468,11 @@ def import_textures(manifest, keys, tex_dir):
     return out
 
 
-def make_textured_instances(name, manifest, keys, mat_dir, tex_dir):
+def make_textured_instances(name, manifest, keys, mat_dir, tex_dir, window_hour=None):
     """One MIC per textured key (MI_<Name>_<key>) on twin_materials.TEXTURED_PARENT, its texture
-    parameters pointing at the imported PNGs. Returns key -> [MIC] (a one-member pool)."""
+    parameters pointing at the imported PNGs. Keys with a night mask (``windows``) sit on
+    twin_materials.NIGHT_PARENT with the lit share of their use at ``window_hour`` (None: no lit
+    windows). Returns key -> [MIC] (a one-member pool)."""
     if not keys:
         return {}
     if not asset_exists(twin_materials.TEXTURED_PARENT):
@@ -316,6 +481,10 @@ def make_textured_instances(name, manifest, keys, mat_dir, tex_dir):
         return {}
     texs = import_textures(manifest, keys, tex_dir)
     parent = load_asset(twin_materials.TEXTURED_PARENT)
+    night = None
+    if window_hour is not None and any(manifest["textures"][k].get("windows") for k in keys):
+        night = ensure_night_parent(manifest["_scratch"])
+    manifest["_window_lights"] = {}
     tools = unreal.AssetToolsHelpers.get_asset_tools()
     unreal.EditorAssetLibrary.make_directory(mat_dir)
     out = {}
@@ -325,9 +494,12 @@ def make_textured_instances(name, manifest, keys, mat_dir, tex_dir):
         mi_path = "%s/%s" % (mat_dir, mi_name)
         mic = load_asset(mi_path) if asset_exists(mi_path) else tools.create_asset(
             mi_name, mat_dir, unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
-        unreal.MaterialEditingLibrary.set_material_instance_parent(mic, parent)
+        lights = night is not None and bool(entry.get("windows"))
+        unreal.MaterialEditingLibrary.set_material_instance_parent(mic, night if lights else parent)
         tex_entries = []
         for slot, pname in sorted(twin_materials.TEXTURE_PARAMS.items()):
+            if slot == "windows" and not lights:
+                continue
             tex = texs.get(entry.get(slot))
             if tex is None:
                 continue
@@ -337,7 +509,11 @@ def make_textured_instances(name, manifest, keys, mat_dir, tex_dir):
             tex_entries.append(e)
         mic.set_editor_property("texture_parameter_values", tex_entries)
         sc = []
-        for pname, val in sorted(twin_materials.TEXTURED_SCALARS.items()):
+        scalars = dict(twin_materials.TEXTURED_SCALARS)
+        if lights:
+            scalars.update(twin_materials.window_scalars(entry.get("use", "home"), window_hour))
+            manifest["_window_lights"][key] = dict(use=entry.get("use", "home"), **scalars)
+        for pname, val in sorted(scalars.items()):
             e = unreal.ScalarParameterValue()
             e.set_editor_property("parameter_info", unreal.MaterialParameterInfo(name=pname))
             e.set_editor_property("parameter_value", float(val))
@@ -1475,6 +1651,11 @@ def main(argv):
     ap.add_argument("--buildings", choices=("slabs", "procedural"), default="slabs",
                     help="slabs: the manifest's extruded facade meshes; procedural: "
                          "BP_BuildingGen modular facades from the footprints")
+    ap.add_argument("--window-hour", type=float, default=twin_materials.DEFAULT_WINDOW_HOUR,
+                    help="local hour whose share of lit windows (by building use) the facades get at "
+                         "night (default %(default)s; twin_materials.WINDOW_LIT_SHARE)")
+    ap.add_argument("--no-window-lights", action="store_true",
+                    help="facades on the plain textured parent: no lit windows at night")
     ap.add_argument("--roof-material", default=None,
                     help="material path for the procedural roof caps (default: the twin's sidewalk MIC)")
     args = ap.parse_args(argv)
@@ -1501,13 +1682,19 @@ def main(argv):
     keys = {asset_key(a) for a in manifest["assets"]}
     tex_keys = {k for k in keys if k in manifest.get("textures", {})}
     mats = make_material_instances(name, keys - tex_keys, mat_dir)
-    textured = make_textured_instances(name, manifest, tex_keys, mat_dir, "%s/Textures" % map_dir)
+    textured = make_textured_instances(name, manifest, tex_keys, mat_dir, "%s/Textures" % map_dir,
+                                       None if args.no_window_lights else args.window_hour)
     for k in tex_keys - set(textured):   # no textured parent: the old pools
         mats.setdefault("building", make_material_instances(name, {"building"}, mat_dir).get("building", []))
         mats[k] = mats["building"]
     mats.update(textured)
     report["materials"] = {k: [m.get_path_name() for m in v] for k, v in mats.items()}
     report["textured_materials"] = len(textured)
+    report["window_lights"] = {"hour": None if args.no_window_lights else args.window_hour,
+                               "parent": twin_materials.NIGHT_PARENT,
+                               "materials": manifest.get("_window_lights", {})}
+    log("lit windows: %d facade materials at hour %s" % (len(report["window_lights"]["materials"]),
+                                                          report["window_lights"]["hour"]))
 
     mesh_paths = import_meshes(manifest, args.mesh_root, name, replace=not args.skip_import)
     by_asset = {a["asset"]: a for a in manifest["assets"]}

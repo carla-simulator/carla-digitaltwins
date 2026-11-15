@@ -211,5 +211,39 @@ def test_textured_parent_maps_by_uv_and_roofs_have_a_pool():
     pkg, obj = path.rsplit(".", 1)
     assert path.startswith("/Game/Carla/Static/GenericMaterials/") and pkg.endswith("/" + obj)
     assert obj == "MI_Brick01"
-    assert set(tm.TEXTURE_PARAMS) == {"base_color", "normal", "orm"}
+    assert set(tm.TEXTURE_PARAMS) == {"base_color", "normal", "orm", "windows"}
     assert len(tm.pool("roof")) >= 2
+
+
+# --------------------------------------------------------------------------- lit windows at night
+
+def test_window_share_profiles_cover_every_use_and_hour():
+    from twinmodel.export import facades as fc
+    assert set(fc.USE_OF_STYLE.values()) <= set(tm.WINDOW_LIT_SHARE) == set(tm.WINDOW_NITS)
+    for use, prof in tm.WINDOW_LIT_SHARE.items():
+        assert len(prof) == 24 and all(0.0 <= v < 1.0 for v in prof), use
+    assert tm.WINDOW_UV_SCALE == fc.MASK_UV_SCALE
+
+
+def test_window_share_by_use_and_hour():
+    s = tm.window_lit_share
+    assert s("home", 20) > s("home", 3) and s("home", 20) > s("office", 20)
+    assert s("office", 10) > s("office", 20) > s("office", 2)
+    assert s("shop", 20) > s("home", 2)
+    assert s("home", 20.5) == pytest.approx(0.5 * (s("home", 20) + s("home", 21)), abs=1e-4)
+    assert s("home", 23.5) == pytest.approx(0.5 * (s("home", 23) + s("home", 0)), abs=1e-4)   # wraps
+    assert s("unknown use", 20) == s("home", 20)
+    # the evening (19-22 h) over a home-heavy centre averages about coupled-sim's fixed 38 %
+    evening = [0.7 * s("home", h) + 0.15 * s("office", h) + 0.15 * s("shop", h) for h in (19, 20, 21, 22)]
+    assert 0.3 < sum(evening) / len(evening) < 0.5
+
+
+def test_window_scalars_and_night_paths():
+    sc = tm.window_scalars("office", 20)
+    assert sc == {tm.WINDOW_SHARE_PARAM: tm.window_lit_share("office", 20), tm.WINDOW_NITS_PARAM: tm.WINDOW_NITS["office"]}
+    for path in (tm.NIGHT_MASTER, tm.NIGHT_PARENT, tm.NIGHT_NONE_TEXTURE):
+        pkg, obj = path.rsplit(".", 1)
+        assert pkg.startswith(tm.NIGHT_DIR + "/") and pkg.endswith("/" + obj)
+    assert tm.NIGHT_SOURCE_MASTER.endswith("/M_GeneralMaster.M_GeneralMaster")
+    assert tm.NIGHT_MPC.endswith("/WeatherMaterialParameters.WeatherMaterialParameters")
+    assert tm.TEXTURE_PARAMS["windows"] == tm.WINDOW_TEXTURE_PARAM
