@@ -1,10 +1,12 @@
-"""Facade styles, wall/roof UVs and synthetic facade textures for 3DBAG buildings.
+"""Facade styles, wall/roof UVs and synthetic facade textures for real 3D buildings.
 
 3DBAG (LoD 2.2) gives every Dutch building its real footprint, eaves and roof shape, but no
-appearance. This module turns the BAG attributes into a look:
+appearance, and so do the other city models (the NYC 3D Building Model, PLATEAU; see
+twinmodel.export.realbuildings). This module turns their attributes into a look:
 
 * ``classify`` picks a facade style from the construction year (BAG ``oorspronkelijkbouwjaar``),
-  the dominant use of the building's units (BAG ``gebruiksdoel``, weighted by floor area),
+  the dominant use of the building's units (BAG ``gebruiksdoel``, weighted by floor area, or the
+  neutral names other providers map their registers to: residential, office, retail, ...),
   its height and footprint: pre-war brick, post-war brick, modern brick or render for homes,
   concrete or glass for offices, metal cladding for industry, a shopfront ground floor where
   the building has shops or cafes, a plain wall for party walls and sheds.
@@ -78,12 +80,17 @@ STYLES = {s.name: s for s in (
     Style("shopfront", 4.0, SHOP_FLOOR_M, "render", ((60, 60, 62), (110, 95, 80)),
           window=(0.06, 0.94, 0.03, 0.74), frame=(40, 40, 42), frame_m=0.08, mullions=1, sill=False,
           glass=(48, 58, 66), shop=True),
+    # pre-war masonry high-rise (New York: limestone and buff brick, punched windows)
+    Style("stone_prewar", 1.8, 3.4, "brick", ((196, 184, 160), (172, 150, 118), (150, 112, 86)),
+          window=(0.26, 0.74, 0.24, 0.84), frame=(225, 222, 212), mullions=0, transom=True,
+          mortar=(205, 200, 188), brick_m=(0.60, 0.30)),
     # party walls, narrow walls, sheds: plain wall at true brick scale
     Style("blank_brick", 2.5, 3.0, "brick", ((132, 60, 44), (110, 80, 62)), blank=True, sill=False),
 )}
 
 # style -> the plain wall its party walls get
-BLANK_OF = {"render_modern": "blank_brick", "office_concrete": "blank_brick", "office_glass": "blank_brick",
+BLANK_OF = {"stone_prewar": "blank_brick",
+            "render_modern": "blank_brick", "office_concrete": "blank_brick", "office_glass": "blank_brick",
             "industrial": "industrial", "shopfront": "blank_brick"}
 
 
@@ -101,9 +108,12 @@ def variant_of(style: str, building_id: str) -> int:
 
 # --------------------------------------------------------------------------- classification
 
-OFFICE_USES = {"kantoorfunctie", "onderwijsfunctie", "gezondheidszorgfunctie", "logiesfunctie", "celfunctie"}
-SHOP_USES = {"winkelfunctie", "bijeenkomstfunctie"}
-INDUSTRY_USES = {"industriefunctie"}
+# uses: BAG gebruiksdoel names (the Netherlands) and the neutral names the other providers map their
+# registers to (New York: PLUTO floor areas and building classes)
+OFFICE_USES = {"kantoorfunctie", "onderwijsfunctie", "gezondheidszorgfunctie", "logiesfunctie", "celfunctie",
+               "office", "education", "health", "hotel", "government"}
+SHOP_USES = {"winkelfunctie", "bijeenkomstfunctie", "retail", "assembly"}
+INDUSTRY_USES = {"industriefunctie", "industry", "storage", "utility"}
 OSM_INDUSTRY = {"industrial", "warehouse", "hangar", "factory", "manufacture"}
 OSM_SHED = {"shed", "garage", "garages", "carport", "hut", "roof"}
 OSM_OFFICE = {"office", "commercial", "public", "civic", "school", "university", "college", "hospital", "hotel"}
@@ -118,6 +128,7 @@ class BuildingInfo:
     height_m: float = 0.0                      # ground to eaves
     area_m2: float = 0.0                       # footprint
     osm_category: Optional[str] = None
+    region: str = "nl"                         # "us": pre-war high-rise is stone, not Dutch brick
 
 
 def dominant_use(uses: dict) -> Optional[str]:
@@ -139,6 +150,8 @@ def classify(b: BuildingInfo) -> tuple[str, bool]:
             (use is None and b.area_m2 > 1500.0 and b.height_m < 10.0):
         return "industrial", False
     shop_floor = shops and b.height_m >= SHOP_FLOOR_M + 2.5
+    if b.region == "us" and 0 < year < 1946 and b.height_m >= 20.0:
+        return "stone_prewar", shop_floor   # Manhattan's pre-war towers and apartment blocks
     if use in OFFICE_USES or (use is None and cat in OSM_OFFICE) or \
             (use in SHOP_USES and b.height_m >= 12.0):
         if year >= 1985 or (year == 0 and b.height_m >= 25.0):

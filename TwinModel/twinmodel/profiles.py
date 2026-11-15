@@ -598,7 +598,7 @@ US_URBAN = StreetProfile(
                              junction_blend_m=20.0, connecting_blend_m=15.0, mesh_grid_m=5.0,
                              # 3DEP 1 m hydro-flattened: the abutment ramp smears over ~40 ft
                              bridge_abutment_m=12.0),
-    sources=DataSources(ortho=("naip", "osm_tiles"), dem=("usgs_3dep", "opentopo", "copernicus_aws")),
+    sources=DataSources(ortho=("nys_orthos", "naip", "osm_tiles"), dem=("usgs_3dep", "opentopo", "copernicus_aws")),
     building=BuildingRules(level_height_m=3.5, default_levels=3),
 )
 

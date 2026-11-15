@@ -26,6 +26,11 @@ Providers (names understood by ``profiles.DataSources.ortho``):
   the WMS 1.3.0 endpoint ``.../services/USGSNAIPPlus/ImageServer/WMSServer`` with layer
   ``USGSNAIPPlus:NaturalColor`` (``image/tiff``, EPSG:3857/4326). Requested at NAIP_RES
   (0.6 mercator-metres, ~0.5 m ground at 37°N) then resampled to the model grid.
+* ``nys_orthos`` — New York State orthoimagery (NYS ITS Geospatial Services, public domain; New
+  York City is flown at 0.5 ft / 15 cm), the newest year of each area, ArcGIS MapServer
+  ``https://orthos.its.ny.gov/arcgis/rest/services/wms/Latest/MapServer/export`` (JPEG, EPSG:3857,
+  4096 px cap). Declines (returns ``None``) outside New York State, so a US profile can list it
+  first. Not a true ortho: tall buildings lean away from the photo centre.
 * ``osm_tiles`` — openstreetmap-carto z19 tiles (``osmtiles.fetch_osm_tiles``), a last-resort
   *visual* layer, not imagery.
 
@@ -215,6 +220,11 @@ NAIP_WMS_LAYER = "USGSNAIPPlus:NaturalColor"
 NAIP_CRS = "EPSG:3857"
 NAIP_RES = 0.6           # request resolution in EPSG:3857 units (service native 0.3)
 NAIP_MAX_PX = 4000       # ImageServer maxImageWidth/Height
+NYS_EXPORT_URL = "https://orthos.its.ny.gov/arcgis/rest/services/wms/Latest/MapServer/export"
+NYS_CRS = "EPSG:3857"
+NYS_RES = 0.2            # request resolution in EPSG:3857 units (~0.15 m ground at 41 N, the NYC product)
+NYS_MAX_PX = 4096
+NYS_BBOX = (40.49, -79.77, 45.02, -71.85)   # (s, w, n, e) of New York State
 DEFAULT_SOURCES: tuple[str, ...] = ("icgc", "ign_es", "osm_tiles")
 
 
@@ -410,6 +420,48 @@ def _fetch_naip(frame: LocalFrame, bbox_swne, resolution: float, grid, **_) -> O
     return _to_image(dst, grid, resolution, "naip", detail)
 
 
+def _arcgis_export_jpeg_as_tiff(session, url: str, bbox, w: int, h: int, crs: str = "EPSG:3857") -> bytes:
+    """ArcGIS MapServer ``export`` as JPEG, returned as an in-memory GeoTIFF of the bbox."""
+    import rasterio
+    from rasterio.io import MemoryFile
+    from rasterio.transform import from_bounds
+    epsg = crs.split(":")[1]
+    params = dict(bbox=",".join(f"{v:.3f}" for v in bbox), bboxSR=epsg, imageSR=epsg, size=f"{w},{h}",
+                  format="jpg", f="image")
+    r = session.get(url, params=params, timeout=REQUEST_TIMEOUT,
+                    headers={"User-Agent": "twinmodel (carla-digitaltwins)"})
+    r.raise_for_status()
+    if not r.headers.get("content-type", "").startswith("image/jp"):
+        raise RuntimeError(f"export returned {r.headers.get('content-type')}: {r.text[:300]}")
+    with MemoryFile(r.content) as src_mem, src_mem.open() as src:
+        arr = src.read()[:3]
+    with MemoryFile() as mem:
+        with mem.open(driver="GTiff", width=w, height=h, count=arr.shape[0], dtype=arr.dtype,
+                      crs=rasterio.crs.CRS.from_string(crs), transform=from_bounds(*bbox, w, h)) as dst:
+            dst.write(arr)
+        return mem.read()
+
+
+def _inside(bbox_swne, box) -> bool:
+    s, w, n, e = bbox_swne
+    return box[0] <= s and n <= box[2] and box[1] <= w and e <= box[3]
+
+
+def _fetch_nys(frame: LocalFrame, bbox_swne, resolution: float, grid, **_) -> Optional[OrthoImage]:
+    if not _inside(bbox_swne, NYS_BBOX):
+        log.info("imagery: nys_orthos covers New York State only; skipped")
+        return None
+    import requests
+    session = requests.Session()
+    src_res = max(NYS_RES, resolution)
+    dst = _mosaic_tiles(frame, grid, resolution, NYS_CRS, src_res, NYS_MAX_PX,
+                        lambda bbox, w, h: _arcgis_export_jpeg_as_tiff(session, NYS_EXPORT_URL, bbox, w, h))
+    if dst is None:
+        return None
+    return _to_image(dst, grid, resolution, "nys_orthos",
+                     f"NYS ITS orthoimagery (Latest, public domain) @{src_res:g} m ({NYS_CRS} -> local)")
+
+
 def _fetch_osm_tiles(frame: LocalFrame, bbox_swne, resolution: float, grid, cache_dir: Path = Path("data"),
                      use_cache: bool = True, **_) -> Optional[OrthoImage]:
     from .osmtiles import fetch_osm_tiles
@@ -427,6 +479,7 @@ PROVIDERS = {
     "icgc": _fetch_icgc,
     "ign_es": _fetch_ign_es,
     "naip": _fetch_naip,
+    "nys_orthos": _fetch_nys,
     "pdok_luchtfoto": _fetch_pdok,
     "osm_tiles": _fetch_osm_tiles,
 }

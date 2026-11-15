@@ -1,6 +1,6 @@
-"""Texture a twin's ground with the aerial photo, one texture per tile (like the 3DBAG roofs).
+"""Texture a twin's ground with the aerial photo, one texture per tile (like the real buildings' roofs).
 
-    python tools/ground_photo.py build/<name>              # after bake-export (and threedbag_buildings.py)
+    python tools/ground_photo.py build/<name>              # after bake-export (and real_buildings.py)
     python tools/ground_photo.py build/<name> --undo       # back to CARLA's ground materials
 
 The ground assets (kinds ``ground`` and ``groundplane``: open lots, courtyards, gardens, block
@@ -31,7 +31,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from twinmodel.export import facades, groundphoto  # noqa: E402
+from twinmodel.export import facades, groundphoto, realbuildings  # noqa: E402
 from twinmodel.export.ue import gltf_to_model, read_glb, write_glb  # noqa: E402
 
 KINDS = ("ground", "groundplane")
@@ -308,7 +308,7 @@ def main(argv=None):
     def get_ortho():
         nonlocal ortho
         if ortho is None:
-            from threedbag_buildings import find_ortho, load_ortho  # noqa: E402 (same folder)
+            from twinmodel.export.realbuildings import find_ortho, load_ortho
             op = Path(args.ortho) if args.ortho else find_ortho(build, man["bbox_wgs84"])
             ortho = (load_ortho(op, man["geo_reference"]) if op and op.exists() else None) or False
             print("ortho: %s" % (op.name if ortho else "none"))
@@ -363,7 +363,7 @@ def main(argv=None):
         _save_jpg(out / rel, img, quality=args.quality)
         textured[tile] = {"base_color": rel, "normal": f"textures/T_{name}_flat_n.png",
                           "orm": f"textures/T_{name}_ground_orm.png",
-                          "source": PDOK_CREDIT if src == "pdok" else "twin ortho (%s)" % src}
+                          "source": PDOK_CREDIT if src == "pdok" else realbuildings.ortho_credit(build)}
         per_tile[tag] = {"source": src, "objects_filled": st.masked_frac, "shadow": st.shadow_frac,
                          "shadow_gain": list(st.shadow_gain)}
         print("tile %s (%d/%d): %s, objects %.1f %%, shadow %.1f %% x%s" % (
@@ -376,8 +376,11 @@ def main(argv=None):
         "tiles": len(textured), "px": px, "m_per_px": round(px_m, 4), "sources": dict(sources),
         "objects_filled_mean": round(float(np.mean([v["objects_filled"] for v in per_tile.values()] or [0])), 4),
         "shadow_mean": round(float(np.mean([v["shadow"] for v in per_tile.values()] or [0])), 4),
-        "credit": [PDOK_CREDIT] + ([AHN_CREDIT] if ndsm_ok else [])}
+        "credit": ([PDOK_CREDIT] if sources.get("pdok") else []) +
+                  ([realbuildings.ortho_credit(build)] if sources.get("ortho") else []) +
+                  ([AHN_CREDIT] if ndsm_ok else [])}
     (out / "manifest.json").write_text(json.dumps(man, indent=1))
+    cache.mkdir(parents=True, exist_ok=True)   # outside the Netherlands nothing was fetched into it
     (cache / "report.json").write_text(json.dumps({**man["stats"]["ground_photo"], "per_tile": per_tile}, indent=1))
     if args.preview and textured:
         from PIL import Image
