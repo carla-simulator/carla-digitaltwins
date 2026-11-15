@@ -8,6 +8,7 @@ provider that covers the twin's bbox; a new country or city is one more module a
 | --- | --- | --- |
 | ``3dbag`` | the Netherlands | 3DBAG LoD 2.2 (CC BY 4.0) + BAG uses (CC0) |
 | ``nyc3d`` | New York City | NYC 3D Building Model LoD 2 + Building Footprints + PLUTO (NYC Open Data) |
+| ``plateau`` | Japanese cities in ``buildings_plateau.DATASETS`` (Shibuya) | PLATEAU CityGML LoD 2 / LoD 1 (MLIT) |
 """
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ from typing import Optional
 PROVIDERS = {
     "3dbag": "buildings_3dbag",
     "nyc3d": "buildings_nyc",
+    "plateau": "buildings_plateau",
 }
 
 

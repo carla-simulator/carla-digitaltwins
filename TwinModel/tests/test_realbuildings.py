@@ -222,3 +222,16 @@ def test_nyc_load_from_cache_and_apply(tmp_path):
     assert {x["material"] for x in man2["assets"]} == {"building"}
     assert (build / "ue" / "meshes" / "osm_buildings").is_dir()
 
+
+# --------------------------------------------------------------------------- PLATEAU
+
+def test_plateau_meshes_and_coverage():
+    from twinmodel.ingest import buildings_plateau as pl
+    assert pl.mesh3(35.6595, 139.7005) == "53393596"            # Shibuya crossing
+    shibuya = (35.655, 139.695, 35.665, 139.705)
+    assert {"53393596", "53393586"} <= pl.meshes(shibuya)
+    assert buildings.choose(shibuya) == "plateau"
+    assert buildings.choose((35.68, 139.76, 35.69, 139.77)) is None   # Chiyoda: no dataset listed yet
+    assert pl.USAGE["414"]["retail"] > 0
+    assert fc.classify(fc.BuildingInfo(id="j", uses={"residential": 1}, height_m=20, area_m2=300,
+                                       region="jp")) == ("render_modern", False)

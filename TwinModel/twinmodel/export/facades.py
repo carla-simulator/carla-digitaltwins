@@ -128,7 +128,7 @@ class BuildingInfo:
     height_m: float = 0.0                      # ground to eaves
     area_m2: float = 0.0                       # footprint
     osm_category: Optional[str] = None
-    region: str = "nl"                         # "us": pre-war high-rise is stone, not Dutch brick
+    region: str = "nl"                         # "us": pre-war high-rise is stone; "jp": homes are rendered
 
 
 def dominant_use(uses: dict) -> Optional[str]:
@@ -160,6 +160,8 @@ def classify(b: BuildingInfo) -> tuple[str, bool]:
     if use in SHOP_USES and b.height_m < SHOP_FLOOR_M + 2.5:
         return "shopfront", False   # a one-storey shop: shopfront all the way up
     # homes and mixed blocks
+    if b.region == "jp":
+        return "render_modern", shop_floor   # Japanese homes and apartment blocks: render and tiles, not brick
     if 0 < year < 1940:
         return "brick_old", shop_floor
     if year < 1980:
