@@ -531,7 +531,7 @@ def apply_tunnel_profiles(model: TwinModel, elevation: Elevation,
                          "%+.2f / %+.2f m", chain[0][0].id, len(chain), span,
                          "both portals in the data" if head_anchored and tail_anchored
                          else "clipped by the bbox", float(sunk.max()), len(cover), depth,
-                         -sink_head, -sink_tail)
+                         100.0 * E.tunnel_max_grade, -sink_head, -sink_tail)
         s0 = 0.0
         for r, entry in chain:
             line2d = _densified_line(r.reference_line, 4.0)
