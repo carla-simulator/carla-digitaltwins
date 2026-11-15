@@ -63,6 +63,7 @@ def test_pluto_uses_and_building_classes():
     (dict(year=1910, uses={"residential": 900}, height_m=15.0, region="us"), "brick_old", False),
     (dict(year=1960, uses={"hotel": 9000}, height_m=60.0, region="us"), "office_concrete", False),
     (dict(year=1950, uses={"storage": 900}, height_m=8.0, region="us"), "industrial", False),
+    (dict(year=None, uses={"utility": 1}, height_m=240.0, region="us"), "office_glass", False),   # no metal tower
 ])
 def test_classify_neutral_uses_and_us_region(kw, style, shop):
     base = dict(id="NYC.BIN.1", area_m2=600.0)

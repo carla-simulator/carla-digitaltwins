@@ -118,6 +118,7 @@ OFFICE_USES = {"kantoorfunctie", "onderwijsfunctie", "gezondheidszorgfunctie", "
                "office", "education", "health", "hotel", "government"}
 SHOP_USES = {"winkelfunctie", "bijeenkomstfunctie", "retail", "assembly"}
 INDUSTRY_USES = {"industriefunctie", "industry", "storage", "utility"}
+INDUSTRIAL_MAX_M = 30.0   # taller "industrial" buildings are towers on oddly registered lots: not metal sheds
 OSM_INDUSTRY = {"industrial", "warehouse", "hangar", "factory", "manufacture"}
 OSM_SHED = {"shed", "garage", "garages", "carport", "hut", "roof"}
 OSM_OFFICE = {"office", "commercial", "public", "civic", "school", "university", "college", "hospital", "hotel"}
@@ -150,9 +151,11 @@ def classify(b: BuildingInfo) -> tuple[str, bool]:
     small = b.area_m2 < 40.0 and b.height_m < 4.0
     if small or (not b.uses and cat in OSM_SHED):
         return "blank_brick", False
-    if use in INDUSTRY_USES or (not b.uses and cat in OSM_INDUSTRY) or \
-            (use is None and b.area_m2 > 1500.0 and b.height_m < 10.0):
+    if (use in INDUSTRY_USES or (not b.uses and cat in OSM_INDUSTRY) or
+            (use is None and b.area_m2 > 1500.0 and b.height_m < 10.0)) and b.height_m < INDUSTRIAL_MAX_M:
         return "industrial", False
+    if use in INDUSTRY_USES:   # a tower on a lot registered as utility or storage (New York): an office look
+        use = "office"
     shop_floor = shops and b.height_m >= SHOP_FLOOR_M + 2.5
     if b.region == "us" and 0 < year < 1946 and b.height_m >= 20.0:
         return "stone_prewar", shop_floor   # Manhattan's pre-war towers and apartment blocks
