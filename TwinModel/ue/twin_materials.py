@@ -106,6 +106,84 @@ MATERIAL_PARENTS = {
     ],
 }
 
+# roofs when the twin has no aerial photo to texture them with (3DBAG roofs, see TEXTURED_PARENT)
+MATERIAL_PARENTS["roof"] = [_p("Facade/MI_Facade05"), _p("Facade/MI_Facade11"), _p("Facade/MI_Facade08")]
+
+# Textured twin surfaces (manifest ``textures``: 3DBAG facade styles and aerial-photo roofs, see
+# tools/threedbag_buildings.py). Their MICs sit on MI_Brick01: an M_GeneralMaster instance that maps
+# by the mesh UVs ("World Position"/"Triplanar" off, unlike MI_Facade01-12) and does not recolour
+# ("Change Color" off -- MI_Facade01/03/11 tint their texture to flat grey with it, which is why
+# the facade-pool slabs render as plain grey). The UVs written by the tool are in texture tiles,
+# so the scale is 1. Being M_GeneralMaster, they keep the weather wetness.
+TEXTURED_PARENT = _p("Facade/MI_Brick01")
+TEXTURE_PARAMS = {"base_color": "BaseColor", "normal": "Normal", "orm": "AO / Roughness / Metallic / Emissive",
+                  "windows": "Window Lights"}   # windows: the night mask, only on NIGHT_PARENT
+TEXTURED_SCALARS = {"Scale X": 1.0, "Scale Y": 1.0}
+
+# --------------------------------------------------------------------------- lit windows at night
+#
+# CARLA's weather pushes NightFactor (0 by day, 1 by night: a smoothstep of the sun altitude over
+# +-carla.Weather.DayNightBlendDeg, 8 degrees by default) into the WeatherMaterialParameters collection
+# on every weather change (Weather.cpp, AWeather::ApplyWeatherToSkyActor: "Materials gate night-only
+# emissives on it"); CARLA's own M_FakeInterior windows and vehicle/traffic-light materials read it.
+# The facade parent below is CARLA's M_GeneralMaster (copied, so MI_Brick01's look and the weather
+# wetness stay) plus one emissive term added to its own:
+#
+#   lit      = saturate((Window Lit Share x NightFactor - mask.G) x 512)     a step on the window's rank
+#   emissive += lit x mask.R x Window Light x lerp(Window Warm, Window Cool, mask.B)
+#
+# with the mask (facades.synth_window_lights) sampled at UV x WINDOW_UV_SCALE. At dusk the share
+# grows with NightFactor, so windows come on one by one; by day nothing is lit.
+NIGHT_DIR = "/Game/CoupledCarla/Materials"
+NIGHT_MASTER = NIGHT_DIR + "/M_TwinFacadeNight.M_TwinFacadeNight"
+NIGHT_PARENT = NIGHT_DIR + "/MI_TwinFacadeNight.MI_TwinFacadeNight"   # MI_Brick01's settings on it
+NIGHT_NONE_TEXTURE = NIGHT_DIR + "/T_TwinWindowsNone.T_TwinWindowsNone"
+NIGHT_SOURCE_MASTER = GM + "/000_Masters/M_GeneralMaster.M_GeneralMaster"
+NIGHT_MPC = "/Game/Carla/Blueprints/Weather/Materials/WeatherMaterialParameters.WeatherMaterialParameters"
+WINDOW_UV_SCALE = 0.25   # facades.MASK_UV_SCALE: the mask covers 4 x 4 facade texture tiles
+WINDOW_TEXTURE_PARAM = "Window Lights"
+WINDOW_SHARE_PARAM = "Window Lit Share"
+WINDOW_NITS_PARAM = "Window Light"
+WINDOW_COLOURS = {"Window Warm": (1.0, 0.70, 0.40), "Window Cool": (0.78, 0.86, 1.0)}
+
+# Share of the windows lit while it is dark, by building use and local hour (0-23). Not measured: a
+# plausible Dutch weekday, after household lighting-load and office-occupancy profiles -- homes peak in
+# the evening, offices are lit in working hours and empty by 21:00 but for cleaners and stairwells,
+# shop windows stay lit after closing (18:00, late opening to 21:00) into the night. coupled-sim (PR
+# #142) lights a fixed 38 % of the windows; the evening values here average about that.
+WINDOW_LIT_SHARE = {
+    #            0     1     2     3     4     5     6     7     8     9    10    11
+    "home":     [0.10, 0.06, 0.04, 0.04, 0.04, 0.06, 0.15, 0.30, 0.22, 0.12, 0.10, 0.10,
+                 0.12, 0.10, 0.10, 0.12, 0.20, 0.35, 0.45, 0.50, 0.52, 0.50, 0.40, 0.25],
+    "office":   [0.03, 0.03, 0.03, 0.03, 0.03, 0.04, 0.08, 0.30, 0.65, 0.75, 0.75, 0.75,
+                 0.70, 0.75, 0.75, 0.70, 0.65, 0.50, 0.32, 0.20, 0.12, 0.08, 0.06, 0.04],
+    "shop":     [0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.30, 0.40, 0.60, 0.90, 0.90, 0.90,
+                 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.75, 0.65, 0.60, 0.50, 0.40, 0.30],
+    "industry": [0.06, 0.06, 0.06, 0.06, 0.06, 0.08, 0.20, 0.45, 0.50, 0.50, 0.50, 0.50,
+                 0.50, 0.50, 0.50, 0.45, 0.35, 0.25, 0.15, 0.10, 0.08, 0.08, 0.06, 0.06],
+}
+DEFAULT_WINDOW_HOUR = 20.0
+# Luminance of a lit window in cd/m2 (UE emissive with the project's extended luminance range):
+# a room seen through glass and curtains, brighter offices, shop windows lit for display.
+WINDOW_NITS = {"home": 60.0, "office": 100.0, "shop": 250.0, "industry": 80.0}
+
+
+def window_lit_share(use, hour=DEFAULT_WINDOW_HOUR):
+    """Share of a use's windows lit at a local hour (fractional hours interpolate; unknown uses are
+    homes)."""
+    prof = WINDOW_LIT_SHARE.get(use, WINDOW_LIT_SHARE["home"])
+    h = float(hour) % 24.0
+    i = int(h)
+    f = h - i
+    return round((1.0 - f) * prof[i] + f * prof[(i + 1) % 24], 4)
+
+
+def window_scalars(use, hour=DEFAULT_WINDOW_HOUR):
+    """{scalar parameter: value} a textured facade MIC with a night mask gets."""
+    return {WINDOW_SHARE_PARAM: window_lit_share(use, hour),
+            WINDOW_NITS_PARAM: WINDOW_NITS.get(use, WINDOW_NITS["home"])}
+
+
 # RoadPainter-bound instances: they must never appear in a pool (see the module docstring)
 FORBIDDEN = ("MI_Road_Asphalt_A", "MI_Road_Asphalt_B", "MI_Road_Asphalt_B_Wet",
              "MI_sidewalk_01", "MI_sidewalk_04", "MI_sidewalk_04b")

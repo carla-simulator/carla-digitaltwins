@@ -45,7 +45,7 @@ Useful options:
 | `--no-imagery`, `--no-dem` | skip orthophoto and elevation acquisition |
 | `--no-refine` | skip the imagery-driven refinement pass |
 | `--fixture <file>` | use a cached Overpass JSON instead of fetching |
-| `--profile <name>` | region profile: `eu_dense`, `us_urban`, `us_suburban`, `auto` |
+| `--profile <name>` | region profile: `nl_urban`, `eu_dense`, `us_urban`, `us_suburban`, `auto` |
 
 The stage ends by parsing the result with `carla.Map` and writing `report.json`; a non-zero exit means the OpenDRIVE did not validate.
 
@@ -58,6 +58,40 @@ python -m twinmodel bake-export build/mycity MyCity
 ```
 
 Writes `build/mycity/ue/manifest.json` and one `.glb` per (layer, kind, tile) under `build/mycity/ue/meshes/`, plus the spawn points.
+
+#### The Netherlands: national open data
+
+`--profile nl_urban` (also chosen by `auto` when the country lookup returns NL) uses the Dutch national datasets
+instead of the global ones:
+
+| Layer | Provider | Source |
+| --- | --- | --- |
+| elevation | `ahn_wcs` | [AHN](https://www.ahn.nl) DTM, 0.5 m, NAP heights, from the PDOK WCS in 1 km tiles (CC0) |
+| orthophoto | `pdok_luchtfoto` | [PDOK Luchtfoto](https://www.pdok.nl) RGB, current year, 8 cm, from the WMS (CC BY 4.0) |
+
+After the bake export, the extruded OSM buildings can be swapped for [3DBAG](https://3dbag.nl) LoD 2.2
+buildings (BAG footprints with AHN lidar roof shapes, CC BY 4.0); the OSM meshes are kept in
+`meshes/osm_buildings/`:
+
+```sh
+python TwinModel/tools/threedbag_buildings.py build/mycity
+```
+
+The ground (open lots, courtyards, gardens, block interiors and the apron: the `ground` and `groundplane`
+assets) can then be textured with the 8 cm aerial photo, one 2048 px texture per 250 m tile (12 cm a pixel),
+like the 3DBAG roofs; roads, sidewalks, kerbs and markings keep CARLA's materials. Trees, shelters and other
+objects standing more than 2 m above the terrain (AHN 0.5 m surface minus terrain model, CC0) are replaced by
+the visible ground around them, since the scenery places the trees in 3D, and cast shadows are brightened.
+Outside the Netherlands the twin's cached ortho is used, without the object fill:
+
+```sh
+python TwinModel/tools/ground_photo.py build/mycity            # --undo puts CARLA's ground back
+```
+
+Central Eindhoven (1.6 x 1.6 km): 2,094 roads, 242 junctions, AHN terrain 12.1-23.9 m NAP, 3,654 3DBAG
+buildings (274k triangles); its 64 ground tiles take 4 minutes and 64 MB of JPEG textures, with 9.8 % of the
+ground replaced (standing objects) and 2.2 % brightened (shadows). Public Overpass servers often time out on an area this size; the OSM stage then
+fetches it in four quarters and merges them.
 
 ### 3. Bake the Unreal level
 
@@ -77,6 +111,7 @@ This imports the meshes with Nanite and complex-as-simple collision, places one 
 | `--map-root`, `--mesh-root` | destination package paths, for baking into a content pack mount |
 | `--skip-import` | reuse meshes already imported |
 | `--no-navmesh` | skip the nav bounds volume, the RecastNavMesh and both World Partition navigation builders |
+| `--no-nav-build` | place the nav bounds volume and the RecastNavMesh but skip the two builders (each a second editor); run them afterwards with `-run=WorldPartitionBuilderCommandlet -Builder=CarlaCrosswalkNavBuilder` and `-Builder=WorldPartitionNavigationDataBuilder` on the level when memory is short |
 | `--no-tm-cache` | skip the Traffic Manager cache |
 | `--python-bin` | interpreter holding the CARLA wheel, when the editor's own Python does not |
 | `--no-nanite` | import without Nanite |

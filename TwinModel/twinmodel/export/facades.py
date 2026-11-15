@@ -1,0 +1,611 @@
+"""Facade styles, wall/roof UVs and synthetic facade textures for real 3D buildings.
+
+3DBAG (LoD 2.2) gives every Dutch building its real footprint, eaves and roof shape, but no
+appearance, and so do the other city models (the NYC 3D Building Model, PLATEAU; see
+twinmodel.export.realbuildings). This module turns their attributes into a look:
+
+* ``classify`` picks a facade style from the construction year (BAG ``oorspronkelijkbouwjaar``),
+  the dominant use of the building's units (BAG ``gebruiksdoel``, weighted by floor area, or the
+  neutral names other providers map their registers to: residential, office, retail, ...),
+  its height and footprint: pre-war brick, post-war brick, modern brick or render for homes,
+  concrete or glass for offices, metal cladding for industry, a shopfront ground floor where
+  the building has shops or cafes, a plain wall for party walls and sheds.
+* ``wall_uv`` maps a wall polygon so the texture's window grid lines up with the building:
+  a whole number of bays across each wall and a whole number of storeys up to the eaves.
+* ``synth_facade`` draws the tiling textures (base colour, normal, AO/roughness/metallic) of a
+  style with numpy, so the pipeline needs no texture download: 2 bays x 2 storeys a tile.
+* ``synth_window_lights`` draws the night mask of a style: which windows are lit and how (a rank
+  per window that the material compares with the lit share of the building use, a brightness and
+  a warm/cool tint), over MASK_BAYS x MASK_STOREYS windows so the lit pattern does not repeat every
+  2 x 2 windows; ``light_offset`` shifts it per building and wall by whole facade tiles.
+* ``roof_uv`` and ``ortho_tile`` texture the roofs with the aerial photo (PDOK Luchtfoto,
+  CC BY 4.0, the twin's ortho): one texture per World Partition tile, planar from the top.
+
+Pure numpy (PIL only to write PNGs); unit tested in tests/test_facades.py.
+"""
+from __future__ import annotations
+
+import math
+import zlib
+from dataclasses import dataclass, field
+from typing import Optional
+
+import numpy as np
+
+TEX_BAYS = 2      # one facade texture covers 2 bays ...
+TEX_STOREYS = 2   # ... by 2 storeys
+TEX_PX = 1024
+SHOP_FLOOR_M = 4.0   # shopfront ground floor height
+PARTY_TOL_M = 0.3    # a wall whose foot lies this close to another footprint is a party wall
+
+
+@dataclass(frozen=True)
+class Style:
+    name: str
+    bay_m: float                # module width
+    storey_m: float             # nominal storey height (the UVs fit a whole number to the eaves)
+    wall: str                   # brick | render | concrete | metal | glass
+    colours: tuple              # wall colour per variant (sRGB 0-255)
+    window: tuple = (0.25, 0.75, 0.30, 0.85)   # x0, x1 (of the bay), y0, y1 (of the storey, from the floor)
+    frame: tuple = (235, 235, 230)
+    frame_m: float = 0.06
+    mullions: int = 0           # vertical glazing bars per window
+    transom: bool = False       # horizontal bar at 2/3 height
+    sill: bool = True
+    lintel: bool = False        # darker soldier course above the window (brick)
+    glass: tuple = (52, 62, 72)
+    mortar: tuple = (190, 185, 175)
+    brick_m: tuple = (0.22, 0.0625)   # brick length incl. joint, course height
+    shop: bool = False          # shopfront: sign band, door
+    blank: bool = False         # no windows at all
+
+
+STYLES = {s.name: s for s in (
+    # pre-war Dutch brick: tall windows, white frames, transom, darker lintels
+    Style("brick_old", 2.4, 3.2, "brick", ((122, 52, 38), (98, 46, 36)),
+          window=(0.28, 0.72, 0.22, 0.86), frame=(236, 234, 226), mullions=1, transom=True, lintel=True),
+    # post-war reconstruction (most of the Eindhoven centre): wide windows, darker frames
+    Style("brick_postwar", 3.0, 2.9, "brick", ((150, 98, 66), (128, 82, 58)),
+          window=(0.12, 0.88, 0.30, 0.82), frame=(70, 60, 52), mullions=2),
+    Style("brick_modern", 2.8, 2.9, "brick", ((140, 64, 44), (88, 70, 62)),
+          window=(0.18, 0.82, 0.18, 0.86), frame=(60, 62, 64), mullions=1),
+    Style("render_modern", 3.0, 3.0, "render", ((228, 224, 214), (205, 200, 190)),
+          window=(0.15, 0.85, 0.15, 0.88), frame=(55, 57, 60), mullions=1, sill=False),
+    # offices: ribbon windows between concrete spandrels / a curtain wall
+    Style("office_concrete", 3.6, 3.4, "concrete", ((172, 168, 160),),
+          window=(0.04, 0.96, 0.32, 0.86), frame=(80, 82, 85), mullions=2, sill=False),
+    Style("office_glass", 1.8, 3.6, "glass", ((70, 82, 92),),
+          window=(0.03, 0.97, 0.08, 0.97), frame=(150, 155, 160), frame_m=0.05, sill=False,
+          glass=(58, 76, 90)),
+    # industry and warehouses: profiled metal sheet, one strip of high windows
+    Style("industrial", 6.0, 4.5, "metal", ((168, 174, 178), (120, 128, 132)),
+          window=(0.10, 0.90, 0.70, 0.86), frame=(90, 92, 95), mullions=3, sill=False),
+    # ground floor of a building with shops or cafes
+    Style("shopfront", 4.0, SHOP_FLOOR_M, "render", ((60, 60, 62), (110, 95, 80)),
+          window=(0.06, 0.94, 0.03, 0.74), frame=(40, 40, 42), frame_m=0.08, mullions=1, sill=False,
+          glass=(48, 58, 66), shop=True),
+    # pre-war masonry high-rise (New York: limestone and buff brick, punched windows)
+    Style("stone_prewar", 1.8, 3.4, "brick", ((196, 184, 160), (172, 150, 118), (150, 112, 86)),
+          window=(0.26, 0.74, 0.24, 0.84), frame=(225, 222, 212), mullions=0, transom=True,
+          mortar=(205, 200, 188), brick_m=(0.60, 0.30)),
+    # party walls, narrow walls, sheds: plain wall at true brick scale
+    Style("blank_brick", 2.5, 3.0, "brick", ((132, 60, 44), (110, 80, 62)), blank=True, sill=False),
+)}
+
+# style -> the plain wall its party walls get
+BLANK_OF = {"stone_prewar": "blank_brick",
+            "render_modern": "blank_brick", "office_concrete": "blank_brick", "office_glass": "blank_brick",
+            "industrial": "industrial", "shopfront": "blank_brick"}
+
+
+def _crc(*parts) -> int:
+    return zlib.crc32("|".join(str(p) for p in parts).encode("utf-8"))
+
+
+def material_key(style: str, variant: int) -> str:
+    return "facade_%s_%d" % (style, variant)
+
+
+def variant_of(style: str, building_id: str) -> int:
+    return _crc(style, building_id) % len(STYLES[style].colours)
+
+
+# --------------------------------------------------------------------------- classification
+
+# uses: BAG gebruiksdoel names (the Netherlands) and the neutral names the other providers map their
+# registers to (New York: PLUTO floor areas and building classes)
+OFFICE_USES = {"kantoorfunctie", "onderwijsfunctie", "gezondheidszorgfunctie", "logiesfunctie", "celfunctie",
+               "office", "education", "health", "hotel", "government"}
+SHOP_USES = {"winkelfunctie", "bijeenkomstfunctie", "retail", "assembly"}
+INDUSTRY_USES = {"industriefunctie", "industry", "storage", "utility"}
+INDUSTRIAL_MAX_M = 30.0   # taller "industrial" buildings are towers on oddly registered lots: not metal sheds
+OSM_INDUSTRY = {"industrial", "warehouse", "hangar", "factory", "manufacture"}
+OSM_SHED = {"shed", "garage", "garages", "carport", "hut", "roof"}
+OSM_OFFICE = {"office", "commercial", "public", "civic", "school", "university", "college", "hospital", "hotel"}
+
+
+@dataclass
+class BuildingInfo:
+    """What classify needs to know about a building."""
+    id: str
+    year: Optional[int] = None
+    uses: dict = field(default_factory=dict)   # gebruiksdoel -> floor area m2
+    height_m: float = 0.0                      # ground to eaves
+    area_m2: float = 0.0                       # footprint
+    osm_category: Optional[str] = None
+    region: str = "nl"                         # "us": pre-war high-rise is stone; "jp": homes are rendered
+
+
+def dominant_use(uses: dict) -> Optional[str]:
+    if not uses:
+        return None
+    return max(sorted(uses), key=lambda k: uses[k])
+
+
+def classify(b: BuildingInfo) -> tuple[str, bool]:
+    """(facade style, shopfront ground floor) for a building."""
+    use = dominant_use(b.uses)
+    shops = any(u in SHOP_USES for u in b.uses)
+    year = b.year or 0
+    cat = (b.osm_category or "").lower()
+    small = b.area_m2 < 40.0 and b.height_m < 4.0
+    if small or (not b.uses and cat in OSM_SHED):
+        return "blank_brick", False
+    if (use in INDUSTRY_USES or (not b.uses and cat in OSM_INDUSTRY) or
+            (use is None and b.area_m2 > 1500.0 and b.height_m < 10.0)) and b.height_m < INDUSTRIAL_MAX_M:
+        return "industrial", False
+    if use in INDUSTRY_USES:   # a tower on a lot registered as utility or storage (New York): an office look
+        use = "office"
+    shop_floor = shops and b.height_m >= SHOP_FLOOR_M + 2.5
+    if b.region == "us" and 0 < year < 1946 and b.height_m >= 20.0:
+        return "stone_prewar", shop_floor   # Manhattan's pre-war towers and apartment blocks
+    if use in OFFICE_USES or (use is None and cat in OSM_OFFICE) or \
+            (use in SHOP_USES and b.height_m >= 12.0):
+        if year >= 1985 or (year == 0 and b.height_m >= 25.0):
+            return "office_glass", shop_floor
+        return "office_concrete", shop_floor
+    if use in SHOP_USES and b.height_m < SHOP_FLOOR_M + 2.5:
+        return "shopfront", False   # a one-storey shop: shopfront all the way up
+    # homes and mixed blocks
+    if b.region == "jp":
+        return "render_modern", shop_floor   # Japanese homes and apartment blocks: render and tiles, not brick
+    if 0 < year < 1940:
+        return "brick_old", shop_floor
+    if year < 1980:
+        return "brick_postwar", shop_floor
+    if year >= 1995 and _crc("render", b.id) % 3 == 0:
+        return "render_modern", shop_floor
+    return "brick_modern", shop_floor
+
+
+# --buildings procedural (bake_level.py): carla-digitaltwins' modular atom kits need door + window + top
+# rows (measured in the content, 2026-11-14: Skysc21 apartment kit 508 + 350 + 99 cm, Skysc19 glass office
+# kit 533 + 502 + 502 cm), and they are apartment / office kits, not sheds, shops or warehouses
+PROCEDURAL_FAMILY_MIN_M = {"Skysc21": 9.6, "Skysc19": 15.4}
+PROCEDURAL_MIN_HEIGHT_M = min(PROCEDURAL_FAMILY_MIN_M.values())
+PROCEDURAL_SIMPLIFY_M = 1.0   # footprint simplification before the generator (its modules are 5 m wide)
+PROCEDURAL_STYLES = {"brick_old", "brick_postwar", "brick_modern", "render_modern", "office_concrete", "office_glass"}
+
+
+def procedural_family(style: str, height_m: float = 1e9) -> str:
+    """bake_level.FAMILIES member for a building: the glass office kit for offices tall enough for its
+    5 m storeys, else the apartment kit."""
+    if style in ("office_glass", "office_concrete") and height_m >= PROCEDURAL_FAMILY_MIN_M["Skysc19"]:
+        return "Skysc19"
+    return "Skysc21"
+
+
+def procedural_ok(style: str, height_m: float, min_height_m: float = PROCEDURAL_MIN_HEIGHT_M) -> bool:
+    fam = procedural_family(style, height_m)
+    return style in PROCEDURAL_STYLES and height_m >= max(min_height_m, PROCEDURAL_FAMILY_MIN_M[fam])
+
+
+def storeys_for(height_m: float, storey_m: float) -> tuple[int, float]:
+    """A whole number of storeys up to the eaves: (n, actual storey height)."""
+    if height_m <= 0:
+        return 1, storey_m
+    n = max(1, int(round(height_m / storey_m)))
+    h = height_m / n
+    if h < 0.75 * storey_m or h > 1.35 * storey_m:   # an odd wall: keep the nominal storey
+        return n, storey_m
+    return n, h
+
+
+# --------------------------------------------------------------------------- UVs
+
+def wall_frame(normal: np.ndarray) -> np.ndarray:
+    """Unit horizontal axis along a vertical wall (left to right seen from outside)."""
+    nx, ny = float(normal[0]), float(normal[1])
+    h = math.hypot(nx, ny)
+    if h < 1e-9:
+        return np.array([1.0, 0.0, 0.0])
+    return np.array([-ny / h, nx / h, 0.0])
+
+
+def wall_uv(verts: np.ndarray, normal: np.ndarray, base_z: float, storey_h: float, bay_m: float,
+            ring: Optional[np.ndarray] = None, z0: float = 0.0, tile_offset: tuple = (0, 0)) -> np.ndarray:
+    """glTF UVs (v grows downwards) for points of a wall polygon.
+
+    u: a whole number of bays across the wall's horizontal extent (taken from ``ring``, the
+    polygon's own vertices, so every piece of a clipped wall shares the mapping);
+    v: storeys from ``base_z + z0`` (the floor of the first storey this texture covers).
+    One texture tile is TEX_BAYS x TEX_STOREYS modules. ``tile_offset`` adds whole texture tiles
+    (integers: the facade textures look the same, the night mask, which repeats every
+    MASK_OFFSETS tiles, shows another part of itself; see light_offset)."""
+    along = wall_frame(normal)
+    ref = verts if ring is None else ring
+    a_ref = ref @ along
+    a0, a1 = float(a_ref.min()), float(a_ref.max())
+    width = max(a1 - a0, 1e-6)
+    bays = max(1, int(round(width / bay_m)))
+    bay = width / bays
+    u = (verts @ along - a0) / bay / TEX_BAYS + int(tile_offset[0])
+    v = -(verts[:, 2] - (base_z + z0)) / storey_h / TEX_STOREYS + int(tile_offset[1])
+    return np.column_stack([u, v])
+
+
+def blank_uv(verts: np.ndarray, normal: np.ndarray, style: Style) -> np.ndarray:
+    """Plain walls: metric, so the bricks keep their size whatever the wall."""
+    along = wall_frame(normal)
+    return np.column_stack([verts @ along / (TEX_BAYS * style.bay_m),
+                            -verts[:, 2] / (TEX_STOREYS * style.storey_m)])
+
+
+def roof_uv(verts: np.ndarray, tile: tuple[int, int], tile_m: float) -> np.ndarray:
+    """Planar top-down UVs into the tile's ortho texture (image row 0 = north edge)."""
+    x0, y1 = tile[0] * tile_m, (tile[1] + 1) * tile_m
+    return np.column_stack([(verts[:, 0] - x0) / tile_m, (y1 - verts[:, 1]) / tile_m])
+
+
+# --------------------------------------------------------------------------- clipping
+
+def clip_triangles(verts: np.ndarray, tris: np.ndarray, z: float):
+    """Split a triangle mesh at the plane Z = z. Returns ((verts, tris) below, (verts, tris) above);
+    new vertices are interpolated on the cut, winding is preserved."""
+    out = {True: ([], []), False: ([], [])}
+    for t in tris:
+        p = verts[t]
+        side = p[:, 2] < z
+        if side.all() or (~side).all():
+            vs, fs = out[bool(side[0])]
+            base = sum(len(a) for a in vs)
+            vs.append(p)
+            fs.append(np.array([[0, 1, 2]]) + base)
+            continue
+        poly = {True: [], False: []}
+        for i in range(3):
+            a, b = p[i], p[(i + 1) % 3]
+            sa, sb = bool(a[2] < z), bool(b[2] < z)
+            poly[sa].append(a)
+            if sa != sb:
+                f = (z - a[2]) / (b[2] - a[2])
+                c = a + f * (b - a)
+                poly[True].append(c)
+                poly[False].append(c)
+        for s in (True, False):
+            pts = poly[s]
+            if len(pts) < 3:
+                continue
+            vs, fs = out[s]
+            base = sum(len(a) for a in vs)
+            vs.append(np.asarray(pts))
+            fs.append(np.array([[0, i, i + 1] for i in range(1, len(pts) - 1)]) + base)
+
+    def pack(s):
+        vs, fs = out[s]
+        if not vs:
+            return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+        return np.vstack(vs), np.vstack(fs).astype(np.int64)
+    return pack(True), pack(False)
+
+
+# --------------------------------------------------------------------------- textures
+
+def _periodic_noise(shape, scale_px: float, rng) -> np.ndarray:
+    """Tileable smooth noise in [-1, 1] (white noise low-passed in the Fourier domain)."""
+    h, w = shape
+    n = rng.standard_normal((h, w))
+    fy = np.fft.fftfreq(h)[:, None]
+    fx = np.fft.fftfreq(w)[None, :]
+    f = np.sqrt(fx ** 2 + fy ** 2)
+    filt = np.exp(-(f * scale_px) ** 2 * 4.0)
+    out = np.real(np.fft.ifft2(np.fft.fft2(n) * filt))
+    out -= out.mean()
+    m = np.abs(out).max()
+    return out / m if m > 0 else out
+
+
+def _brick_layer(h, w, mw, mh, style: Style, colour, rng):
+    """Running-bond brick wall over a (mw x mh metre) tile: colour image and height map."""
+    bl, ch = style.brick_m
+    nb = max(4, int(round(mw / bl)))
+    nc = max(4, int(round(mh / ch)))
+    nc += nc % 2   # even number of courses so the half-brick offset tiles
+    ys, xs = np.mgrid[0:h, 0:w]
+    cy = ys * nc / h
+    course = np.floor(cy).astype(int)
+    cx = xs * nb / w + 0.5 * (course % 2)
+    brick = np.floor(cx).astype(int) % nb
+    fy, fx = cy - course, cx - np.floor(cx)
+    jy = 0.010 / ch      # 1 cm joints
+    jx = 0.010 / bl
+    mortar = (fy < jy) | (fx < jx)
+    tone = rng.normal(0.0, 0.09, size=(nc, nb))
+    shade = 1.0 + tone[course % nc, brick]
+    col = np.asarray(colour, float)[None, None, :] * shade[..., None]
+    col[mortar] = style.mortar
+    height = np.where(mortar, -0.35, 0.0)
+    return col, height
+
+
+def synth_facade(style: Style, variant: int = 0, px: int = TEX_PX, seed: int = 0):
+    """(base colour uint8 HxWx3, normal uint8 HxWx3, ORM uint8 HxWx4) for one tile of a style:
+    TEX_BAYS x TEX_STOREYS modules, seamless in both directions, row 0 = top."""
+    rng = np.random.default_rng(_crc(style.name, variant, seed))
+    h = w = px
+    mw, mh = TEX_BAYS * style.bay_m, TEX_STOREYS * style.storey_m
+    colour = style.colours[variant % len(style.colours)]
+    if style.wall == "brick":
+        col, height = _brick_layer(h, w, mw, mh, style, colour, rng)
+    else:
+        col = np.ones((h, w, 3)) * np.asarray(colour, float)
+        height = np.zeros((h, w))
+        if style.wall == "concrete":   # panel joints at every bay and storey
+            ys, xs = np.mgrid[0:h, 0:w]
+            jx = (xs * TEX_BAYS / w) % 1.0
+            jy = (ys * TEX_STOREYS / h) % 1.0
+            seam = (jx < 0.012 / style.bay_m * 2) | (jy < 0.012 / style.storey_m * 2)
+            col[seam] *= 0.7
+            height[seam] = -0.4
+        elif style.wall == "metal":    # trapezoidal sheet, ribs every 20 cm
+            xs = np.arange(w)[None, :] * mw / w
+            rib = (xs % 0.2) / 0.2
+            prof = np.clip(np.abs(rib - 0.5) * 4 - 0.6, 0, 1)
+            height = np.repeat(prof, h, axis=0) * 0.8
+            col = col * (0.92 + 0.08 * np.repeat(prof, h, axis=0))[..., None]
+    # dirt / tone: tileable low-frequency variation
+    col *= (1.0 + 0.06 * _periodic_noise((h, w), 48, rng))[..., None]
+    col *= (1.0 + 0.03 * _periodic_noise((h, w), 6, rng))[..., None]
+    rough = np.full((h, w), 0.88 if style.wall in ("brick", "render", "concrete") else 0.45)
+    metal = np.full((h, w), 0.5 if style.wall == "metal" else 0.0)
+    ao = np.ones((h, w))
+    if not style.blank:
+        bw, sh = w / TEX_BAYS, h / TEX_STOREYS
+        fpx = _frame_px(style, bw)
+        for sy in range(TEX_STOREYS):
+            for bx in range(TEX_BAYS):
+                floor = (sy + 1) * sh
+                wx0, wx1, wy0, wy1, door = _window_rect(style, variant, bx, sy, bw, sh)
+                # frame (outer rectangle) then glass inset
+                col[wy0:wy1, wx0:wx1] = style.frame
+                height[wy0:wy1, wx0:wx1] = -0.3
+                rough[wy0:wy1, wx0:wx1] = 0.5
+                metal[wy0:wy1, wx0:wx1] = 0.0
+                gy0, gy1, gx0, gx1 = wy0 + fpx, wy1 - fpx, wx0 + fpx, wx1 - fpx
+                if gy1 <= gy0 or gx1 <= gx0:
+                    continue
+                gh = gy1 - gy0
+                grad = np.linspace(1.25, 0.8, gh)[:, None, None]   # sky reflection: brighter at the top
+                g = np.asarray(style.glass, float)[None, None, :] * grad
+                tint = 1.0 + 0.12 * rng.standard_normal()
+                col[gy0:gy1, gx0:gx1] = g * tint
+                height[gy0:gy1, gx0:gx1] = -1.0
+                rough[gy0:gy1, gx0:gx1] = 0.06
+                ao[gy0:gy1, gx0:gx1] = 0.85
+                if not style.shop and rng.random() < 0.35:   # curtains in some windows
+                    cw = int((gx1 - gx0) * rng.uniform(0.15, 0.35))
+                    curtain = (225, 218, 200) if rng.random() < 0.7 else (150, 140, 125)
+                    col[gy0:gy1, gx0:gx0 + cw] = curtain
+                    col[gy0:gy1, gx1 - cw:gx1] = curtain
+                    rough[gy0:gy1, gx0:gx0 + cw] = 0.9
+                    rough[gy0:gy1, gx1 - cw:gx1] = 0.9
+                bar = max(1, fpx // 2)
+                for m in range(1, style.mullions + 1):
+                    xm = gx0 + (gx1 - gx0) * m // (style.mullions + 1)
+                    col[gy0:gy1, xm - bar:xm + bar] = style.frame
+                    height[gy0:gy1, xm - bar:xm + bar] = -0.3
+                if style.transom:
+                    yt = gy0 + gh // 3
+                    col[yt - bar:yt + bar, gx0:gx1] = style.frame
+                    height[yt - bar:yt + bar, gx0:gx1] = -0.3
+                if style.sill and not door:
+                    s0 = wy1
+                    s1 = min(int(floor), wy1 + max(2, int(0.07 / style.storey_m * sh)))
+                    col[s0:s1, wx0 - fpx:wx1 + fpx] = (200, 198, 190)
+                    height[s0:s1, wx0 - fpx:wx1 + fpx] = 0.3
+                if style.lintel:
+                    l1 = wy0
+                    l0 = max(0, wy0 - int(0.22 / style.storey_m * sh))
+                    col[l0:l1, wx0:wx1] *= 0.8
+                if style.shop:   # sign band above the shop window
+                    b0 = max(0, int(floor - 0.97 * sh))
+                    b1 = max(b0 + 1, int(floor - 0.80 * sh))
+                    col[b0:b1, int(bx * bw):int((bx + 1) * bw)] = (30, 32, 36) if variant == 0 else (120, 30, 28)
+                    rough[b0:b1, int(bx * bw):int((bx + 1) * bw)] = 0.4
+    albedo = np.clip(col, 0, 255).astype(np.uint8)
+    normal = height_to_normal(height, strength=3.0)
+    orm = np.stack([ao, rough, metal, np.zeros_like(ao)], axis=-1)
+    orm = np.clip(orm * 255.0, 0, 255).astype(np.uint8)
+    return albedo, normal, orm
+
+
+def _frame_px(style: Style, bay_px: float) -> int:
+    return max(2, int(round(style.frame_m / style.bay_m * bay_px)))
+
+
+def _window_rect(style: Style, variant: int, bx: int, sy: int, bw: float, sh: float):
+    """Window (outer frame) of bay ``bx`` in storey row ``sy`` (row 0 = top) of a grid of bays
+    ``bw`` px wide and storeys ``sh`` px high: (x0, x1, y0, y1, door). The door of a shopfront sits
+    in bay (sy + variant) % TEX_BAYS of each facade tile, so a larger grid repeats it per tile."""
+    x0, x1, y0, y1 = style.window
+    floor = (sy + 1) * sh   # storey floor at the bottom of its band (row grows downwards)
+    wx0, wx1 = int(bx * bw + x0 * bw), int(bx * bw + x1 * bw)
+    wy0, wy1 = int(floor - y1 * sh), int(floor - y0 * sh)
+    door = style.shop and bx % TEX_BAYS == (sy % TEX_STOREYS + variant) % TEX_BAYS
+    if door:
+        wy1 = int(floor - 0.01 * sh)
+    return wx0, wx1, wy0, wy1, door
+
+
+# --------------------------------------------------------------------------- lit windows at night
+
+MASK_BAYS = 8        # one night mask covers 8 bays ...
+MASK_STOREYS = 8     # ... by 8 storeys = 4 x 4 facade texture tiles
+MASK_PX_PER_BAY = 128
+MASK_UV_SCALE = TEX_BAYS / MASK_BAYS                                  # the material samples it at UV x this
+MASK_OFFSETS = (MASK_BAYS // TEX_BAYS, MASK_STOREYS // TEX_STOREYS)   # whole facade tiles per mask
+LIGHT_COOL_SHARE = 0.12   # lit windows with cool white light (LED, screens) instead of warm
+
+# facade style -> building use whose lit share the material gets (ue/twin_materials.py WINDOW_LIT_SHARE).
+# The styles come from the BAG use of the units (classify): homes and mixed blocks, offices (also
+# schools, hospitals, hotels), the shopfront ground floor, industry; plain walls have no windows.
+USE_OF_STYLE = {"stone_prewar": "home", "brick_old": "home", "brick_postwar": "home", "brick_modern": "home", "render_modern": "home",
+                "office_concrete": "office", "office_glass": "office", "shopfront": "shop",
+                "industrial": "industry"}
+
+
+def light_offset(building_id: str, wall: int) -> tuple[int, int]:
+    """Whole facade tiles a wall's UVs are shifted by (wall_uv tile_offset), so buildings and their
+    walls show different parts of the night mask: u per wall, v per building (the storeys of one
+    building keep their order around its corners)."""
+    return _crc("lights-u", building_id, wall) % MASK_OFFSETS[0], _crc("lights-v", building_id) % MASK_OFFSETS[1]
+
+
+def synth_window_lights(style: Style, variant: int = 0, px_bay: int = MASK_PX_PER_BAY, seed: int = 0):
+    """Night mask of a style (uint8 HxWx3, MASK_BAYS x MASK_STOREYS windows, row 0 = top, linear), or
+    None for a style without windows. Per window (one cell of bay x storey):
+
+    * R: the glass of the window (same rectangle, frame and glazing bars as synth_facade) times its
+      brightness (0.6-1.0, a little brighter towards the ceiling); 0 on the wall;
+    * G: the window's rank in (0, 1), uniform over the cell: the material lights the window when
+      rank < lit share x NightFactor, so a share of 0.4 lights about 40 % of the windows and a
+      lower share (later at night, less dark) lights a subset of them;
+    * B: its tint, 0 warm (incandescent / warm LED) to 1 cool white (LIGHT_COOL_SHARE of them).
+
+    Seamless in both directions; the facade texture repeats MASK_OFFSETS times inside it."""
+    if style.blank:
+        return None
+    rng = np.random.default_rng(_crc("lights", style.name, variant, seed))
+    bw = sh = px_bay
+    h, w = MASK_STOREYS * sh, MASK_BAYS * bw
+    r = np.zeros((h, w))
+    g = np.zeros((h, w))
+    b = np.zeros((h, w))
+    fpx = _frame_px(style, bw)
+    bar = max(1, fpx // 2)
+    n = MASK_BAYS * MASK_STOREYS
+    # ranks: a shuffled even spread, so any share lights very nearly that fraction of the windows
+    ranks = (rng.permutation(n) + rng.uniform(0.15, 0.85, n)) / n
+    for k in range(n):
+        sy, bx = divmod(k, MASK_BAYS)
+        cy0, cx0 = sy * sh, bx * bw
+        g[cy0:cy0 + sh, cx0:cx0 + bw] = ranks[k]
+        cool = rng.random() < LIGHT_COOL_SHARE
+        b[cy0:cy0 + sh, cx0:cx0 + bw] = rng.uniform(0.6, 1.0) if cool else rng.uniform(0.0, 0.25)
+        bright = rng.uniform(0.6, 1.0)
+        wx0, wx1, wy0, wy1, door = _window_rect(style, variant, bx, sy, bw, sh)
+        gy0, gy1, gx0, gx1 = wy0 + fpx, wy1 - fpx, wx0 + fpx, wx1 - fpx
+        if gy1 <= gy0 or gx1 <= gx0:
+            continue
+        r[gy0:gy1, gx0:gx1] = bright * np.linspace(1.0, 0.8, gy1 - gy0)[:, None]
+        for m in range(1, style.mullions + 1):
+            xm = gx0 + (gx1 - gx0) * m // (style.mullions + 1)
+            r[gy0:gy1, xm - bar:xm + bar] = 0.0
+        if style.transom:
+            yt = gy0 + (gy1 - gy0) // 3
+            r[yt - bar:yt + bar, gx0:gx1] = 0.0
+    out = np.stack([r, g, b], axis=-1)
+    return np.clip(np.round(out * 255.0), 0, 255).astype(np.uint8)
+
+
+def lit_fraction(mask: np.ndarray, share: float) -> float:
+    """Fraction of the windows (cells) of a night mask lit at a lit share (what the material does at
+    NightFactor 1). For tests and reports."""
+    ch, cw = mask.shape[0] // MASK_STOREYS, mask.shape[1] // MASK_BAYS
+    cells = mask[ch // 2::ch, cw // 2::cw, 1] / 255.0
+    return float((cells < share).mean())
+
+
+def height_to_normal(height: np.ndarray, strength: float = 3.0) -> np.ndarray:
+    """Tangent-space normal map (DirectX green, as UE expects) from a height map, wrapped."""
+    dx = (np.roll(height, -1, axis=1) - np.roll(height, 1, axis=1)) * 0.5 * strength
+    dy = (np.roll(height, -1, axis=0) - np.roll(height, 1, axis=0)) * 0.5 * strength
+    n = np.stack([-dx, dy, np.ones_like(height)], axis=-1)
+    n /= np.linalg.norm(n, axis=-1, keepdims=True)
+    return np.clip(np.round((n * 0.5 + 0.5) * 255.0), 0, 255).astype(np.uint8)
+
+
+def flat_normal(px: int = 4) -> np.ndarray:
+    return np.full((px, px, 3), (128, 128, 255), dtype=np.uint8)
+
+
+def constant_orm(roughness: float, px: int = 4) -> np.ndarray:
+    o = np.zeros((px, px, 4), dtype=np.uint8)
+    o[..., 0] = 255
+    o[..., 1] = int(round(roughness * 255))
+    return o
+
+
+# --------------------------------------------------------------------------- aerial photo
+
+def ortho_tile(img: np.ndarray, transform, tile: tuple[int, int], tile_m: float, px: int) -> Optional[np.ndarray]:
+    """The tile's square of a north-up ortho (HxWx3, affine ``transform`` = (a, b, c, d, e, f) as in
+    rasterio: x = a*col + c, y = e*row + f), resampled to px x px (nearest of a box average).
+    None when the tile is outside the photo."""
+    a, _, c, _, e, f = transform[:6]
+    x0, x1 = tile[0] * tile_m, (tile[0] + 1) * tile_m
+    y0, y1 = tile[1] * tile_m, (tile[1] + 1) * tile_m
+    h, w = img.shape[:2]
+    # pixel centres of the output grid
+    xs = x0 + (np.arange(px) + 0.5) * (x1 - x0) / px
+    ys = y1 - (np.arange(px) + 0.5) * (y1 - y0) / px
+    cols = np.floor((xs - c) / a).astype(int)
+    rows = np.floor((ys - f) / e).astype(int)
+    inside_c = (cols >= 0) & (cols < w)
+    inside_r = (rows >= 0) & (rows < h)
+    if not inside_c.any() or not inside_r.any():
+        return None
+    out = np.zeros((px, px, 3), dtype=np.uint8)
+    mean = img.reshape(-1, img.shape[2])[:, :3].mean(axis=0).astype(np.uint8)
+    out[:] = mean
+    rr, cc = np.meshgrid(np.clip(rows, 0, h - 1), np.clip(cols, 0, w - 1), indexing="ij")
+    ok = inside_r[:, None] & inside_c[None, :]
+    out[ok] = img[rr[ok], cc[ok], :3]
+    return out
+
+
+def mean_colour(img: np.ndarray, transform, ring_xy: np.ndarray) -> Optional[tuple]:
+    """Average ortho colour inside a footprint ring (model metres), or None."""
+    a, _, c, _, e, f = transform[:6]
+    h, w = img.shape[:2]
+    cols = (ring_xy[:, 0] - c) / a
+    rows = (ring_xy[:, 1] - f) / e
+    r0, r1 = int(max(0, math.floor(rows.min()))), int(min(h, math.ceil(rows.max()) + 1))
+    c0, c1 = int(max(0, math.floor(cols.min()))), int(min(w, math.ceil(cols.max()) + 1))
+    if r1 <= r0 or c1 <= c0:
+        return None
+    rr, cc = np.mgrid[r0:r1, c0:c1]
+    inside = _points_in_ring(cc.ravel() + 0.5, rr.ravel() + 0.5, cols, rows)
+    if not inside.any():
+        return None
+    px = img[r0:r1, c0:c1, :3].reshape(-1, 3)[inside]
+    return tuple(int(v) for v in np.median(px, axis=0))
+
+
+def _points_in_ring(x, y, rx, ry) -> np.ndarray:
+    inside = np.zeros(len(x), dtype=bool)
+    n = len(rx)
+    j = n - 1
+    for i in range(n):
+        cond = ((ry[i] > y) != (ry[j] > y))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            xint = (rx[j] - rx[i]) * (y - ry[i]) / (ry[j] - ry[i]) + rx[i]
+        inside ^= cond & (x < xint)
+        j = i
+    return inside
+
+
+def save_png(path, arr: np.ndarray) -> None:
+    from PIL import Image
+    mode = {3: "RGB", 4: "RGBA"}[arr.shape[2]]
+    Image.fromarray(arr, mode).save(str(path), optimize=True)

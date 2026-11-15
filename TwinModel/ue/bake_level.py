@@ -7,6 +7,12 @@ UE 5.8 World Partition level. Editor Python, run headless:
 What it does (DESIGN.md §Baker):
   1. material instances  /Game/Carla/Maps/Twins/<Name>/Materials/MI_<Name>_<key>, parented to
                          CARLA's road / sidewalk / curb / marking / grass / facade masters
+  1b. textured materials manifest ``textures`` (3DBAG facade styles and aerial-photo roofs from
+                         tools/threedbag_buildings.py): the PNGs imported to .../<Name>/Textures and
+                         one MI_<Name>_<key> each on twin_materials.TEXTURED_PARENT (UV-mapped);
+                         facade styles with a night mask (``windows``) sit on
+                         twin_materials.NIGHT_PARENT instead, whose windows light up at night
+                         (CARLA's NightFactor) by the building use and ``--window-hour``
   2. static meshes       Interchange import of every .glb into
                          /Game/Carla/Static/<Semantic>/Twins/<Name>/  (the folder right under
                          /Game/Carla/Static/ is what ATagger reads: Road, SideWalk, RoadLine,
@@ -24,12 +30,19 @@ What it does (DESIGN.md §Baker):
   5. buildings           ``--buildings procedural``: instead of the manifest's extruded facade
                          slabs, every footprint is fed to carla-digitaltwins' BP_BuildingGen
                          (modular Nanite facade atoms as ISM instances + a generated roof cap),
-                         see place_buildings(). Needs the CarlaDigitalTwinsTool content mounted.
+                         see place_buildings(). Needs the CarlaDigitalTwinsTool content mounted
+                         (bitbucket.org/carla-simulator/digitaltwins, branch ue5-digitaltwins, git
+                         LFS, ~9.4 GB, into Plugins/CarlaDigitalTwinsTool/Content). On a 3DBAG
+                         twin only the buildings marked ``procedural`` are generated, at their real
+                         eaves height, and the 3DBAG roofs and gables (kinds roof/building_3dbag)
+                         stay instead of the flat cap.
   5b. navigation        a NavMeshBoundsVolume over the twin and a RecastNavMesh saved into
                          the level, then the CarlaCrosswalkNavBuilder and
                          WorldPartitionNavigationDataBuilder World Partition builders. Without
                          the saved RecastNavMesh the server spawns an empty one and every
-                         get_random_location_from_navigation returns the origin
+                         get_random_location_from_navigation returns the origin.
+                         ``--no-nav-build`` keeps the volume and the RecastNavMesh but leaves the
+                         builders (two more editors) to a later, separate run
   6. report              <manifest dir>/bake_report.json
 
 Idempotent: re-running replaces the meshes and recreates the level.
@@ -237,8 +250,283 @@ def make_material_instances(name, materials, mat_dir):
 
 def asset_key(a):
     """Surface key of a manifest asset. Taken from the asset kind so a level baked before a
-    key split (``riser`` left ``curb`` on 2026-09-02) repaints onto the new pools."""
+    key split (``riser`` left ``curb`` on 2026-09-02) repaints onto the new pools. Textured
+    assets (3DBAG facade styles, photo roofs) key on their texture entry."""
+    if a.get("texture"):
+        return a["texture"]
+    if a.get("kind") == "roof":
+        return "roof"
     return twin_materials.KIND_KEY.get(a.get("kind"), a.get("material"))
+
+
+TEXTURE_SETTINGS = {  # manifest texture slot -> (sRGB, compression)
+    "base_color": (True, "TC_DEFAULT"),
+    "normal": (False, "TC_NORMALMAP"),
+    "orm": (False, "TC_MASKS"),
+    "windows": (False, "TC_BC7"),   # night mask: rank and tint per window need more than BC1's 5-6 bits
+}
+
+
+# --------------------------------------------------------------------------- lit windows at night
+
+def _write_png_rgb(path, w, h, rgb):
+    """A flat RGB PNG without PIL/numpy (the editor's Python has neither)."""
+    import struct
+    import zlib as _z
+    row = b"\x00" + bytes(rgb) * w
+    raw = row * h
+
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", _z.crc32(tag + data) & 0xffffffff)
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", _z.compress(raw)) + chunk(b"IEND", b""))
+
+
+def _night_none_texture(scratch):
+    """T_TwinWindowsNone: the night parent's default mask, no window anywhere (R 0, rank 1)."""
+    path = twin_materials.NIGHT_NONE_TEXTURE.split(".")[0]
+    if asset_exists(path):
+        return load_asset(path)
+    png = os.path.join(scratch, "T_TwinWindowsNone.png")
+    _write_png_rgb(png, 4, 4, (0, 255, 0))
+    t = unreal.AssetImportTask()
+    t.set_editor_property("filename", png)
+    t.set_editor_property("destination_path", twin_materials.NIGHT_DIR)
+    t.set_editor_property("destination_name", "T_TwinWindowsNone")
+    t.set_editor_property("automated", True)
+    t.set_editor_property("replace_existing", True)
+    t.set_editor_property("save", False)
+    unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([t])
+    tex = load_asset(path)
+    srgb, comp = TEXTURE_SETTINGS["windows"]
+    tex.set_editor_property("srgb", srgb)
+    tex.set_editor_property("compression_settings", getattr(unreal.TextureCompressionSettings, comp))
+    unreal.EditorAssetLibrary.save_asset(path, only_if_is_dirty=False)
+    return tex
+
+
+def _build_night_master(none_tex):
+    """M_TwinFacadeNight: a copy of CARLA's M_GeneralMaster whose emissive gets the window term
+    (twin_materials, "lit windows at night") added to its own."""
+    mel = unreal.MaterialEditingLibrary
+    path = twin_materials.NIGHT_MASTER.split(".")[0]
+    mat = unreal.EditorAssetLibrary.duplicate_asset(twin_materials.NIGHT_SOURCE_MASTER.split(".")[0], path)
+    if mat is None:
+        raise RuntimeError("cannot copy %s" % twin_materials.NIGHT_SOURCE_MASTER)
+    emissive = unreal.MaterialProperty.MP_EMISSIVE_COLOR
+    old = mel.get_material_property_input_node(mat, emissive)
+    old_pin = mel.get_material_property_input_node_output_name(mat, emissive) if old is not None else ""
+    x0, y0 = -2400, 2400
+
+    def node(cls, dx, dy):
+        return mel.create_material_expression(mat, cls, x0 + dx, y0 + dy)
+
+    alias = {"": ("", "Input"), "UVs": ("UVs", "Coordinates")}
+
+    def link(a, a_out, b, b_in):
+        for name in alias.get(b_in, (b_in,)):
+            if mel.connect_material_expressions(a, a_out, b, name):
+                return
+        raise RuntimeError("cannot connect %s.%s -> %s.%s" % (a.get_name(), a_out, b.get_name(), b_in))
+
+    uv = node(unreal.MaterialExpressionTextureCoordinate, 0, 0)
+    uv.set_editor_property("u_tiling", twin_materials.WINDOW_UV_SCALE)
+    uv.set_editor_property("v_tiling", twin_materials.WINDOW_UV_SCALE)
+    tex = node(unreal.MaterialExpressionTextureSampleParameter2D, 250, 0)
+    tex.set_editor_property("parameter_name", twin_materials.WINDOW_TEXTURE_PARAM)
+    tex.set_editor_property("texture", none_tex)
+    tex.set_editor_property("sampler_type", unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+    link(uv, "", tex, "UVs")
+    nf = node(unreal.MaterialExpressionCollectionParameter, 250, -300)
+    nf.set_editor_property("collection", load_asset(twin_materials.NIGHT_MPC.split(".")[0]))
+    nf.set_editor_property("parameter_name", "NightFactor")
+    share = node(unreal.MaterialExpressionScalarParameter, 250, -450)
+    share.set_editor_property("parameter_name", twin_materials.WINDOW_SHARE_PARAM)
+    share.set_editor_property("default_value", 0.0)
+    nits = node(unreal.MaterialExpressionScalarParameter, 900, 300)
+    nits.set_editor_property("parameter_name", twin_materials.WINDOW_NITS_PARAM)
+    nits.set_editor_property("default_value", twin_materials.WINDOW_NITS["home"])
+    cols = {}
+    for k, (name, rgb) in enumerate(sorted(twin_materials.WINDOW_COLOURS.items())):
+        v = node(unreal.MaterialExpressionVectorParameter, 600, 450 + 200 * k)
+        v.set_editor_property("parameter_name", name)
+        v.set_editor_property("default_value", unreal.LinearColor(rgb[0], rgb[1], rgb[2], 1.0))
+        cols[name] = v
+    threshold = node(unreal.MaterialExpressionMultiply, 550, -400)       # share x NightFactor
+    link(share, "", threshold, "A")
+    link(nf, "", threshold, "B")
+    diff = node(unreal.MaterialExpressionSubtract, 750, -300)            # - rank
+    link(threshold, "", diff, "A")
+    link(tex, "G", diff, "B")
+    gain = node(unreal.MaterialExpressionMultiply, 950, -300)
+    link(diff, "", gain, "A")
+    gain.set_editor_property("const_b", 512.0)
+    lit = node(unreal.MaterialExpressionSaturate, 1150, -300)
+    link(gain, "", lit, "")
+    glass = node(unreal.MaterialExpressionMultiply, 1350, -100)          # x glass x brightness
+    link(lit, "", glass, "A")
+    link(tex, "R", glass, "B")
+    tint = node(unreal.MaterialExpressionLinearInterpolate, 900, 500)
+    link(cols["Window Warm"], "", tint, "A")
+    link(cols["Window Cool"], "", tint, "B")
+    link(tex, "B", tint, "Alpha")
+    lum = node(unreal.MaterialExpressionMultiply, 1550, 100)
+    link(glass, "", lum, "A")
+    link(nits, "", lum, "B")
+    light = node(unreal.MaterialExpressionMultiply, 1750, 300)
+    link(tint, "", light, "A")
+    link(lum, "", light, "B")
+    total = node(unreal.MaterialExpressionAdd, 1950, 0)
+    if old is not None:
+        link(old, old_pin, total, "A")
+    link(light, "", total, "B")
+    if not mel.connect_material_property(total, "", emissive):
+        raise RuntimeError("cannot connect the emissive input")
+    mel.recompile_material(mat)
+    unreal.EditorAssetLibrary.save_asset(path, only_if_is_dirty=False)
+    log("night master %s: %d expressions" % (path, mel.get_num_material_expressions(mat)))
+    return mat
+
+
+def ensure_night_parent(scratch):
+    """twin_materials.NIGHT_PARENT (built once per CARLA tree: delete Content/CoupledCarla/Materials to
+    rebuild it): MI_Brick01's settings (static switches, tiling, textures) on M_TwinFacadeNight.
+    Returns the MIC, or None (with a warning) when it cannot be made: the facades then keep
+    TEXTURED_PARENT and have no lit windows."""
+    mi_path = twin_materials.NIGHT_PARENT.split(".")[0]
+    try:
+        if asset_exists(mi_path) and asset_exists(twin_materials.NIGHT_MASTER.split(".")[0]):
+            return load_asset(mi_path)
+        unreal.EditorAssetLibrary.make_directory(twin_materials.NIGHT_DIR)
+        none_tex = _night_none_texture(scratch)
+        master = load_asset(twin_materials.NIGHT_MASTER.split(".")[0]) \
+            if asset_exists(twin_materials.NIGHT_MASTER.split(".")[0]) else _build_night_master(none_tex)
+        src = twin_materials.TEXTURED_PARENT.split(".")[0]
+        mi = unreal.EditorAssetLibrary.duplicate_asset(src, mi_path)
+        if mi is None:
+            raise RuntimeError("cannot copy %s" % src)
+        mel = unreal.MaterialEditingLibrary
+        before = {str(n): mel.get_material_instance_static_switch_parameter_value(mi, n)
+                  for n in mel.get_static_switch_parameter_names(mi)}
+        mel.set_material_instance_parent(mi, master)
+        for n, v in before.items():   # keep MI_Brick01's switches (UVs, no recolouring)
+            if mel.get_material_instance_static_switch_parameter_value(mi, n) != v:
+                mel.set_material_instance_static_switch_parameter_value(mi, n, v)
+        mel.update_material_instance(mi)
+        after = {str(n): mel.get_material_instance_static_switch_parameter_value(mi, n)
+                 for n in mel.get_static_switch_parameter_names(mi)}
+        if after != before:
+            warn("night parent static switches differ from %s: %s vs %s" % (src, after, before))
+        unreal.EditorAssetLibrary.save_asset(mi_path, only_if_is_dirty=False)
+        log("night parent %s on %s" % (mi_path, master.get_path_name()))
+        return mi
+    except Exception as exc:
+        warn("night facade parent unavailable (%s); no lit windows" % exc)
+        return None
+
+
+def import_textures(manifest, keys, tex_dir):
+    """Import the PNGs the manifest's ``textures`` entries for ``keys`` name (each file once);
+    returns relative file -> Texture2D."""
+    base = os.path.dirname(os.path.abspath(manifest["_path"]))
+    files = {}
+    for key in sorted(keys):
+        for slot, rel in manifest["textures"][key].items():
+            if slot in TEXTURE_SETTINGS:
+                files.setdefault(rel, slot)
+    unreal.EditorAssetLibrary.make_directory(tex_dir)
+    tasks = []
+    for rel in sorted(files):
+        t = unreal.AssetImportTask()
+        t.set_editor_property("filename", os.path.join(base, rel))
+        t.set_editor_property("destination_path", tex_dir)
+        t.set_editor_property("destination_name", os.path.splitext(os.path.basename(rel))[0])
+        t.set_editor_property("automated", True)
+        t.set_editor_property("replace_existing", True)
+        t.set_editor_property("save", False)
+        tasks.append(t)
+    t0 = time.time()
+    if tasks:
+        unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks(tasks)
+    out = {}
+    for rel, slot in sorted(files.items()):
+        path = "%s/%s" % (tex_dir, os.path.splitext(os.path.basename(rel))[0])
+        if not asset_exists(path):
+            warn("texture %s not found after import" % path)
+            continue
+        tex = load_asset(path)
+        srgb, comp = TEXTURE_SETTINGS[slot]
+        try:
+            tex.set_editor_property("srgb", srgb)
+            tex.set_editor_property("compression_settings", getattr(unreal.TextureCompressionSettings, comp))
+        except Exception as exc:
+            warn("texture settings %s: %s" % (path, exc))
+        unreal.EditorAssetLibrary.save_asset(path, only_if_is_dirty=False)
+        out[rel] = tex
+    log("imported %d textures in %.1f s" % (len(out), time.time() - t0))
+    return out
+
+
+def make_textured_instances(name, manifest, keys, mat_dir, tex_dir, window_hour=None):
+    """One MIC per textured key (MI_<Name>_<key>) on twin_materials.TEXTURED_PARENT, its texture
+    parameters pointing at the imported PNGs. Keys with a night mask (``windows``) sit on
+    twin_materials.NIGHT_PARENT with the lit share of their use at ``window_hour`` (None: no lit
+    windows). Returns key -> [MIC] (a one-member pool)."""
+    if not keys:
+        return {}
+    if not asset_exists(twin_materials.TEXTURED_PARENT):
+        warn("textured parent %s missing; facades fall back to the building pool"
+             % twin_materials.TEXTURED_PARENT)
+        return {}
+    texs = import_textures(manifest, keys, tex_dir)
+    parent = load_asset(twin_materials.TEXTURED_PARENT)
+    night = None
+    if window_hour is not None and any(manifest["textures"][k].get("windows") for k in keys):
+        night = ensure_night_parent(manifest["_scratch"])
+    manifest["_window_lights"] = {}
+    tools = unreal.AssetToolsHelpers.get_asset_tools()
+    unreal.EditorAssetLibrary.make_directory(mat_dir)
+    out = {}
+    for key in sorted(keys):
+        entry = manifest["textures"][key]
+        mi_name = "MI_%s_%s" % (name, key)
+        mi_path = "%s/%s" % (mat_dir, mi_name)
+        mic = load_asset(mi_path) if asset_exists(mi_path) else tools.create_asset(
+            mi_name, mat_dir, unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
+        lights = night is not None and bool(entry.get("windows"))
+        unreal.MaterialEditingLibrary.set_material_instance_parent(mic, night if lights else parent)
+        tex_entries = []
+        for slot, pname in sorted(twin_materials.TEXTURE_PARAMS.items()):
+            if slot == "windows" and not lights:
+                continue
+            tex = texs.get(entry.get(slot))
+            if tex is None:
+                continue
+            e = unreal.TextureParameterValue()
+            e.set_editor_property("parameter_info", unreal.MaterialParameterInfo(name=pname))
+            e.set_editor_property("parameter_value", tex)
+            tex_entries.append(e)
+        mic.set_editor_property("texture_parameter_values", tex_entries)
+        sc = []
+        scalars = dict(twin_materials.TEXTURED_SCALARS)
+        if lights:
+            scalars.update(twin_materials.window_scalars(entry.get("use", "home"), window_hour))
+            manifest["_window_lights"][key] = dict(use=entry.get("use", "home"), **scalars)
+        for pname, val in sorted(scalars.items()):
+            e = unreal.ScalarParameterValue()
+            e.set_editor_property("parameter_info", unreal.MaterialParameterInfo(name=pname))
+            e.set_editor_property("parameter_value", float(val))
+            sc.append(e)
+        mic.set_editor_property("scalar_parameter_values", sc)
+        unreal.MaterialEditingLibrary.update_material_instance(mic)
+        unreal.EditorAssetLibrary.save_asset(mi_path, only_if_is_dirty=False)
+        n_set = len(mic.get_editor_property("texture_parameter_values") or [])
+        if n_set != len(tex_entries) or not tex_entries:
+            warn("%s: %d of %d texture parameters set" % (mi_name, n_set, len(tex_entries)))
+        out[key] = [mic]
+    log("textured materials: %d (%s)" % (len(out), ", ".join(sorted(out))[:300]))
+    return out
 
 
 def pick_variant(name, asset, variants):
@@ -795,6 +1083,8 @@ def snap_height_cm(h_cm, dims):
 
 
 def family_for(b):
+    if b.get("family") in FAMILIES:   # 3DBAG twins: picked from the facade style
+        return b["family"]
     cands = CATEGORY_FAMILIES.get(b.get("category") or "", [DEFAULT_FAMILY])
     return cands[int(b.get("id", 0)) % len(cands)]
 
@@ -889,6 +1179,14 @@ def place_buildings(world, manifest, name, mats, roof_material=None):
     report = {"buildings": 0, "instances": 0, "roofs": 0, "families": {}, "skipped": 0,
               "hosts_over_limit": 0}
     blds = [b for b in manifest.get("buildings", ()) if b.get("rings_ue")]
+    if any("procedural" in b for b in blds):
+        # 3DBAG twins (tools/threedbag_buildings.py): only the buildings whose walls below the
+        # eaves were written apart (kind 'building'); the others keep their 3DBAG walls
+        report["not_procedural"] = sum(1 for b in blds if not b.get("procedural"))
+        blds = [b for b in blds if b.get("procedural")]
+    # 3DBAG roofs (kind 'roof') replace the generator's flat cap
+    roofs_3dbag = any(a.get("kind") == "roof" for a in manifest.get("assets", ()))
+    report["roof_source"] = "3dbag" if roofs_3dbag else "streetmap_cap"
     if not blds:
         warn("manifest has no buildings; nothing to generate")
         return report
@@ -929,10 +1227,24 @@ def place_buildings(world, manifest, name, mats, roof_material=None):
     # one row-snapped .osm (the roof cap reads the way's height tag), one StreetMap import
     rings = []
     snapped = []
+    report["too_low"] = 0
     for b in blds:
         fam = family_for(b)
-        hs, n = snap_height_cm(float(b["height_m"]) * 100.0, fams[fam]["dims"])
+        if "eaves_z_cm" in b:
+            # real eaves height: whole window rows, the generator's slope band (the plain filler
+            # quad) takes the remainder under the cornice, and the 3DBAG roof sits on the real eaves
+            d = fams[fam]["dims"]
+            hs = float(b["eaves_z_cm"]) - float(b["base_z_cm"])
+            n = int((hs - d["door_bb_height"] - d["top_atom_bb_height"]) // d["window_bb_height"])
+            if n < 1:
+                report["too_low"] += 1
+                continue
+        else:
+            hs, n = snap_height_cm(float(b["height_m"]) * 100.0, fams[fam]["dims"])
         snapped.append((b, fam, hs, n))
+    if report["too_low"]:
+        warn("%d buildings are lower than door + window + top rows: their lower walls are missing; "
+             "raise threedbag_buildings.py --procedural-min-height" % report["too_low"])
     osm_manifest = {"buildings": [dict(b, height_m=hs / 100.0, levels=n) for b, fam, hs, n in snapped]}
     osm_path = os.path.join(manifest["_scratch"], "buildings.osm")
     n_ways = twin_buildings.write_buildings_osm(osm_manifest, osm_path)
@@ -1060,6 +1372,14 @@ def place_buildings(world, manifest, name, mats, roof_material=None):
             except Exception:
                 pass
         # roof cap
+        if roofs_3dbag:
+            report["buildings"] += 1
+            report["instances"] += n_inst
+            report["families"][fam] = report["families"].get(fam, 0) + 1
+            if bi % 50 == 0:
+                log("building %d/%d (%s, %d rows, %d instances so far)" %
+                    (bi + 1, len(snapped), fam, n, report["instances"]))
+            continue
         roof_mic = roof_pool[twin_materials.building_variant_index(
             name, "roof", b.get("id", bi), len(roof_pool))]
         try:
@@ -1282,10 +1602,14 @@ def build_navigation_data(name, map_root=MAP_ROOT):
     done = {}
     for builder in NAV_BUILDERS:
         cmd = [editor, uproject, level, "-run=WorldPartitionBuilderCommandlet",
-               "-Builder=%s" % builder, "-SCCProvider=None", "-nullrhi", "-unattended"]
+               "-Builder=%s" % builder, "-SCCProvider=None", "-nullrhi", "-unattended", "-stdout",
+               "-FullStdOutLogOutput"]
         proc = subprocess.run(cmd, capture_output=True, text=True)
-        done[builder] = proc.returncode == 0
-        if proc.returncode != 0:
+        # the editor binary can exit non-zero in its shutdown handler after the builder itself
+        # finished and saved (seen on lin5080 2026-11-14): trust the commandlet's own result line
+        ok = proc.returncode == 0 or "finished execution (result 0)" in (proc.stdout or "")
+        done[builder] = ok
+        if not ok:
             tail = (proc.stdout or proc.stderr or "").strip().splitlines()
             warn("%s failed (%s)" % (builder, tail[-1] if tail else "no output"))
         else:
@@ -1315,6 +1639,10 @@ def main(argv):
     ap.add_argument("--no-navmesh", action="store_true",
                     help="skip the nav bounds volume, the RecastNavMesh and both "
                          "World Partition navigation builders")
+    ap.add_argument("--no-nav-build", action="store_true",
+                    help="place the nav bounds volume and the RecastNavMesh but skip the two World "
+                         "Partition navigation builders (each a second editor beside this one: run them "
+                         "afterwards with WorldPartitionBuilderCommandlet when memory is short)")
     ap.add_argument("--no-tm-cache", action="store_true",
                     help="skip cooking the Traffic Manager's InMemoryMap cache")
     ap.add_argument("--python-bin", default=None,
@@ -1323,6 +1651,11 @@ def main(argv):
     ap.add_argument("--buildings", choices=("slabs", "procedural"), default="slabs",
                     help="slabs: the manifest's extruded facade meshes; procedural: "
                          "BP_BuildingGen modular facades from the footprints")
+    ap.add_argument("--window-hour", type=float, default=twin_materials.DEFAULT_WINDOW_HOUR,
+                    help="local hour whose share of lit windows (by building use) the facades get at "
+                         "night (default %(default)s; twin_materials.WINDOW_LIT_SHARE)")
+    ap.add_argument("--no-window-lights", action="store_true",
+                    help="facades on the plain textured parent: no lit windows at night")
     ap.add_argument("--roof-material", default=None,
                     help="material path for the procedural roof caps (default: the twin's sidewalk MIC)")
     args = ap.parse_args(argv)
@@ -1346,8 +1679,22 @@ def main(argv):
     log("bake %s: %d assets, %d spawn points, xodr %s" % (
         name, len(manifest["assets"]), len(manifest["spawn_points"]), manifest.get("xodr")))
 
-    mats = make_material_instances(name, {asset_key(a) for a in manifest["assets"]}, mat_dir)
+    keys = {asset_key(a) for a in manifest["assets"]}
+    tex_keys = {k for k in keys if k in manifest.get("textures", {})}
+    mats = make_material_instances(name, keys - tex_keys, mat_dir)
+    textured = make_textured_instances(name, manifest, tex_keys, mat_dir, "%s/Textures" % map_dir,
+                                       None if args.no_window_lights else args.window_hour)
+    for k in tex_keys - set(textured):   # no textured parent: the old pools
+        mats.setdefault("building", make_material_instances(name, {"building"}, mat_dir).get("building", []))
+        mats[k] = mats["building"]
+    mats.update(textured)
     report["materials"] = {k: [m.get_path_name() for m in v] for k, v in mats.items()}
+    report["textured_materials"] = len(textured)
+    report["window_lights"] = {"hour": None if args.no_window_lights else args.window_hour,
+                               "parent": twin_materials.NIGHT_PARENT,
+                               "materials": manifest.get("_window_lights", {})}
+    log("lit windows: %d facade materials at hour %s" % (len(report["window_lights"]["materials"]),
+                                                          report["window_lights"]["hour"]))
 
     mesh_paths = import_meshes(manifest, args.mesh_root, name, replace=not args.skip_import)
     by_asset = {a["asset"]: a for a in manifest["assets"]}
@@ -1388,7 +1735,7 @@ def main(argv):
                             else setup_navigation(manifest, name, args.map_root))
 
     # after the save: both builders load the level from disk in their own editor
-    report["navigation_builders"] = (None if args.no_navmesh
+    report["navigation_builders"] = (None if args.no_navmesh or args.no_nav_build
                                      else build_navigation_data(name, args.map_root))
 
     sizes = {}
