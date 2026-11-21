@@ -889,6 +889,18 @@ def build(args: argparse.Namespace) -> int:
         "timings": timer.timings, "outputs": {}, "notes": [],
     }
 
+    # 0. Lanelet2 (optional): the road network comes from an Autoware vector map ---------------
+    l2map = None
+    if getattr(args, "lanelet2", None):
+        from .ingest.lanelet2 import load_lanelet2
+        with timer.stage("lanelet2_read"):
+            l2map = load_lanelet2(args.lanelet2)
+            build_meta["lanelet2_source"] = str(args.lanelet2)
+            if not args.bbox:
+                pad = 0.0005   # ~50 m of OSM context (buildings) around the map
+                s_, w_, n_, e_ = l2map.bbox
+                args.bbox = [s_ - pad, w_ - pad, n_ + pad, e_ + pad]
+
     # 1. OSM --------------------------------------------------------------------------------
     with timer.stage("osm"):
         if args.fixture:
@@ -917,7 +929,8 @@ def build(args: argparse.Namespace) -> int:
             log.error("no bbox: pass --bbox or use a fixture that records one")
             return 2
         build_meta["bbox_swne"] = list(bbox)
-        frame = LocalFrame.from_bbox(*bbox)
+        # a Lanelet2 map brings its own frame (centred on the map)
+        frame = l2map.frame if l2map is not None else LocalFrame.from_bbox(*bbox)
 
     # 0. profile: chosen before the lane graph, active for every stage that follows --------
     with timer.stage("profile"):
@@ -931,13 +944,13 @@ def build(args: argparse.Namespace) -> int:
         log.info("profile: %s", profiles.summary(profile))
     with profiles.use(profile):
         return _build_pipeline(args, osm, bbox, frame, out, cache, timer, build_meta, profile_meta,
-                               corr=corr, corr_reports=corr_reports)
+                               corr=corr, corr_reports=corr_reports, l2map=l2map)
 
 
 def _build_pipeline(args: argparse.Namespace, osm, bbox, frame: LocalFrame, out: Path, cache: Path,
                     timer: _Timer, build_meta: dict[str, Any], profile_meta: dict[str, Any],
                     corr: Optional["corrections_mod.Corrections"] = None,
-                    corr_reports: Optional[dict[str, Any]] = None) -> int:
+                    corr_reports: Optional[dict[str, Any]] = None, l2map=None) -> int:
     from .lanegraph import build_lanegraph
     from .surfaces import build_surfaces
     from .export.xodr import export_xodr
@@ -949,9 +962,23 @@ def _build_pipeline(args: argparse.Namespace, osm, bbox, frame: LocalFrame, out:
     ops = corr.active() if corr is not None else []
     corr_reports = corr_reports if corr_reports is not None else {}
     quick = bool(getattr(args, "quick", False))
+    l2 = None
     with timer.stage("lanegraph"):
-        model = build_lanegraph(osm, frame, bbox, name=args.name,
-                                end_shifts=corrections_mod.end_shifts(ops) or None)
+        if l2map is not None:
+            # the Autoware vector map is the road network; OSM adds the buildings and objects
+            from .ingest.lanelet2 import lanelet2_to_model
+            from .lanegraph import _buildings, _objects, _parking_lots
+            if ops:
+                log.warning("corrections are not applied to a Lanelet2 road network")
+                ops = []
+            l2 = lanelet2_to_model(l2map, args.name)
+            model = l2.model
+            model.buildings = _buildings(osm, frame)
+            model.objects = _objects(osm, frame)
+            model.metadata["parking_lots_wkt"] = _parking_lots(osm, frame)
+        else:
+            model = build_lanegraph(osm, frame, bbox, name=args.name,
+                                    end_shifts=corrections_mod.end_shifts(ops) or None)
         if ops:
             corr_reports["lanegraph"] = corrections_mod.apply_junctions(model, ops, frame)
             n_shift = sum(1 for r in model.roads for e in ("start", "end") if f"end_shift_{e}" in r.tags)
@@ -968,6 +995,12 @@ def _build_pipeline(args: argparse.Namespace, osm, bbox, frame: LocalFrame, out:
         elif getattr(args, 'dem_file', None):
             from .model import Elevation
             model.elevation = Elevation.from_npz(Path(args.dem_file))
+        elif l2map is not None:
+            # the map's own node elevations
+            from .ingest.lanelet2 import elevation_from_lanelet2
+            model.elevation = elevation_from_lanelet2(l2.ground_xyz)
+            if model.elevation is None:
+                build_meta["notes"].append("dem: the Lanelet2 map is flat, z=0")
         else:
             from .ingest.elevation import fetch_dem
             model.elevation = _call_with_sources(fetch_dem, frame, bbox, cache_dir=cache,
@@ -975,6 +1008,12 @@ def _build_pipeline(args: argparse.Namespace, osm, bbox, frame: LocalFrame, out:
             if model.elevation is None:
                 build_meta["notes"].append("dem: no source reachable, z=0")
         model.metadata["elevation"] = _json_safe(apply_elevation(model))
+        if l2 is not None:
+            # the roads keep the map's own elevations (decks and underpasses included); the
+            # grid only carries the terrain, buildings and objects
+            for r in model.roads:
+                r.reference_line = l2.ref_lines[r.id]
+            model.metadata["elevation"]["roads"] = "lanelet2"
         el = model.metadata["elevation"]
         if el.get("applied"):
             log.info("elevation: %s z %.1f..%.1f m, slope %.2f%% uphill toward %s (%.0f deg)",
@@ -986,6 +1025,9 @@ def _build_pipeline(args: argparse.Namespace, osm, bbox, frame: LocalFrame, out:
     # 3. imagery ----------------------------------------------------------------------------
     ortho = None
     with timer.stage("imagery"):
+        if l2 is not None and not args.no_imagery:
+            args.no_imagery = True
+            build_meta["notes"].append("imagery: not used with a Lanelet2 road network")
         if args.no_imagery:
             build_meta["notes"].append("imagery: skipped (--no-imagery)")
         elif getattr(args, 'imagery_file', None):
@@ -1005,13 +1047,20 @@ def _build_pipeline(args: argparse.Namespace, osm, bbox, frame: LocalFrame, out:
 
     # 4. surfaces (+ refinement) ------------------------------------------------------------
     with timer.stage("surfaces"):
-        build_surfaces(model)
+        if l2 is not None:
+            # the lanelets are the drivable surface and their painted bounds the markings
+            build_surfaces(model, refined_drivable=l2.drivable, default_markings=False)
+            model.metadata.setdefault("surfaces", {})["drivable_source"] = "lanelet2"
+            model.markings.extend(l2.markings)
+            args.no_refine = True
+        else:
+            build_surfaces(model)
         unrefined_stats = dict(model.metadata.get("surfaces", {}))
     xodr_text = None
     with timer.stage("refine"):
         refine_meta: dict[str, Any] = {"status": "skipped"}
         if args.no_refine:
-            refine_meta["reason"] = "--no-refine"
+            refine_meta["reason"] = "lanelet2" if l2 is not None else "--no-refine"
         elif ortho is None:
             refine_meta["reason"] = "no ortho"
         else:
@@ -1280,6 +1329,9 @@ def _build_parser() -> argparse.ArgumentParser:
     b.add_argument("--name", default="eixample")
     b.add_argument("--out", required=True, help="output directory")
     b.add_argument("--fixture", help="cached Overpass JSON instead of a network fetch")
+    b.add_argument("--lanelet2", help="Autoware lanelet2_map.osm: the road network, lanes, junctions and "
+                                      "traffic control come from it instead of OSM (twinmodel.ingest.lanelet2); "
+                                      "OSM still supplies the buildings and objects")
     b.add_argument("--cache", default="data", help="Overpass/WMS/DEM cache directory")
     b.add_argument("--no-imagery", action="store_true")
     b.add_argument("--no-dem", action="store_true")
@@ -1351,7 +1403,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     level = logging.DEBUG if args.verbose else (logging.WARNING if args.quiet else logging.INFO)
     logging.basicConfig(level=level, format="%(asctime)s %(name)s %(levelname)s %(message)s",
                         datefmt="%H:%M:%S")
-    if args.cmd == "build" and not args.bbox and not args.fixture:
+    if args.cmd == "build" and not args.bbox and not args.fixture and not getattr(args, "lanelet2", None):
         args.bbox = list(DEFAULT_BBOX)
     return args.func(args)
 

@@ -1068,6 +1068,9 @@ def road_markings(road: Road, default_markings: bool = True) -> list[Marking]:
 # --------------------------------------------------------------------------- crossings
 
 def crossing_polygon(model: TwinModel, sig: Signal) -> Optional[Polygon]:
+    if sig.tags.get("polygon_wkt"):
+        # the crossing's own outline (a Lanelet2 crosswalk lanelet, ingest.lanelet2)
+        return _clean(shapely_wkt.loads(sig.tags["polygon_wkt"]))
     try:
         road = model.road(sig.road_id)
     except KeyError:
@@ -1719,6 +1722,8 @@ def build_surfaces(model: TwinModel,
     for sig in model.signals:
         if sig.kind not in ("crosswalk", "crossing"):
             continue
+        if sig.tags.get("crossing_surface") == "none":
+            continue   # one crossing over several roads: another signal carries the surface
         rect = crossing_polygon(model, sig)
         if rect is None:
             continue
