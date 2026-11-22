@@ -2808,6 +2808,9 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     model.objects = _objects(osm, frame)
     meta["parking_lots_wkt"] = _parking_lots(osm, frame)
     stats["parking_lots"] = len(meta["parking_lots_wkt"])
+    if P.sources.area_highway:
+        meta["road_areas_wkt"] = _road_areas(osm, frame)
+        stats["road_areas"] = len(meta["road_areas_wkt"])
 
     stats.update({
         "roads": sum(1 for r in roads if r.junction_id is None),
@@ -4192,9 +4195,20 @@ def _parking_lots(osm: OsmData, frame: LocalFrame) -> list[str]:
     """WKT (model space) of the surface parking lots: closed ways and multipolygon relations
     tagged ``amenity=parking`` whose ``parking=*`` is ``surface`` or absent (underground,
     multi-storey and rooftop lots are not ground surfaces)."""
-    def wanted(tags: dict[str, str]) -> bool:
-        return tags.get("amenity") == "parking" and tags.get("parking", "surface") not in _PARKING_EXCLUDED
+    return _tagged_areas(osm, frame, lambda tags: tags.get("amenity") == "parking"
+                         and tags.get("parking", "surface") not in _PARKING_EXCLUDED)
 
+
+def _road_areas(osm: OsmData, frame: LocalFrame) -> list[str]:
+    """WKT (model space) of the road surface polygons: closed ways and multipolygon relations
+    tagged ``area:highway`` with a drivable class (``DataSources.area_highway``)."""
+    drivable = profiles.get().lane.drivable_classes
+    return _tagged_areas(osm, frame, lambda tags: tags.get("area:highway") in drivable)
+
+
+def _tagged_areas(osm: OsmData, frame: LocalFrame, wanted) -> list[str]:
+    """WKT (model space) of the closed ways and multipolygon relations whose tags satisfy
+    ``wanted``."""
     out: list[str] = []
     member_ways: set[int] = set()
     for rel in osm.relations:

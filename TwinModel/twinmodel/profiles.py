@@ -379,6 +379,12 @@ class DataSources:
     ingest.elevation). Region-specific open data first, global fallbacks last."""
     ortho: tuple[str, ...]
     dem: tuple[str, ...]
+    # OSM ``area:highway=*`` polygons of drivable classes (the kerb-to-kerb road surface, corner
+    # radii included) replace the lane graph's carriageway and junction polygons wherever they
+    # cover them; elsewhere the lane graph's surface stays. Sidewalks then follow the polygons'
+    # edge. Off: the polygons are ignored. Few cities map them; a road network converted from a
+    # Lanelet2 map (simple_lanelet2's ll2osm) carries them everywhere.
+    area_highway: bool = False
 
 
 @dataclass(frozen=True)

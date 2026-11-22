@@ -48,6 +48,13 @@ MIN_SURFACE_AREA = 0.5  # m^2, drop slivers below this
 SLIVER_MEAN_WIDTH_M = 0.4
 SLIVER_MAX_AREA = 30.0
 SLIT_CLOSE_M = 0.25  # closing radius on the drivable surface (see build_surfaces step 2)
+# area:highway road surface (DataSources.area_highway): a lane-graph carriageway or junction
+# polygon whose AREA_COVER_FRACTION lies within AREA_COVER_TOL_M of the area polygons is
+# replaced by them; sidewalk bands reach AREA_SNAP_M past the lane-graph kerb to meet theirs
+AREA_COVER_TOL_M = 1.0
+AREA_COVER_FRACTION = 0.6
+AREA_SNAP_M = 1.5
+AREA_CORNER_REACH_M = 6.0  # a corner's kerb curve reaches this far past the junction polygon
 MIN_ISLAND_AREA = 2.0   # m^2, smaller drivable holes are filled instead of becoming islands
 MAX_ISLAND_AREA = 400.0  # m^2, larger holes are city blocks (kept as holes, no island surface)
 EDGE_MARKING_INSET = 0.10  # outermost edge lines are drawn this far inside the carriageway
@@ -357,6 +364,17 @@ class _Arm:
     @property
     def bearing(self) -> float:
         return math.atan2(float(self.u[1]), float(self.u[0]))
+
+
+def _road_areas_union(model: TwinModel) -> Polygon | MultiPolygon:
+    """The OSM area:highway road surface (lanegraph ``meta["road_areas_wkt"]``), clipped to
+    the model's bbox; empty when there is none."""
+    wkts = model.metadata.get("road_areas_wkt") or []
+    if not wkts:
+        return Polygon()
+    geom = _clean(unary_union([shapely_wkt.loads(w) for w in wkts]))
+    bbox = _model_bbox(model)
+    return _clean(geom.intersection(bbox)) if bbox is not None else geom
 
 
 def _road_faces(road: Road, buildings: BaseGeometry, step: float | None = None
@@ -1438,6 +1456,24 @@ def build_surfaces(model: TwinModel,
         lanegraph_drivable = _clean(unary_union([_base_drivable, added.difference(_lots_union)]))
     lanegraph_drivable = _clean(lanegraph_drivable.simplify(SIMPLIFY_TOL, preserve_topology=True))
     source = "osm_tags"
+    # OSM area:highway polygons (DataSources.area_highway, lanegraph meta["road_areas_wkt"]):
+    # the carriageways and junction polygons they cover give way to them
+    road_areas = _road_areas_union(model)
+    area_mode = not road_areas.is_empty
+    if area_mode:
+        reach = road_areas.buffer(AREA_COVER_TOL_M)
+        pieces = [g for g in list(carriageways.values()) + list(junction_polys.values()) if g.area > 0]
+        replaced = [g for g in pieces if g.intersection(reach).area >= AREA_COVER_FRACTION * g.area]
+        # what the area polygons do not cover keeps the lane graph's surface; the step wedges
+        # and slit closings added above belong to the replaced kerbs and go with them
+        keep = [g for g in pieces if g.intersection(reach).area < AREA_COVER_FRACTION * g.area]
+        lanegraph_drivable = _clean(unary_union([road_areas] + keep))
+        lanegraph_drivable = _clean(lanegraph_drivable.buffer(SLIT_CLOSE_M, join_style="mitre")
+                                    .buffer(-SLIT_CLOSE_M, join_style="mitre"))
+        lanegraph_drivable = _clean(lanegraph_drivable.simplify(SIMPLIFY_TOL, preserve_topology=True))
+        source = "area_highway"
+        stats["road_area_polygons"] = len(model.metadata.get("road_areas_wkt") or [])
+        stats["road_area_replaced"] = len(replaced)
     layers = sorted({road_layer[rid] for rid in carriageways} | set(junction_layer.values()))
     refined_by_layer: dict[Optional[int], Polygon | MultiPolygon] = {}
     if isinstance(refined_drivable, dict):
@@ -1597,6 +1633,10 @@ def build_surfaces(model: TwinModel,
             if b.lane.type not in RAISED_TYPES:
                 continue
             inner, outer = b.inner, b.outer
+            if area_mode and b.lane.type in ("sidewalk", "verge"):
+                # the kerb is the area polygon's edge, not the lane graph's: reach in so the
+                # band meets it (the drivable cut below trims the overlap)
+                inner = max(0.0, inner - AREA_SNAP_M)
             if b.lane.type == "sidewalk" and faces is not None:
                 fr, w = faces[b.left]
                 if (forced or fr >= side_canyon_min) and np.isfinite(w):
@@ -1617,6 +1657,10 @@ def build_surfaces(model: TwinModel,
     # sidewalks around junctions: the band along the corner buildings inside the plaza, or
     # (no buildings around) a wrap of the junction polygon as wide as the arms' raised strip
     # (verge + sidewalk) so the corner apron reaches the sidewalk band
+    if area_mode:
+        # the plaza sidewalks follow the lane graph's junction plaza; with area polygons every
+        # junction wraps their kerb instead (below)
+        plaza_sidewalks = []
     plaza_ids = {rid for _, rid in plaza_sidewalks}
     raised_parts["sidewalk"].extend(plaza_sidewalks)
     for j in model.junctions:
@@ -1632,8 +1676,14 @@ def build_surfaces(model: TwinModel,
         if verges:
             w = max(w, max(s + v for r, _ in incoming
                            for s, v in zip(_sidewalk_widths(r), _lane_type_widths(r, "verge"))))
-        wrap = _clean(poly.buffer(w, join_style="mitre", mitre_limit=MITRE_LIMIT))
-        raised_parts["sidewalk"].append((wrap, f"junction:{j.id}"))
+        if area_mode:
+            # round the corner along the kerb of the area polygons, not the junction polygon
+            around = _clean(drivable.intersection(poly.buffer(w + AREA_CORNER_REACH_M)))
+            wrap = _clean(around.buffer(w, join_style="round")) if not around.is_empty else Polygon()
+        else:
+            wrap = _clean(poly.buffer(w, join_style="mitre", mitre_limit=MITRE_LIMIT))
+        if not wrap.is_empty:
+            raised_parts["sidewalk"].append((wrap, f"junction:{j.id}"))
 
     raised_union_parts: list[BaseGeometry] = []
     paved_slivers: list[tuple[BaseGeometry, Optional[int]]] = []  # thin raised parts paved as drivable
@@ -1662,6 +1712,16 @@ def build_surfaces(model: TwinModel,
             # the buildings stand on the ground: a tunnel's sidewalk runs under them
             cut_buildings = not buildings.is_empty and not (lay is not None and lay < 0)
             geom = _clean(unary_union([g for g, _ in group]))
+            if area_mode and kind == "sidewalk":
+                # fill the strip between a band's end and the area polygons' kerb (a corner
+                # curve, a flare the lane graph does not have)
+                kerb = _clean(low.buffer(AREA_SNAP_M, join_style="round").difference(low))
+                geom = _clean(unary_union([geom, kerb.intersection(geom.buffer(AREA_SNAP_M))]))
+                # and drop what the replaced kerbs left standing away from the new one
+                widest = max((w for r in model.roads if r.id not in connecting_ids
+                              for w in _sidewalk_widths(r)), default=0.0)
+                if widest > 0:
+                    geom = _clean(geom.intersection(low.buffer(widest + AREA_SNAP_M, join_style="round")))
             geom = _clean(geom.difference(low))
             if cut_buildings:
                 geom = _clean(geom.difference(buildings))
