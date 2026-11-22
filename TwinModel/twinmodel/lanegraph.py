@@ -1067,7 +1067,11 @@ def _way_is_road(w: OsmWay, length_m: float, ramp_nodes: frozenset[int] | set[in
             return bool(w.nodes) and w.nodes[0] in shared_nodes and w.nodes[-1] in shared_nodes
         if w.tags.get("service") in ("parking_aisle", "driveway", "drive-through", "emergency_access"):
             return False
-        if (not w.tags.get("name") and length_m < P.lane.service_min_length
+        # LaneRules.service_connectors: a short unnamed service way whose both ends meet other
+        # drivable ways is a connector (a station rotary's entrance), not a spur
+        connector = (P.lane.service_connectors and bool(w.nodes)
+                     and w.nodes[0] in shared_nodes and w.nodes[-1] in shared_nodes)
+        if (not w.tags.get("name") and length_m < P.lane.service_min_length and not connector
                 and not (aisle_nodes and aisle_nodes.intersection(w.nodes))):
             return False
         if not w.tags.get("name") and w.nodes and (w.nodes[0] in ramp_nodes or w.nodes[-1] in ramp_nodes):
@@ -1173,6 +1177,23 @@ class _UnionFind:
 # Whatever the trims leave shorter than ``junction.sliver_m`` between two of these small
 # junctions is still merged by the clustering loop (step 7a) — that merge is bounded by real
 # overlap, the crawl it replaces was not.
+
+def _split_merge_nodes(chains: list["_Chain"], intersection: set[int], oneway) -> set[int]:
+    """Intersection nodes where one one-way chain splits into two or two merge into one, and
+    no other chain meets (``JunctionRules.split_merge_gores``). ``oneway(chain)``: whether the
+    chain is one-way; one-way chains run along their node order."""
+    io: dict[int, list[int]] = defaultdict(lambda: [0, 0, 0])  # in, out, two-way
+    for ch in chains:
+        a, b = ch.nodes[0], ch.nodes[-1]
+        if a is None or b is None or a == b:
+            continue
+        ow = oneway(ch)
+        for nid, out in ((a, 1), (b, 0)):
+            if nid in intersection:
+                io[nid][out if ow else 2] += 1
+    return {nid for nid, (n_in, n_out, n_two) in io.items()
+            if n_two == 0 and (n_in, n_out) in ((1, 2), (2, 1))}
+
 
 def _service_nodes(intersection: set[int], minor_nodes: set[int], street_degree: dict[int, int],
                    service_degree: dict[int, int]) -> set[int]:
@@ -1582,7 +1603,13 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     # driveway meets the street (see _service_nodes and _cluster_service_nodes below). They
     # never seed or extend a street junction; the generic loop skips their chains.
     service_nodes = _service_nodes(intersection, minor_nodes, street_degree, service_degree)
+    # splits and merges (JunctionRules.split_merge_gores): gores of their own, see there
+    split_merge = (_split_merge_nodes(chains, intersection,
+                                      lambda ch: all(spec_for(s).oneway for s in ch.segments))
+                   if P.junction.split_merge_gores else set())
+    service_nodes -= split_merge
     stats["service_junction_nodes"] = len(service_nodes)
+    stats["split_merge_gores"] = len(split_merge)
 
     def chain_limit(ch: _Chain, a: int, b: int) -> float:
         """Cluster radius for the chain ``ch`` between intersection nodes ``a`` and ``b``."""
@@ -1606,6 +1633,8 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     for ch in chains:
         nodes = ch.nodes
         a, b = nodes[0], nodes[-1]
+        if a in split_merge or b in split_merge:
+            continue  # a split / merge gore never clusters
         if a in service_nodes or b in service_nodes:
             continue  # _cluster_service_nodes
         if a in minor_nodes or b in minor_nodes:
@@ -1632,7 +1661,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     stats["dual_merges_suppressed"] = n_dual_suppressed
     if service_nodes:
         stats["service_merges_suppressed"] = _cluster_service_nodes(
-            uf, chains, intersection, service_nodes, minor_nodes, node_xy, chain_limit,
+            uf, chains, intersection - split_merge, service_nodes, minor_nodes, node_xy, chain_limit,
             P.junction.service_cluster_m)
 
     def make_clusters() -> tuple[list[_Cluster], dict[int, _Cluster]]:
@@ -1646,6 +1675,8 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             nids = sorted(nids)
             xy = [node_xy[n] for n in nids]
             c = _Cluster(id=f"j{gi + 1}", node_ids=nids, xy=xy, hull=MultiPoint(xy).convex_hull)
+            if split_merge and all(n in split_merge for n in nids):
+                c.kind = "gore"
             clusters.append(c)
             for n in nids:
                 node_cluster[n] = c
@@ -1838,7 +1869,10 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
             # arm. Cutting each arm at the half width of the street it runs into would keep
             # more crossings at their OSM node, but needs a concave junction cover first.
             hw = max(half_width(r), max_half[c.id])
-            cut = c.hull.buffer(hw + P.junction.trim_margin_m, join_style="round")
+            margin = P.junction.trim_margin_m
+            if c.kind == "gore" and c.node_ids[0] in split_merge:
+                hw = half_width(r)  # a split / merge: no crossing street, no corner to clear
+            cut = c.hull.buffer(hw + margin, join_style="round")
             c.area = cut if c.area is None else c.area.union(cut)
             keep = "end" if end == "start" else "start"
             iv = cut_interval(line2d, cut, keep)
@@ -1915,7 +1949,8 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                 # a sliver: what is left between the two junctions is too short to hold a lane
                 # link, so no vehicle can ever traverse it — the junctions belong together
                 if (cs is not None and ce is not None and cs is not ce
-                        and r.length < P.junction.sliver_m):
+                        and r.length < P.junction.sliver_m
+                        and "gore" not in (cs.kind, ce.kind)):
                     log.info("%s: %.1f m sliver between %s and %s: merging the junctions",
                              r.id, r.length, cs.id, ce.id)
                     merges.append((cs, ce))
@@ -2213,6 +2248,8 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
         """Fold ``cb`` into ``ca`` after the clustering loop has finished: the arms change hands,
         the hull grows, and every arm of the result is re-cut from its untrimmed line."""
         ca.node_ids = sorted(set(ca.node_ids) | set(cb.node_ids))
+        if ca.kind != cb.kind:
+            ca.kind = "intersection"  # a split / merge gore folded into a crossing is a crossing
         pts = [node_xy[n] for n in ca.node_ids if n in node_xy]
         if pts:
             ca.xy = pts
@@ -2298,6 +2335,8 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                 ca, cb = road_end_cluster[r.id]["start"], road_end_cluster[r.id]["end"]
                 if ca is cb or ca not in clusters or cb not in clusters:
                     continue
+                if "gore" in (ca.kind, cb.kind) and split_merge:
+                    continue  # a split / merge gore links lane to lane: a short arm is fine
                 log.info("%s: %.1f m sliver left between %s and %s: merging the junctions",
                          r.id, r.length, ca.id, cb.id)
                 merge_clusters(ca, cb)

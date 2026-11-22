@@ -70,6 +70,10 @@ class LaneRules:
     grade_separated_classes: frozenset[str] = frozenset({"motorway", "motorway_link"})
     # ramp classes: an end of one of these on a grade-separated mainline is a gore
     link_classes: frozenset[str] = frozenset({"motorway_link", "trunk_link"})
+    # an unnamed service way shorter than ``service_min_length`` is still a road when both its
+    # ends meet other drivable ways: a connector (a station rotary's entrance), not a spur.
+    # Off: every such short way is dropped, connectors included.
+    service_connectors: bool = False
 
     def for_class(self, highway: str) -> ClassDefaults:
         return self.classes.get(highway, self.fallback)
@@ -163,6 +167,14 @@ class JunctionRules:
     # nose junction ``2 * gore_nose_m`` long, because a road with two successors must be a
     # junction in OpenDRIVE (and CARLA's MapBuilder::GetLaneNext only follows one).
     gore_model: Literal["taper", "junction"] = "junction"
+    # splits and merges off the freeway: a node where one one-way road splits into two, or two
+    # merge into one, with no other road there (the two branches of a station rotary, a bus
+    # bay beside the through lane) is a gore of its own. It never clusters with the
+    # intersections next to it, gets the gore treatment (no plaza, no band cut, no signals;
+    # its cover is the arms and the connecting roads) and is cut back by the half width of
+    # its arms only, so a short branch between it and the next junction survives. Off: such
+    # a node is an ordinary intersection node, clustered by ``cluster_m`` / the service rule.
+    split_merge_gores: bool = False
     # parallel-type entrance: acceleration lane at full width, then an end taper to zero
     # (AASHTO Green Book 7th ed. §10.9.6 / Table 10-3: 900-1,200 ft for a 60-70 mph freeway
     # and a 25-30 mph ramp; the end taper 300 ft, i.e. 25:1 on a 12 ft lane). Both are capped
