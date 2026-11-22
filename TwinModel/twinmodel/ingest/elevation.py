@@ -326,6 +326,71 @@ def _usgs_3dep(frame: LocalFrame, bbox_swne, grid) -> Optional[Elevation]:
                                     f"({USGS_3DEP_CRS} -> local, bilinear)")
 
 
+# --------------------------------------------------------------------------- source 6: GSI elevation tiles (JP)
+# Geospatial Information Authority of Japan, https://maps.gsi.go.jp/development/demtile.html
+# (attribution: "出典：国土地理院"). PNG tiles in web Mercator, height = (R<<16 | G<<8 | B) * 0.01 m,
+# two's complement over 24 bits, 0x800000 = no data. dem5a is the airborne-laser DTM (5 m, bare
+# earth: no buildings, no bridge decks), dem is the 10 m DEM that covers the whole country.
+
+GSI_DEM_URL = "https://cyberjapandata.gsi.go.jp/xyz/{layer}/{z}/{x}/{y}.png"
+GSI_DEM_ZOOM = {"dem5a_png": 15, "dem_png": 14}
+GSI_DEM_MAX_TILES = 400
+GSI_DEM_THREADS = 8
+
+
+def _gsi_decode(rgb: np.ndarray) -> np.ndarray:
+    v = (rgb[..., 0].astype(np.int64) << 16) | (rgb[..., 1].astype(np.int64) << 8) | rgb[..., 2]
+    z = np.where(v >= 1 << 23, v - (1 << 24), v).astype(np.float64) * 0.01
+    z[v == 1 << 23] = np.nan
+    return z.astype(np.float32)
+
+
+def _gsi_dem(frame: LocalFrame, bbox_swne, grid, layer: str) -> Optional[Elevation]:
+    import requests
+    from requests.adapters import HTTPAdapter
+    from rasterio.transform import from_origin
+    from .osmtiles import TILE_PX, _decode_png, tile_bounds_3857, tile_range
+    x0, y0, width, height, transform = grid
+    zoom = GSI_DEM_ZOOM[layer]
+    tx0, ty0, tx1, ty1 = tile_range(bbox_swne, zoom)
+    nx, ny = tx1 - tx0 + 1, ty1 - ty0 + 1
+    if nx * ny > GSI_DEM_MAX_TILES:
+        log.warning("elevation: GSI %s needs %d tiles (cap %d)", layer, nx * ny, GSI_DEM_MAX_TILES)
+        return None
+    session = requests.Session()
+    session.mount("https://", HTTPAdapter(pool_maxsize=GSI_DEM_THREADS))
+
+    def work(xy):
+        tx, ty = xy
+        r = session.get(GSI_DEM_URL.format(layer=layer, z=zoom, x=tx, y=ty), timeout=30)
+        if r.status_code == 404:   # outside the survey: stays NaN
+            return tx, ty, None
+        r.raise_for_status()
+        return tx, ty, _gsi_decode(_decode_png(r.content))
+
+    mosaic = np.full((ny * TILE_PX, nx * TILE_PX), np.nan, dtype=np.float32)
+    got = 0
+    jobs = [(tx, ty) for ty in range(ty0, ty1 + 1) for tx in range(tx0, tx1 + 1)]
+    with ThreadPoolExecutor(GSI_DEM_THREADS) as pool:
+        for tx, ty, z in pool.map(work, jobs):
+            if z is not None:
+                r, c = (ty - ty0) * TILE_PX, (tx - tx0) * TILE_PX
+                mosaic[r:r + TILE_PX, c:c + TILE_PX] = z
+                got += 1
+    if not got:
+        log.warning("elevation: GSI %s has no data here", layer)
+        return None
+    xmin, _, xmax, ymax = tile_bounds_3857(tx0, ty0, zoom)
+    res = (xmax - xmin) / TILE_PX
+    z = _reproject_to_grid(mosaic, from_origin(xmin, ymax, res, res), "EPSG:3857", np.nan,
+                           transform, frame.crs, width, height)
+    if np.isnan(z).mean() > 0.5:
+        log.warning("elevation: GSI %s covers %.0f%% of the grid", layer, 100 * (1 - np.isnan(z).mean()))
+        return None
+    return _elevation_from_north_up(_fill_nan(z), x0, y0, transform.a,
+                                    f"GSI {layer} z{zoom} (国土地理院 標高タイル; bare earth)")
+
+
 # --------------------------------------------------------------------------- public API
 
 # name -> provider(frame, bbox_swne, grid, sample_spacing) -> Elevation | None
@@ -336,6 +401,8 @@ PROVIDERS = {
     "ign_wcs": lambda frame, bbox, grid, spacing: _ign_wcs(frame, bbox, grid),
     "copernicus_aws": lambda frame, bbox, grid, spacing: _copernicus_aws(frame, bbox, grid),
     "usgs_3dep": lambda frame, bbox, grid, spacing: _usgs_3dep(frame, bbox, grid),
+    "gsi_dem5a": lambda frame, bbox, grid, spacing: _gsi_dem(frame, bbox, grid, "dem5a_png"),
+    "gsi_dem10b": lambda frame, bbox, grid, spacing: _gsi_dem(frame, bbox, grid, "dem_png"),
 }
 
 def _cache_path(cache_dir: Path, bbox_swne, res: float) -> Path:

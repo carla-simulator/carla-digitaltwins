@@ -45,7 +45,7 @@ Useful options:
 | `--no-imagery`, `--no-dem` | skip orthophoto and elevation acquisition |
 | `--no-refine` | skip the imagery-driven refinement pass |
 | `--fixture <file>` | use a cached Overpass JSON instead of fetching |
-| `--profile <name>` | region profile: `eu_dense`, `us_urban`, `us_suburban`, `auto` |
+| `--profile <name>` | region profile: `eu_dense`, `us_urban`, `us_suburban`, `jp_urban`, `jp_suburban`, `auto` |
 
 The stage ends by parsing the result with `carla.Map` and writing `report.json`; a non-zero exit means the OpenDRIVE did not validate.
 
