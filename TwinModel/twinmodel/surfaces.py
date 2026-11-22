@@ -53,6 +53,7 @@ SLIT_CLOSE_M = 0.25  # closing radius on the drivable surface (see build_surface
 # replaced by them; sidewalk bands reach AREA_SNAP_M past the lane-graph kerb to meet theirs
 AREA_COVER_TOL_M = 1.0
 AREA_COVER_FRACTION = 0.6
+AREA_REMNANT_MIN_M2 = 2.0  # smaller leftovers of a replaced piece are dropped with it
 AREA_SNAP_M = 1.5
 AREA_CORNER_REACH_M = 6.0  # a corner's kerb curve reaches this far past the junction polygon
 MIN_ISLAND_AREA = 2.0   # m^2, smaller drivable holes are filled instead of becoming islands
@@ -1460,13 +1461,30 @@ def build_surfaces(model: TwinModel,
     # the carriageways and junction polygons they cover give way to them
     road_areas = _road_areas_union(model)
     area_mode = not road_areas.is_empty
+    replaced_ids: set[str] = set()      # carriageway road ids and "junction:<id>" the polygons replace
     if area_mode:
         reach = road_areas.buffer(AREA_COVER_TOL_M)
-        pieces = [g for g in list(carriageways.values()) + list(junction_polys.values()) if g.area > 0]
-        replaced = [g for g in pieces if g.intersection(reach).area >= AREA_COVER_FRACTION * g.area]
-        # what the area polygons do not cover keeps the lane graph's surface; the step wedges
-        # and slit closings added above belong to the replaced kerbs and go with them
-        keep = [g for g in pieces if g.intersection(reach).area < AREA_COVER_FRACTION * g.area]
+        pieces = {**carriageways, **{f"junction:{jid}": g for jid, g in junction_polys.items()}}
+        replaced_ids = {k for k, g in pieces.items()
+                        if g.area > 0 and g.intersection(reach).area >= AREA_COVER_FRACTION * g.area}
+        replaced = [pieces[k] for k in replaced_ids]
+        # what the area polygons do not cover keeps the lane graph's surface: the pieces they
+        # do not replace, and the parts of a replaced carriageway farther than
+        # AREA_COVER_TOL_M from them (a street the polygons map only in part). The step wedges
+        # and slit closings added above belong to the replaced kerbs and go with them.
+        remnants = {}
+        for k in replaced_ids:
+            if k.startswith("junction:"):
+                # a junction polygon's leftovers are its square corners beyond the polygons'
+                # kerb radii, not lanes: they go
+                remnants[k] = Polygon()
+                continue
+            beyond = _clean(pieces[k].difference(reach), min_area=AREA_REMNANT_MIN_M2)
+            # grown back by the reach so it meets the polygons with no gap between
+            remnants[k] = (_clean(pieces[k].intersection(beyond.buffer(AREA_COVER_TOL_M)))
+                           if not beyond.is_empty else beyond)
+        keep = [g for k, g in pieces.items() if k not in replaced_ids and g.area > 0]
+        keep += [g for g in remnants.values() if not g.is_empty]
         lanegraph_drivable = _clean(unary_union([road_areas] + keep))
         lanegraph_drivable = _clean(lanegraph_drivable.buffer(SLIT_CLOSE_M, join_style="mitre")
                                     .buffer(-SLIT_CLOSE_M, join_style="mitre"))
@@ -1555,9 +1573,26 @@ def build_surfaces(model: TwinModel,
     layer_source: dict[Optional[int], str] = {None: source}
     if len(layers) > 1:
         layer_groups = []
+        # area polygons (DataSources.area_highway) go to the layer of what they replace
+        area_by_layer: dict[Optional[int], list[BaseGeometry]] = {}
+        for part in (_parts(road_areas) if area_mode else []):
+            votes: dict[Optional[int], float] = {}
+            for k in replaced_ids:
+                lay_k = (junction_layer.get(k.split(":", 1)[1], 0) if k.startswith("junction:")
+                         else road_layer[k])
+                g = carriageways.get(k) if not k.startswith("junction:") else junction_polys[k.split(":", 1)[1]]
+                a = g.intersection(part).area
+                if a > 0:
+                    votes[lay_k] = votes.get(lay_k, 0.0) + a
+            area_by_layer.setdefault(max(votes, key=votes.get) if votes else ground_layer_of(layers),
+                                     []).append(part)
         for lay in layers:
-            geoms = [g for rid, g in carriageways.items() if road_layer[rid] == lay]
-            geoms += [g for jid, g in junction_polys.items() if junction_layer.get(jid, 0) == lay]
+            geoms = [remnants[rid] if rid in replaced_ids else g
+                     for rid, g in carriageways.items() if road_layer[rid] == lay]
+            geoms += [remnants[f"junction:{jid}"] if f"junction:{jid}" in replaced_ids else g
+                      for jid, g in junction_polys.items() if junction_layer.get(jid, 0) == lay]
+            geoms = [g for g in geoms if not g.is_empty]
+            geoms += area_by_layer.get(lay, [])
             if not geoms:
                 continue
             g = _clean(unary_union(geoms))

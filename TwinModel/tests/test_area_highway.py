@@ -61,13 +61,16 @@ def _union(m, kind):
 def test_the_area_polygons_are_the_road_surface():
     m = _build(ON, [MAJOR, MINOR])
     assert m.metadata["surfaces"]["drivable_source"] == "area_highway"
-    drivable = _union(m, "drivable")
-    kerb = _kerb([MAJOR, MINOR]).intersection(drivable.envelope)
+    # within the polygons' extent (they stop 6 m short of the road ends, where the lane
+    # graph's surface stays)
+    window = shape({"type": "Polygon", "coordinates": [[(-140, -140), (140, -140), (140, 140), (-140, 140), (-140, -140)]]})
+    drivable = _union(m, "drivable").intersection(window)
+    kerb = _kerb([MAJOR, MINOR]).intersection(window)
     iou = drivable.intersection(kerb).area / drivable.union(kerb).area
     assert iou > 0.97, iou
     # the sidewalks meet the new kerb, corners included, without paving over it
     sidewalk = _union(m, "sidewalk")
-    assert sidewalk.intersection(drivable).area < 1.0
+    assert sidewalk.intersection(_union(m, "drivable")).area < 1.0
     corner = shape({"type": "Point", "coordinates": (6.5, 6.5)})  # on the rounded corner's kerb
     assert sidewalk.distance(corner) < 1.0
 
@@ -84,3 +87,25 @@ def test_a_road_without_a_polygon_keeps_the_lane_graph_surface():
     # the minor road far from the junction is still paved
     for y in (-100.0, 100.0):
         assert drivable.contains(shape({"type": "Point", "coordinates": (0.0, y)}))
+
+
+def test_a_polygon_narrower_than_the_street_leaves_no_gap():
+    """A polygon that maps the major street 2 m short of its north kerb replaces it; the rest
+    of the street stays paved, with no strip missing between the two."""
+    def narrow(lines):
+        return unary_union([ln.buffer(10.0, cap_style="flat") for ln in lines]).buffer(-6.0)
+
+    import sys
+    t = sys.modules[__name__]
+    real = t._kerb
+    try:
+        t._kerb = lambda lines: narrow(lines).difference(
+            shape({"type": "Polygon", "coordinates": [[(-150, 2), (150, 2), (150, 9), (-150, 9), (-150, 2)]]})
+        ).union(narrow([MINOR])).buffer(0)
+        m = _build(ON, [MAJOR, MINOR])
+    finally:
+        t._kerb = real
+    drivable = _union(m, "drivable")
+    for x in (-80.0, 80.0):
+        for y in (-3.0, 0.0, 1.9, 2.5, 3.0):
+            assert drivable.contains(shape({"type": "Point", "coordinates": (x, y)})), (x, y)
