@@ -891,6 +891,12 @@ def build(args: argparse.Namespace) -> int:
 
     # 1. OSM --------------------------------------------------------------------------------
     with timer.stage("osm"):
+        roads = None
+        if getattr(args, "roads_osm", None):
+            from .ingest.osm import osm_xml_bbox, read_osm_xml
+            roads = read_osm_xml(args.roads_osm)
+            if not args.bbox:
+                args.bbox = list(osm_xml_bbox(roads))
         if args.fixture:
             raw = json.loads(Path(args.fixture).read_text())
             build_meta["osm_source"] = f"fixture:{args.fixture}"
@@ -900,6 +906,10 @@ def build(args: argparse.Namespace) -> int:
                 return 2
             raw = fetch_overpass(tuple(args.bbox), cache_dir=cache)
             build_meta["osm_source"] = "overpass"
+        if roads is not None:
+            from .ingest.osm import replace_roads
+            raw = replace_roads(raw, roads)
+            build_meta["roads_source"] = str(args.roads_osm)
         # reviewer corrections (twinmodel.corrections): --corrections PATH, else
         # <cache>/corrections/<name>.json when it exists
         corr_path = getattr(args, "corrections", None) or corrections_mod.default_path(cache, args.name)
@@ -1280,6 +1290,9 @@ def _build_parser() -> argparse.ArgumentParser:
     b.add_argument("--name", default="eixample")
     b.add_argument("--out", required=True, help="output directory")
     b.add_argument("--fixture", help="cached Overpass JSON instead of a network fetch")
+    b.add_argument("--roads-osm", help="local OSM XML whose highway ways and nodes replace OSM's (e.g. "
+                                       "an Autoware Lanelet2 map written as plain OSM); buildings and "
+                                       "the rest still come from OSM; the bbox defaults to its extent")
     b.add_argument("--cache", default="data", help="Overpass/WMS/DEM cache directory")
     b.add_argument("--no-imagery", action="store_true")
     b.add_argument("--no-dem", action="store_true")
@@ -1351,7 +1364,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     level = logging.DEBUG if args.verbose else (logging.WARNING if args.quiet else logging.INFO)
     logging.basicConfig(level=level, format="%(asctime)s %(name)s %(levelname)s %(message)s",
                         datefmt="%H:%M:%S")
-    if args.cmd == "build" and not args.bbox and not args.fixture:
+    if args.cmd == "build" and not args.bbox and not args.fixture and not getattr(args, "roads_osm", None):
         args.bbox = list(DEFAULT_BBOX)
     return args.func(args)
 

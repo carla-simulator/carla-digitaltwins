@@ -201,6 +201,54 @@ def load_fixture(path: Path | str) -> OsmData:
     return parse_osm(json.loads(Path(path).read_text()))
 
 
+def read_osm_xml(path: Path | str) -> dict[str, Any]:
+    """An OSM XML file -> the raw Overpass JSON shape :func:`parse_osm` reads."""
+    import xml.etree.ElementTree as ET
+
+    def tags(e) -> dict[str, str]:
+        return {t.get("k"): t.get("v") for t in e.findall("tag")}
+
+    root = ET.parse(str(path)).getroot()
+    els: list[dict[str, Any]] = []
+    for n in root.findall("node"):
+        els.append({"type": "node", "id": int(n.get("id")), "lat": float(n.get("lat")),
+                    "lon": float(n.get("lon")), "tags": tags(n)})
+    for w in root.findall("way"):
+        els.append({"type": "way", "id": int(w.get("id")), "tags": tags(w),
+                    "nodes": [int(nd.get("ref")) for nd in w.findall("nd")]})
+    for r in root.findall("relation"):
+        els.append({"type": "relation", "id": int(r.get("id")), "tags": tags(r),
+                    "members": [{"type": m.get("type"), "ref": int(m.get("ref")),
+                                 "role": m.get("role") or ""} for m in r.findall("member")]})
+    return {"elements": els}
+
+
+def replace_roads(raw: dict[str, Any], roads: dict[str, Any]) -> dict[str, Any]:
+    """``raw`` with its ``highway=*`` ways and nodes replaced by those of ``roads`` (a local
+    road network, :func:`read_osm_xml`); everything else (buildings, trees, land use) is
+    kept. The local elements get negative ids so they cannot collide with OSM's."""
+    kept = [e for e in raw.get("elements", [])
+            if not (e.get("type") in ("node", "way") and "highway" in (e.get("tags") or {}))]
+    for e in roads["elements"]:
+        e = {**e, "id": -abs(e["id"])}
+        if e["type"] == "way":
+            e["nodes"] = [-abs(n) for n in e["nodes"]]
+        elif e["type"] == "relation":
+            e["members"] = [{**m, "ref": -abs(m["ref"])} for m in e["members"]]
+        kept.append(e)
+    return {**raw, "elements": kept}
+
+
+def osm_xml_bbox(roads: dict[str, Any], margin_deg: float = 0.0002) -> tuple[float, float, float, float]:
+    """(S, W, N, E) of a local road network, ``margin_deg`` (~20 m) outside its extent. The file
+    is the whole network, so no road of it is clipped: a bbox inside the extent cut away every
+    stretch that runs near the edge (a road bending outward lost its middle and was left as
+    disconnected stubs)."""
+    lat = [e["lat"] for e in roads["elements"] if e["type"] == "node"]
+    lon = [e["lon"] for e in roads["elements"] if e["type"] == "node"]
+    return (min(lat) - margin_deg, min(lon) - margin_deg, max(lat) + margin_deg, max(lon) + margin_deg)
+
+
 # --------------------------------------------------------------------------- region helpers
 
 COUNTRY_QUERY = ('[out:json][timeout:60];is_in({lat:.6f},{lon:.6f})->.a;'
