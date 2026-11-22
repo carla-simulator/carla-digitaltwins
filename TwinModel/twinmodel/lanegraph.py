@@ -113,7 +113,16 @@ def _offset_polyline(coords: list[tuple[float, float]], d: float, mitre_limit: f
                 scale = 1.0 / max(cos_half, 1.0 / mitre_limit)
                 n = n * scale
         out.append((float(pts[i, 0] + d * n[0]), float(pts[i, 1] + d * n[1])))
-    return out
+    # on the inside of a bend tighter than |d| the offset vertices run backwards (a cusp the
+    # reference line would loop through): keep only the points that move forward along the
+    # original line
+    kept = [out[0]]
+    for i in range(1, len(out)):
+        t = seg[min(i, len(seg)) - 1]
+        p = out[i]
+        if (p[0] - kept[-1][0]) * t[0] + (p[1] - kept[-1][1]) * t[1] > 0.0 or i == len(out) - 1:
+            kept.append(p)
+    return kept
 
 
 def _heading_along(line: LineString, s: float, ds: float = 0.5) -> float:
