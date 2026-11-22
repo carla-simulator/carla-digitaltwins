@@ -224,11 +224,12 @@ def read_osm_xml(path: Path | str) -> dict[str, Any]:
 
 
 def replace_roads(raw: dict[str, Any], roads: dict[str, Any]) -> dict[str, Any]:
-    """``raw`` with its ``highway=*`` ways and nodes replaced by those of ``roads`` (a local
+    """``raw`` with its ``highway=*`` and ``area:highway=*`` elements replaced by those of ``roads`` (a local
     road network, :func:`read_osm_xml`); everything else (buildings, trees, land use) is
     kept. The local elements get negative ids so they cannot collide with OSM's."""
     kept = [e for e in raw.get("elements", [])
-            if not (e.get("type") in ("node", "way") and "highway" in (e.get("tags") or {}))]
+            if not (e.get("type") in ("node", "way", "relation")
+                    and {"highway", "area:highway"} & set(e.get("tags") or {}))]
     for e in roads["elements"]:
         e = {**e, "id": -abs(e["id"])}
         if e["type"] == "way":
