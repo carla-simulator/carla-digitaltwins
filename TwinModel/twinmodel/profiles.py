@@ -20,6 +20,7 @@ Rules
 """
 from __future__ import annotations
 
+import re
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
@@ -645,6 +646,32 @@ US_SUBURBAN = US_URBAN.with_(
     geometry=replace(US_URBAN.geometry, taper_max_m=40.0),
     streetspace=replace(US_URBAN.streetspace, ground_reach_m=20.0, sidewalk_to_face_max_m=20.0),
 )
+
+
+# --------------------------------------------------------------------------- left-hand traffic
+
+_SIDE_WORD = re.compile(r"(?<![a-z])(left|right)(?![a-z])")
+
+
+def swap_side(text: str) -> str:
+    """``left`` <-> ``right`` wherever either is a word of its own: ``sidewalk:left``,
+    ``slight_left``, ``no_right_turn``, ``left|through;right``."""
+    return _SIDE_WORD.sub(lambda m: "right" if m.group(1) == "left" else "left", text)
+
+
+def right_handed(p: StreetProfile) -> StreetProfile:
+    """The mirror image of a left-hand traffic profile, for building it by reflection
+    (``twinmodel.handedness``): right-hand traffic, on-street parking sides and protected
+    turns swapped. ``unsignalised_control="priority_right"`` is not swapped; it would mean
+    priority to the left in the real, left-hand city."""
+    if p.drives_on == "right":
+        return p
+    def parking(c: ClassDefaults) -> ClassDefaults:
+        return replace(c, parking=swap_side(c.parking))
+    lane = replace(p.lane, classes={k: parking(c) for k, c in p.lane.classes.items()},
+                   fallback=parking(p.lane.fallback))
+    junction = replace(p.junction, signal_arrow_turns=tuple(swap_side(t) for t in p.junction.signal_arrow_turns))
+    return p.with_(drives_on="right", lane=lane, junction=junction)
 
 
 # --------------------------------------------------------------------------- registry / selection

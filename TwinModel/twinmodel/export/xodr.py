@@ -640,6 +640,9 @@ def _write_road(parent, model: TwinModel, road: Road, ids: IdMap, signals: list[
     junction = ids.junction.get(road.junction_id, -1) if road.junction_id else -1
     r = _sub(parent, "road", name=road.name or road.id, length=length, id=str(ids.road[road.id]),
              junction=str(junction))
+    if model.left_hand:
+        # forward lanes are the positive ids (twinmodel.handedness); CARLA reads the rule
+        r.set("rule", "LHT")
     link = _sub(r, "link")
     for tag, rl in (("predecessor", road.predecessor), ("successor", road.successor)):
         if rl is None:
