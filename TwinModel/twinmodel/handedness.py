@@ -33,9 +33,10 @@ from .model import TwinModel
 from .profiles import swap_side
 
 # keys whose *values* name a side or a turn (``sidewalk=left``, ``turn:lanes=left|through``,
-# ``restriction=no_left_turn``, ``change:lanes=not_left|yes``, the lane graph's ``median_side``)
+# ``restriction=no_left_turn``, ``change:lanes=not_left|yes``, the lane graph's ``median_side``
+# and a protected-turn head's ``arrow_turn``)
 _SIDED_VALUE_PREFIXES = ("turn", "change", "restriction", "sidewalk", "cycleway", "parking",
-                         "side", "driving_side", "median_side")
+                         "side", "driving_side", "median_side", "arrow_turn")
 
 
 def mirror_osm_tags(tags: dict[str, Any]) -> dict[str, Any]:

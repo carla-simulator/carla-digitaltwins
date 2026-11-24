@@ -146,3 +146,26 @@ def test_copied_osm_tags_are_reflected_back():
     m = _build(parse_osm({"elements": els}), LHT)
     (road,) = [r for r in m.roads if 100 in r.osm_way_ids]
     assert road.tags.get("sidewalk") == "left"
+
+
+def test_protected_right_turn_is_a_right_arrow():
+    """The 右折矢印: the protected turn of a left-hand traffic junction is the right turn across
+    the oncoming traffic; the head says so in its tags and in the exported signal name."""
+    els = [_node(1, 0.0, -D * 0.8), _node(2, 0.0, 0.0, {"highway": "traffic_signals"}),
+           _node(3, 0.0, D * 0.8), _node(4, -D * 0.8, 0.0), _node(5, D * 0.8, 0.0)]
+    els += [_way(100, [1, 2], {"highway": "primary", "name": "Major", "lanes": "5",
+                               "lanes:forward": "3", "lanes:backward": "2",
+                               "turn:lanes:forward": "left|through|right"}),
+            _way(101, [2, 3], {"highway": "primary", "name": "Major", "lanes": "4"}),
+            _way(200, [4, 2, 5], {"highway": "secondary", "name": "Minor", "lanes": "2"})]
+    m = _build(parse_osm({"elements": els}), LHT)
+    arrows = [s for s in m.signals if s.kind == "traffic_light_arrow"]
+    assert arrows
+    for s in arrows:
+        assert s.tags.get("arrow_turn") == "right", s
+        # the right-turn pocket is the innermost forward lane, +1 under rule="LHT"
+        assert s.validities == [(1, 1)], s
+    with profiles.use(LHT):
+        root = etree.fromstring(export_xodr(m).encode())
+    names = {s.get("id"): s.get("name") for s in root.iter("signal")}
+    assert {names[s.id] for s in arrows} == {"Signal_3Light_ArrowRight01"}
