@@ -92,10 +92,15 @@ def _lane_types_at(road_el, s: float) -> dict[int, str]:
     return out
 
 
-def _plus_is_negative(road_el, orientation: str) -> bool:
-    """Whether a signal of this ``orientation`` governs the negative lanes of its road: "+"
-    faces +s traffic, which drives on the negative lanes under right-hand traffic and on the
-    positive ones under ``rule="LHT"``."""
+def _governs_negative_lanes(road_el, orientation: str) -> bool:
+    """Whether a signal of this ``orientation`` governs the negative (right of the reference
+    line) lanes of its road rather than the positive ones. "+" faces traffic travelling in +s,
+    "-" the other way; +s traffic keeps right on the negative lanes under right-hand traffic
+    and keeps left on the positive ones under ``rule="LHT"``. A road without ``rule`` is RHT.
+
+        RHT  "+" -> negative    RHT  "-" -> positive
+        LHT  "+" -> positive    LHT  "-" -> negative
+    """
     rht = road_el is None or road_el.get("rule", "RHT") != "LHT"
     return (orientation == "+") == rht
 
@@ -188,7 +193,7 @@ def check(xodr_path: str | Path) -> dict:
                     detail="a stop / give-way / priority-road sign is not a stage of anything")
             road_el = roads.get(sig["road_id"])
             ltypes = _lane_types_at(road_el, sig["s"]) if road_el is not None else {}
-            want_negative = _plus_is_negative(road_el, sig["orientation"])
+            want_negative = _governs_negative_lanes(road_el, sig["orientation"])
             for (a, b) in sig["validities"]:
                 lo, hi = (a, b) if a <= b else (b, a)
                 for lane in range(lo, hi + 1):
@@ -224,7 +229,7 @@ def check(xodr_path: str | Path) -> dict:
             continue
         road_el = roads.get(sig["road_id"])
         ltypes = _lane_types_at(road_el, sig["s"]) if road_el is not None else {}
-        want_negative = _plus_is_negative(road_el, sig["orientation"])
+        want_negative = _governs_negative_lanes(road_el, sig["orientation"])
         want_type = "sidewalk" if kind == "ped" else "driving"
         lanes_of[sid] = set()
         for (a, b) in sig["validities"]:
