@@ -23,7 +23,9 @@ Why each check exists (LibCarla, ``carla-ue58-dtupgrade/LibCarla/source/carla/``
   whose validities are all ``from == 0 && to == 0``. -> V_ZERO.
 * ``TrafficLightComponent.cpp:63`` skips lanes that are not ``LaneType::Driving``. -> V_TYPE.
 * OpenDRIVE right-hand traffic: vehicles travelling in +s use the negative (right) lanes, so a
-  signal facing them carries ``orientation="+"`` and must validate negative lanes. -> V_SIDE.
+  signal facing them carries ``orientation="+"`` and must validate negative lanes. Under a
+  road's ``rule="LHT"`` (``road/Lane.cpp``, ``Road::IsRHT``) +s traffic keeps left on the
+  positive lanes, and ``orientation="+"`` must validate those. -> V_SIDE / R_SIDE.
 * ``JunctionParser.cpp:71`` reads only ``id`` from ``<junction><controller>``; ``sequence`` is
   discarded and ``ATrafficLightGroup::NextController`` round-robins in *insertion* order. So
   the emitted order must already be the intended stage order. -> C_SEQ.
@@ -88,6 +90,19 @@ def _lane_types_at(road_el, s: float) -> dict[int, str]:
         for ln in el.findall("lane"):
             out[int(ln.get("id"))] = ln.get("type", "none")
     return out
+
+
+def _governs_negative_lanes(road_el, orientation: str) -> bool:
+    """Whether a signal of this ``orientation`` governs the negative (right of the reference
+    line) lanes of its road rather than the positive ones. "+" faces traffic travelling in +s,
+    "-" the other way; +s traffic keeps right on the negative lanes under right-hand traffic
+    and keeps left on the positive ones under ``rule="LHT"``. A road without ``rule`` is RHT.
+
+        RHT  "+" -> negative    RHT  "-" -> positive
+        LHT  "+" -> positive    LHT  "-" -> negative
+    """
+    rht = road_el is None or road_el.get("rule", "RHT") != "LHT"
+    return (orientation == "+") == rht
 
 
 def _validities(sig_el) -> list[tuple[int, int]]:
@@ -178,7 +193,7 @@ def check(xodr_path: str | Path) -> dict:
                     detail="a stop / give-way / priority-road sign is not a stage of anything")
             road_el = roads.get(sig["road_id"])
             ltypes = _lane_types_at(road_el, sig["s"]) if road_el is not None else {}
-            want_negative = sig["orientation"] == "+"
+            want_negative = _governs_negative_lanes(road_el, sig["orientation"])
             for (a, b) in sig["validities"]:
                 lo, hi = (a, b) if a <= b else (b, a)
                 for lane in range(lo, hi + 1):
@@ -195,7 +210,8 @@ def check(xodr_path: str | Path) -> dict:
                             ((lane < 0) != want_negative):
                         bad("R_SIDE", signal=sid, road=sig["road_id"], lane=lane, kind=kind,
                             orientation=sig["orientation"],
-                            detail="RHT: orientation '+' governs the negative (right) lanes")
+                            detail="orientation '+' governs the +s lanes: negative under RHT, "
+                                   "positive under rule=\"LHT\"")
             continue
         if not cids and kind != "ped":
             # a pedestrian head may be uncontrolled: it drives no ATrafficLightBase, so a
@@ -213,7 +229,7 @@ def check(xodr_path: str | Path) -> dict:
             continue
         road_el = roads.get(sig["road_id"])
         ltypes = _lane_types_at(road_el, sig["s"]) if road_el is not None else {}
-        want_negative = sig["orientation"] == "+"
+        want_negative = _governs_negative_lanes(road_el, sig["orientation"])
         want_type = "sidewalk" if kind == "ped" else "driving"
         lanes_of[sid] = set()
         for (a, b) in sig["validities"]:
@@ -244,7 +260,8 @@ def check(xodr_path: str | Path) -> dict:
                     if not on_own_side:
                         bad("V_SIDE", signal=sid, road=sig["road_id"], lane=lane,
                             orientation=sig["orientation"],
-                            detail="RHT: orientation '+' validates the negative (right) lanes")
+                            detail="orientation '+' validates the +s lanes: negative under RHT, "
+                                   "positive under rule=\"LHT\"")
 
     # ---- protected turns: a separate signal, a separate stage, separate lanes
     ctl_kinds: dict[str, set[str]] = defaultdict(set)

@@ -90,7 +90,9 @@ def _junction_arm_lanes(model: TwinModel, junction) -> dict[str, set[int]]:
                 continue
             if r.tags.get(f"dead_end_{end}"):
                 continue
-            lanes = {l.id for l in r.lanes if l.type == "driving" and (l.id < 0) == (sign < 0)
+            # the lanes arriving at this end: forward ones at the end, backward ones at the start
+            lanes = {l.id for l in r.lanes if l.type == "driving"
+                     and (l.direction == "forward") == (sign < 0)
                      and lane_present_at(l, r, end)}  # not an aux lane that tapered out earlier
             if lanes:
                 out.setdefault(r.id, set()).update(lanes)
@@ -221,7 +223,13 @@ def unreachable_lanes(model: TwinModel, cmap, road_of: dict[int, str], driving,
     }
 
 
-def _lane_last_waypoints(wps) -> list:
+def _along_s(lane_id: int, left_hand: bool) -> bool:
+    """Whether traffic in an OpenDRIVE lane runs along ``s``: the negative ids under right-hand
+    traffic, the positive ones under ``rule="LHT"``."""
+    return (lane_id > 0) if left_hand else (lane_id < 0)
+
+
+def _lane_last_waypoints(wps, left_hand: bool) -> list:
     """One waypoint per (road, lane): the last one in the lane's driving direction."""
     best: dict[tuple[int, int], Any] = {}
     for wp in wps:
@@ -229,9 +237,7 @@ def _lane_last_waypoints(wps) -> list:
         cur = best.get(key)
         if cur is None:
             best[key] = wp
-        elif wp.lane_id < 0 and wp.s > cur.s:
-            best[key] = wp
-        elif wp.lane_id > 0 and wp.s < cur.s:
+        elif (wp.s > cur.s) if _along_s(wp.lane_id, left_hand) else (wp.s < cur.s):
             best[key] = wp
     return list(best.values())
 
@@ -285,7 +291,7 @@ def validate(model: TwinModel, xodr_text: str, *, step: float = 1.0,
                                        if r.junction_id is None and r.predecessor is None),
         "dead_end_lanes": [],
     }
-    for wp in _lane_last_waypoints(driving):
+    for wp in _lane_last_waypoints(driving, model.left_hand):
         if not wp.next(2.0):
             report["topology"]["dead_end_lanes"].append(
                 {"road_id": road_of.get(wp.road_id, str(wp.road_id)), "lane_id": wp.lane_id})
@@ -498,12 +504,13 @@ def validate(model: TwinModel, xodr_text: str, *, step: float = 1.0,
     roads_by_id = {r.id: r for r in model.roads}
     terminal: list[dict[str, Any]] = []
     n_culdesac = n_edge = 0
-    for wp in (_lane_last_waypoints(driving) if inside_poly is not None else []):
+    left_hand = model.left_hand
+    for wp in (_lane_last_waypoints(driving, left_hand) if inside_poly is not None else []):
         if wp.next(2.0):
             continue
         rid = road_of.get(wp.road_id, str(wp.road_id))
         r = roads_by_id.get(rid)
-        end = "end" if wp.lane_id < 0 else "start"
+        end = "end" if _along_s(wp.lane_id, left_hand) else "start"
         if r is not None and r.tags.get(f"dead_end_{end}"):
             n_culdesac += 1
             continue
@@ -584,7 +591,7 @@ def _ramp_continuity(model: TwinModel, driving: list, road_of: dict[int, str],
     last: dict[tuple[str, int], Any] = {}
     for wp in driving:
         rid = road_of.get(wp.road_id)
-        if rid is None or wp.lane_id >= 0:
+        if rid is None or not _along_s(wp.lane_id, model.left_hand):
             continue
         cur = last.get((rid, wp.lane_id))
         if cur is None or wp.s > cur.s:
@@ -609,7 +616,8 @@ def _ramp_continuity(model: TwinModel, driving: list, road_of: dict[int, str],
             aux_ids = [ids_at_end[l.id] for l in lanes_at_end
                        if l.tags.get("aux") and l.tags.get("ramp") == r.id]
             feeder = sorted((ids_at_end[l.id] for l in lanes_at_end
-                             if l.type == "driving" and l.id < 0), reverse=True)
+                             if l.type == "driving" and l.direction == "forward"),
+                            key=abs)
             lane_ids = aux_ids or feeder[-1:]
             starts = [wp for (rid, lid), wp in last.items() if rid == main.id and lid in lane_ids]
             target = r.id

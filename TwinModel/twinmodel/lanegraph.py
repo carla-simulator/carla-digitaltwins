@@ -936,10 +936,11 @@ def _apply_median(lanes: list[Lane], gap: float) -> float:
     type, so the reference line keeps sitting where it did (carriageway centred on the OSM way).
     """
     P = profiles.get()
-    left_is_median = P.drives_on == "right"
     left = sorted((l for l in lanes if l.id > 0), key=lambda l: l.id)      # inner -> outer
     right = sorted((l for l in lanes if l.id < 0), key=lambda l: -l.id)    # inner -> outer
-    med, oth = (left, right) if left_is_median else (right, left)
+    # the lane graph is built for right-hand traffic (left-hand traffic is its reflection,
+    # twinmodel.handedness), so the median is on the left
+    med, oth = left, right
     med[:] = [l for l in med if l.type in ("driving", "shoulder")]
     core = sum(l.width for l in med + oth if l.type in ("driving", "parking", "biking", "shoulder"))
     w = min(max(0.0, gap / 2.0 - core / 2.0), P.junction.median_max_width_m)
@@ -1265,6 +1266,21 @@ def _cluster_service_nodes(uf: "_UnionFind", chains: list["_Chain"], intersectio
 
 # --------------------------------------------------------------------------- the builder
 
+def _build_left_hand(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, float, float],
+                     name: str, end_shifts: Optional[dict[tuple[int, int], float]]) -> TwinModel:
+    """``drives_on == "left"``: the right-hand build of the mirror image, reflected back
+    (``twinmodel.handedness``)."""
+    from . import handedness
+    lon0 = frame.origin_lon
+    with profiles.use(profiles.right_handed(profiles.get())):
+        model = build_lanegraph(handedness.mirror_osm(osm, lon0), frame,
+                                handedness.mirror_bbox(bbox, lon0), name=name,
+                                end_shifts=end_shifts)
+    model.bbox_wgs84 = tuple(bbox)
+    model.metadata["drives_on"] = "left"
+    return handedness.mirror_model(model)
+
+
 def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, float, float],
                     name: str = "twin",
                     end_shifts: Optional[dict[tuple[int, int], float]] = None) -> TwinModel:
@@ -1275,8 +1291,10 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
     the end of the road built from that way, at the junction cluster holding that node, is moved
     along the road by ``m`` (positive = into the junction) after the regular trim, so the stop
     line, the signal and the connecting roads follow the reviewer's correction."""
-    t0 = time.perf_counter()
     P = profiles.get()
+    if P.drives_on == "left":
+        return _build_left_hand(osm, frame, bbox, name, end_shifts)
+    t0 = time.perf_counter()
     # roads with both ends in one cluster shorter than this are internal to the junction
     junction_internal_m = 2.0 * P.junction.cluster_m
     model = TwinModel(name=name, origin_lat=frame.origin_lat, origin_lon=frame.origin_lon,
@@ -1733,7 +1751,7 @@ def build_lanegraph(osm: OsmData, frame: LocalFrame, bbox: tuple[float, float, f
                 road.tags["dual_carriageway"] = info.key
                 road.tags["median_gap_m"] = round(info.gap, 2)
                 road.tags["median_width_m"] = round(mw, 2)
-                road.tags["median_side"] = "left" if P.drives_on == "right" else "right"
+                road.tags["median_side"] = "left"
                 n_dual_roads[0] += 1
             # reference line between forward and backward carriageway lanes
             wl, wr = road.width_left(), road.width_right()

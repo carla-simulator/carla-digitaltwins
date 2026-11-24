@@ -326,6 +326,77 @@ def _usgs_3dep(frame: LocalFrame, bbox_swne, grid) -> Optional[Elevation]:
                                     f"({USGS_3DEP_CRS} -> local, bilinear)")
 
 
+# --------------------------------------------------------------------------- source 6: GSI elevation tiles (JP)
+# Geospatial Information Authority of Japan, https://maps.gsi.go.jp/development/demtile.html
+# (attribution: "Source: Geospatial Information Authority of Japan"). PNG tiles in web
+# Mercator, height = (R<<16 | G<<8 | B) * 0.01 m, two's complement over 24 bits, 0x800000 = no
+# data. dem5a is the airborne-laser DTM (5 m, bare earth: no buildings, no bridge decks), dem is
+# the 10 m DEM that covers the whole country.
+
+GSI_DEM_URL = "https://cyberjapandata.gsi.go.jp/xyz/{layer}/{z}/{x}/{y}.png"
+GSI_DEM_ZOOM = {"dem5a_png": 15, "dem_png": 14}
+GSI_DEM_MAX_TILES = 400
+GSI_DEM_THREADS = 8
+
+
+def _gsi_decode(rgb: np.ndarray) -> np.ndarray:
+    v = (rgb[..., 0].astype(np.int64) << 16) | (rgb[..., 1].astype(np.int64) << 8) | rgb[..., 2]
+    z = np.where(v >= 1 << 23, v - (1 << 24), v).astype(np.float64) * 0.01
+    z[v == 1 << 23] = np.nan
+    return z.astype(np.float32)
+
+
+def _gsi_grid(frame: LocalFrame, bbox_swne, grid, layer: str) -> Optional[np.ndarray]:
+    """One GSI layer on the build grid (north-up), NaN where it has no data (a 404 tile or the
+    no-data pixel); None when the bbox needs too many tiles or no tile exists (outside Japan)."""
+    from .osmtiles import _decode_png, fetch_tile_mosaic
+    x0, y0, width, height, transform = grid
+    got = fetch_tile_mosaic(GSI_DEM_URL.replace("{layer}", layer), GSI_DEM_ZOOM[layer], bbox_swne,
+                            lambda b: _gsi_decode(_decode_png(b)), np.nan, np.float32,
+                            missing_ok=True, max_tiles=GSI_DEM_MAX_TILES,
+                            max_workers=GSI_DEM_THREADS)
+    if got is None:
+        return None
+    mosaic, src_transform, _ = got
+    return _reproject_to_grid(mosaic, src_transform, "EPSG:3857", np.nan, transform, frame.crs,
+                              width, height)
+
+
+def _gsi_dem(frame: LocalFrame, bbox_swne, grid, layers: tuple[str, ...]) -> Optional[Elevation]:
+    """GSI layers stacked finest first, each fetched only while holes remain and filling only
+    those (the 5 m laser DTM has unsurveyed patches; the 10 m DEM covers all of Japan's land).
+    What no layer covers is the sea -- GSI writes no height there -- and is set to 0 m (Tokyo
+    Peil, mean sea level) rather than interpolated out from the shore."""
+    x0, y0, width, height, transform = grid
+    z: Optional[np.ndarray] = None
+    used: list[str] = []
+    for layer in layers:
+        zi = _gsi_grid(frame, bbox_swne, grid, layer)
+        if zi is None or np.isnan(zi).all():
+            continue
+        if z is None:
+            z = zi
+        else:
+            hole = np.isnan(z) & ~np.isnan(zi)
+            if not hole.any():
+                continue
+            z[hole] = zi[hole]
+        used.append(layer)
+        if not np.isnan(z).any():
+            break
+    if z is None:
+        log.warning("elevation: GSI %s has no data here", "+".join(layers))
+        return None
+    water = np.isnan(z)
+    if water.any():
+        log.info("elevation: GSI %s: %.0f%% of the grid has no height (sea), set to 0 m",
+                 "+".join(used), 100 * water.mean())
+        z[water] = 0.0
+    names = "+".join(f"{l} z{GSI_DEM_ZOOM[l]}" for l in used)
+    return _elevation_from_north_up(z, x0, y0, transform.a,
+                                    f"GSI {names} (GSI elevation tiles; bare earth)")
+
+
 # --------------------------------------------------------------------------- public API
 
 # name -> provider(frame, bbox_swne, grid, sample_spacing) -> Elevation | None
@@ -336,6 +407,9 @@ PROVIDERS = {
     "ign_wcs": lambda frame, bbox, grid, spacing: _ign_wcs(frame, bbox, grid),
     "copernicus_aws": lambda frame, bbox, grid, spacing: _copernicus_aws(frame, bbox, grid),
     "usgs_3dep": lambda frame, bbox, grid, spacing: _usgs_3dep(frame, bbox, grid),
+    # 5 m laser DTM, its unsurveyed patches filled from the national 10 m DEM
+    "gsi_dem5a": lambda frame, bbox, grid, spacing: _gsi_dem(frame, bbox, grid, ("dem5a_png", "dem_png")),
+    "gsi_dem10b": lambda frame, bbox, grid, spacing: _gsi_dem(frame, bbox, grid, ("dem_png",)),
 }
 
 def _cache_path(cache_dir: Path, bbox_swne, res: float) -> Path:

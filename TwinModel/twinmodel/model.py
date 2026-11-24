@@ -363,6 +363,12 @@ class TwinModel:
     _datum: Any = field(default=None, init=False, repr=False, compare=False)
     _datum_key: Any = field(default=None, init=False, repr=False, compare=False)
 
+    @property
+    def left_hand(self) -> bool:
+        """Left-hand traffic: forward lanes are the positive OpenDRIVE ids (``rule="LHT"``),
+        set by ``lanegraph.build_lanegraph`` for a ``drives_on="left"`` profile."""
+        return self.metadata.get("drives_on") == "left"
+
     # -- lookups
     def road(self, road_id: str) -> Road:
         for r in self.roads:

@@ -20,6 +20,7 @@ Rules
 """
 from __future__ import annotations
 
+import re
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
@@ -647,11 +648,155 @@ US_SUBURBAN = US_URBAN.with_(
 )
 
 
+# --------------------------------------------------------------------------- Japan (left-hand traffic)
+# Road Structure Ordinance (Cabinet Order No. 320 of 1970) and its commentary:
+#   lanes  (Art. 5): class 4 (urban) 3.25 m on class-1 roads, 3.0 m otherwise; class 1/2
+#                    (expressways) 3.5 m, 3.25 m on urban expressways
+#   median (Art. 6): 1.0 m minimum on a class-4 road, wider where the right-turn pocket is cut
+#                    out of it
+#   shoulders (Art. 8): expressways 2.5 m outside / 1.25 m median side (class 1), 1.25 / 0.75 m
+#                    (class 2, urban expressways)
+#   sidewalks (Art. 11): 3.5 m where pedestrian traffic is heavy, 2.0 m otherwise
+#   planting strips (Art. 11-4): 1.5 m standard
+# Markings (Order on Road Signs, Division Lines and Road Markings): all lines white except the
+# yellow no-passing centre line (a rule per road, which the profile cannot know, so white),
+# 15 cm wide, broken lane and centre lines 5 m dash / 5 m gap on ordinary roads, zebra
+# crossings 4 m wide.
+# Unsignalised junctions: a stop sign on the minor road, the major road has priority.
+# Japan drives on the left: the lane graph builds the mirror image (twinmodel.handedness).
+
+_JP_URBAN_CLASSES = {
+    "motorway":       ClassDefaults(3.25, 4, None, center_marking=False, shoulder=1.25, shoulder_inner=0.75),
+    "motorway_link":  ClassDefaults(3.25, 1, None, center_marking=False, shoulder=1.25, shoulder_inner=0.75),
+    # in Japanese OSM, trunk is an ordinary national highway, with sidewalks
+    "trunk":          ClassDefaults(3.25, 4, 3.5),
+    "trunk_link":     ClassDefaults(3.25, 1, 2.0),
+    "primary":        ClassDefaults(3.25, 4, 3.5),
+    "primary_link":   ClassDefaults(3.25, 1, 2.0),
+    "secondary":      ClassDefaults(3.0,  2, 3.5),
+    "secondary_link": ClassDefaults(3.0,  1, 2.0),
+    "tertiary":       ClassDefaults(3.0,  2, 2.0),
+    "tertiary_link":  ClassDefaults(3.0,  1, 2.0),
+    "unclassified":   ClassDefaults(3.0,  2, 2.0),
+    # back streets: no sidewalk and no centre line (a centre line needs 5.5 m of carriageway)
+    "residential":    ClassDefaults(3.0,  2, None, center_marking=False),
+    "living_street":  ClassDefaults(3.0,  2, None, center_marking=False),
+    "pedestrian":     ClassDefaults(3.0,  1, 2.0, center_marking=False),
+    "service":        ClassDefaults(3.0,  2, None, center_marking=False),
+}
+
+JP_URBAN = StreetProfile(
+    name="jp_urban",
+    signal_country="JP",
+    drives_on="left",
+    description="Japanese city centre (Road Structure Ordinance class 4): left-hand traffic, "
+                "3.0-3.25 m lanes, 3.5 m sidewalks on arterials, back streets without sidewalks, "
+                "white markings, stop signs on the minor road.",
+    countries=frozenset(),  # chosen for JP by density, see choose_for_country
+    lane=LaneRules(
+        classes=_JP_URBAN_CLASSES, fallback=ClassDefaults(3.0, 2, 2.0),
+        min_width=3.0, max_width=3.75, canyon_max_width=3.5, bike_width=1.5,
+        parking_width={"parallel": 2.0, "diagonal": 4.5, "perpendicular": 5.0},
+        parking_min=2.0, parking_max=2.5, drivable_classes=_DRIVABLE, service_min_length=30.0),
+    sidewalk=SidewalkRules(min_width=1.5, max_width=6.0, canyon_fraction=0.2, z=0.15,
+                           curb_height=0.15, verge_z=0.15, search_m=12.0, parallel_deg=15.0, sample_m=5.0),
+    marking=MarkingRules(width=0.15, center_color="white", lane_color="white", edge_color="white",
+                         broken_dash=5.0, broken_gap=5.0, z=0.002),
+    crossing=CrossingRules(width=4.0, z=0.003, keep_m=2.5, near_cut_m=5.0),
+    # convenience-store and supermarket lots: 6.0 m two-way / 3.5 m one-way aisles (Parking Lot
+    # Design and Construction Guidelines), 10 km/h
+    parking_aisle=ParkingAisleRules(include=True, two_way_width=6.0, one_way_width=3.5,
+                                    min_length=8.0, speed_limit=10 / 3.6,
+                                    include_driveways=True, driveway_width=3.0,
+                                    lot_enclosure_fraction=0.66, inferred_lot_max_area=8000.0),
+    junction=JunctionRules(cluster_m=30.0, trim_margin_m=2.0, through_deg=30.0, uturn_deg=150.0,
+                           through_align_m=1.0, signal_search_m=30.0, signal_lateral_m=0.5,
+                           plaza_radius_m=40.0, chamfer_scan_m=60.0, dead_end_stub_m=10.0,
+                           stub_m=3.0, short_road_m=5.0, band_overlap_m2=0.5,
+                           cover="bounded", plaza_max_area_factor=3.0, corner_opening="recess",
+                           unsignalised_control="minor_stop",
+                           # the protected turn crosses the oncoming traffic: the right-turn arrow
+                           signal_arrow_turns=("right",),
+                           signal_green_s=20.0, signal_amber_s=3.0, signal_allred_s=2.0,
+                           # divided arterials: OSM draws them as two one-way ways with one name
+                           dual_carriageway_max_gap_m=25.0, dual_carriageway_min_gap_m=3.0,
+                           dual_carriageway_parallel_deg=25.0, dual_carriageway_min_fraction=0.5,
+                           dual_carriageway_min_paired_m=50.0, dual_carriageway_cluster_m=25.0,
+                           median_max_width_m=3.0, sliver_m=6.0, service_cluster_m=12.0,
+                           gore_model="junction"),
+    geometry=GeometryRules(min_road_length=1.0, connect_sample_m=1.0, simplify_m=0.03,
+                           width_step_m=1.0, taper_max_m=20.0, taper_pieces_max=3, jog_max_m=5.0,
+                           jog_min_turn_deg=45.0, jog_transition_m=10.0, street_width_outlier=0.25),
+    streetspace=StreetSpaceRules(canyon_min_fraction=0.6, max_face_dist_m=40.0, face_sample_step_m=4.0,
+                                 building_pad_m=0.3, face_tol_m=1.5, blocker_min_dist_m=1.0,
+                                 ground_reach_m=12.0, sidewalk_to_face_max_m=12.0),
+    elevation=ElevationRules(resample_m=2.0, smooth_window_m=10.0, datum_max_dist_m=25.0,
+                             junction_blend_m=20.0, connecting_blend_m=15.0, mesh_grid_m=5.0,
+                             bridge_abutment_m=12.0),
+    # GSI 5 m laser DTM, then the national 10 m DEM; both bare earth, unlike Copernicus
+    sources=DataSources(ortho=("osm_tiles",), dem=("gsi_dem5a", "gsi_dem10b", "opentopo", "copernicus_aws")),
+    building=BuildingRules(level_height_m=3.2, default_levels=5),
+)
+
+# Suburbs and planned new towns (Kashiwa-no-ha): fewer lanes, sidewalks behind 1.5 m planting
+# strips on the collector roads, sidewalks on residential streets too, wider medians.
+_JP_SUBURBAN_CLASSES = {
+    **_JP_URBAN_CLASSES,
+    "motorway":       ClassDefaults(3.5, 4, None, center_marking=False, shoulder=2.5, shoulder_inner=1.25),
+    "motorway_link":  ClassDefaults(3.5, 1, None, center_marking=False, shoulder=2.5, shoulder_inner=1.0),
+    "trunk":          ClassDefaults(3.25, 4, 3.5, verge=1.5),
+    "primary":        ClassDefaults(3.25, 2, 3.5, verge=1.5),
+    "secondary":      ClassDefaults(3.0,  2, 3.5, verge=1.5),
+    "residential":    ClassDefaults(3.0,  2, 2.0, center_marking=False),
+}
+
+JP_SUBURBAN = JP_URBAN.with_(
+    name="jp_suburban",
+    description="Japanese suburb / planned new town: left-hand traffic, 3.0-3.25 m lanes, "
+                "sidewalks behind 1.5 m planting strips on collector roads, sidewalks on "
+                "residential streets, stop signs on the minor road.",
+    lane=replace(JP_URBAN.lane, classes=_JP_SUBURBAN_CLASSES),
+    junction=replace(JP_URBAN.junction, cluster_m=40.0, plaza_radius_m=50.0, signal_search_m=35.0,
+                     dual_carriageway_max_gap_m=30.0, dual_carriageway_cluster_m=28.0,
+                     median_max_width_m=4.0),
+    streetspace=replace(JP_URBAN.streetspace, ground_reach_m=15.0, sidewalk_to_face_max_m=15.0),
+    building=BuildingRules(level_height_m=3.0, default_levels=3),
+)
+
+
+_SIDE_WORD = re.compile(r"(?<![a-z])(left|right)(?![a-z])")
+
+
+def swap_side(text: str) -> str:
+    """``left`` <-> ``right`` wherever either is a word of its own: ``sidewalk:left``,
+    ``slight_left``, ``no_right_turn``, ``left|through;right``."""
+    return _SIDE_WORD.sub(lambda m: "right" if m.group(1) == "left" else "left", text)
+
+
+def right_handed(p: StreetProfile) -> StreetProfile:
+    """The mirror image of a left-hand traffic profile, for building it by reflection
+    (``twinmodel.handedness``): right-hand traffic, on-street parking sides and protected
+    turns swapped. ``unsignalised_control="priority_right"`` is not swapped; it would mean
+    priority to the left in the real, left-hand city."""
+    if p.drives_on == "right":
+        return p
+    def parking(c: ClassDefaults) -> ClassDefaults:
+        return replace(c, parking=swap_side(c.parking))
+    lane = replace(p.lane, classes={k: parking(c) for k, c in p.lane.classes.items()},
+                   fallback=parking(p.lane.fallback))
+    junction = replace(p.junction, signal_arrow_turns=tuple(swap_side(t) for t in p.junction.signal_arrow_turns))
+    return p.with_(drives_on="right", lane=lane, junction=junction)
+
+
 # --------------------------------------------------------------------------- registry / selection
 
-PROFILES: dict[str, StreetProfile] = {p.name: p for p in (EU_DENSE, US_URBAN, US_SUBURBAN)}
+PROFILES: dict[str, StreetProfile] = {p.name: p for p in (EU_DENSE, US_URBAN, US_SUBURBAN,
+                                                            JP_URBAN, JP_SUBURBAN)}
 
-US_DENSITY_THRESHOLD = 0.30   # building footprint area / land area above this -> us_urban
+US_DENSITY_THRESHOLD = 0.30   # building footprint area / land area above this -> the urban profile
+# countries whose profile is chosen by building density: (urban, suburban)
+_BY_DENSITY = {"US": (US_URBAN, US_SUBURBAN), "CA": (US_URBAN, US_SUBURBAN),
+               "JP": (JP_URBAN, JP_SUBURBAN)}
 
 
 def by_name(name: str) -> StreetProfile:
@@ -662,15 +807,16 @@ def by_name(name: str) -> StreetProfile:
 
 
 def choose_for_country(iso2: Optional[str], building_coverage: Optional[float] = None) -> StreetProfile:
-    """Default profile for an ISO 3166-1 alpha-2 country. For the US the building coverage of
-    the area (footprint area / bbox area) picks urban vs suburban; unknown -> EU_DENSE."""
+    """Default profile for an ISO 3166-1 alpha-2 country. For the US and Japan the building
+    coverage of the area (footprint area / bbox area) picks urban vs suburban; unknown -> EU_DENSE."""
     if iso2 is None:
         return EU_DENSE
     iso2 = iso2.upper()
-    if iso2 in ("US", "CA"):
+    if iso2 in _BY_DENSITY:
+        urban, suburban = _BY_DENSITY[iso2]
         if building_coverage is not None and building_coverage >= US_DENSITY_THRESHOLD:
-            return US_URBAN
-        return US_SUBURBAN
+            return urban
+        return suburban
     for p in PROFILES.values():
         if iso2 in p.countries:
             return p
