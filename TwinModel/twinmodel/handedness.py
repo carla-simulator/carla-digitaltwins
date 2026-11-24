@@ -20,6 +20,7 @@ turn.
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import replace
 from typing import Any, Optional
 
@@ -77,10 +78,23 @@ def _geom(g: Optional[BaseGeometry]) -> Optional[BaseGeometry]:
     return None if g is None else scale(g, xfact=-1.0, yfact=1.0, origin=(0.0, 0.0))
 
 
+# lane-graph tags holding a ``[left, right]`` pair
+_LEFT_RIGHT_PAIRS = ("canyon_fraction",)
+
+# ``lane_signals.split_lane_signals`` names a lane's own head ``<base>_lane_m<n>`` / ``_p<n>``
+# after the sign of the lane it governs
+_LANE_SUFFIX = re.compile(r"_lane_([mp])(\d+)$")
+
+
+def _lane_suffix_swapped(name: str) -> str:
+    return _LANE_SUFFIX.sub(lambda m: f"_lane_{'p' if m.group(1) == 'm' else 'm'}{m.group(2)}", name)
+
+
 def _tags(tags: dict[str, Any]) -> dict[str, Any]:
     """Tags of a model element reflected back: the OSM tags it copied (``mirror_osm_tags``),
-    lane ids (``from_lane`` / ``to_lane``), turn lists, and geometry -- shapely objects,
-    ``*_wkt`` strings and ``[x, y]`` points (``centre``, ``node_xy``)."""
+    lane ids (``from_lane`` / ``to_lane`` / ``controlled_lane``), ``[left, right]`` pairs, turn
+    lists, and geometry -- shapely objects, ``*_wkt`` strings and ``[x, y]`` points
+    (``centre``, ``node_xy``)."""
     out = {}
     for k, v in mirror_osm_tags(tags).items():
         if isinstance(v, BaseGeometry):
@@ -89,8 +103,10 @@ def _tags(tags: dict[str, Any]) -> dict[str, Any]:
             v = _geom(_wkt.loads(v)).wkt
         elif k in ("centre", "node_xy") and isinstance(v, (list, tuple)) and len(v) >= 2:
             v = type(v)([-v[0], *v[1:]])
-        elif k in ("from_lane", "to_lane") and isinstance(v, int):
+        elif k in ("from_lane", "to_lane", "controlled_lane") and isinstance(v, int):
             v = -v
+        elif k in _LEFT_RIGHT_PAIRS and isinstance(v, (list, tuple)) and len(v) == 2:
+            v = type(v)(reversed(v))
         elif k == "turn" and isinstance(v, (list, tuple)):
             v = type(v)(swap_side(t) for t in v)
         out[k] = v
@@ -132,6 +148,17 @@ def mirror_model(model: TwinModel) -> TwinModel:
         s.h_offset = -s.h_offset
         s.validities = [(-b, -a) for a, b in s.validities]
         s.tags = _tags(s.tags)
+    # per-lane heads and their stages are named after the lane id's sign, which just flipped
+    renamed = {n: _lane_suffix_swapped(n) for n in [s.id for s in model.signals]
+               + [c.id for c in model.controllers] if _LANE_SUFFIX.search(n)}
+    if renamed:
+        for s in model.signals:
+            s.id = renamed.get(s.id, s.id)
+            s.controller_id = renamed.get(s.controller_id, s.controller_id)
+            s.tags = {k: renamed.get(v, v) if isinstance(v, str) else v for k, v in s.tags.items()}
+        for c in model.controllers:
+            c.id = renamed.get(c.id, c.id)
+            c.signal_ids = [renamed.get(i, i) for i in c.signal_ids]
     for su in model.surfaces:
         su.geometry = _geom(su.geometry)
         su.tags = _tags(su.tags)

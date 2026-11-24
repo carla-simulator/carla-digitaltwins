@@ -151,14 +151,7 @@ def test_copied_osm_tags_are_reflected_back():
 def test_protected_right_turn_is_a_right_arrow():
     """The 右折矢印: the protected turn of a left-hand traffic junction is the right turn across
     the oncoming traffic; the head says so in its tags and in the exported signal name."""
-    els = [_node(1, 0.0, -D * 0.8), _node(2, 0.0, 0.0, {"highway": "traffic_signals"}),
-           _node(3, 0.0, D * 0.8), _node(4, -D * 0.8, 0.0), _node(5, D * 0.8, 0.0)]
-    els += [_way(100, [1, 2], {"highway": "primary", "name": "Major", "lanes": "5",
-                               "lanes:forward": "3", "lanes:backward": "2",
-                               "turn:lanes:forward": "left|through|right"}),
-            _way(101, [2, 3], {"highway": "primary", "name": "Major", "lanes": "4"}),
-            _way(200, [4, 2, 5], {"highway": "secondary", "name": "Minor", "lanes": "2"})]
-    m = _build(parse_osm({"elements": els}), LHT)
+    m = _build(_right_turn_pocket(), LHT)
     arrows = [s for s in m.signals if s.kind == "traffic_light_arrow"]
     assert arrows
     for s in arrows:
@@ -169,3 +162,58 @@ def test_protected_right_turn_is_a_right_arrow():
         root = etree.fromstring(export_xodr(m).encode())
     names = {s.get("id"): s.get("name") for s in root.iter("signal")}
     assert {names[s.id] for s in arrows} == {"Signal_3Light_ArrowRight01"}
+
+
+def _right_turn_pocket():
+    els = [_node(1, 0.0, -D * 0.8), _node(2, 0.0, 0.0, {"highway": "traffic_signals"}),
+           _node(3, 0.0, D * 0.8), _node(4, -D * 0.8, 0.0), _node(5, D * 0.8, 0.0)]
+    els += [_way(100, [1, 2], {"highway": "primary", "name": "Major", "lanes": "5",
+                               "lanes:forward": "3", "lanes:backward": "2",
+                               "turn:lanes:forward": "left|through|right"}),
+            _way(101, [2, 3], {"highway": "primary", "name": "Major", "lanes": "4"}),
+            _way(200, [4, 2, 5], {"highway": "secondary", "name": "Minor", "lanes": "2"})]
+    return parse_osm({"elements": els})
+
+
+def test_per_lane_heads_are_named_after_their_real_lane():
+    """``split_lane_signals`` runs inside the mirrored build: its ``_lane_m<n>`` / ``_p<n>`` ids
+    and ``controlled_lane`` tags follow the lanes back into the real frame, and every stage
+    still names its heads."""
+    m = _build(_right_turn_pocket(), LHT)
+    split = [s for s in m.signals if "controlled_lane" in s.tags]
+    assert any("_lane_" in s.id for s in split)
+    for s in split:
+        (lane, lane2), = s.validities
+        assert s.tags["controlled_lane"] == lane == lane2, s
+        if "_lane_" in s.id:
+            assert s.id.endswith(f"_lane_{'m' if lane < 0 else 'p'}{abs(lane)}"), s
+    ids = {s.id for s in m.signals}
+    ctl = {c.id for c in m.controllers}
+    assert all(i in ids for c in m.controllers for i in c.signal_ids)
+    assert all(s.controller_id in ctl for s in m.signals if s.controller_id)
+
+
+def test_left_right_pairs_swap():
+    assert handedness._tags({"canyon_fraction": [0.1, 0.9]})["canyon_fraction"] == [0.9, 0.1]
+
+
+def test_traffic_light_audit_reads_the_lht_rule(tmp_path):
+    """``tools/xodr_tl_check.py`` takes "+" signals to govern the positive lanes of an LHT road,
+    so a correct left-hand traffic build has no side violations."""
+    import importlib.util
+    from pathlib import Path
+    path = Path(__file__).resolve().parents[1] / "tools" / "xodr_tl_check.py"
+    spec = importlib.util.spec_from_file_location("xodr_tl_check", path)
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    m = _build(_right_turn_pocket(), LHT)
+    xodr = tmp_path / "lht.xodr"
+    with profiles.use(LHT):
+        export_xodr(m, xodr)
+    report = tool.check(xodr)
+    codes = {v["code"] for v in report["violations"]}
+    assert not codes & {"V_SIDE", "R_SIDE"}, report["violations"]
+    # the same file read as right-hand traffic is all wrong-side
+    xodr.write_text(xodr.read_text().replace(' rule="LHT"', ""))
+    codes = {v["code"] for v in tool.check(xodr)["violations"]}
+    assert "V_SIDE" in codes
