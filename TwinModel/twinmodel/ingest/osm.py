@@ -226,16 +226,30 @@ def read_osm_xml(path: Path | str) -> dict[str, Any]:
 def replace_roads(raw: dict[str, Any], roads: dict[str, Any]) -> dict[str, Any]:
     """``raw`` with its ``highway=*`` and ``area:highway=*`` elements replaced by those of ``roads`` (a local
     road network, :func:`read_osm_xml`); everything else (buildings, trees, land use) is
-    kept. The local elements get negative ids so they cannot collide with OSM's."""
+    kept. The local elements are renumbered -1, -2, ... per element type so they cannot collide
+    with OSM's (positive) ids, nor with each other: a file holding both ``5`` and ``-5`` (JOSM
+    gives new elements negative ids) keeps them apart."""
     kept = [e for e in raw.get("elements", [])
             if not (e.get("type") in ("node", "way", "relation")
                     and {"highway", "area:highway"} & set(e.get("tags") or {}))]
+    ids: dict[tuple[str, int], int] = {}
+    counters = {"node": 0, "way": 0, "relation": 0}
+
+    def new_id(kind: str, old: int) -> int:
+        key = (kind, old)
+        if key not in ids:
+            counters[kind] = counters.get(kind, 0) + 1
+            ids[key] = -counters[kind]
+        return ids[key]
+
+    for e in roads["elements"]:   # elements first, so their ids follow file order
+        new_id(e["type"], e["id"])
     for e in roads["elements"]:
-        e = {**e, "id": -abs(e["id"])}
+        e = {**e, "id": new_id(e["type"], e["id"])}
         if e["type"] == "way":
-            e["nodes"] = [-abs(n) for n in e["nodes"]]
+            e["nodes"] = [new_id("node", n) for n in e["nodes"]]
         elif e["type"] == "relation":
-            e["members"] = [{**m, "ref": -abs(m["ref"])} for m in e["members"]]
+            e["members"] = [{**m, "ref": new_id(m["type"], m["ref"])} for m in e["members"]]
         kept.append(e)
     return {**raw, "elements": kept}
 
