@@ -45,6 +45,7 @@ Useful options:
 | `--no-imagery`, `--no-dem` | skip orthophoto and elevation acquisition |
 | `--no-refine` | skip the imagery-driven refinement pass |
 | `--fixture <file>` | use a cached Overpass JSON instead of fetching |
+| `--roads-osm <file>` | take the road network (`highway=*` ways and nodes) from a local OSM XML file, e.g. a Lanelet2 map converted by `ll2osm`; buildings and the rest still come from OSM, and the bbox defaults to the file's extent. A file without `highway=*` ways (a raw Lanelet2 map) is refused |
 | `--profile <name>` | region profile: `eu_dense`, `us_urban`, `us_suburban`, `auto` |
 
 The stage ends by parsing the result with `carla.Map` and writing `report.json`; a non-zero exit means the OpenDRIVE did not validate.

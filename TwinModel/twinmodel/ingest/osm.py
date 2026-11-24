@@ -201,6 +201,94 @@ def load_fixture(path: Path | str) -> OsmData:
     return parse_osm(json.loads(Path(path).read_text()))
 
 
+def read_osm_xml(path: Path | str) -> dict[str, Any]:
+    """An OSM XML file -> the raw Overpass JSON shape :func:`parse_osm` reads."""
+    import xml.etree.ElementTree as ET
+
+    def tags(e) -> dict[str, str]:
+        return {t.get("k"): t.get("v") for t in e.findall("tag")}
+
+    def live(e) -> bool:
+        # JOSM keeps deleted elements in a saved file as action="delete"; an OSM history or
+        # change file marks them visible="false"
+        return e.get("action") != "delete" and e.get("visible") != "false"
+
+    root = ET.parse(str(path)).getroot()
+    els: list[dict[str, Any]] = []
+    for n in filter(live, root.findall("node")):
+        els.append({"type": "node", "id": int(n.get("id")), "lat": float(n.get("lat")),
+                    "lon": float(n.get("lon")), "tags": tags(n)})
+    for w in filter(live, root.findall("way")):
+        els.append({"type": "way", "id": int(w.get("id")), "tags": tags(w),
+                    "nodes": [int(nd.get("ref")) for nd in w.findall("nd")]})
+    for r in filter(live, root.findall("relation")):
+        els.append({"type": "relation", "id": int(r.get("id")), "tags": tags(r),
+                    "members": [{"type": m.get("type"), "ref": int(m.get("ref")),
+                                 "role": m.get("role") or ""} for m in r.findall("member")]})
+    return {"elements": els}
+
+
+def replace_roads(raw: dict[str, Any], roads: dict[str, Any]) -> dict[str, Any]:
+    """``raw`` with its ``highway=*`` and ``area:highway=*`` elements replaced by those of ``roads`` (a local
+    road network, :func:`read_osm_xml`); everything else (buildings, trees, land use) is
+    kept. The local elements are renumbered -1, -2, ... per element type so they cannot collide
+    with OSM's (positive) ids, nor with each other: a file holding both ``5`` and ``-5`` (JOSM
+    gives new elements negative ids) keeps them apart.
+
+    A ``highway``-tagged OSM node that a kept way or relation still references (a kerb line
+    through a crossing node, say) stays, without its road tags: dropping it would cut a vertex
+    out of that way, and keeping its tags would put e.g. a signal on the replaced roads."""
+    road_keys = {"highway", "area:highway"}
+
+    def is_road(e) -> bool:
+        return e.get("type") in ("node", "way", "relation") and bool(road_keys & set(e.get("tags") or {}))
+
+    kept = [e for e in raw.get("elements", []) if not is_road(e)]
+    used = {n for e in kept if e.get("type") == "way" for n in e.get("nodes", [])}
+    used |= {m["ref"] for e in kept if e.get("type") == "relation"
+             for m in e.get("members", []) if m.get("type") == "node"}
+    kept += [{**e, "tags": {k: v for k, v in e["tags"].items() if k not in road_keys}}
+             for e in raw.get("elements", [])
+             if e.get("type") == "node" and is_road(e) and e["id"] in used]
+    ids: dict[tuple[str, int], int] = {}
+    counters = {"node": 0, "way": 0, "relation": 0}
+
+    def new_id(kind: str, old: int) -> int:
+        key = (kind, old)
+        if key not in ids:
+            counters[kind] = counters.get(kind, 0) + 1
+            ids[key] = -counters[kind]
+        return ids[key]
+
+    for e in roads["elements"]:   # elements first, so their ids follow file order
+        new_id(e["type"], e["id"])
+    for e in roads["elements"]:
+        e = {**e, "id": new_id(e["type"], e["id"])}
+        if e["type"] == "way":
+            e["nodes"] = [new_id("node", n) for n in e["nodes"]]
+        elif e["type"] == "relation":
+            e["members"] = [{**m, "ref": new_id(m["type"], m["ref"])} for m in e["members"]]
+        kept.append(e)
+    return {**raw, "elements": kept}
+
+
+def has_highways(roads: dict[str, Any]) -> bool:
+    """Whether a local road file holds any ``highway=*`` way. A Lanelet2 map as Autoware writes
+    it does not (its ways are ``type=line_thin`` lane borders): it must be converted to OSM
+    highways first, or ``replace_roads`` would remove OSM's roads and add none."""
+    return any(e["type"] == "way" and "highway" in (e.get("tags") or {}) for e in roads["elements"])
+
+
+def osm_xml_bbox(roads: dict[str, Any], margin_deg: float = 0.0002) -> tuple[float, float, float, float]:
+    """(S, W, N, E) of a local road network, ``margin_deg`` (~20 m) outside its extent. The file
+    is the whole network, so no road of it is clipped: a bbox inside the extent cut away every
+    stretch that runs near the edge (a road bending outward lost its middle and was left as
+    disconnected stubs)."""
+    lat = [e["lat"] for e in roads["elements"] if e["type"] == "node"]
+    lon = [e["lon"] for e in roads["elements"] if e["type"] == "node"]
+    return (min(lat) - margin_deg, min(lon) - margin_deg, max(lat) + margin_deg, max(lon) + margin_deg)
+
+
 # --------------------------------------------------------------------------- region helpers
 
 COUNTRY_QUERY = ('[out:json][timeout:60];is_in({lat:.6f},{lon:.6f})->.a;'
