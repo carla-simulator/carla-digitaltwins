@@ -347,95 +347,52 @@ def _gsi_decode(rgb: np.ndarray) -> np.ndarray:
 
 
 def _gsi_grid(frame: LocalFrame, bbox_swne, grid, layer: str) -> Optional[np.ndarray]:
-    """One GSI layer on the build grid (north-up), NaN where the layer has no data; None when
-    the bbox needs more tiles than the cap or no tile of it exists (outside Japan)."""
-    import requests
-    from requests.adapters import HTTPAdapter
-    from rasterio.transform import from_origin
-    from .osmtiles import TILE_PX, _decode_png, tile_bounds_3857, tile_range
+    """One GSI layer on the build grid (north-up), NaN where it has no data (a 404 tile or the
+    no-data pixel); None when the bbox needs too many tiles or no tile exists (outside Japan)."""
+    from .osmtiles import _decode_png, fetch_tile_mosaic
     x0, y0, width, height, transform = grid
-    zoom = GSI_DEM_ZOOM[layer]
-    tx0, ty0, tx1, ty1 = tile_range(bbox_swne, zoom)
-    nx, ny = tx1 - tx0 + 1, ty1 - ty0 + 1
-    if nx * ny > GSI_DEM_MAX_TILES:
-        log.warning("elevation: GSI %s needs %d tiles (cap %d)", layer, nx * ny, GSI_DEM_MAX_TILES)
+    got = fetch_tile_mosaic(GSI_DEM_URL.replace("{layer}", layer), GSI_DEM_ZOOM[layer], bbox_swne,
+                            lambda b: _gsi_decode(_decode_png(b)), np.nan, np.float32,
+                            missing_ok=True, max_tiles=GSI_DEM_MAX_TILES,
+                            max_workers=GSI_DEM_THREADS)
+    if got is None:
         return None
-    session = requests.Session()
-    session.mount("https://", HTTPAdapter(pool_maxsize=GSI_DEM_THREADS))
-
-    def work(xy):
-        tx, ty = xy
-        r = session.get(GSI_DEM_URL.format(layer=layer, z=zoom, x=tx, y=ty), timeout=30)
-        if r.status_code == 404:   # outside the survey (or open sea): stays NaN
-            return tx, ty, None
-        r.raise_for_status()
-        return tx, ty, _gsi_decode(_decode_png(r.content))
-
-    mosaic = np.full((ny * TILE_PX, nx * TILE_PX), np.nan, dtype=np.float32)
-    got = 0
-    jobs = [(tx, ty) for ty in range(ty0, ty1 + 1) for tx in range(tx0, tx1 + 1)]
-    with ThreadPoolExecutor(GSI_DEM_THREADS) as pool:
-        for tx, ty, z in pool.map(work, jobs):
-            if z is not None:
-                r, c = (ty - ty0) * TILE_PX, (tx - tx0) * TILE_PX
-                mosaic[r:r + TILE_PX, c:c + TILE_PX] = z
-                got += 1
-    if not got:
-        log.info("elevation: GSI %s has no tile here", layer)
-        return None
-    xmin, _, xmax, ymax = tile_bounds_3857(tx0, ty0, zoom)
-    res = (xmax - xmin) / TILE_PX
-    return _reproject_to_grid(mosaic, from_origin(xmin, ymax, res, res), "EPSG:3857", np.nan,
-                              transform, frame.crs, width, height)
+    mosaic, src_transform, _ = got
+    return _reproject_to_grid(mosaic, src_transform, "EPSG:3857", np.nan, transform, frame.crs,
+                              width, height)
 
 
-def _gsi_merge(layers: list[tuple[str, Optional[np.ndarray]]]) -> tuple[Optional[np.ndarray], dict]:
-    """Stack GSI layers, finest first: each fills only the holes the ones before it left (the
-    5 m laser DTM has unsurveyed patches; the 10 m DEM covers all of Japan's land). What no
-    layer covers is water -- GSI writes no height over the sea -- and is set to 0 m (Tokyo Peil,
-    mean sea level), not interpolated from the shore. None when no layer has any data."""
+def _gsi_dem(frame: LocalFrame, bbox_swne, grid, layers: tuple[str, ...]) -> Optional[Elevation]:
+    """GSI layers stacked finest first, each fetched only while holes remain and filling only
+    those (the 5 m laser DTM has unsurveyed patches; the 10 m DEM covers all of Japan's land).
+    What no layer covers is the sea -- GSI writes no height there -- and is set to 0 m (Tokyo
+    Peil, mean sea level) rather than interpolated out from the shore."""
+    x0, y0, width, height, transform = grid
     z: Optional[np.ndarray] = None
     used: list[str] = []
-    for name, zi in layers:
+    for layer in layers:
+        zi = _gsi_grid(frame, bbox_swne, grid, layer)
         if zi is None or np.isnan(zi).all():
             continue
         if z is None:
-            z = zi.copy()
+            z = zi
         else:
             hole = np.isnan(z) & ~np.isnan(zi)
             if not hole.any():
                 continue
             z[hole] = zi[hole]
-        used.append(name)
+        used.append(layer)
         if not np.isnan(z).any():
             break
     if z is None:
-        return None, {"layers": []}
-    water = np.isnan(z)
-    z[water] = 0.0
-    return z, {"layers": used, "water_fraction": float(water.mean())}
-
-
-def _gsi_dem(frame: LocalFrame, bbox_swne, grid, layers: tuple[str, ...]) -> Optional[Elevation]:
-    x0, y0, width, height, transform = grid
-    # fetch lazily: the coarser layer only when the finer one left holes
-    def fetched():
-        holes = None
-        for layer in layers:
-            zi = _gsi_grid(frame, bbox_swne, grid, layer)
-            yield layer, zi
-            if zi is not None:
-                holes = np.isnan(zi) if holes is None else holes & np.isnan(zi)
-                if not holes.any():
-                    return
-    z, info = _gsi_merge(list(fetched()))
-    if z is None:
         log.warning("elevation: GSI %s has no data here", "+".join(layers))
         return None
-    if info["water_fraction"] > 0:
+    water = np.isnan(z)
+    if water.any():
         log.info("elevation: GSI %s: %.0f%% of the grid has no height (sea), set to 0 m",
-                 "+".join(info["layers"]), 100 * info["water_fraction"])
-    names = "+".join(f"{l} z{GSI_DEM_ZOOM[l]}" for l in info["layers"])
+                 "+".join(used), 100 * water.mean())
+        z[water] = 0.0
+    names = "+".join(f"{l} z{GSI_DEM_ZOOM[l]}" for l in used)
     return _elevation_from_north_up(z, x0, y0, transform.a,
                                     f"GSI {names} (GSI elevation tiles; bare earth)")
 

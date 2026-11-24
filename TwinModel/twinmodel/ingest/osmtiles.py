@@ -17,7 +17,8 @@ point):
 4. ``rasterio.warp.reproject`` into the ``imagery.model_grid`` at ``resolution``,
 5. return an ``OrthoImage`` (rows increase with y) and cache the warped GeoTIFF.
 
-Any network failure logs a warning and returns ``None``.
+Any network failure logs a warning and returns ``None``. Steps 1-3 are
+``fetch_tile_mosaic``, which the GSI elevation tiles (``elevation._gsi_grid``) use too.
 """
 from __future__ import annotations
 
@@ -26,7 +27,7 @@ import logging
 import math
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -96,21 +97,23 @@ def tile_range(bbox_swne, zoom: int, pad_tiles: int = 1) -> tuple[int, int, int,
 
 # --------------------------------------------------------------------------- download
 
-def _tile_path(cache_dir: Path, zoom: int, x: int, y: int) -> Path:
-    return cache_dir / "osmtiles" / str(zoom) / str(x) / f"{y}.png"
-
-
-def _fetch_tile(session, tile_url: str, zoom: int, x: int, y: int, path: Path) -> bytes:
-    if path.exists():
+def _fetch_tile(session, tile_url: str, zoom: int, x: int, y: int, path: Optional[Path],
+                missing_ok: bool = False) -> Optional[bytes]:
+    """One tile's bytes, from ``path`` when it is on disk (and written there after a download;
+    ``path=None`` caches nothing). A 404 is ``None`` when ``missing_ok``, an error otherwise."""
+    if path is not None and path.exists():
         return path.read_bytes()
     url = tile_url.format(z=zoom, x=x, y=y)
     r = session.get(url, headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT)
+    if missing_ok and r.status_code == 404:
+        return None
     r.raise_for_status()
     ctype = r.headers.get("content-type", "")
     if not ctype.startswith("image/"):
         raise RuntimeError(f"{url} returned {ctype}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(r.content)
+    if path is not None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(r.content)
     return r.content
 
 
@@ -125,6 +128,54 @@ def _cache_path(cache_dir: Path, bbox_swne, resolution: float, zoom: int, tile_u
     s, w, n, e = bbox_swne
     key = hashlib.sha1(f"{tile_url}|{zoom}|{resolution}".encode()).hexdigest()[:8]
     return cache_dir / f"osmtiles_{s:.5f}_{w:.5f}_{n:.5f}_{e:.5f}_z{zoom}_{resolution:g}m_{key}.tif"
+
+
+def fetch_tile_mosaic(tile_url: str, zoom: int, bbox_swne, decode: Callable[[bytes], np.ndarray],
+                      fill: float, dtype, *, tile_dir: Optional[Path] = None,
+                      missing_ok: bool = False, max_tiles: Optional[int] = None,
+                      max_workers: int = MAX_CONCURRENT):
+    """The XYZ tiles covering ``bbox_swne`` at ``zoom``, each ``decode``d (to TILE_PX x TILE_PX
+    [x bands]) and stitched into one EPSG:3857 array.
+
+    Returns ``(mosaic, transform, n_tiles)`` -- ``transform`` the mosaic's affine in EPSG:3857 --
+    or ``None`` when more than ``max_tiles`` tiles would be needed or no tile exists (every one
+    a 404 under ``missing_ok``; such tiles stay ``fill``). Tiles are cached under
+    ``tile_dir/<z>/<x>/<y>.png`` when it is given. Network errors raise.
+    """
+    import requests
+    from rasterio.transform import from_origin
+    tx0, ty0, tx1, ty1 = tile_range(bbox_swne, zoom)
+    nx, ny = tx1 - tx0 + 1, ty1 - ty0 + 1
+    if max_tiles is not None and nx * ny > max_tiles:
+        log.warning("tiles: %s z%d needs %d tiles (cap %d)", tile_url, zoom, nx * ny, max_tiles)
+        return None
+    session = requests.Session()
+    jobs = [(x, y) for y in range(ty0, ty1 + 1) for x in range(tx0, tx1 + 1)]
+
+    def work(xy):
+        x, y = xy
+        path = tile_dir / str(zoom) / str(x) / f"{y}.png" if tile_dir is not None else None
+        data = _fetch_tile(session, tile_url, zoom, x, y, path, missing_ok)
+        return x, y, None if data is None else decode(data)
+
+    mosaic = None
+    n_ok = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        for x, y, arr in pool.map(work, jobs):
+            if arr is None:
+                continue
+            if arr.shape[:2] != (TILE_PX, TILE_PX):
+                raise RuntimeError(f"tile {x}/{y} has shape {arr.shape}")
+            if mosaic is None:
+                mosaic = np.full((ny * TILE_PX, nx * TILE_PX) + arr.shape[2:], fill, dtype=dtype)
+            r, c = (y - ty0) * TILE_PX, (x - tx0) * TILE_PX
+            mosaic[r:r + TILE_PX, c:c + TILE_PX] = arr
+            n_ok += 1
+    if mosaic is None:
+        return None
+    mxmin, _, _, mymax = tile_bounds_3857(tx0, ty0, zoom)
+    px = 2 * ORIGIN_SHIFT / 2 ** zoom / TILE_PX
+    return mosaic, from_origin(mxmin, mymax, px, px), n_ok
 
 
 def fetch_osm_tiles(frame: LocalFrame, bbox_swne: tuple[float, float, float, float],
@@ -147,47 +198,22 @@ def fetch_osm_tiles(frame: LocalFrame, bbox_swne: tuple[float, float, float, flo
             log.warning("osm tiles cache %s unreadable (%s); refetching", cpath, exc)
 
     try:
-        import requests
-        from rasterio.transform import from_origin
         from rasterio.warp import reproject, Resampling
     except ImportError as exc:
         log.warning("osmtiles: missing dependency (%s)", exc)
         return None
 
     x0, y0, width, height, dst_transform = model_grid(frame, bbox_swne, resolution, PAD_M)
-    tx0, ty0, tx1, ty1 = tile_range(bbox_swne, zoom)
-    nx, ny = tx1 - tx0 + 1, ty1 - ty0 + 1
-    log.info("osm tiles z%d: %dx%d tiles (%d..%d, %d..%d) -> grid %dx%d @ %.2f m",
-             zoom, nx, ny, tx0, tx1, ty0, ty1, width, height, resolution)
-
-    mosaic = np.zeros((ny * TILE_PX, nx * TILE_PX, 3), dtype=np.uint8)
-    session = requests.Session()
-    jobs = [(x, y) for y in range(ty0, ty1 + 1) for x in range(tx0, tx1 + 1)]
-
-    def work(xy):
-        x, y = xy
-        return x, y, _decode_png(_fetch_tile(session, tile_url, zoom, x, y,
-                                             _tile_path(cache_dir, zoom, x, y)))
-
-    n_ok = 0
+    log.info("osm tiles z%d -> grid %dx%d @ %.2f m", zoom, width, height, resolution)
     try:
-        with ThreadPoolExecutor(max_workers=MAX_CONCURRENT) as pool:
-            for x, y, arr in pool.map(work, jobs):
-                if arr.shape[:2] != (TILE_PX, TILE_PX):
-                    raise RuntimeError(f"tile {x}/{y} has shape {arr.shape}")
-                r, c = (y - ty0) * TILE_PX, (x - tx0) * TILE_PX
-                mosaic[r:r + TILE_PX, c:c + TILE_PX] = arr
-                n_ok += 1
+        got = fetch_tile_mosaic(tile_url, zoom, bbox_swne, _decode_png, 0, np.uint8,
+                                tile_dir=cache_dir / "osmtiles")
     except Exception as exc:
         log.warning("osmtiles: tile fetch failed (%s); no tile layer", exc)
         return None
-    if n_ok == 0:
+    if got is None:
         return None
-
-    # georeference the mosaic in EPSG:3857
-    mxmin, _, _, mymax = tile_bounds_3857(tx0, ty0, zoom)
-    tile_size = 2 * ORIGIN_SHIFT / 2 ** zoom
-    src_transform = from_origin(mxmin, mymax, tile_size / TILE_PX, tile_size / TILE_PX)
+    mosaic, src_transform, n_ok = got
     src = np.ascontiguousarray(mosaic.transpose(2, 0, 1))
     dst = np.zeros((3, height, width), dtype=np.uint8)
     try:
