@@ -649,7 +649,7 @@ US_SUBURBAN = US_URBAN.with_(
 
 
 # --------------------------------------------------------------------------- Japan (left-hand traffic)
-# 道路構造令 (Road Structure Ordinance, Cabinet Order 320 of 1970) and its commentary:
+# Road Structure Ordinance (Cabinet Order No. 320 of 1970) and its commentary:
 #   lanes  (Art. 5): class 4 (urban) 3.25 m on class-1 roads, 3.0 m otherwise; class 1/2
 #                    (expressways) 3.5 m, 3.25 m on urban expressways
 #   median (Art. 6): 1.0 m minimum on a class-4 road, wider where the right-turn pocket is cut
@@ -658,16 +658,17 @@ US_SUBURBAN = US_URBAN.with_(
 #                    (class 2, urban expressways)
 #   sidewalks (Art. 11): 3.5 m where pedestrian traffic is heavy, 2.0 m otherwise
 #   planting strips (Art. 11-4): 1.5 m standard
-# Markings (道路標識、区画線及び道路標示に関する命令): all lines white except the yellow no-passing
-# centre line (a rule per road, which the profile cannot know, so white), 15 cm wide, broken
-# lane and centre lines 5 m dash / 5 m gap on ordinary roads, zebra crossings 4 m wide.
-# Unsignalised junctions: a 止まれ (stop) sign on the minor road, the major road has priority.
+# Markings (Order on Road Signs, Division Lines and Road Markings): all lines white except the
+# yellow no-passing centre line (a rule per road, which the profile cannot know, so white),
+# 15 cm wide, broken lane and centre lines 5 m dash / 5 m gap on ordinary roads, zebra
+# crossings 4 m wide.
+# Unsignalised junctions: a stop sign on the minor road, the major road has priority.
 # Japan drives on the left: the lane graph builds the mirror image (twinmodel.handedness).
 
 _JP_URBAN_CLASSES = {
     "motorway":       ClassDefaults(3.25, 4, None, center_marking=False, shoulder=1.25, shoulder_inner=0.75),
     "motorway_link":  ClassDefaults(3.25, 1, None, center_marking=False, shoulder=1.25, shoulder_inner=0.75),
-    # in Japanese OSM, trunk is an ordinary national road (一般国道) with sidewalks
+    # in Japanese OSM, trunk is an ordinary national highway, with sidewalks
     "trunk":          ClassDefaults(3.25, 4, 3.5),
     "trunk_link":     ClassDefaults(3.25, 1, 2.0),
     "primary":        ClassDefaults(3.25, 4, 3.5),
@@ -688,9 +689,9 @@ JP_URBAN = StreetProfile(
     name="jp_urban",
     signal_country="JP",
     drives_on="left",
-    description="Japanese city centre (道路構造令 class 4): left-hand traffic, 3.0-3.25 m lanes, "
-                "3.5 m sidewalks on arterials, back streets without sidewalks, white markings, "
-                "stop signs on the minor road.",
+    description="Japanese city centre (Road Structure Ordinance class 4): left-hand traffic, "
+                "3.0-3.25 m lanes, 3.5 m sidewalks on arterials, back streets without sidewalks, "
+                "white markings, stop signs on the minor road.",
     countries=frozenset(),  # chosen for JP by density, see choose_for_country
     lane=LaneRules(
         classes=_JP_URBAN_CLASSES, fallback=ClassDefaults(3.0, 2, 2.0),
@@ -702,8 +703,8 @@ JP_URBAN = StreetProfile(
     marking=MarkingRules(width=0.15, center_color="white", lane_color="white", edge_color="white",
                          broken_dash=5.0, broken_gap=5.0, z=0.002),
     crossing=CrossingRules(width=4.0, z=0.003, keep_m=2.5, near_cut_m=5.0),
-    # convenience-store and supermarket lots: 6.0 m two-way / 3.5 m one-way aisles (駐車場設計・
-    # 施工指針), 10 km/h
+    # convenience-store and supermarket lots: 6.0 m two-way / 3.5 m one-way aisles (Parking Lot
+    # Design and Construction Guidelines), 10 km/h
     parking_aisle=ParkingAisleRules(include=True, two_way_width=6.0, one_way_width=3.5,
                                     min_length=8.0, speed_limit=10 / 3.6,
                                     include_driveways=True, driveway_width=3.0,
@@ -714,7 +715,7 @@ JP_URBAN = StreetProfile(
                            stub_m=3.0, short_road_m=5.0, band_overlap_m2=0.5,
                            cover="bounded", plaza_max_area_factor=3.0, corner_opening="recess",
                            unsignalised_control="minor_stop",
-                           # the protected turn crosses the oncoming traffic: 右折矢印
+                           # the protected turn crosses the oncoming traffic: the right-turn arrow
                            signal_arrow_turns=("right",),
                            signal_green_s=20.0, signal_amber_s=3.0, signal_allred_s=2.0,
                            # divided arterials: OSM draws them as two one-way ways with one name

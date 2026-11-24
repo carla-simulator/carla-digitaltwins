@@ -149,7 +149,7 @@ def test_copied_osm_tags_are_reflected_back():
 
 
 def test_protected_right_turn_is_a_right_arrow():
-    """The 右折矢印: the protected turn of a left-hand traffic junction is the right turn across
+    """The right-turn arrow: the protected turn of a left-hand traffic junction is the right turn across
     the oncoming traffic; the head says so in its tags and in the exported signal name."""
     m = _build(_right_turn_pocket(), LHT)
     arrows = [s for s in m.signals if s.kind == "traffic_light_arrow"]

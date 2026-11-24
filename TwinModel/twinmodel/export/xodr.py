@@ -556,7 +556,7 @@ def _signal_attrs(sig: Signal) -> dict[str, str]:
     # The name is what an offline reader (tools/xodr_tl_check.py, tools/xodr_signals.py) and a
     # prop selector key on to tell an arrow head from a through head: both are type 1000001.
     # The arrow follows the turn it protects (``arrow_turn``: "left" under right-hand traffic,
-    # "right" -- the 右折矢印 -- under left-hand traffic); readers key on the
+    # "right" -- the right-turn arrow -- under left-hand traffic); readers key on the
     # ``Signal_3Light_Arrow`` prefix only.
     arrow = "Right" if sig.tags.get("arrow_turn") == "right" else "Left"
     name = sig.tags.get("name") or {"traffic_light": "Signal_3Light_Post01",

@@ -328,9 +328,10 @@ def _usgs_3dep(frame: LocalFrame, bbox_swne, grid) -> Optional[Elevation]:
 
 # --------------------------------------------------------------------------- source 6: GSI elevation tiles (JP)
 # Geospatial Information Authority of Japan, https://maps.gsi.go.jp/development/demtile.html
-# (attribution: "出典：国土地理院"). PNG tiles in web Mercator, height = (R<<16 | G<<8 | B) * 0.01 m,
-# two's complement over 24 bits, 0x800000 = no data. dem5a is the airborne-laser DTM (5 m, bare
-# earth: no buildings, no bridge decks), dem is the 10 m DEM that covers the whole country.
+# (attribution: "Source: Geospatial Information Authority of Japan"). PNG tiles in web
+# Mercator, height = (R<<16 | G<<8 | B) * 0.01 m, two's complement over 24 bits, 0x800000 = no
+# data. dem5a is the airborne-laser DTM (5 m, bare earth: no buildings, no bridge decks), dem is
+# the 10 m DEM that covers the whole country.
 
 GSI_DEM_URL = "https://cyberjapandata.gsi.go.jp/xyz/{layer}/{z}/{x}/{y}.png"
 GSI_DEM_ZOOM = {"dem5a_png": 15, "dem_png": 14}
@@ -436,7 +437,7 @@ def _gsi_dem(frame: LocalFrame, bbox_swne, grid, layers: tuple[str, ...]) -> Opt
                  "+".join(info["layers"]), 100 * info["water_fraction"])
     names = "+".join(f"{l} z{GSI_DEM_ZOOM[l]}" for l in info["layers"])
     return _elevation_from_north_up(z, x0, y0, transform.a,
-                                    f"GSI {names} (国土地理院 標高タイル; bare earth)")
+                                    f"GSI {names} (GSI elevation tiles; bare earth)")
 
 
 # --------------------------------------------------------------------------- public API
