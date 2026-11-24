@@ -893,8 +893,12 @@ def build(args: argparse.Namespace) -> int:
     with timer.stage("osm"):
         roads = None
         if getattr(args, "roads_osm", None):
-            from .ingest.osm import osm_xml_bbox, read_osm_xml
+            from .ingest.osm import has_highways, osm_xml_bbox, read_osm_xml
             roads = read_osm_xml(args.roads_osm)
+            if not has_highways(roads):
+                log.error("--roads-osm %s has no highway=* way; a Lanelet2 map has to be converted "
+                          "to OSM highways (e.g. with ll2osm) first", args.roads_osm)
+                return 2
             if not args.bbox:
                 args.bbox = list(osm_xml_bbox(roads))
         if args.fixture:
@@ -1290,9 +1294,10 @@ def _build_parser() -> argparse.ArgumentParser:
     b.add_argument("--name", default="eixample")
     b.add_argument("--out", required=True, help="output directory")
     b.add_argument("--fixture", help="cached Overpass JSON instead of a network fetch")
-    b.add_argument("--roads-osm", help="local OSM XML whose highway ways and nodes replace OSM's (e.g. "
-                                       "an Autoware Lanelet2 map written as plain OSM); buildings and "
-                                       "the rest still come from OSM; the bbox defaults to its extent")
+    b.add_argument("--roads-osm", help="local OSM XML whose highway=* ways and nodes replace OSM's (e.g. "
+                                       "an Autoware Lanelet2 map converted to OSM highways by ll2osm; a "
+                                       "raw Lanelet2 .osm has no highway ways and is refused); buildings "
+                                       "and the rest still come from OSM; the bbox defaults to its extent")
     b.add_argument("--cache", default="data", help="Overpass/WMS/DEM cache directory")
     b.add_argument("--no-imagery", action="store_true")
     b.add_argument("--no-dem", action="store_true")

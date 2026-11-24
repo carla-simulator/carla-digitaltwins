@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from twinmodel.frame import LocalFrame
-from twinmodel.ingest.osm import osm_xml_bbox, parse_osm, replace_roads
+from twinmodel import cli
+from twinmodel.ingest.osm import has_highways, osm_xml_bbox, parse_osm, read_osm_xml, replace_roads
 from twinmodel.lanegraph import build_lanegraph
 
 LAT, LON = 35.9, 139.93
@@ -66,3 +67,56 @@ def test_local_ids_are_renumbered_without_collisions():
     assert [m["ref"] for m in rel["members"]] == [*ways.keys()][:1] + [b] + [*ways.keys()][1:]
     # OSM's own non-road elements are kept with their ids; its roads are gone
     assert {e["id"] for e in out if e["id"] > 0} == {7, 71}
+
+
+def test_road_nodes_other_elements_use_stay_untagged():
+    """An OSM crossing node that a kept kerb line runs through keeps the kerb whole, but no
+    longer carries its road tags onto the replaced network."""
+    raw = {"elements": [
+        {"type": "node", "id": 1, "lat": LAT, "lon": LON},
+        {"type": "node", "id": 2, "lat": LAT, "lon": LON + 0.001,
+         "tags": {"highway": "crossing", "crossing": "zebra"}},
+        {"type": "node", "id": 3, "lat": LAT, "lon": LON + 0.002},
+        {"type": "node", "id": 4, "lat": LAT + 0.001, "lon": LON, "tags": {"highway": "traffic_signals"}},
+        {"type": "way", "id": 10, "nodes": [1, 2, 3], "tags": {"barrier": "kerb"}},
+        {"type": "way", "id": 11, "nodes": [4, 1], "tags": {"highway": "primary"}}]}
+    roads = {"elements": [{"type": "node", "id": 1, "lat": LAT, "lon": LON, "tags": {}},
+                          {"type": "node", "id": 2, "lat": LAT + 0.001, "lon": LON, "tags": {}},
+                          {"type": "way", "id": 1, "nodes": [1, 2], "tags": {"highway": "residential"}}]}
+    out = {(e["type"], e["id"]): e for e in replace_roads(raw, roads)["elements"]}
+    assert ("node", 2) in out and out[("node", 2)]["tags"] == {"crossing": "zebra"}
+    assert ("node", 4) not in out and ("way", 11) not in out   # used by the replaced road only
+    osm = parse_osm({"elements": list(out.values())})
+    kerb = next(w for w in osm.ways if w.id == 10)
+    assert len(osm.way_coords(kerb)) == 3
+
+
+def test_deleted_elements_of_a_josm_file_are_skipped(tmp_path):
+    p = tmp_path / "roads.osm"
+    p.write_text(f"""<?xml version='1.0' encoding='UTF-8'?>
+<osm version='0.6' generator='JOSM'>
+  <node id='1' lat='{LAT}' lon='{LON}' />
+  <node id='2' lat='{LAT + 0.001}' lon='{LON}' />
+  <node id='-3' action='delete' lat='{LAT + 0.002}' lon='{LON}' />
+  <node id='4' visible='false' lat='{LAT + 0.003}' lon='{LON}' />
+  <way id='5'><nd ref='1' /><nd ref='2' /><tag k='highway' v='residential' /></way>
+  <way id='6' action='delete'><nd ref='2' /><nd ref='-3' /><tag k='highway' v='residential' /></way>
+</osm>""")
+    els = read_osm_xml(p)["elements"]
+    assert sorted((e["type"], e["id"]) for e in els) == [("node", 1), ("node", 2), ("way", 5)]
+    # the bbox is the live network's, not stretched to the deleted node
+    assert osm_xml_bbox(read_osm_xml(p))[2] < LAT + 0.002
+
+
+def test_a_file_without_highways_is_refused(tmp_path):
+    """A raw Lanelet2 map: lane borders, no highway=* way. Refused before any download."""
+    p = tmp_path / "lanelet2.osm"
+    p.write_text(f"""<?xml version='1.0' encoding='UTF-8'?>
+<osm version='0.6'>
+  <node id='1' lat='{LAT}' lon='{LON}' />
+  <node id='2' lat='{LAT + 0.001}' lon='{LON}' />
+  <way id='3'><nd ref='1' /><nd ref='2' /><tag k='type' v='line_thin' /><tag k='subtype' v='solid' /></way>
+</osm>""")
+    assert not has_highways(read_osm_xml(p))
+    assert cli.main(["build", "--roads-osm", str(p), "--out", str(tmp_path / "out"),
+                     "--cache", str(tmp_path / "cache")]) == 2
