@@ -345,7 +345,9 @@ def _gsi_decode(rgb: np.ndarray) -> np.ndarray:
     return z.astype(np.float32)
 
 
-def _gsi_dem(frame: LocalFrame, bbox_swne, grid, layer: str) -> Optional[Elevation]:
+def _gsi_grid(frame: LocalFrame, bbox_swne, grid, layer: str) -> Optional[np.ndarray]:
+    """One GSI layer on the build grid (north-up), NaN where the layer has no data; None when
+    the bbox needs more tiles than the cap or no tile of it exists (outside Japan)."""
     import requests
     from requests.adapters import HTTPAdapter
     from rasterio.transform import from_origin
@@ -363,7 +365,7 @@ def _gsi_dem(frame: LocalFrame, bbox_swne, grid, layer: str) -> Optional[Elevati
     def work(xy):
         tx, ty = xy
         r = session.get(GSI_DEM_URL.format(layer=layer, z=zoom, x=tx, y=ty), timeout=30)
-        if r.status_code == 404:   # outside the survey: stays NaN
+        if r.status_code == 404:   # outside the survey (or open sea): stays NaN
             return tx, ty, None
         r.raise_for_status()
         return tx, ty, _gsi_decode(_decode_png(r.content))
@@ -378,17 +380,63 @@ def _gsi_dem(frame: LocalFrame, bbox_swne, grid, layer: str) -> Optional[Elevati
                 mosaic[r:r + TILE_PX, c:c + TILE_PX] = z
                 got += 1
     if not got:
-        log.warning("elevation: GSI %s has no data here", layer)
+        log.info("elevation: GSI %s has no tile here", layer)
         return None
     xmin, _, xmax, ymax = tile_bounds_3857(tx0, ty0, zoom)
     res = (xmax - xmin) / TILE_PX
-    z = _reproject_to_grid(mosaic, from_origin(xmin, ymax, res, res), "EPSG:3857", np.nan,
-                           transform, frame.crs, width, height)
-    if np.isnan(z).mean() > 0.5:
-        log.warning("elevation: GSI %s covers %.0f%% of the grid", layer, 100 * (1 - np.isnan(z).mean()))
+    return _reproject_to_grid(mosaic, from_origin(xmin, ymax, res, res), "EPSG:3857", np.nan,
+                              transform, frame.crs, width, height)
+
+
+def _gsi_merge(layers: list[tuple[str, Optional[np.ndarray]]]) -> tuple[Optional[np.ndarray], dict]:
+    """Stack GSI layers, finest first: each fills only the holes the ones before it left (the
+    5 m laser DTM has unsurveyed patches; the 10 m DEM covers all of Japan's land). What no
+    layer covers is water -- GSI writes no height over the sea -- and is set to 0 m (Tokyo Peil,
+    mean sea level), not interpolated from the shore. None when no layer has any data."""
+    z: Optional[np.ndarray] = None
+    used: list[str] = []
+    for name, zi in layers:
+        if zi is None or np.isnan(zi).all():
+            continue
+        if z is None:
+            z = zi.copy()
+        else:
+            hole = np.isnan(z) & ~np.isnan(zi)
+            if not hole.any():
+                continue
+            z[hole] = zi[hole]
+        used.append(name)
+        if not np.isnan(z).any():
+            break
+    if z is None:
+        return None, {"layers": []}
+    water = np.isnan(z)
+    z[water] = 0.0
+    return z, {"layers": used, "water_fraction": float(water.mean())}
+
+
+def _gsi_dem(frame: LocalFrame, bbox_swne, grid, layers: tuple[str, ...]) -> Optional[Elevation]:
+    x0, y0, width, height, transform = grid
+    # fetch lazily: the coarser layer only when the finer one left holes
+    def fetched():
+        holes = None
+        for layer in layers:
+            zi = _gsi_grid(frame, bbox_swne, grid, layer)
+            yield layer, zi
+            if zi is not None:
+                holes = np.isnan(zi) if holes is None else holes & np.isnan(zi)
+                if not holes.any():
+                    return
+    z, info = _gsi_merge(list(fetched()))
+    if z is None:
+        log.warning("elevation: GSI %s has no data here", "+".join(layers))
         return None
-    return _elevation_from_north_up(_fill_nan(z), x0, y0, transform.a,
-                                    f"GSI {layer} z{zoom} (国土地理院 標高タイル; bare earth)")
+    if info["water_fraction"] > 0:
+        log.info("elevation: GSI %s: %.0f%% of the grid has no height (sea), set to 0 m",
+                 "+".join(info["layers"]), 100 * info["water_fraction"])
+    names = "+".join(f"{l} z{GSI_DEM_ZOOM[l]}" for l in info["layers"])
+    return _elevation_from_north_up(z, x0, y0, transform.a,
+                                    f"GSI {names} (国土地理院 標高タイル; bare earth)")
 
 
 # --------------------------------------------------------------------------- public API
@@ -401,8 +449,9 @@ PROVIDERS = {
     "ign_wcs": lambda frame, bbox, grid, spacing: _ign_wcs(frame, bbox, grid),
     "copernicus_aws": lambda frame, bbox, grid, spacing: _copernicus_aws(frame, bbox, grid),
     "usgs_3dep": lambda frame, bbox, grid, spacing: _usgs_3dep(frame, bbox, grid),
-    "gsi_dem5a": lambda frame, bbox, grid, spacing: _gsi_dem(frame, bbox, grid, "dem5a_png"),
-    "gsi_dem10b": lambda frame, bbox, grid, spacing: _gsi_dem(frame, bbox, grid, "dem_png"),
+    # 5 m laser DTM, its unsurveyed patches filled from the national 10 m DEM
+    "gsi_dem5a": lambda frame, bbox, grid, spacing: _gsi_dem(frame, bbox, grid, ("dem5a_png", "dem_png")),
+    "gsi_dem10b": lambda frame, bbox, grid, spacing: _gsi_dem(frame, bbox, grid, ("dem_png",)),
 }
 
 def _cache_path(cache_dir: Path, bbox_swne, res: float) -> Path:
